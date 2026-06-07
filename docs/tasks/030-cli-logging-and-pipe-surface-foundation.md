@@ -1,7 +1,7 @@
 # Task 030: CLI, logging, and pipe-surface foundation
 
 ## Status
-TODO
+Done
 
 ## Ownership Boundary
 - **Primary area:** `cmd/gh-hound`, `internal/render`, logging bootstrap.
@@ -85,13 +85,13 @@ TODO
 - Not required.
 
 ## Definition of Done
-- [ ] Red tests fail first.
-- [ ] Every flag has matching env var.
-- [ ] TTY/pipe detection is tested.
-- [ ] JSON schema matches Appendix B.
-- [ ] Exit code mapping is tested.
-- [ ] Structured logs are valid JSON.
-- [ ] `make check` passes.
+- [x] Red tests fail first.
+- [x] Every flag has matching env var.
+- [x] TTY/pipe detection is tested.
+- [x] JSON schema matches Appendix B.
+- [x] Exit code mapping is tested.
+- [x] Structured logs are valid JSON.
+- [x] `make check` passes.
 
 ## Verification Commands
 ```bash
@@ -102,7 +102,7 @@ rtk make check
 ```
 
 ## Visual QA Checklist
-- [ ] CLI help is readable and lists env vars.
+- [x] CLI help is readable and lists env vars.
 
 ## Implementation Notes
 - Keep root with no subcommand as TUI launch only when stdout is a TTY.
@@ -111,10 +111,16 @@ rtk make check
 ## Session Protocol
 1. Re-read this task, the referenced PRD sections, and the relevant `docs/gh-hound-design.html` mock immediately before editing.
 2. Add failing CLI/render/logging tests.
-2. Implement command tree and renderers.
-3. Verify.
-4. Commit and push.
+3. Implement command tree and renderers.
+4. Verify.
+5. Commit and push.
 
 ## Commit Protocol
 - Expected commit: `feat(cli): add command and pipe surface foundation`
 
+## Completion Evidence
+- Red: `rtk go test -race ./cmd/gh-hound ./internal/render ./internal/logging` failed on missing `newRootCommandWithRuntime`, `render.Write`, and `logging.Configure`.
+- Focused tests: `rtk go test -race ./cmd/gh-hound ./internal/render ./internal/logging`.
+- Binary check: `rtk make build`.
+- Pipe check: `rtk bash -lc './bin/gh-hound runs --no-tui --json | jq .'`.
+- Full gate: `rtk make check`.
