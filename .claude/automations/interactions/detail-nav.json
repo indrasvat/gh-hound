@@ -1,0 +1,7 @@
+{
+  "contains": [
+    "Steps",
+    "build failure",
+    "▌✗ 6 go test ./..."
+  ]
+}

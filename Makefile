@@ -37,7 +37,7 @@ help: ## Show grouped help
 	@printf "\n$(COLOR_BOLD)Quality$(COLOR_RESET)\n"
 	@awk 'BEGIN {FS = ":.*##"} /^(fmt|fmt-check|gofix|gofix-check|lint|vet|test|coverage|coverage-check|check|ci|emoji-check|arch-check|visual-contract-check):.*?##/ {printf "  $(COLOR_GREEN)%-18s$(COLOR_RESET) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf "\n$(COLOR_BOLD)Verification$(COLOR_RESET)\n"
-	@awk 'BEGIN {FS = ":.*##"} /^(e2e|vqa|vqa-screen|demo|smoke-test):.*?##/ {printf "  $(COLOR_GREEN)%-18s$(COLOR_RESET) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"} /^(e2e|vqa|vqa-screen|vqa-clean|demo|smoke-test):.*?##/ {printf "  $(COLOR_GREEN)%-18s$(COLOR_RESET) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf "\n$(COLOR_BOLD)Tooling & Release$(COLOR_RESET)\n"
 	@awk 'BEGIN {FS = ":.*##"} /^(tools|tools-ci|hooks|hooks-run|release-check|snapshot|release-prep):.*?##/ {printf "  $(COLOR_GREEN)%-18s$(COLOR_RESET) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf "\n"
@@ -136,11 +136,17 @@ e2e: ## Run end-to-end tests
 
 .PHONY: vqa
 vqa: ## Run shux visual-quality audit
-	@printf "$(COLOR_BLUE)▶ VQA harness lands in Task 150; placeholder is intentionally explicit$(COLOR_RESET)\n"
+	@./.claude/automations/vqa.sh
+	@./.claude/automations/interaction_audit.sh
 
 .PHONY: vqa-screen
 vqa-screen: ## Run VQA for one screen: make vqa-screen SCREEN=runs
-	@printf "$(COLOR_BLUE)▶ VQA screen $(SCREEN) pending Task 150$(COLOR_RESET)\n"
+	@SCREEN=$(SCREEN) ./.claude/automations/vqa.sh
+
+.PHONY: vqa-clean
+vqa-clean: ## Remove VQA screenshots and captures
+	@find .claude/automations/screenshots -mindepth 1 ! -name .gitkeep ! -name .gitignore -exec rm -rf {} +
+	@printf "$(COLOR_GREEN)✓ cleaned VQA artifacts$(COLOR_RESET)\n"
 
 .PHONY: demo
 demo: ## Record README demo with VHS

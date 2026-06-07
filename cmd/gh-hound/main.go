@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/indrasvat/gh-hound/internal/render"
+	"github.com/indrasvat/gh-hound/internal/tui"
 	tuibanner "github.com/indrasvat/gh-hound/internal/tui/banner"
 	"github.com/spf13/cobra"
 )
@@ -116,9 +117,43 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	}
 
 	cmd.AddCommand(newVersionCommand(runtime.Stdout, info))
+	cmd.AddCommand(newScreenCommand(runtime.Stdout))
+	cmd.AddCommand(newInteractCommand(runtime.Stdout))
 	cmd.AddCommand(newRunsCommand(runtime, &options))
 	cmd.AddCommand(newWatchCommand(runtime, &options))
 	cmd.AddCommand(newDispatchCommand(runtime, &options))
+	return cmd
+}
+
+func newScreenCommand(stdout io.Writer) *cobra.Command {
+	var screen string
+	var width int
+	cmd := &cobra.Command{
+		Use:    "__screen",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, err := fmt.Fprintln(stdout, tui.RenderFixture(screen, width))
+			return err
+		},
+	}
+	cmd.Flags().StringVar(&screen, "screen", "runs", "fixture screen")
+	cmd.Flags().IntVar(&width, "width", 80, "fixture width")
+	return cmd
+}
+
+func newInteractCommand(stdout io.Writer) *cobra.Command {
+	var scenario string
+	var width int
+	cmd := &cobra.Command{
+		Use:    "__interact",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, err := fmt.Fprintln(stdout, tui.RenderInteractionFixture(scenario, width))
+			return err
+		},
+	}
+	cmd.Flags().StringVar(&scenario, "scenario", "global-help", "interaction fixture scenario")
+	cmd.Flags().IntVar(&width, "width", 80, "fixture width")
 	return cmd
 }
 

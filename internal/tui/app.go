@@ -140,12 +140,7 @@ func (a App) View() string {
 	if a.Route() == RouteWelcome {
 		out.WriteString(welcome.View(welcome.Model{Build: a.build}))
 	} else if a.Route() == RouteRuns {
-		out.WriteString(runs.View(runs.NewModel(usecase.LaunchContext{
-			Repo:   "indrasvat/gh-hound",
-			Branch: "main",
-			Actor:  "indrasvat",
-			State:  usecase.LaunchStateRuns,
-		}), 80, time.Now()))
+		out.WriteString(runs.View(sampleRunsModel(), 80, time.Now()))
 	} else if a.Route() == RouteDetail {
 		out.WriteString(detail.View(sampleDetailModel(), 80))
 	} else if a.Route() == RouteFailure {
@@ -166,6 +161,103 @@ func (a App) View() string {
 		out.WriteString(a.overlayView())
 	}
 	return out.String()
+}
+
+func RenderFixture(screen string, width int) string {
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{Config: cfg, Build: BuildInfo{Version: "v0.1.0"}})
+	switch screen {
+	case "welcome":
+		return NewApp(Options{Config: config.Default(), Build: BuildInfo{Version: "v0.1.0"}}).View()
+	case "all_green":
+		return runs.View(sampleAllGreenModel(), width, time.Now())
+	case "runs":
+		return runs.View(sampleRunsModel(), width, time.Now())
+	case "detail":
+		return detail.View(sampleDetailModel(), width)
+	case "failure":
+		return failure.View(sampleFailureModel(), width)
+	case "watch":
+		return watch.View(sampleWatchModel(), width)
+	case "log":
+		return logscreen.View(sampleLogModel(), width)
+	case "dispatch":
+		return dispatch.View(sampleDispatchModel(), width)
+	case "palette":
+		app, _ = app.Update(KeyMsg{Key: ":"})
+		return app.View()
+	case "help":
+		app, _ = app.Update(KeyMsg{Key: "?"})
+		return app.View()
+	default:
+		return app.View()
+	}
+}
+
+func RenderInteractionFixture(scenario string, width int) string {
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{Config: cfg, Build: BuildInfo{Version: "v0.1.0"}})
+	switch scenario {
+	case "welcome-enter":
+		app = NewApp(Options{Config: config.Default(), Build: BuildInfo{Version: "v0.1.0"}})
+		app, _ = app.Update(KeyMsg{Key: "enter"})
+		return app.View()
+	case "global-help":
+		app, _ = app.Update(KeyMsg{Key: "?"})
+		return app.View()
+	case "global-palette":
+		app, _ = app.Update(KeyMsg{Key: ":"})
+		return app.View()
+	case "overlay-esc":
+		app, _ = app.Update(KeyMsg{Key: "?"})
+		app, _ = app.Update(KeyMsg{Key: ":"})
+		app, _ = app.Update(KeyMsg{Key: "esc"})
+		return app.View()
+	case "runs-select":
+		m := sampleRunsModel()
+		m = m.Update(runs.KeyMsg{Key: "j"})
+		return runs.View(m, width, time.Now())
+	case "runs-filter":
+		m := sampleRunsModel()
+		for _, key := range []string{"/", "f", "a", "i", "l"} {
+			m = m.Update(runs.KeyMsg{Key: key})
+		}
+		return runs.View(m, width, time.Now())
+	case "detail-nav":
+		m := sampleDetailModel()
+		for _, key := range []string{"tab", "j", "n"} {
+			m = m.Update(detail.KeyMsg{Key: key})
+		}
+		return detail.View(m, width)
+	case "failure-actions":
+		m := sampleFailureModel()
+		for _, key := range []string{"l", "y", "o", "r", "R"} {
+			m = m.Update(failure.KeyMsg{Key: key})
+		}
+		return failure.View(m, width)
+	case "log-search-fold":
+		m := sampleLogModel()
+		for _, key := range []string{"/", "t", "r", "a", "i", "l", "enter", "z"} {
+			m = m.Update(logscreen.KeyMsg{Key: key})
+		}
+		return logscreen.View(m, width)
+	case "watch-toggle":
+		m := sampleWatchModel()
+		for _, key := range []string{"f", "d"} {
+			m = m.Update(watch.KeyMsg{Key: key})
+		}
+		return watch.View(m, width)
+	case "dispatch-fill":
+		m := sampleDispatchModel()
+		for _, key := range []string{"T", "v", "0", ".", "1", "2", ".", "0", "tab", "right", "tab", "right"} {
+			m = m.Update(dispatch.KeyMsg{Key: key})
+		}
+		return dispatch.View(m, width)
+	default:
+		return app.View()
+	}
 }
 
 func (a App) Route() Route {
@@ -281,6 +373,36 @@ func sampleDetailModel() detail.Model {
 		}},
 	}}
 	return detail.NewModel(run, jobs)
+}
+
+func sampleRunsModel() runs.Model {
+	now := time.Date(2026, 6, 7, 17, 45, 0, 0, time.UTC)
+	return runs.NewModel(usecase.LaunchContext{
+		Repo:   "indrasvat/gh-hound",
+		Branch: "fix/parser",
+		Actor:  "indrasvat",
+		State:  usecase.LaunchStateRuns,
+		Runs: []model.Run{
+			{ID: 571, Name: "CI", Event: "pull_request", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure, RunNumber: 571, UpdatedAt: now.Add(-12 * time.Second), RunStartedAt: now.Add(-2 * time.Minute)},
+			{ID: 570, Name: "CI", Event: "push", Status: model.StatusInProgress, Conclusion: model.ConclusionNone, RunNumber: 570, UpdatedAt: now, RunStartedAt: now.Add(-48 * time.Second)},
+			{ID: 569, Name: "Release", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 569, UpdatedAt: now.Add(-3 * time.Minute), RunStartedAt: now.Add(-4 * time.Minute)},
+		},
+	})
+}
+
+func sampleAllGreenModel() runs.Model {
+	now := time.Date(2026, 6, 7, 17, 45, 0, 0, time.UTC)
+	return runs.NewModel(usecase.LaunchContext{
+		Repo:   "indrasvat/gh-hound",
+		Branch: "main",
+		Actor:  "indrasvat",
+		State:  usecase.LaunchStateAllGreen,
+		Runs: []model.Run{
+			{ID: 569, Name: "CI", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 569, UpdatedAt: now.Add(-3 * time.Minute), RunStartedAt: now.Add(-4 * time.Minute)},
+			{ID: 568, Name: "Release", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 568, UpdatedAt: now.Add(-1 * time.Hour), RunStartedAt: now.Add(-61 * time.Minute)},
+			{ID: 567, Name: "CodeQL", Event: "schedule", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 567, UpdatedAt: now.Add(-2 * time.Hour), RunStartedAt: now.Add(-121 * time.Minute)},
+		},
+	})
 }
 
 func sampleFailureModel() failure.Model {
