@@ -1,7 +1,7 @@
 # Task 080: TUI root app, welcome, version banner, and navigation shell
 
 ## Status
-TODO
+Done
 
 ## Ownership Boundary
 - **Primary area:** root Bubble Tea app model and navigation shell.
@@ -84,13 +84,13 @@ Every screen depends on a stable app shell: global key resolution, modal stack, 
 - `make smoke-test` launches and exits without raw-mode errors.
 
 ## Definition of Done
-- [ ] Red tests fail first.
-- [ ] Root route stack works.
-- [ ] `Esc` pops exactly one layer.
-- [ ] `T` recolors root view.
-- [ ] Welcome splash shows once and can be disabled.
-- [ ] Version banner is emoji-free and shared with CLI.
-- [ ] `make check` passes.
+- [x] Red tests fail first.
+- [x] Root route stack works.
+- [x] `Esc` pops exactly one layer.
+- [x] `T` recolors root view.
+- [x] Welcome splash shows once and can be disabled.
+- [x] Version banner is emoji-free and shared with CLI.
+- [x] `make check` passes.
 
 ## Verification Commands
 ```bash
@@ -100,8 +100,31 @@ rtk make check
 ```
 
 ## Visual QA Checklist
-- [ ] Welcome/banner uses PRD glyph constraints.
-- [ ] No broken layout at narrow terminal in placeholder shell.
+- [x] Welcome/banner uses PRD glyph constraints.
+- [x] No broken layout at narrow terminal in placeholder shell.
+
+## Verification Evidence
+```bash
+rtk go test -race ./internal/tui/... ./cmd/gh-hound
+# Go test: 19 passed in 7 packages
+
+rtk make smoke-test
+# smoke test passed
+
+rtk make check
+# go fix check passed
+# 0 issues.
+# emoji check passed
+# architecture check passed
+# check passed
+```
+
+## Implementation Summary
+- Added the root app shell with route stack, overlay stack, input-mode gating, global quit, help/palette routing, welcome dismissal, and theme toggle.
+- Added a shared ASCII version banner used by both CLI and TUI welcome.
+- Added the mock-aligned welcome screen content and footer plumbing.
+- Added `welcome` config support through defaults, TOML, env, and overrides.
+- Hardened `scripts/smoke-test.sh` so pipefail does not trip on banner output consumed by `grep -q`.
 
 ## Implementation Notes
 - Keep altscreen/raw-mode launch out of non-interactive tests.
@@ -116,4 +139,3 @@ rtk make check
 
 ## Commit Protocol
 - Expected commit: `feat(tui): add root app shell`
-

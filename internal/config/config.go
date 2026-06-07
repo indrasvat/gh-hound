@@ -28,6 +28,7 @@ const (
 type Config struct {
 	DefaultScope Scope
 	AutoWatch    bool
+	Welcome      bool
 	PerPage      int
 	Theme        Theme
 	PollMin      time.Duration
@@ -44,6 +45,7 @@ type LoadOptions struct {
 type Overrides struct {
 	DefaultScope *Scope
 	AutoWatch    *bool
+	Welcome      *bool
 	PerPage      *int
 	Theme        *Theme
 	PollMin      *time.Duration
@@ -54,6 +56,7 @@ type Overrides struct {
 type fileConfig struct {
 	DefaultScope string            `toml:"default_scope"`
 	AutoWatch    *bool             `toml:"auto_watch"`
+	Welcome      *bool             `toml:"welcome"`
 	PerPage      *int              `toml:"per_page"`
 	Theme        string            `toml:"theme"`
 	PollMinMS    *int              `toml:"poll_min_ms"`
@@ -70,6 +73,7 @@ func Default() Config {
 	return Config{
 		DefaultScope: ScopeBranch,
 		AutoWatch:    false,
+		Welcome:      true,
 		PerPage:      30,
 		Theme:        ThemeBramble,
 		PollMin:      2 * time.Second,
@@ -139,6 +143,9 @@ func loadFile(path string, cfg *Config) error {
 	if fc.AutoWatch != nil {
 		cfg.AutoWatch = *fc.AutoWatch
 	}
+	if fc.Welcome != nil {
+		cfg.Welcome = *fc.Welcome
+	}
 	if fc.PerPage != nil {
 		cfg.PerPage = *fc.PerPage
 	}
@@ -167,6 +174,13 @@ func applyEnv(lookup func(string) (string, bool), cfg *Config) error {
 			return fmt.Errorf("parse HOUND_AUTO_WATCH: %w", err)
 		}
 		cfg.AutoWatch = parsed
+	}
+	if value, ok := lookup("HOUND_WELCOME"); ok {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("parse HOUND_WELCOME: %w", err)
+		}
+		cfg.Welcome = parsed
 	}
 	if value, ok := lookup("HOUND_PER_PAGE"); ok {
 		parsed, err := strconv.Atoi(value)
@@ -201,6 +215,9 @@ func applyOverrides(overrides Overrides, cfg *Config) {
 	}
 	if overrides.AutoWatch != nil {
 		cfg.AutoWatch = *overrides.AutoWatch
+	}
+	if overrides.Welcome != nil {
+		cfg.Welcome = *overrides.Welcome
 	}
 	if overrides.PerPage != nil {
 		cfg.PerPage = *overrides.PerPage

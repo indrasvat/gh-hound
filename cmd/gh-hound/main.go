@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/charmbracelet/lipgloss/v2"
 	"github.com/indrasvat/gh-hound/internal/render"
+	tuibanner "github.com/indrasvat/gh-hound/internal/tui/banner"
 	"github.com/spf13/cobra"
 )
 
@@ -24,13 +24,6 @@ type buildInfo struct {
 	Commit  string
 	Date    string
 }
-
-const banner = `██╗  ██╗ ██████╗ ██╗   ██╗███╗   ██╗██████╗
-██║  ██║██╔═══██╗██║   ██║████╗  ██║██╔══██╗
-███████║██║   ██║██║   ██║██╔██╗ ██║██║  ██║
-██╔══██║██║   ██║██║   ██║██║╚██╗██║██║  ██║
-██║  ██║╚██████╔╝╚██████╔╝██║ ╚████║██████╔╝
-╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═══╝╚═════╝`
 
 func main() {
 	code, err := executeCommand(newRootCommand(os.Stdout, os.Stderr, buildInfo{
@@ -176,40 +169,17 @@ func newDispatchCommand(runtime commandRuntime, options *cliOptions) *cobra.Comm
 }
 
 func printVersion(w io.Writer, info buildInfo) error {
-	styles := []lipgloss.Style{
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#4FD37A")),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#66BE8A")),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#6E9CB5")),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#97AFA9")),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#CFCDBB")),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#EAE8D9")),
-	}
-	for i, line := range splitLines(banner) {
-		if _, err := fmt.Fprintln(w, styles[i%len(styles)].Render(line)); err != nil {
-			return err
-		}
-	}
-	_, err := fmt.Fprintf(w, "\n%s · commit %s · built %s\nHunt down your GitHub Actions CI\n",
-		info.Version, info.Commit, info.Date)
+	_, err := io.WriteString(w, tuibanner.RenderVersion(tuibanner.BuildInfo{
+		Version: info.Version,
+		Commit:  info.Commit,
+		Date:    info.Date,
+	}))
 	return err
 }
 
 func printPlaceholder(w io.Writer) error {
 	_, err := fmt.Fprintln(w, "gh-hound TUI scaffold is ready; screen implementation starts in Task 080.")
 	return err
-}
-
-func splitLines(s string) []string {
-	lines := make([]string, 0, 6)
-	start := 0
-	for i, r := range s {
-		if r == '\n' {
-			lines = append(lines, s[start:i])
-			start = i + 1
-		}
-	}
-	lines = append(lines, s[start:])
-	return lines
 }
 
 func executeCommand(cmd *cobra.Command) (int, error) {
