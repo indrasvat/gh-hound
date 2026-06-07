@@ -150,3 +150,34 @@ func TestRootViewRendersWatchRouteContract(t *testing.T) {
 		}
 	}
 }
+
+func TestRootViewRendersDispatchRouteContract(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{Config: cfg})
+	app.PushRoute(RouteDispatch)
+	view := app.View()
+	for _, want := range []string{"dispatch · Release", "POST …/workflows/release.yml/dispatches", "⏎ run"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("dispatch route view missing %q\n%s", want, view)
+		}
+	}
+}
+
+func TestRootViewRendersHelpAndPaletteOverlays(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{Config: cfg})
+	app, _ = app.Update(KeyMsg{Key: "?"})
+	if view := app.View(); !strings.Contains(view, "help · gh hound") || !strings.Contains(view, "Legend") {
+		t.Fatalf("help overlay missing\n%s", view)
+	}
+	app, _ = app.Update(KeyMsg{Key: ":"})
+	if view := app.View(); !strings.Contains(view, ": jump to…") || !strings.Contains(view, "runs --all") {
+		t.Fatalf("palette overlay missing\n%s", view)
+	}
+	app, _ = app.Update(KeyMsg{Key: "esc"})
+	if app.TopOverlay() != OverlayHelp {
+		t.Fatalf("esc should pop only palette, top=%s", app.TopOverlay())
+	}
+}

@@ -10,7 +10,10 @@ import (
 	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/banner"
 	"github.com/indrasvat/gh-hound/internal/tui/keys"
+	"github.com/indrasvat/gh-hound/internal/tui/overlay/help"
+	"github.com/indrasvat/gh-hound/internal/tui/overlay/palette"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/dispatch"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/failure"
 	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/runs"
@@ -24,12 +27,13 @@ type BuildInfo = banner.BuildInfo
 type Route string
 
 const (
-	RouteWelcome Route = "welcome"
-	RouteRuns    Route = "runs"
-	RouteDetail  Route = "detail"
-	RouteFailure Route = "failure"
-	RouteLog     Route = "log"
-	RouteWatch   Route = "watch"
+	RouteWelcome  Route = "welcome"
+	RouteRuns     Route = "runs"
+	RouteDetail   Route = "detail"
+	RouteFailure  Route = "failure"
+	RouteLog      Route = "log"
+	RouteWatch    Route = "watch"
+	RouteDispatch Route = "dispatch"
 )
 
 type Overlay string
@@ -150,11 +154,17 @@ func (a App) View() string {
 		out.WriteString(logscreen.View(sampleLogModel(), 80))
 	} else if a.Route() == RouteWatch {
 		out.WriteString(watch.View(sampleWatchModel(), 80))
+	} else if a.Route() == RouteDispatch {
+		out.WriteString(dispatch.View(sampleDispatchModel(), 80))
 	} else {
 		out.WriteString(string(a.Route()))
 	}
 	out.WriteString("\n\n")
 	out.WriteString(keys.FooterForScreen(a.footerScreen()))
+	if a.TopOverlay() != OverlayNone {
+		out.WriteString("\n\n")
+		out.WriteString(a.overlayView())
+	}
 	return out.String()
 }
 
@@ -224,8 +234,21 @@ func (a App) footerScreen() keys.Screen {
 		return keys.ScreenLog
 	case RouteWatch:
 		return keys.ScreenWatch
+	case RouteDispatch:
+		return keys.ScreenDispatch
 	default:
 		return keys.ScreenRunsList
+	}
+}
+
+func (a App) overlayView() string {
+	switch a.TopOverlay() {
+	case OverlayHelp:
+		return help.View(a.footerScreen(), 80)
+	case OverlayPalette:
+		return palette.View(palette.New(palette.DefaultItems()), 80)
+	default:
+		return ""
 	}
 }
 
@@ -323,5 +346,18 @@ func sampleWatchModel() watch.Model {
 			Status:    model.StatusInProgress,
 		},
 		Lines: doc.Lines,
+	})
+}
+
+func sampleDispatchModel() dispatch.Model {
+	return dispatch.NewModel(dispatch.Workflow{
+		Name: "Release",
+		ID:   "release.yml",
+		Ref:  "main",
+		Inputs: []dispatch.Input{
+			{Name: "version", Required: true, Type: dispatch.InputText},
+			{Name: "prerelease", Type: dispatch.InputBool, Options: []string{"false", "true"}},
+			{Name: "channel", Type: dispatch.InputSelect, Options: []string{"stable", "beta", "nightly"}},
+		},
 	})
 }
