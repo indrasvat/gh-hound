@@ -94,11 +94,13 @@ Standard operating procedure:
 8. Reporting format:
    - Start with the exact verdict line required by the release-gate contract.
    - Then provide a "Criteria Matrix" table with one row per required criterion and status `PASS`, `FAIL`, `BLOCKED`, or `NOT TESTED`.
+   - Then provide a "Screen/Feature Matrix" table with one row for every required HTML mock reference and screen feature listed below.
    - Then list findings, ordered by severity.
    - Use `P0/P1/P2/P3` severity labels and include `FAIL` or `BLOCKED` in the finding title when it gates release.
    - Include reproduction commands, key sequences, viewport, screenshot paths, expected behavior, actual behavior, and why the criterion failed.
    - Include a short "Passed Evidence" section only for criteria that genuinely passed.
    - Include "Residual Risk" for any untested surface. Untested required criteria must prevent a `PASS`.
+   - If the live TUI is blocked, you still MUST inspect deterministic fixture screenshots as non-release evidence and fill the Screen/Feature Matrix with the visible deltas. Do not stop after the root-launch finding.
 
 Required criteria matrix:
 Every serious audit report MUST include these rows. Add project-specific rows when the PRD/mocks require them.
@@ -118,6 +120,36 @@ Every serious audit report MUST include these rows. Add project-specific rows wh
 | State coverage | empty/error/loading/all-green/failure/running/dispatch states as applicable | FAIL if only happy path is inspected |
 | VQA trustworthiness | visual script output plus manual inspection of regenerated PNGs | FAIL if script passes but images are stale/wrong/weak |
 | Artifact hygiene | contact sheet or screenshot index, deterministic filenames, cleanup status | FAIL if evidence cannot be reviewed or sessions remain running |
+
+Required Screen/Feature Matrix:
+Every serious audit report MUST include a second table named `Screen/Feature Matrix`. Each row must include: `Mock Ref`, `Screen/Feature`, `Status`, `Screenshot`, and `Concrete Delta`.
+
+Use these minimum rows for this project:
+
+| Mock Ref | Screen/Feature | What to verify |
+|---|---|---|
+| ⓪ | Welcome/version banner | ANSI Shadow HOUND banner, gradient/color, tagline, first-run card layout, `80x24` wrapping, no tofu, no emoji leakage |
+| ① | All-green | green summary band, large success glyph, right-aligned latest-run meta, dimmed recent rows, all-green footer |
+| ② | Runs list | focused terminal panel, breadcrumb/rate/cache/live header, table columns, status colors, selected row fill plus green left bar, responsive collapse |
+| ③ | Detail | master-detail panes, shared pane height, jobs list, step timeline, failed-step red tint/bar, visible focus, narrow full-screen push behavior |
+| ④ | Failure | breadcrumb header, exit pill, annotations block, underlined paths, denoised colored error window, expand affordance |
+| ⑤ | Watch | streaming badge, follow marker, completed/running step colors, active-step cursor, append-only tail, incoming fade |
+| ⑥ | Log viewer | colored log engine, dim line-number gutter, fold rows/counts, search-hit tint, ANSI/syntax accents, decorative scrollbar, no color bleed |
+| ⑦ | Dispatch form | form field borders/focus, select/radio styling, POST line, validation/error styling, footer |
+| ⑦ | Toasts | toast layer over dimmed base, severity color bar, timeout/progress bar, non-focus-stealing behavior |
+| ⑧ | Command palette | centered overlay over dimmed base, prompt row, filtered list, selected row fill/bar, tags, input-mode key capture |
+| ⑩ | Help modal | centered Canvas/Layer modal, three-column contextual keymap, legend styling, active-screen footer/help truth |
+| Global | Live TUI keyboard | real root command handles `?`, `:`, `Esc`, `/`, `Enter`, `q`, route keys without echoing |
+| Global | Glyph/font fallback | screenshots checked for tofu/replacement boxes; if rich glyphs render as tofu, fail and recommend fallback |
+| Global | VQA harness | visual scripts drive meaningful current UI states, regenerate images, and cannot pass when screenshots are plainly wrong |
+
+Screen matrix rules:
+- Do not collapse multiple screens into a generic "primary screens fail" row. That hides defects.
+- Every mock ref row must include at least one screenshot path or `NOT TESTED` with a blocking reason.
+- The `Concrete Delta` must name exact missing visual features, for example "missing green summary band" or "overlay appended below base."
+- A root-launch `BLOCKED` verdict does not excuse missing screen rows. Mark screen rows as fixture-only if that is the available evidence.
+- If you see no tofu, say exactly which screenshot set and glyph family were inspected; otherwise do not mark glyph fidelity `PASS`.
+- Include narrow-width defects such as clipped/wrapped cards or stranded words as their own concrete deltas, not only under generic layout.
 
 Pass/fail wording discipline:
 - Do not write "looks good" unless the criterion row says `PASS` and links evidence.
