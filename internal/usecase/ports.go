@@ -24,4 +24,5 @@ type GitHub interface {
 	GetJob(context.Context, string, int64) (model.Job, error)
 	ListWorkflows(context.Context, string) ([]model.Workflow, error)
 	ListAnnotations(context.Context, string, model.Job) ([]model.Annotation, error)
+	FetchJobLog(context.Context, string, int64) (string, error)
 }

@@ -3,6 +3,7 @@ package fake
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/indrasvat/gh-hound/internal/model"
@@ -92,6 +93,22 @@ func (a *Adapter) ListAnnotations(context.Context, string, model.Job) ([]model.A
 		Message:   "identifier mismatch",
 		Title:     "go test",
 	}}, nil
+}
+
+func (a *Adapter) FetchJobLog(context.Context, string, int64) (string, error) {
+	return strings.Join([]string{
+		"17:42:53.114Z go test ./... -race",
+		"##[group] Run go test ./...",
+		"ok    internal/api 0.214s",
+		"##[group] test output",
+		"=== RUN   TestLexIdent/trailing_underscore",
+		"    internal/parser/lexer.go:142: got \"foo\" want \"foo_\"",
+		"--- FAIL: TestLexIdent/trailing_underscore (0.00s)",
+		"FAIL  github.com/indrasvat/gh-hound/internal/parser  0.412s",
+		"##[error]Process completed with exit code 1",
+		"##[endgroup]",
+		"##[endgroup]",
+	}, "\n"), nil
 }
 
 func greenRun(number int) model.Run {

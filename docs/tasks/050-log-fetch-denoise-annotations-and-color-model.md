@@ -1,7 +1,7 @@
 # Task 050: log fetch, de-noise, annotations, and color model
 
 ## Status
-TODO
+Done
 
 ## Ownership Boundary
 - **Primary area:** log retrieval/parsing and failure extraction.
@@ -86,13 +86,13 @@ The core wedge is the failure view: the error comes to the user instead of forci
 - Optional live failing-run fixture behind env flag.
 
 ## Definition of Done
-- [ ] Red tests fail first.
-- [ ] Failure window points to the actual failure in all fixtures.
-- [ ] Annotations are present and path/line/message correct.
-- [ ] Expired log link recovery is tested.
-- [ ] Group folds are correct and nested groups behave.
-- [ ] 10k-line parse is within the performance target.
-- [ ] `make check` passes.
+- [x] Red tests fail first.
+- [x] Failure window points to the actual failure in all fixtures.
+- [x] Annotations are present and path/line/message correct.
+- [x] Expired log link recovery is tested.
+- [x] Group folds are correct and nested groups behave.
+- [x] 10k-line parse is within the performance target.
+- [x] `make check` passes.
 
 ## Verification Commands
 ```bash
@@ -111,10 +111,15 @@ rtk make check
 ## Session Protocol
 1. Re-read this task, the referenced PRD sections, and the relevant `docs/gh-hound-design.html` mock immediately before editing.
 2. Add failing log fixtures/tests.
-2. Implement parser/fetch/retry.
-3. Verify.
-4. Commit and push.
+3. Implement parser/fetch/retry.
+4. Verify.
+5. Commit and push.
 
 ## Commit Protocol
 - Expected commit: `feat(logs): add failure extraction and annotations`
 
+## Completion Evidence
+- Red: `rtk go test -race ./internal/logs ./internal/adapter/... ./internal/usecase/...` failed on missing `logs.Parse`, `FetchJobLog`, and `FailureService`.
+- Focused tests: `rtk go test -race ./internal/logs ./internal/adapter/... ./internal/usecase/...`.
+- Benchmark: `rtk go test -bench=. ./internal/logs` reported `BenchmarkParse10kLines-10` at about `25.8ms/op`.
+- Full gate: `rtk make check`.
