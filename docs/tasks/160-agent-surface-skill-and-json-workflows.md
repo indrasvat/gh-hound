@@ -1,7 +1,7 @@
 # Task 160: agent surface, skill package, and JSON workflows
 
 ## Status
-TODO
+DONE
 
 ## Ownership Boundary
 - **Primary area:** structured non-TUI workflows and agent integration docs.
@@ -83,12 +83,12 @@ Coding agents need a structured, stable interface with correct exit codes and fa
 - Optional live `--no-tui --json` against authenticated gh.
 
 ## Definition of Done
-- [ ] Red tests fail first.
-- [ ] JSON schema matches Appendix B.
-- [ ] Exit codes are correct.
-- [ ] `--watch` exits fail-fast with failure details.
-- [ ] Agent Skill/handoff exists and is discoverable.
-- [ ] `make check` passes.
+- [x] Red tests fail first (`--fake-scenario` was missing and focused CLI tests failed).
+- [x] JSON schema matches Appendix B (`internal/render/testdata/schema.json`) and golden fixture is checked.
+- [x] Exit codes are correct for green, failure, pending, and API-error fake scenarios.
+- [x] `--watch` exits fail-fast with failure details.
+- [x] Agent Skill/handoff exists and is discoverable at `skills/gh-hound/SKILL.md`.
+- [x] `make check` passes.
 
 ## Verification Commands
 ```bash
@@ -99,7 +99,15 @@ rtk make check
 ```
 
 ## Visual QA Checklist
-- [ ] Not applicable.
+- [x] Not applicable.
+
+## Completion Evidence
+- Red: `rtk go test -run 'TestAgentSurface|TestWatchFailFast|TestJSONFlag' ./cmd/gh-hound` failed on unknown `--fake-scenario`.
+- Green: `rtk go test -race ./cmd/gh-hound ./internal/render ./internal/usecase` passed.
+- Schema/golden: added `internal/render/testdata/schema.json` and `internal/render/testdata/failure.golden.json`.
+- Agent handoff: added `docs/agent-surface.md` and `skills/gh-hound/SKILL.md`.
+- Smoke: `rtk make build` plus `jq` checks passed for green, failure, pending, API error exit `2`, and `watch --json --fake-scenario failure` exit `1`.
+- Regression gate: `rtk make check` passed.
 
 ## Implementation Notes
 - Do not leak credentials, headers, or raw token-bearing URLs in JSON/log output.
@@ -113,4 +121,3 @@ rtk make check
 
 ## Commit Protocol
 - Expected commit: `feat(agent): add structured ci surface`
-

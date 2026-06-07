@@ -3,6 +3,7 @@ package render
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -36,6 +37,20 @@ func TestJSONRendererMatchesAppendixBShape(t *testing.T) {
 		if _, ok := failed[key]; !ok {
 			t.Fatalf("failure missing key %q in %s", key, out.String())
 		}
+	}
+}
+
+func TestJSONRendererMatchesGoldenFixture(t *testing.T) {
+	var out bytes.Buffer
+	if err := Write(&out, FormatJSON, fixtureResult()); err != nil {
+		t.Fatalf("Write JSON returned error: %v", err)
+	}
+	want, err := os.ReadFile("testdata/failure.golden.json")
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	if strings.TrimSpace(out.String()) != strings.TrimSpace(string(want)) {
+		t.Fatalf("JSON golden mismatch\nwant:\n%s\ngot:\n%s", string(want), out.String())
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/indrasvat/gh-hound/internal/render"
@@ -65,6 +66,8 @@ type cliOptions struct {
 	LogLevel  string
 	TraceHTTP bool
 	All       bool
+	Watch     bool
+	Fake      string
 }
 
 func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Command {
@@ -111,6 +114,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.PersistentFlags().StringVar((*string)(&options.Format), "format", "json", "pipe output format: json, md, xml (env HOUND_FORMAT)")
 	cmd.PersistentFlags().StringVar(&options.LogLevel, "log-level", "info", "log level: off, error, warn, info, debug (env HOUND_LOG_LEVEL)")
 	cmd.PersistentFlags().BoolVar(&options.TraceHTTP, "trace-http", false, "trace GitHub API calls to the JSON log (env HOUND_TRACE_HTTP)")
+	cmd.PersistentFlags().StringVar(&options.Fake, "fake-scenario", "", "deterministic fake scenario: green, failure, pending, empty, api_error (env HOUND_FAKE_SCENARIO)")
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		applyEnv(&options, runtime.Env)
 		return nil
@@ -187,6 +191,7 @@ func newWatchCommand(runtime commandRuntime, options *cliOptions) *cobra.Command
 		RunE: func(cmd *cobra.Command, args []string) error {
 			options.Status = "in_progress"
 			options.NoTUI = true
+			options.Watch = true
 			return writeResult(runtime.Stdout, *options)
 		},
 	}
@@ -243,7 +248,10 @@ func isOutcome(err error) bool {
 }
 
 func writeResult(w io.Writer, options cliOptions) error {
-	result := fakeResult(options)
+	result, err := resultForOptions(options)
+	if err != nil {
+		return err
+	}
 	if err := render.Write(w, options.Format, result); err != nil {
 		return err
 	}
@@ -254,21 +262,31 @@ func writeResult(w io.Writer, options cliOptions) error {
 	return nil
 }
 
-func fakeResult(options cliOptions) render.Result {
+func resultForOptions(options cliOptions) (render.Result, error) {
+	scenario := normalizedScenario(options)
+	if scenario == "api_error" || scenario == "network_error" || scenario == "rate_limited" {
+		return render.Result{}, errors.New("github api unavailable")
+	}
+	return fakeResult(options, scenario), nil
+}
+
+func fakeResult(options cliOptions, scenario string) render.Result {
 	repo := firstNonEmpty(options.Repo, "indrasvat/gh-hound")
 	branch := firstNonEmpty(options.Branch, "main")
 	if options.All {
 		branch = ""
 	}
-	status := firstNonEmpty(options.Status, "success")
 	runStatus := "completed"
 	conclusion := "success"
-	if status == "failure" || status == "failed" {
+	if scenario == "failure" {
 		conclusion = "failure"
 	}
-	if status == "in_progress" || status == "queued" || status == "pending" {
-		runStatus = status
+	if scenario == "pending" {
+		runStatus = "in_progress"
 		conclusion = ""
+	}
+	if scenario == "empty" {
+		return render.Result{Repo: repo, Branch: branch, Runs: []render.Run{}}
 	}
 	run := render.Run{
 		ID:         30433642,
@@ -301,6 +319,33 @@ func fakeResult(options cliOptions) render.Result {
 		Repo:   repo,
 		Branch: branch,
 		Runs:   []render.Run{run},
+	}
+}
+
+func normalizedScenario(options cliOptions) string {
+	raw := strings.ToLower(strings.TrimSpace(options.Fake))
+	switch raw {
+	case "ok", "green", "success", "passed":
+		return "green"
+	case "failure", "failed", "failing":
+		return "failure"
+	case "pending", "running", "in_progress", "queued":
+		return "pending"
+	case "empty", "none":
+		return "empty"
+	case "api_error", "network_error", "rate_limited", "error":
+		return "api_error"
+	}
+	status := strings.ToLower(strings.TrimSpace(options.Status))
+	switch status {
+	case "failure", "failed", "failing":
+		return "failure"
+	case "in_progress", "queued", "pending", "running":
+		return "pending"
+	case "empty":
+		return "empty"
+	default:
+		return "green"
 	}
 }
 
@@ -340,6 +385,15 @@ func applyEnv(options *cliOptions, lookup func(string) (string, bool)) {
 	}
 	if value, ok := lookup("HOUND_ALL"); ok {
 		options.All = parseBool(value)
+	}
+	if options.Fake == "" {
+		if value, ok := lookup("HOUND_FAKE_SCENARIO"); ok {
+			options.Fake = value
+		}
+	}
+	if options.JSON {
+		options.NoTUI = true
+		options.Format = render.FormatJSON
 	}
 }
 
