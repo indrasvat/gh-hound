@@ -13,12 +13,14 @@ import (
 
 	"github.com/indrasvat/gh-hound/internal/adapter/github"
 	"github.com/indrasvat/gh-hound/internal/adapter/repository"
+	"github.com/indrasvat/gh-hound/internal/config"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/render"
 	"github.com/indrasvat/gh-hound/internal/tui"
 	tuibanner "github.com/indrasvat/gh-hound/internal/tui/banner"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 var (
@@ -57,6 +59,7 @@ func newRootCommand(stdout, stderr io.Writer, info buildInfo) *cobra.Command {
 type commandRuntime struct {
 	Stdout    io.Writer
 	Stderr    io.Writer
+	Stdin     io.Reader
 	Env       func(string) (string, bool)
 	IsTTY     bool
 	StateHome string
@@ -85,6 +88,9 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	if runtime.Stderr == nil {
 		runtime.Stderr = io.Discard
 	}
+	if runtime.Stdin == nil {
+		runtime.Stdin = os.Stdin
+	}
 	if runtime.Env == nil {
 		runtime.Env = os.LookupEnv
 	}
@@ -107,7 +113,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 			if structuredOutput(options, runtime) {
 				return writeResult(cmd.Context(), runtime.Stdout, options, runtime)
 			}
-			return printPlaceholder(runtime.Stdout)
+			return runTUI(runtime, info)
 		},
 	}
 
@@ -140,32 +146,36 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 func newScreenCommand(stdout io.Writer) *cobra.Command {
 	var screen string
 	var width int
+	var height int
 	cmd := &cobra.Command{
 		Use:    "__screen",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, err := fmt.Fprintln(stdout, tui.RenderFixture(screen, width))
+			_, err := fmt.Fprint(stdout, tui.RenderFixtureSize(screen, width, height))
 			return err
 		},
 	}
 	cmd.Flags().StringVar(&screen, "screen", "runs", "fixture screen")
 	cmd.Flags().IntVar(&width, "width", 80, "fixture width")
+	cmd.Flags().IntVar(&height, "height", 24, "fixture height")
 	return cmd
 }
 
 func newInteractCommand(stdout io.Writer) *cobra.Command {
 	var scenario string
 	var width int
+	var height int
 	cmd := &cobra.Command{
 		Use:    "__interact",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, err := fmt.Fprintln(stdout, tui.RenderInteractionFixture(scenario, width))
+			_, err := fmt.Fprint(stdout, tui.RenderInteractionFixtureSize(scenario, width, height))
 			return err
 		},
 	}
 	cmd.Flags().StringVar(&scenario, "scenario", "global-help", "interaction fixture scenario")
 	cmd.Flags().IntVar(&width, "width", 80, "fixture width")
+	cmd.Flags().IntVar(&height, "height", 24, "fixture height")
 	return cmd
 }
 
@@ -225,9 +235,118 @@ func printVersion(w io.Writer, info buildInfo) error {
 	return err
 }
 
-func printPlaceholder(w io.Writer) error {
-	_, err := fmt.Fprintln(w, "gh-hound TUI scaffold is ready; screen implementation starts in Task 080.")
-	return err
+func runTUI(runtime commandRuntime, info buildInfo) error {
+	cfg := tui.NewApp(tui.Options{Config: defaultConfig(), Build: tui.BuildInfo{
+		Version: info.Version,
+		Commit:  info.Commit,
+		Date:    info.Date,
+	}})
+	width, height := terminalSize(runtime.Stdout)
+	restore, err := rawInput(runtime.Stdin, runtime.IsTTY)
+	if err != nil {
+		return err
+	}
+	defer restore()
+
+	render := func() error {
+		if runtime.IsTTY {
+			if _, err := io.WriteString(runtime.Stdout, "\x1b[2J\x1b[H"); err != nil {
+				return err
+			}
+			_, err := io.WriteString(runtime.Stdout, ttyView(cfg.ViewSize(width, height)))
+			return err
+		}
+		_, err := fmt.Fprintln(runtime.Stdout, cfg.ViewSize(width, height))
+		return err
+	}
+	if err := render(); err != nil {
+		return err
+	}
+
+	buf := make([]byte, 1)
+	for !cfg.ShouldQuit() {
+		n, err := runtime.Stdin.Read(buf)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		if n == 0 {
+			continue
+		}
+		key := keyName(buf[0], runtime.Stdin)
+		var handled bool
+		cfg, handled = cfg.Update(tui.KeyMsg{Key: key})
+		if handled {
+			if err := render(); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func rawInput(reader io.Reader, enabled bool) (func(), error) {
+	if !enabled {
+		return func() {}, nil
+	}
+	file, ok := reader.(*os.File)
+	if !ok {
+		return func() {}, nil
+	}
+	fd := int(file.Fd())
+	if !term.IsTerminal(fd) {
+		return func() {}, nil
+	}
+	state, err := term.MakeRaw(fd)
+	if err != nil {
+		return nil, err
+	}
+	return func() {
+		_ = term.Restore(fd, state)
+	}, nil
+}
+
+func terminalSize(writer io.Writer) (int, int) {
+	file, ok := writer.(*os.File)
+	if !ok {
+		return 80, 24
+	}
+	width, height, err := term.GetSize(int(file.Fd()))
+	if err != nil || width < 1 {
+		return 80, 24
+	}
+	if height < 1 {
+		height = 24
+	}
+	return width, height
+}
+
+func keyName(first byte, reader io.Reader) string {
+	switch first {
+	case 0x03:
+		return "ctrl+c"
+	case '\r', '\n':
+		return "enter"
+	case '\t':
+		return "tab"
+	case 0x7f, '\b':
+		return "backspace"
+	case 0x1b:
+		return "esc"
+	default:
+		return string(rune(first))
+	}
+}
+
+func defaultConfig() config.Config {
+	cfg := config.Default()
+	return cfg
+}
+
+func ttyView(view string) string {
+	return strings.ReplaceAll(strings.TrimRight(view, "\n"), "\n", "\r\n")
 }
 
 func executeCommand(cmd *cobra.Command) (int, error) {

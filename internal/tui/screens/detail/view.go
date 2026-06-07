@@ -39,7 +39,8 @@ func renderWide(m Model, width int) []string {
 		if i < len(steps) {
 			right = steps[i]
 		}
-		lines = append(lines, fit(pad(left, leftWidth)+" | "+right, width))
+		sep := " │ "
+		lines = append(lines, fit(pad(left, leftWidth)+sep+right, width))
 	}
 	return lines
 }
@@ -49,7 +50,7 @@ func renderJobs(m Model, width int) []string {
 	if m.Focus == FocusJobs {
 		title = "Jobs *"
 	}
-	lines := []string{fit(title, width)}
+	lines := []string{fit("╭─ "+title+" ─", width)}
 	for i, job := range m.Jobs {
 		prefix := " "
 		if i == m.SelectedJob {
@@ -57,6 +58,7 @@ func renderJobs(m Model, width int) []string {
 		}
 		lines = append(lines, fit(fmt.Sprintf("%s%s %-18s %s", prefix, jobGlyph(job), job.Name, duration(job.StartedAt, job.CompletedAt)), width))
 	}
+	lines = append(lines, fit("╰─ Tab focus", width))
 	return lines
 }
 
@@ -67,14 +69,19 @@ func renderSteps(m Model, width int) []string {
 		title = "Steps *"
 	}
 	header := fmt.Sprintf("%s %s %s %s", job.Name, job.Conclusion, firstLabel(job), duration(job.StartedAt, job.CompletedAt))
-	lines := []string{fit(title, width), fit(header, width)}
+	lines := []string{fit("╭─ "+title+" ─", width), fit(header, width)}
 	for i, step := range job.Steps {
 		prefix := " "
 		if i == m.SelectedStep {
 			prefix = icons.Cursor
 		}
-		lines = append(lines, fit(fmt.Sprintf("%s%s %d %-28s %s", prefix, stepGlyph(step), step.Number, step.Name, duration(step.StartedAt, step.CompletedAt)), width))
+		row := fmt.Sprintf("%s%s %d %-28s %s", prefix, stepGlyph(step), step.Number, step.Name, duration(step.StartedAt, step.CompletedAt))
+		if step.Conclusion == model.ConclusionFailure {
+			row += "  failure target"
+		}
+		lines = append(lines, fit(row, width))
 	}
+	lines = append(lines, fit("╰─ n jump to failure · l full log", width))
 	return lines
 }
 

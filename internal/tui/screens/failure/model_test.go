@@ -43,7 +43,7 @@ func TestViewRendersAnnotationsExcerptAndFooter(t *testing.T) {
 		"error window · 5 of 6 lines",
 		"004 === RUN   TestLexIdent/trailing_underscore",
 		"005     internal/parser/lexer.go:142: got \"foo\" want \"foo_\"",
-		"↻ rerun failed · r rerun job · l full log · o browser · y copy excerpt",
+		"R rerun failed · r rerun job · l full log · o browser · y copy excerpt",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("failure view missing %q\n%s", want, view)

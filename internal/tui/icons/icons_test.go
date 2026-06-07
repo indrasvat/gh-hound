@@ -15,7 +15,7 @@ func TestStatusAndConclusionGlyphsMatchHTMLMock(t *testing.T) {
 	}{
 		{"success", ForConclusion(model.ConclusionSuccess), "✔"},
 		{"failure", ForConclusion(model.ConclusionFailure), "✗"},
-		{"in progress", ForStatus(model.StatusInProgress), "⠹"},
+		{"in progress", ForStatus(model.StatusInProgress), ">"},
 		{"queued", ForStatus(model.StatusQueued), "◌"},
 		{"cancelled", ForConclusion(model.ConclusionCancelled), "⊘"},
 		{"skipped", ForConclusion(model.ConclusionSkipped), "⊝"},
@@ -23,15 +23,15 @@ func TestStatusAndConclusionGlyphsMatchHTMLMock(t *testing.T) {
 		{"timed out", ForConclusion(model.ConclusionTimedOut), "⧗"},
 		{"neutral", ForConclusion(model.ConclusionNeutral), "◇"},
 		{"cursor", Cursor, "▌"},
-		{"branch", Branch, "⎇"},
+		{"branch", Branch, "git"},
 		{"breadcrumb", Breadcrumb, "›"},
 		{"fold open", FoldOpen, "▾"},
 		{"fold closed", FoldClosed, "▸"},
 		{"prompt", Prompt, "❯"},
-		{"rerun", Rerun, "↻"},
+		{"rerun", Rerun, "r"},
 		{"dispatch", Dispatch, "▶"},
-		{"enter", Enter, "⏎"},
-		{"escape", Escape, "⎋"},
+		{"enter", Enter, "enter"},
+		{"escape", Escape, "esc"},
 	}
 	for _, tt := range tests {
 		if tt.got != tt.want {

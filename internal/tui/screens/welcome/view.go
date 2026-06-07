@@ -5,7 +5,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss/v2"
 	"github.com/indrasvat/gh-hound/internal/tui/banner"
-	"github.com/indrasvat/gh-hound/internal/tui/icons"
 )
 
 func View(model Model) string {
@@ -26,11 +25,9 @@ func View(model Model) string {
 	out.WriteString(muted.Render(" annotated failure logs"))
 	out.WriteString("   ")
 	out.WriteString(accent.Render("RERUN"))
-	out.WriteString(muted.Render(" "))
-	out.WriteString(icons.Rerun)
 	out.WriteString(muted.Render(" failed jobs"))
 	out.WriteString("\n\n")
-	out.WriteString("⏎ Press Enter to continue")
+	out.WriteString("Enter to continue")
 	out.WriteString("\n")
 	out.WriteString(model.Build.Version)
 	out.WriteString(" · github.com/indrasvat/gh-hound")

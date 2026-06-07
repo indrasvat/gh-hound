@@ -91,6 +91,61 @@ func TestPipeDetectionDefaultsToStructuredOutput(t *testing.T) {
 	}
 }
 
+func TestTTYRootLaunchesInteractiveTUI(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: io.Discard,
+		Stdin:  strings.NewReader("q"),
+		Env:    emptyEnv,
+		IsTTY:  true,
+	}, testBuildInfo())
+	cmd.SetArgs([]string{})
+
+	code, err := executeCommand(cmd)
+	if err != nil || code != 0 {
+		t.Fatalf("tty root code=%d err=%v out=%s", code, err, out.String())
+	}
+	got := out.String()
+	if strings.Contains(got, "TUI scaffold is ready") {
+		t.Fatalf("tty root printed scaffold placeholder:\n%s", got)
+	}
+	for _, want := range []string{"██╗  ██╗ ██████╗", "Hunt down your GitHub Actions CI", "enter continue · ? help · q quit"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("tty root missing %q\n%s", want, got)
+		}
+	}
+}
+
+func TestTTYViewUsesCRLFWithoutTrailingScroll(t *testing.T) {
+	got := ttyView("one\ntwo\n")
+	if got != "one\r\ntwo" {
+		t.Fatalf("ttyView = %q, want CRLF without trailing newline", got)
+	}
+}
+
+func TestScreenFixtureDoesNotEmitTrailingScrollLine(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: io.Discard,
+		Env:    emptyEnv,
+		IsTTY:  false,
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"__screen", "--screen", "welcome", "--width", "80", "--height", "24"})
+
+	code, err := executeCommand(cmd)
+	if err != nil || code != 0 {
+		t.Fatalf("__screen code=%d err=%v", code, err)
+	}
+	if strings.HasSuffix(out.String(), "\n") {
+		t.Fatalf("__screen emitted trailing newline that can scroll exact-height captures")
+	}
+	if lines := strings.Count(out.String(), "\n") + 1; lines != 24 {
+		t.Fatalf("__screen rendered %d lines, want 24", lines)
+	}
+}
+
 func TestLaunchFlagsRouteRepoAllAndWatch(t *testing.T) {
 	var out bytes.Buffer
 	cmd := newRootCommandWithRuntime(commandRuntime{

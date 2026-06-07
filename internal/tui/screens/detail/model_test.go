@@ -49,7 +49,7 @@ func TestViewMatchesMasterDetailAndNarrowCollapse(t *testing.T) {
 		"Steps",
 		"build failure ubuntu-latest 2m14s",
 		"▌✗ 6 go test ./...",
-		"⏎ expand · ↻ rerun job · R rerun failed · ✗ cancel · ⎋ back · ?",
+		"enter expand · r rerun job · R rerun failed · x cancel · esc back · ?",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("detail view missing %q\n%s", want, view)

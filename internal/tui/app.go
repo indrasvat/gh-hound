@@ -62,6 +62,12 @@ type App struct {
 	inputMode        bool
 	quit             bool
 	welcomeDismissed bool
+	runs             runs.Model
+	detail           detail.Model
+	failure          failure.Model
+	log              logscreen.Model
+	watch            watch.Model
+	dispatch         dispatch.Model
 }
 
 func NewApp(options Options) App {
@@ -74,10 +80,16 @@ func NewApp(options Options) App {
 		route = RouteWelcome
 	}
 	return App{
-		config: cfg,
-		build:  options.Build,
-		theme:  theme.ForMode(theme.Mode(cfg.Theme)),
-		routes: []Route{route},
+		config:   cfg,
+		build:    options.Build,
+		theme:    theme.ForMode(theme.Mode(cfg.Theme)),
+		routes:   []Route{route},
+		runs:     sampleRunsModel(),
+		detail:   sampleDetailModel(),
+		failure:  sampleFailureModel(),
+		log:      sampleLogModel(),
+		watch:    sampleWatchModel(),
+		dispatch: sampleDispatchModel(),
 	}
 }
 
@@ -88,6 +100,10 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 			return a, true
 		}
 		return a, false
+	}
+
+	if a.routeInputMode() {
+		return a.updateRoute(msg)
 	}
 
 	if len(a.overlays) > 0 {
@@ -129,134 +145,135 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 			return a, true
 		}
 	}
-	return a, false
+	return a.updateRoute(msg)
 }
 
 func (a App) View() string {
-	var out strings.Builder
-	out.WriteString("hound · ")
-	out.WriteString(string(a.Route()))
-	out.WriteString("\n\n")
-	if a.Route() == RouteWelcome {
-		out.WriteString(welcome.View(welcome.Model{Build: a.build}))
-	} else if a.Route() == RouteRuns {
-		out.WriteString(runs.View(sampleRunsModel(), 80, time.Now()))
-	} else if a.Route() == RouteDetail {
-		out.WriteString(detail.View(sampleDetailModel(), 80))
-	} else if a.Route() == RouteFailure {
-		out.WriteString(failure.View(sampleFailureModel(), 80))
-	} else if a.Route() == RouteLog {
-		out.WriteString(logscreen.View(sampleLogModel(), 80))
-	} else if a.Route() == RouteWatch {
-		out.WriteString(watch.View(sampleWatchModel(), 80))
-	} else if a.Route() == RouteDispatch {
-		out.WriteString(dispatch.View(sampleDispatchModel(), 80))
-	} else {
-		out.WriteString(string(a.Route()))
-	}
-	out.WriteString("\n\n")
-	out.WriteString(keys.FooterForScreen(a.footerScreen()))
+	return a.ViewSized(80)
+}
+
+func (a App) ViewSized(width int) string {
+	return a.ViewSize(width, 0)
+}
+
+func (a App) ViewSize(width, height int) string {
+	title, context, right := a.chromeParts()
+	body := a.screenBody(width)
+	footer := keys.FooterForScreen(a.footerScreen())
 	if a.TopOverlay() != OverlayNone {
-		out.WriteString("\n\n")
-		out.WriteString(a.overlayView())
+		body = overlayBox(a.theme, a.overlayTitle(), a.overlayView(width), width)
+		footer = keys.FooterForScreen(keys.ScreenHelp)
+		if a.TopOverlay() == OverlayPalette {
+			footer = keys.FooterForScreen(keys.ScreenPalette)
+		}
 	}
-	return out.String()
+	return frameViewSize(a.theme, title, context, right, body, footer, width, height, true)
 }
 
 func RenderFixture(screen string, width int) string {
+	return RenderFixtureSize(screen, width, 0)
+}
+
+func RenderFixtureSize(screen string, width, height int) string {
 	cfg := config.Default()
 	cfg.Welcome = false
 	app := NewApp(Options{Config: cfg, Build: BuildInfo{Version: "v0.1.0"}})
+	bodyWidth := contentWidth(width)
 	switch screen {
 	case "welcome":
-		return NewApp(Options{Config: config.Default(), Build: BuildInfo{Version: "v0.1.0"}}).View()
+		return NewApp(Options{Config: config.Default(), Build: BuildInfo{Version: "v0.1.0"}}).ViewSize(width, height)
 	case "all_green":
-		return runs.View(sampleAllGreenModel(), width, time.Now())
+		return frameViewSize(app.theme, "hound", "git main · @indrasvat", "live · cache 304", runs.View(sampleAllGreenModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenAllGreen), width, height, true)
 	case "runs":
-		return runs.View(sampleRunsModel(), width, time.Now())
+		return frameViewSize(app.theme, "hound", "git fix/parser · @indrasvat", "◔ live · cache 304", runs.View(sampleRunsModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
 	case "detail":
-		return detail.View(sampleDetailModel(), width)
+		return frameViewSize(app.theme, "hound", "CI #571 › fix/parser", "a1b2c3d", detail.View(sampleDetailModel(), bodyWidth), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
 	case "failure":
-		return failure.View(sampleFailureModel(), width)
+		return frameViewSize(app.theme, "hound", "build › failed step", "exit 1", failure.View(sampleFailureModel(), bodyWidth), keys.FooterForScreen(keys.ScreenFailure), width, height, true)
 	case "watch":
-		return watch.View(sampleWatchModel(), width)
+		return frameViewSize(app.theme, "hound", "CI #570", "streaming · follow ●", watch.View(sampleWatchModel(), bodyWidth), keys.FooterForScreen(keys.ScreenWatch), width, height, true)
 	case "log":
-		return logscreen.View(sampleLogModel(), width)
+		return frameViewSize(app.theme, "hound", "full log", "match 1/1", logscreen.View(sampleLogModel(), bodyWidth), keys.FooterForScreen(keys.ScreenLog), width, height, true)
 	case "dispatch":
-		return dispatch.View(sampleDispatchModel(), width)
+		return frameViewSize(app.theme, "hound", "workflow_dispatch", "Release", dispatch.View(sampleDispatchModel(), bodyWidth), keys.FooterForScreen(keys.ScreenDispatch), width, height, true)
 	case "palette":
 		app, _ = app.Update(KeyMsg{Key: ":"})
-		return app.View()
+		return app.ViewSize(width, height)
 	case "help":
 		app, _ = app.Update(KeyMsg{Key: "?"})
-		return app.View()
+		return app.ViewSize(width, height)
 	default:
-		return app.View()
+		return app.ViewSize(width, height)
 	}
 }
 
 func RenderInteractionFixture(scenario string, width int) string {
+	return RenderInteractionFixtureSize(scenario, width, 0)
+}
+
+func RenderInteractionFixtureSize(scenario string, width, height int) string {
 	cfg := config.Default()
 	cfg.Welcome = false
 	app := NewApp(Options{Config: cfg, Build: BuildInfo{Version: "v0.1.0"}})
+	bodyWidth := contentWidth(width)
 	switch scenario {
 	case "welcome-enter":
 		app = NewApp(Options{Config: config.Default(), Build: BuildInfo{Version: "v0.1.0"}})
 		app, _ = app.Update(KeyMsg{Key: "enter"})
-		return app.View()
+		return app.ViewSize(width, height)
 	case "global-help":
 		app, _ = app.Update(KeyMsg{Key: "?"})
-		return app.View()
+		return app.ViewSize(width, height)
 	case "global-palette":
 		app, _ = app.Update(KeyMsg{Key: ":"})
-		return app.View()
+		return app.ViewSize(width, height)
 	case "overlay-esc":
 		app, _ = app.Update(KeyMsg{Key: "?"})
 		app, _ = app.Update(KeyMsg{Key: ":"})
 		app, _ = app.Update(KeyMsg{Key: "esc"})
-		return app.View()
+		return app.ViewSize(width, height)
 	case "runs-select":
 		m := sampleRunsModel()
 		m = m.Update(runs.KeyMsg{Key: "j"})
-		return runs.View(m, width, time.Now())
+		return frameViewSize(app.theme, "hound", "git fix/parser · @indrasvat", "◔ live · cache 304", runs.View(m, bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
 	case "runs-filter":
 		m := sampleRunsModel()
 		for _, key := range []string{"/", "f", "a", "i", "l"} {
 			m = m.Update(runs.KeyMsg{Key: key})
 		}
-		return runs.View(m, width, time.Now())
+		return frameViewSize(app.theme, "hound", "git fix/parser · @indrasvat", "filter /fail", runs.View(m, bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
 	case "detail-nav":
 		m := sampleDetailModel()
 		for _, key := range []string{"tab", "j", "n"} {
 			m = m.Update(detail.KeyMsg{Key: key})
 		}
-		return detail.View(m, width)
+		return frameViewSize(app.theme, "hound", "CI #571 › fix/parser", "a1b2c3d", detail.View(m, bodyWidth), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
 	case "failure-actions":
 		m := sampleFailureModel()
 		for _, key := range []string{"l", "y", "o", "r", "R"} {
 			m = m.Update(failure.KeyMsg{Key: key})
 		}
-		return failure.View(m, width)
+		return frameViewSize(app.theme, "hound", "build › failed step", "actions queued", failure.View(m, bodyWidth), keys.FooterForScreen(keys.ScreenFailure), width, height, true)
 	case "log-search-fold":
 		m := sampleLogModel()
 		for _, key := range []string{"/", "t", "r", "a", "i", "l", "enter", "z"} {
 			m = m.Update(logscreen.KeyMsg{Key: key})
 		}
-		return logscreen.View(m, width)
+		return frameViewSize(app.theme, "hound", "full log", "search /trail", logscreen.View(m, bodyWidth), keys.FooterForScreen(keys.ScreenLog), width, height, true)
 	case "watch-toggle":
 		m := sampleWatchModel()
 		for _, key := range []string{"f", "d"} {
 			m = m.Update(watch.KeyMsg{Key: key})
 		}
-		return watch.View(m, width)
+		return frameViewSize(app.theme, "hound", "CI #570", "debug · follow", watch.View(m, bodyWidth), keys.FooterForScreen(keys.ScreenWatch), width, height, true)
 	case "dispatch-fill":
 		m := sampleDispatchModel()
 		for _, key := range []string{"T", "v", "0", ".", "1", "2", ".", "0", "tab", "right", "tab", "right"} {
 			m = m.Update(dispatch.KeyMsg{Key: key})
 		}
-		return dispatch.View(m, width)
+		return frameViewSize(app.theme, "hound", "workflow_dispatch", "Release", dispatch.View(m, bodyWidth), keys.FooterForScreen(keys.ScreenDispatch), width, height, true)
 	default:
-		return app.View()
+		return app.ViewSize(width, height)
 	}
 }
 
@@ -314,6 +331,162 @@ func (a *App) toggleTheme() {
 	a.theme = theme.ForMode(theme.ModeBramble)
 }
 
+func (a App) routeInputMode() bool {
+	if a.Route() == RouteRuns && a.runs.InputMode {
+		return true
+	}
+	return false
+}
+
+func (a App) updateRoute(msg KeyMsg) (App, bool) {
+	switch a.Route() {
+	case RouteRuns:
+		return a.updateRuns(msg)
+	case RouteDetail:
+		return a.updateDetail(msg)
+	case RouteFailure:
+		return a.updateFailure(msg)
+	case RouteLog:
+		return a.updateLog(msg)
+	case RouteWatch:
+		return a.updateWatch(msg)
+	case RouteDispatch:
+		return a.updateDispatch(msg)
+	default:
+		return a, false
+	}
+}
+
+func (a App) updateRuns(msg KeyMsg) (App, bool) {
+	before := a.runs
+	a.runs = a.runs.Update(runs.KeyMsg{Key: msg.Key})
+	switch a.runs.Intent.Kind {
+	case runs.IntentOpenDetail:
+		a.PushRoute(RouteDetail)
+	case runs.IntentOpenLogs:
+		a.PushRoute(RouteLog)
+	case runs.IntentWatch:
+		a.PushRoute(RouteWatch)
+	case runs.IntentDispatch:
+		a.PushRoute(RouteDispatch)
+	}
+	return a, runsHandled(msg.Key) || before.Selected != a.runs.Selected || before.Filter != a.runs.Filter || before.InputMode != a.runs.InputMode || a.runs.Intent.Kind != runs.IntentNone
+}
+
+func (a App) updateDetail(msg KeyMsg) (App, bool) {
+	beforeFocus := a.detail.Focus
+	beforeJob := a.detail.SelectedJob
+	beforeStep := a.detail.SelectedStep
+	a.detail = a.detail.Update(detail.KeyMsg{Key: msg.Key})
+	switch a.detail.Intent.Kind {
+	case detail.IntentFailure:
+		a.PushRoute(RouteFailure)
+	case detail.IntentLog:
+		a.PushRoute(RouteLog)
+	case detail.IntentWatch:
+		a.PushRoute(RouteWatch)
+	case detail.IntentBack:
+		a.PopRoute()
+	}
+	return a, detailHandled(msg.Key) || beforeFocus != a.detail.Focus || beforeJob != a.detail.SelectedJob || beforeStep != a.detail.SelectedStep || a.detail.Intent.Kind != detail.IntentNone
+}
+
+func (a App) updateFailure(msg KeyMsg) (App, bool) {
+	a.failure = a.failure.Update(failure.KeyMsg{Key: msg.Key})
+	switch a.failure.Intent.Kind {
+	case failure.IntentFullLog:
+		a.PushRoute(RouteLog)
+	case failure.IntentBack:
+		a.PopRoute()
+	}
+	return a, failureHandled(msg.Key) || a.failure.Intent.Kind != failure.IntentNone
+}
+
+func (a App) updateLog(msg KeyMsg) (App, bool) {
+	before := a.log
+	a.log = a.log.Update(logscreen.KeyMsg{Key: msg.Key})
+	if msg.Key == "esc" {
+		a.PopRoute()
+		return a, true
+	}
+	searchChanged := before.Search.Query != a.log.Search.Query || before.Search.Current != a.log.Search.Current || before.Search.Total != a.log.Search.Total
+	return a, logHandled(msg.Key) || before.Offset != a.log.Offset || before.Wrap != a.log.Wrap || searchChanged
+}
+
+func (a App) updateWatch(msg KeyMsg) (App, bool) {
+	before := a.watch
+	a.watch = a.watch.Update(watch.KeyMsg{Key: msg.Key})
+	switch a.watch.Intent.Kind {
+	case watch.IntentDetach:
+		a.PopRoute()
+	}
+	return a, watchHandled(msg.Key) || before.Follow != a.watch.Follow || before.Debug != a.watch.Debug || a.watch.Intent.Kind != watch.IntentNone
+}
+
+func (a App) updateDispatch(msg KeyMsg) (App, bool) {
+	beforeFocused := a.dispatch.Focused
+	a.dispatch = a.dispatch.Update(dispatch.KeyMsg{Key: msg.Key})
+	if a.dispatch.Intent.Kind == dispatch.IntentCancel {
+		a.PopRoute()
+		return a, true
+	}
+	return a, dispatchHandled(msg.Key) || beforeFocused != a.dispatch.Focused || a.dispatch.Intent.Kind != dispatch.IntentNone
+}
+
+func runsHandled(key string) bool {
+	switch key {
+	case "j", "k", "down", "up", "g", "G", "/", "enter", "l", "w", "D", "o", "y", "r", "R", "x", "X", "esc", "backspace":
+		return true
+	default:
+		return len([]rune(key)) == 1
+	}
+}
+
+func detailHandled(key string) bool {
+	switch key {
+	case "tab", "j", "k", "down", "up", "n", "enter", "l", "w", "r", "R", "x", "X", "o", "J", "K", "esc":
+		return true
+	default:
+		return false
+	}
+}
+
+func failureHandled(key string) bool {
+	switch key {
+	case "l", "y", "o", "r", "R", "esc":
+		return true
+	default:
+		return false
+	}
+}
+
+func logHandled(key string) bool {
+	switch key {
+	case "j", "k", "g", "G", "/", "n", "N", "z", "Z", "w", "enter", "backspace", "esc":
+		return true
+	default:
+		return len([]rune(key)) == 1
+	}
+}
+
+func watchHandled(key string) bool {
+	switch key {
+	case "f", "d", "x", "esc":
+		return true
+	default:
+		return false
+	}
+}
+
+func dispatchHandled(key string) bool {
+	switch key {
+	case "tab", "shift+tab", "right", "space", "left", "backspace", "enter", "esc":
+		return true
+	default:
+		return len([]rune(key)) == 1
+	}
+}
+
 func (a App) footerScreen() keys.Screen {
 	switch a.Route() {
 	case RouteWelcome:
@@ -333,15 +506,75 @@ func (a App) footerScreen() keys.Screen {
 	}
 }
 
-func (a App) overlayView() string {
+func (a App) overlayTitle() string {
 	switch a.TopOverlay() {
 	case OverlayHelp:
-		return help.View(a.footerScreen(), 80)
+		return "help · gh hound"
 	case OverlayPalette:
-		return palette.View(palette.New(palette.DefaultItems()), 80)
+		return ": jump to…"
 	default:
 		return ""
 	}
+}
+
+func (a App) overlayView(width int) string {
+	switch a.TopOverlay() {
+	case OverlayHelp:
+		return help.View(a.footerScreen(), width-20)
+	case OverlayPalette:
+		return palette.View(palette.New(palette.DefaultItems()), width-20)
+	default:
+		return ""
+	}
+}
+
+func (a App) chromeParts() (string, string, string) {
+	switch a.Route() {
+	case RouteWelcome:
+		return "hound", "welcome · first run", a.build.Version
+	case RouteDetail:
+		return "hound", "CI #571 › fix/parser", "a1b2c3d"
+	case RouteFailure:
+		return "hound", "build › failed step", "exit 1"
+	case RouteLog:
+		return "hound", "full log", "match 1/1"
+	case RouteWatch:
+		return "hound", "CI #570", "streaming · follow ●"
+	case RouteDispatch:
+		return "hound", "workflow_dispatch", "Release"
+	default:
+		return "hound", "runs · git fix/parser · @indrasvat", "◔ live · cache 304"
+	}
+}
+
+func (a App) screenBody(width int) string {
+	bodyWidth := contentWidth(width)
+	switch a.Route() {
+	case RouteWelcome:
+		return welcome.View(welcome.Model{Build: a.build})
+	case RouteRuns:
+		return runs.View(a.runs, bodyWidth, time.Now())
+	case RouteDetail:
+		return detail.View(a.detail, bodyWidth)
+	case RouteFailure:
+		return failure.View(a.failure, bodyWidth)
+	case RouteLog:
+		return logscreen.View(a.log, bodyWidth)
+	case RouteWatch:
+		return watch.View(a.watch, bodyWidth)
+	case RouteDispatch:
+		return dispatch.View(a.dispatch, bodyWidth)
+	default:
+		return string(a.Route())
+	}
+}
+
+func contentWidth(width int) int {
+	if width < minFrameWidth {
+		width = minFrameWidth
+	}
+	bodyWidth := max(width-2, 1)
+	return bodyWidth
 }
 
 func sampleDetailModel() detail.Model {

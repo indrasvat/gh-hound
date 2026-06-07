@@ -64,7 +64,7 @@ func TestViewRendersViewportOnlyGutterFoldsSearchAndFooter(t *testing.T) {
 		"log · /trail · match 1/2",
 		"001 17:42:53Z go test ./... -race",
 		"002 ▸ Run go test ./... 7 lines",
-		"j/k scroll · g/G top/bottom · / search · n/N match · z/Z fold · w wrap · ⎋ back",
+		"j/k scroll · g/G ends · / search · n/N match · z/Z fold · w wrap · esc back",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("log view missing %q\n%s", want, view)

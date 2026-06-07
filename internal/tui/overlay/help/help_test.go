@@ -9,7 +9,7 @@ import (
 
 func TestHelpUsesActiveKeymapAndLegend(t *testing.T) {
 	view := View(keys.ScreenRunsList, 80)
-	for _, want := range []string{"help · gh hound", "Navigate", "Actions", "View", "⏎ open", "↻ rerun", "Legend", "✔ success", "✗ failure"} {
+	for _, want := range []string{"help · gh hound", "Navigate", "Actions", "View", "enter open", "r rerun", "Legend", "✔ success", "✗ failure"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("help view missing %q\n%s", want, view)
 		}

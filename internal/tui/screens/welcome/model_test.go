@@ -14,7 +14,7 @@ func TestViewMatchesWelcomeMockContent(t *testing.T) {
 		"WATCH",
 		"DIAGNOSE",
 		"RERUN",
-		"⏎ Press Enter to continue",
+		"Enter to continue",
 		"v0.1.0 · github.com/indrasvat/gh-hound",
 	} {
 		if !strings.Contains(view, want) {

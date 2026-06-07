@@ -60,7 +60,7 @@ All glyphs are text presentation only. Do not append emoji variation selectors.
 |---|---|
 | success | ✔ |
 | failure | ✗ |
-| in_progress | ⠹ |
+| in_progress | > |
 | queued | ◌ |
 | cancelled | ⊘ |
 | skipped | ⊝ |
@@ -68,15 +68,15 @@ All glyphs are text presentation only. Do not append emoji variation selectors.
 | timed_out | ⧗ |
 | neutral | ◇ |
 | selection_bar | ▌ |
-| branch | ⎇ |
+| branch | git |
 | breadcrumb | › |
 | fold_open | ▾ |
 | fold_closed | ▸ |
 | prompt | ❯ |
-| rerun | ↻ |
+| rerun | r |
 | dispatch | ▶ |
-| enter | ⏎ |
-| escape | ⎋ |
+| enter | enter |
+| escape | esc |
 
 ## Footers
 
@@ -84,17 +84,17 @@ Footer text must be generated from keymap data, not copied into renderers.
 
 | Screen | Footer |
 |---|---|
-| welcome | ⏎ continue · ? help · q quit |
+| welcome | enter continue · ? help · q quit |
 | all_green | w watch next push · D dispatch · / filter · ? help |
-| runs_list | ⏎ open · ↻ rerun · ✗ cancel · l logs · w watch · / filter · ? help |
-| detail | ⏎ expand · ↻ rerun job · R rerun failed · ✗ cancel · ⎋ back · ? |
-| failure | ↻ rerun failed · r rerun job · l full log · o browser · y copy excerpt |
-| watch | ✗ cancel · f follow · d debug · ⎋ detach |
-| log | j/k scroll · g/G top/bottom · / search · n/N match · z/Z fold · w wrap · ⎋ back |
-| dispatch | ⏎ run · ⇥ next · ⎋ cancel |
+| runs_list | enter open · r rerun · x cancel · l logs · w watch · / filter · ? help |
+| detail | enter expand · r rerun job · R rerun failed · x cancel · esc back · ? |
+| failure | R rerun failed · r rerun job · l full log · o browser · y copy excerpt |
+| watch | x cancel · f follow · d debug · esc detach |
+| log | j/k scroll · g/G ends · / search · n/N match · z/Z fold · w wrap · esc back |
+| dispatch | enter run · tab next · esc cancel |
 | palette | workflows · watch · diff (v2) · theme |
-| help | : palette · ? close · ⎋ close |
-| toasts | ⎋ dismiss · g dismiss all · r retry · ? help |
+| help | : palette · ? close · esc close |
+| toasts | esc dismiss · g dismiss all · r retry · ? help |
 
 ## Breakpoints
 

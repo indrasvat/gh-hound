@@ -54,10 +54,10 @@ func TestViewMatchesStreamingMock(t *testing.T) {
 	view := View(m, 80)
 	for _, want := range []string{
 		"watch · CI #570 · main",
-		"streaming ⠹ 0m48s follow ●",
+		"streaming > 0m48s follow ●",
 		"041 041 17:43:02.781Z go test ./... -race -count=1",
 		"046 046 --- PASS: TestLexIdent/basic (0.00s)",
-		"✗ cancel · f follow · d debug · ⎋ detach",
+		"x cancel · f follow · d debug · esc detach",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("watch view missing %q\n%s", want, view)

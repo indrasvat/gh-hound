@@ -85,13 +85,13 @@ func TestViewMatchesRunsAndAllGreenMocks(t *testing.T) {
 	view := View(m, 80, time.Date(2026, 6, 7, 17, 45, 0, 0, time.UTC))
 	for _, want := range []string{
 		"hound",
-		"⎇ fix/parser",
+		"git fix/parser",
 		"Workflow",
 		"Event",
 		"Duration",
 		"▌✗ CI",
 		"1 failing · 1 running · 1 passed",
-		"⏎ open · ↻ rerun · ✗ cancel · l logs · w watch · / filter · ? help",
+		"enter open · r rerun · x cancel · l logs · w watch · / filter · ? help",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("runs view missing %q\n%s", want, view)

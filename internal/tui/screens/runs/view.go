@@ -24,7 +24,7 @@ func View(m Model, width int, now time.Time) string {
 func renderRuns(m Model, width int, now time.Time) string {
 	lines := []string{
 		fit(header(m, true), width),
-		fit("  Workflow           Event             #     Duration  Age", width),
+		fit("  Workflow           Event             #     Duration  Age      Actor/SHA", width),
 	}
 	for i, run := range m.Context.Runs {
 		lines = append(lines, row(run, i == m.Selected, width, now))
@@ -46,9 +46,11 @@ func renderAllGreen(m Model, width int, now time.Time) string {
 	}
 	lines := []string{
 		fit(header(m, false), width),
-		fit("✔  All checks passing on "+first(m.Context.Branch, "all branches"), width),
-		fit(fmt.Sprintf("%d recent runs · %d failing · last finished %s", len(m.Context.Runs), summary.Failing, age(m.Context.Runs[0], now)), width),
-		fit(latest, width),
+		fit("╭─ all clear ─────────────────────────────────────────────╮", width),
+		fit("│ ✔  All checks passing on "+first(m.Context.Branch, "all branches"), width),
+		fit(fmt.Sprintf("│ %d recent runs · %d failing · last finished %s", len(m.Context.Runs), summary.Failing, age(m.Context.Runs[0], now)), width),
+		fit("│ latest "+latest, width),
+		fit("╰──────────────────────────────────────────────────────────╯", width),
 	}
 	for _, run := range m.Context.Runs {
 		lines = append(lines, fit(fmt.Sprintf("%s %s #%d %s", glyph(run), truncate(run.Name, 22), run.RunNumber, age(run, now)), width))
@@ -80,6 +82,9 @@ func row(run model.Run, selected bool, width int, now time.Time) string {
 		sparkline.Render([]int{30, 55, 90, 65, 40}, 5),
 		age(run, now),
 	)
+	if width >= 110 {
+		line = fmt.Sprintf("%s  @indrasvat a1b2c3d", line)
+	}
 	return fit(line, width)
 }
 

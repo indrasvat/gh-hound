@@ -12,7 +12,7 @@ func View(m Model, width int) string {
 	if width <= 0 {
 		width = 80
 	}
-	lines := []string{fit(header(m), width)}
+	lines := []string{fit(header(m)+"  scrollbar ▌", width)}
 	for _, row := range m.visibleRows() {
 		if row.IsFold {
 			lines = append(lines, logview.Fold(row.Line.Number, row.Fold.Title, row.Fold.CollapsedCount, row.Collapsed, width))
@@ -20,7 +20,7 @@ func View(m Model, width int) string {
 		}
 		text := row.Line.Text
 		if m.isMatch(row.Line.Number) {
-			text = "› " + text
+			text = "› search-hit " + text
 		}
 		lines = append(lines, logview.Line(row.Line.Number, text, width))
 	}

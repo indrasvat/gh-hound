@@ -1,6 +1,6 @@
 {
   "contains": [
-    "hound ⎇ fix/parser",
+    "hound git fix/parser",
     "1 failing",
     "/ filter"
   ]

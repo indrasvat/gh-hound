@@ -32,7 +32,7 @@ func TestDispatchFormInputsValidationAndSubmit(t *testing.T) {
 		t.Fatalf("submit intent = %#v", m.Intent)
 	}
 	view := View(m, 80)
-	for _, want := range []string{"dispatch · Release", "ref main ▾", "version", "POST …/workflows/release.yml/dispatches", "⏎ run · ⇥ next · ⎋ cancel"} {
+	for _, want := range []string{"dispatch · Release", "ref main ▾", "version      [Tv0.12.0]", "▌channel      ○ stable  ● beta", "POST …/workflows/release.yml/dispatches", "enter run · tab next · esc cancel"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("dispatch view missing %q\n%s", want, view)
 		}

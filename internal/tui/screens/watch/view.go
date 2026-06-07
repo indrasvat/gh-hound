@@ -21,6 +21,7 @@ func View(m Model, width int) string {
 	for _, line := range m.State.Lines[start:] {
 		lines = append(lines, logview.Line(line.Number+40, line.Text, width))
 	}
+	lines = append(lines, fit("incoming ▾ active step tail █", width))
 	lines = append(lines, fit(keys.FooterForScreen(keys.ScreenWatch), width))
 	return strings.Join(lines, "\n")
 }

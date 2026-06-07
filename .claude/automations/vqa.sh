@@ -49,7 +49,7 @@ for screen in "${screens[@]}"; do
 set -euo pipefail
 sleep 0.25
 printf '\\033[2J\\033[H'
-"$abs_bin" __screen --screen "$screen" --width "$cols"
+"$abs_bin" __screen --screen "$screen" --width "$cols" --height "$rows"
 sleep 30
 RUNNER
     chmod +x "$runner"

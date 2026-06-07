@@ -18,15 +18,17 @@ func View(m Model, width int) string {
 	}
 	lines := []string{
 		fit(header(m), width),
+		fit("[exit "+exitCode(m)+"]  ⤓ expand", width),
 		"Annotations",
 	}
 	for _, annotation := range m.Report.Annotations {
 		lines = append(lines, fit(annotationLine(annotation), width))
 	}
-	lines = append(lines, fit(fmt.Sprintf("error window · %d of %d lines", len(m.Excerpt), totalLines(m)), width))
+	lines = append(lines, fit(fmt.Sprintf("╭─ error window · %d of %d lines ─", len(m.Excerpt), totalLines(m)), width))
 	for _, line := range m.Excerpt {
 		lines = append(lines, fit(fmt.Sprintf("%03d %s", line.Number, line.Text), width))
 	}
+	lines = append(lines, fit("╰─ denoised excerpt · l opens full log at this offset", width))
 	lines = append(lines, fit(keys.FooterForScreen(keys.ScreenFailure), width))
 	return strings.Join(lines, "\n")
 }

@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/indrasvat/gh-hound/internal/tui/keys"
@@ -129,16 +130,32 @@ func (m *Model) submit() {
 }
 
 func View(m Model, width int) string {
-	lines := []string{"dispatch · " + m.Workflow.Name, "ref " + m.Workflow.Ref + " ▾"}
+	lines := []string{"dispatch · " + m.Workflow.Name, "ref " + m.Workflow.Ref + " ▾  [" + m.Workflow.Ref + " ▾]"}
 	for i, field := range m.Fields {
 		prefix := " "
 		if i == m.Focused {
 			prefix = "▌"
 		}
-		lines = append(lines, fit(prefix+field.Name+" "+field.Value, width))
+		control := "[" + field.Value + "]"
+		if len(field.Options) > 0 {
+			control = optionControl(field)
+		}
+		lines = append(lines, fit(fmt.Sprintf("%s%-12s %s", prefix, field.Name, control), width))
 	}
 	lines = append(lines, "POST …/workflows/"+m.Workflow.ID+"/dispatches", keys.FooterForScreen(keys.ScreenDispatch))
 	return strings.Join(lines, "\n")
+}
+
+func optionControl(field Field) string {
+	parts := make([]string, 0, len(field.Options))
+	for i, option := range field.Options {
+		marker := "○"
+		if i == field.Index {
+			marker = "●"
+		}
+		parts = append(parts, marker+" "+option)
+	}
+	return strings.Join(parts, "  ")
 }
 
 func fit(value string, width int) string {
