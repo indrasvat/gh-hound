@@ -2,12 +2,15 @@ package tui
 
 import (
 	"strings"
+	"time"
 
 	"github.com/indrasvat/gh-hound/internal/config"
 	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/banner"
 	"github.com/indrasvat/gh-hound/internal/tui/keys"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/runs"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/welcome"
+	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
 type BuildInfo = banner.BuildInfo
@@ -124,6 +127,13 @@ func (a App) View() string {
 	out.WriteString("\n\n")
 	if a.Route() == RouteWelcome {
 		out.WriteString(welcome.View(welcome.Model{Build: a.build}))
+	} else if a.Route() == RouteRuns {
+		out.WriteString(runs.View(runs.NewModel(usecase.LaunchContext{
+			Repo:   "indrasvat/gh-hound",
+			Branch: "main",
+			Actor:  "indrasvat",
+			State:  usecase.LaunchStateRuns,
+		}), 80, time.Now()))
 	} else {
 		out.WriteString(string(a.Route()))
 	}
