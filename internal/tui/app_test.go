@@ -124,3 +124,16 @@ func TestRootViewRendersFailureRouteContract(t *testing.T) {
 		}
 	}
 }
+
+func TestRootViewRendersLogRouteContract(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{Config: cfg})
+	app.PushRoute(RouteLog)
+	view := app.View()
+	for _, want := range []string{"log", "001", "go test", "j/k scroll"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("log route view missing %q\n%s", want, view)
+		}
+	}
+}

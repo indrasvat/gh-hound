@@ -12,6 +12,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/tui/keys"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/failure"
+	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/runs"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/welcome"
 	"github.com/indrasvat/gh-hound/internal/usecase"
@@ -26,6 +27,7 @@ const (
 	RouteRuns    Route = "runs"
 	RouteDetail  Route = "detail"
 	RouteFailure Route = "failure"
+	RouteLog     Route = "log"
 )
 
 type Overlay string
@@ -142,6 +144,8 @@ func (a App) View() string {
 		out.WriteString(detail.View(sampleDetailModel(), 80))
 	} else if a.Route() == RouteFailure {
 		out.WriteString(failure.View(sampleFailureModel(), 80))
+	} else if a.Route() == RouteLog {
+		out.WriteString(logscreen.View(sampleLogModel(), 80))
 	} else {
 		out.WriteString(string(a.Route()))
 	}
@@ -212,6 +216,8 @@ func (a App) footerScreen() keys.Screen {
 		return keys.ScreenDetail
 	case RouteFailure:
 		return keys.ScreenFailure
+	case RouteLog:
+		return keys.ScreenLog
 	default:
 		return keys.ScreenRunsList
 	}
@@ -277,4 +283,19 @@ func sampleFailureModel() failure.Model {
 		}},
 	}
 	return failure.NewModel("indrasvat/gh-hound", 571, report)
+}
+
+func sampleLogModel() logscreen.Model {
+	doc := logs.Parse(strings.Join([]string{
+		"17:42:53Z go test ./... -race",
+		"##[group] Run go test ./...",
+		"ok    internal/api 0.214s",
+		"##[group] test output",
+		"=== RUN   TestLexIdent/trailing_underscore",
+		"    lexer_test.go:88: got \"foo\" want \"foo_\"",
+		"--- FAIL: TestLexIdent/trailing_underscore (0.00s)",
+		"FAIL  github.com/indrasvat/gh-hound/internal/parser  0.412s",
+		"##[error]Process completed with exit code 1",
+	}, "\n"))
+	return logscreen.NewModel(doc, 1, 6)
 }
