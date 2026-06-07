@@ -137,3 +137,16 @@ func TestRootViewRendersLogRouteContract(t *testing.T) {
 		}
 	}
 }
+
+func TestRootViewRendersWatchRouteContract(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{Config: cfg})
+	app.PushRoute(RouteWatch)
+	view := app.View()
+	for _, want := range []string{"watch · CI #570", "streaming", "follow", "✗ cancel"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("watch route view missing %q\n%s", want, view)
+		}
+	}
+}

@@ -14,6 +14,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/tui/screens/failure"
 	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/runs"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/watch"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/welcome"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
@@ -28,6 +29,7 @@ const (
 	RouteDetail  Route = "detail"
 	RouteFailure Route = "failure"
 	RouteLog     Route = "log"
+	RouteWatch   Route = "watch"
 )
 
 type Overlay string
@@ -146,6 +148,8 @@ func (a App) View() string {
 		out.WriteString(failure.View(sampleFailureModel(), 80))
 	} else if a.Route() == RouteLog {
 		out.WriteString(logscreen.View(sampleLogModel(), 80))
+	} else if a.Route() == RouteWatch {
+		out.WriteString(watch.View(sampleWatchModel(), 80))
 	} else {
 		out.WriteString(string(a.Route()))
 	}
@@ -218,6 +222,8 @@ func (a App) footerScreen() keys.Screen {
 		return keys.ScreenFailure
 	case RouteLog:
 		return keys.ScreenLog
+	case RouteWatch:
+		return keys.ScreenWatch
 	default:
 		return keys.ScreenRunsList
 	}
@@ -298,4 +304,24 @@ func sampleLogModel() logscreen.Model {
 		"##[error]Process completed with exit code 1",
 	}, "\n"))
 	return logscreen.NewModel(doc, 1, 6)
+}
+
+func sampleWatchModel() watch.Model {
+	doc := logs.Parse(strings.Join([]string{
+		"041 17:43:02.781Z go test ./... -race -count=1",
+		"042 ok    github.com/indrasvat/gh-hound/internal/api 0.214s",
+		"043 ok    github.com/indrasvat/gh-hound/internal/render 0.331s",
+	}, "\n"))
+	return watch.NewModel(watch.State{
+		Repo:    "indrasvat/gh-hound",
+		Branch:  "main",
+		Elapsed: "0m48s",
+		Run: model.Run{
+			ID:        570,
+			Name:      "CI",
+			RunNumber: 570,
+			Status:    model.StatusInProgress,
+		},
+		Lines: doc.Lines,
+	})
 }
