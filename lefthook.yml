@@ -1,10 +1,6 @@
 # lefthook.yml — gh-hound git hooks
 # Install with: make hooks
 
-lefthook: |
-  PATH="$(go env GOPATH)/bin:$PATH"
-  lefthook
-
 pre-commit:
   parallel: true
   commands:
