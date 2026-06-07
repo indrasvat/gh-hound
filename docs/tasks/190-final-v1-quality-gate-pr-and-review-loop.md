@@ -122,11 +122,11 @@ rtk git status --short
 
 ## Completion Evidence
 - Task status: every task file from `000` through `190` is now marked done.
-- Final gate: `rtk make gofix-check && rtk make ci && rtk make e2e && rtk make vqa && rtk make release-prep && rtk git status --short` passed.
+- Final gate: `rtk make release-prep` passed after the latest PR-review fixes.
 - Visual: regenerated `.claude/automations/screenshots/contact-sheet.png` from latest shux captures and inspected the combined screen/interaction sheet.
 - Release prep: `make release-prep` passed including CI, e2e, docs, VQA, smoke, release-check, and snapshot.
 - Branch: `create-gh-hound` pushed to origin.
-- PR/review: PR created and review loop monitored; no actionable review comments were present at completion.
+- PR/review: PR #1 created, CI passed, Codex review loop monitored, two actionable review comments addressed in `b934b77`, both review threads replied to and resolved, and `gh ghent status --pr 1 --solo --logs --format json --no-tui` reported `is_merge_ready: true`.
 
 ## Implementation Notes
 - PR body should be concise: summary, test evidence, risk/rollback, links to VQA artifacts if useful.
