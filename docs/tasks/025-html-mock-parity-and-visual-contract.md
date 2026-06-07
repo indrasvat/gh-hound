@@ -1,7 +1,7 @@
 # Task 025: HTML mock parity and visual contract
 
 ## Status
-TODO
+Done
 
 ## Ownership Boundary
 - **Primary area:** visual source-of-truth extraction and parity rules.
@@ -81,14 +81,14 @@ Most TUI implementation failures happen when agents stop looking at the mock and
 - Not required.
 
 ## Definition of Done
-- [ ] Red visual-contract tests fail first.
-- [ ] `docs/visual-contract.md` maps every visual ref to implementation requirements.
-- [ ] CSS token parity is tested.
-- [ ] Glyph/no-emoji parity is tested.
-- [ ] Key footer/help parity requirements are documented and testable.
-- [ ] Every screen task includes the re-read-mock protocol.
-- [ ] `make visual-contract-check` passes.
-- [ ] `make check` passes.
+- [x] Red visual-contract tests fail first.
+- [x] `docs/visual-contract.md` maps every visual ref to implementation requirements.
+- [x] CSS token parity is tested.
+- [x] Glyph/no-emoji parity is tested.
+- [x] Key footer/help parity requirements are documented and testable.
+- [x] Every screen task includes the re-read-mock protocol.
+- [x] `make visual-contract-check` passes.
+- [x] `make check` passes.
 
 ## Verification Commands
 ```bash
@@ -98,8 +98,8 @@ rtk make check
 ```
 
 ## Visual QA Checklist
-- [ ] Contract covers CSS theme, ASCII banner, all screens, logs, overlays, and keyboard navigation.
-- [ ] Contract points to HTML mock refs rather than relying on memory.
+- [x] Contract covers CSS theme, ASCII banner, all screens, logs, overlays, and keyboard navigation.
+- [x] Contract points to HTML mock refs rather than relying on memory.
 
 ## Implementation Notes
 - Do not summarize away important CSS details such as selected-row fill, green left bar, gradient focus border, and log color classes.
@@ -115,3 +115,8 @@ rtk make check
 ## Commit Protocol
 - Expected commit: `test(visual): add html mock parity contract`
 
+## Completion Evidence
+- Red: `rtk make visual-contract-check` failed with `missing docs/visual-contract.md`.
+- Green: `rtk make visual-contract-check`.
+- Focused tests: `rtk go test -race ./internal/theme ./internal/tui/icons ./internal/tui/keys ./internal/layout`.
+- Full gate: `rtk make check`.

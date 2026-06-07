@@ -35,7 +35,7 @@ help: ## Show grouped help
 	@printf "$(COLOR_BOLD)Build & Run$(COLOR_RESET)\n"
 	@awk 'BEGIN {FS = ":.*##"} /^(build|install|run|clean):.*?##/ {printf "  $(COLOR_GREEN)%-18s$(COLOR_RESET) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf "\n$(COLOR_BOLD)Quality$(COLOR_RESET)\n"
-	@awk 'BEGIN {FS = ":.*##"} /^(fmt|fmt-check|gofix|gofix-check|lint|vet|test|coverage|coverage-check|check|ci|emoji-check|arch-check):.*?##/ {printf "  $(COLOR_GREEN)%-18s$(COLOR_RESET) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"} /^(fmt|fmt-check|gofix|gofix-check|lint|vet|test|coverage|coverage-check|check|ci|emoji-check|arch-check|visual-contract-check):.*?##/ {printf "  $(COLOR_GREEN)%-18s$(COLOR_RESET) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf "\n$(COLOR_BOLD)Verification$(COLOR_RESET)\n"
 	@awk 'BEGIN {FS = ":.*##"} /^(e2e|vqa|vqa-screen|demo|smoke-test):.*?##/ {printf "  $(COLOR_GREEN)%-18s$(COLOR_RESET) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf "\n$(COLOR_BOLD)Tooling & Release$(COLOR_RESET)\n"
@@ -117,8 +117,12 @@ emoji-check: ## Fail on emoji variation selectors or astral-plane codepoints in 
 arch-check: ## Check current architecture import boundaries
 	@./scripts/check-architecture.sh
 
+.PHONY: visual-contract-check
+visual-contract-check: ## Check implementation constants against the HTML visual contract
+	@./scripts/visual-contract-check.sh
+
 .PHONY: check
-check: gofix-check fmt-check lint vet emoji-check arch-check test ## Run local green-bar gate
+check: gofix-check fmt-check lint vet emoji-check arch-check visual-contract-check test ## Run local green-bar gate
 	@printf "\n$(COLOR_GREEN)$(COLOR_BOLD)✓ check passed$(COLOR_RESET)\n\n"
 
 .PHONY: ci

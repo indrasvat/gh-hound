@@ -66,6 +66,10 @@ func ShortHelp(layer Layer) []string {
 	items := make([]string, 0, len(layer.Bindings))
 	for _, binding := range layer.Bindings {
 		if binding.ShowInFooter {
+			if binding.Help == "" {
+				items = append(items, binding.Key)
+				continue
+			}
 			items = append(items, binding.Key+" "+binding.Help)
 		}
 	}
