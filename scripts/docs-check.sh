@@ -66,7 +66,9 @@ if [ "$api_code" -ne 2 ]; then
   exit 1
 fi
 
-"$bin" runs --no-tui --format md --fake-scenario green | grep -q '# gh-hound'
-"$bin" runs --no-tui --format xml --fake-scenario green | grep -q '<result'
+md_output="$("$bin" runs --no-tui --format md --fake-scenario green)"
+xml_output="$("$bin" runs --no-tui --format xml --fake-scenario green)"
+grep -q '# gh-hound' <<<"$md_output"
+grep -q '<result' <<<"$xml_output"
 
 echo "docs check passed"

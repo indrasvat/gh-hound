@@ -85,6 +85,21 @@ gh hound --version
 
 Release packaging and `gh-extension-precompile` wiring are tracked in `docs/tasks/180-ci-cd-release-install-and-smoke-verification.md`.
 
+### Standalone release installer
+
+After the first tagged release is published, install the standalone binary with checksum verification:
+
+```bash
+curl -sSfL https://raw.githubusercontent.com/indrasvat/gh-hound/main/install.sh | bash
+```
+
+Pin a version or custom directory:
+
+```bash
+curl -sSfL https://raw.githubusercontent.com/indrasvat/gh-hound/main/install.sh \
+  | bash -s -- --version v0.1.0 --dir ~/.local/bin
+```
+
 ## Quick Start
 
 ```bash

@@ -182,18 +182,16 @@ hooks-run: ## Run lefthook pre-commit and pre-push locally
 	@"$(LEFTHOOK)" run pre-push
 
 .PHONY: release-check
-release-check: ## Validate release config placeholder
-	@test -x scripts/build-release.sh
-	@printf "$(COLOR_BLUE)▶ full release config lands in Task 180$(COLOR_RESET)\n"
+release-check: ## Validate CI/release/install configuration
+	@./scripts/release-check.sh
 
 .PHONY: snapshot
-snapshot: release-check build ## Build a local release snapshot placeholder
-	@mkdir -p $(OUT_DIR)
-	@cp $(BUILD_DIR)/$(BINARY) $(OUT_DIR)/$(BINARY)-$(VERSION)
-	@printf "$(COLOR_GREEN)✓ snapshot in $(OUT_DIR)$(COLOR_RESET)\n"
+snapshot: release-check ## Build local release artifacts into dist/
+	@VERSION="$(VERSION)" COMMIT="$(COMMIT)" DATE="$(DATE)" scripts/build-release.sh "$(VERSION)"
+	@printf "$(COLOR_GREEN)✓ snapshot in dist/$(COLOR_RESET)\n"
 
 .PHONY: release-prep
-release-prep: ci e2e smoke-test release-check ## Run release preparation gate
+release-prep: ci e2e docs-check vqa smoke-test release-check snapshot ## Run release preparation gate
 	@printf "$(COLOR_GREEN)$(COLOR_BOLD)✓ release prep passed for current scaffold$(COLOR_RESET)\n"
 
 .PHONY: clean

@@ -1,7 +1,7 @@
 # Task 180: CI/CD, release, install, and smoke verification
 
 ## Status
-TODO
+DONE
 
 ## Ownership Boundary
 - **Primary area:** GitHub Actions, release config, install script, smoke tests.
@@ -89,12 +89,12 @@ The project must be installable as a `gh` extension and verified by CI before me
 - After an actual release, verify `gh extension install indrasvat/gh-hound` on macOS/Linux and downloaded artifact metadata.
 
 ## Definition of Done
-- [ ] Red release/smoke checks fail first.
-- [ ] `ci.yml` mirrors `make ci`.
-- [ ] Release workflow uses gh-extension precompile with build script override.
-- [ ] `install.sh` verifies checksums and macOS quarantine behavior if present.
-- [ ] `make release-check`, `make snapshot`, and `make smoke-test` pass.
-- [ ] README install docs are accurate.
+- [x] Red release/smoke checks fail first.
+- [x] `ci.yml` mirrors `make ci`.
+- [x] Release workflow uses gh-extension precompile with build script override.
+- [x] `install.sh` verifies checksums and macOS quarantine behavior if present.
+- [x] `make release-check`, `make snapshot`, and `make smoke-test` pass.
+- [x] README install docs are accurate.
 
 ## Verification Commands
 ```bash
@@ -105,7 +105,15 @@ rtk make ci
 ```
 
 ## Visual QA Checklist
-- [ ] Not applicable.
+- [x] Not applicable.
+
+## Completion Evidence
+- Red: stricter `rtk make release-check` failed before workflows/install script existed.
+- CI: added `.github/workflows/ci.yml` running `make tools-ci` and `make ci`, with coverage artifact/upload.
+- Release: added `.github/workflows/release.yml` using `cli/gh-extension-precompile@v2`, `go_version_file: go.mod`, and `build_script_override: scripts/build-release.sh`.
+- Install: added `install.sh` with latest tag resolution, checksum verification, install dir support, and macOS quarantine clearing.
+- Snapshot: `rtk make snapshot` built darwin/linux/windows amd64/arm64 artifacts plus `dist/checksums.txt`.
+- Gates: `rtk make release-check`, `rtk make smoke-test`, `rtk make ci`, and `rtk make release-prep` passed.
 
 ## Implementation Notes
 - Do not release with stale owner/module/binary names.
@@ -120,4 +128,3 @@ rtk make ci
 
 ## Commit Protocol
 - Expected commit: `ci(release): add gh extension release pipeline`
-
