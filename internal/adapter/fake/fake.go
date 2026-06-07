@@ -3,6 +3,7 @@ package fake
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"time"
 
@@ -109,6 +110,48 @@ func (a *Adapter) FetchJobLog(context.Context, string, int64) (string, error) {
 		"##[endgroup]",
 		"##[endgroup]",
 	}, "\n"), nil
+}
+
+func (a *Adapter) RerunRun(ctx context.Context, repo string, runID int64, debug bool) (usecase.ActionResult, error) {
+	return a.actionResult(usecase.ActionRerunRun, repo, runID, 0, "")
+}
+
+func (a *Adapter) RerunFailedJobs(ctx context.Context, repo string, runID int64) (usecase.ActionResult, error) {
+	return a.actionResult(usecase.ActionRerunFailedJobs, repo, runID, 0, "")
+}
+
+func (a *Adapter) RerunJob(ctx context.Context, repo string, jobID int64) (usecase.ActionResult, error) {
+	return a.actionResult(usecase.ActionRerunJob, repo, 0, jobID, "")
+}
+
+func (a *Adapter) CancelRun(ctx context.Context, repo string, runID int64) (usecase.ActionResult, error) {
+	return a.actionResult(usecase.ActionCancelRun, repo, runID, 0, "")
+}
+
+func (a *Adapter) ForceCancelRun(ctx context.Context, repo string, runID int64) (usecase.ActionResult, error) {
+	return a.actionResult(usecase.ActionForceCancelRun, repo, runID, 0, "")
+}
+
+func (a *Adapter) DispatchWorkflow(ctx context.Context, repo, workflowID string, request usecase.DispatchRequest) (usecase.ActionResult, error) {
+	return a.actionResult(usecase.ActionDispatch, repo, 0, 0, workflowID)
+}
+
+func (a *Adapter) actionResult(action usecase.Action, repo string, runID, jobID int64, workflowID string) (usecase.ActionResult, error) {
+	switch a.scenario {
+	case ScenarioRateLimited:
+		return usecase.ActionResult{}, usecase.ActionError{Kind: usecase.ActionErrorRateLimit, Message: "rate limited", Status: http.StatusTooManyRequests}
+	case ScenarioNetworkError:
+		return usecase.ActionResult{}, usecase.ActionError{Kind: usecase.ActionErrorNetwork, Message: "network unavailable"}
+	default:
+		return usecase.ActionResult{
+			Action:     action,
+			Repo:       repo,
+			RunID:      runID,
+			JobID:      jobID,
+			WorkflowID: workflowID,
+			Message:    "accepted",
+		}, nil
+	}
 }
 
 func greenRun(number int) model.Run {

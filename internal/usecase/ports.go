@@ -25,4 +25,10 @@ type GitHub interface {
 	ListWorkflows(context.Context, string) ([]model.Workflow, error)
 	ListAnnotations(context.Context, string, model.Job) ([]model.Annotation, error)
 	FetchJobLog(context.Context, string, int64) (string, error)
+	RerunRun(context.Context, string, int64, bool) (ActionResult, error)
+	RerunFailedJobs(context.Context, string, int64) (ActionResult, error)
+	RerunJob(context.Context, string, int64) (ActionResult, error)
+	CancelRun(context.Context, string, int64) (ActionResult, error)
+	ForceCancelRun(context.Context, string, int64) (ActionResult, error)
+	DispatchWorkflow(context.Context, string, string, DispatchRequest) (ActionResult, error)
 }

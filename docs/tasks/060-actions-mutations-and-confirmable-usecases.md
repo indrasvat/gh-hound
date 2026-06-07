@@ -1,7 +1,7 @@
 # Task 060: Actions mutations and confirmable usecases
 
 ## Status
-TODO
+Done
 
 ## Ownership Boundary
 - **Primary area:** rerun, cancel, force-cancel, dispatch usecases and adapter writes.
@@ -84,12 +84,12 @@ The daily loop includes acting on CI: rerun failed jobs, rerun a job, rerun the 
 - Optional live mutation tests must be opt-in and safe.
 
 ## Definition of Done
-- [ ] Red tests fail first.
-- [ ] All v1 write endpoints implemented.
-- [ ] Mutation spacing is tested without sleeping.
-- [ ] Dispatch inputs are validated.
-- [ ] Error mapping distinguishes 403, 409, rate limit, and network errors.
-- [ ] `make check` passes.
+- [x] Red tests fail first.
+- [x] All v1 write endpoints implemented.
+- [x] Mutation spacing is tested without sleeping.
+- [x] Dispatch inputs are validated.
+- [x] Error mapping distinguishes 403, 409, rate limit, and network errors.
+- [x] `make check` passes.
 
 ## Verification Commands
 ```bash
@@ -107,10 +107,14 @@ rtk make check
 ## Session Protocol
 1. Re-read this task, the referenced PRD sections, and the relevant `docs/gh-hound-design.html` mock immediately before editing.
 2. Add failing mutation tests.
-2. Implement.
-3. Verify.
-4. Commit and push.
+3. Implement.
+4. Verify.
+5. Commit and push.
 
 ## Commit Protocol
 - Expected commit: `feat(actions): add github actions mutation usecases`
 
+## Completion Evidence
+- Red: `rtk go test -race ./internal/usecase ./internal/adapter/...` failed on missing `ActionService`, `MutationLimiter`, `DispatchRequest`, action errors, and adapter mutation methods.
+- Focused tests: `rtk go test -race ./internal/usecase ./internal/adapter/...`.
+- Full gate: `rtk make check`.
