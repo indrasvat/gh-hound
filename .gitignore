@@ -57,3 +57,13 @@ Thumbs.db
 .agent/
 
 .DS_Store
+bin/
+out/
+dist/
+coverage.out
+coverage.html
+*.test
+*.prof
+.DS_Store
+.claude/automations/screenshots/*
+!.claude/automations/screenshots/.gitkeep
