@@ -1,7 +1,7 @@
 # Task 020: theme, icons, keymap, focus, and responsive layout foundation
 
 ## Status
-TODO
+Done
 
 ## Ownership Boundary
 - **Primary area:** `internal/theme`, `internal/tui/keys`, `internal/layout`, `internal/tui/components`.
@@ -113,6 +113,7 @@ rtk make check
 ## Implementation Notes
 - `✔`, `✗`, and `▶` are emoji-capable codepoints; never append VS16.
 - Keep wide-rune display-width helpers in layout rather than ad hoc string length checks.
+- Completion evidence: red tests failed on missing theme/icon/keymap/layout APIs first; focused `go test -race ./internal/theme ./internal/tui/icons ./internal/tui/keys ./internal/layout` passed; `make check` passed with emoji and architecture gates.
 
 ## Session Protocol
 1. Re-read this task, the referenced PRD sections, and the relevant `docs/gh-hound-design.html` mock immediately before editing.
@@ -123,4 +124,3 @@ rtk make check
 
 ## Commit Protocol
 - Expected commit: `feat(tui): add theme icons keymap and layout foundations`
-
