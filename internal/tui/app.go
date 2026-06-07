@@ -5,9 +5,11 @@ import (
 	"time"
 
 	"github.com/indrasvat/gh-hound/internal/config"
+	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/banner"
 	"github.com/indrasvat/gh-hound/internal/tui/keys"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/runs"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/welcome"
 	"github.com/indrasvat/gh-hound/internal/usecase"
@@ -134,6 +136,8 @@ func (a App) View() string {
 			Actor:  "indrasvat",
 			State:  usecase.LaunchStateRuns,
 		}), 80, time.Now()))
+	} else if a.Route() == RouteDetail {
+		out.WriteString(detail.View(sampleDetailModel(), 80))
 	} else {
 		out.WriteString(string(a.Route()))
 	}
@@ -207,4 +211,35 @@ func (a App) footerScreen() keys.Screen {
 	default:
 		return keys.ScreenRunsList
 	}
+}
+
+func sampleDetailModel() detail.Model {
+	start := time.Date(2026, 6, 7, 17, 42, 0, 0, time.UTC)
+	run := model.Run{
+		ID:         571,
+		Name:       "CI",
+		Status:     model.StatusCompleted,
+		Conclusion: model.ConclusionFailure,
+		HeadBranch: "fix/parser",
+		HeadSHA:    "a1b2c3d",
+		RunNumber:  571,
+	}
+	jobs := []model.Job{{
+		ID:          100,
+		Name:        "build",
+		Status:      model.StatusCompleted,
+		Conclusion:  model.ConclusionFailure,
+		Labels:      []string{"ubuntu-latest"},
+		StartedAt:   start,
+		CompletedAt: start.Add(134 * time.Second),
+		Steps: []model.Step{{
+			Number:      6,
+			Name:        "go test ./...",
+			Status:      model.StatusCompleted,
+			Conclusion:  model.ConclusionFailure,
+			StartedAt:   start,
+			CompletedAt: start.Add(41 * time.Second),
+		}},
+	}}
+	return detail.NewModel(run, jobs)
 }

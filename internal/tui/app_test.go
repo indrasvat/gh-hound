@@ -98,3 +98,16 @@ func TestRootViewRendersRunsRoutePlaceholderContract(t *testing.T) {
 		}
 	}
 }
+
+func TestRootViewRendersDetailRouteContract(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{Config: cfg})
+	app.PushRoute(RouteDetail)
+	view := app.View()
+	for _, want := range []string{"CI #571", "Steps", "go test ./...", "⏎ expand · ↻ rerun job"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("detail route view missing %q\n%s", want, view)
+		}
+	}
+}
