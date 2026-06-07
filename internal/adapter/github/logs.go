@@ -1,7 +1,9 @@
 package github
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -16,10 +18,13 @@ func (c *Client) FetchJobLog(ctx context.Context, repo string, jobID int64) (str
 		return "", err
 	}
 	if status == http.StatusNotFound || status == http.StatusGone {
-		body, _, err = c.fetchLogURL(ctx, endpoint)
+		body, status, err = c.fetchLogURL(ctx, endpoint)
 		if err != nil {
 			return "", err
 		}
+	}
+	if status < 200 || status >= 300 {
+		return "", fmt.Errorf("github log download failed for job %d: status %d", jobID, status)
 	}
 	return string(body), nil
 }
@@ -53,7 +58,8 @@ func (c *Client) fetchLogURL(ctx context.Context, rawURL string) ([]byte, int, e
 		return c.fetchRedirectedLog(ctx, location.String())
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, resp.StatusCode, nil
+		limited, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return nil, resp.StatusCode, fmt.Errorf("github log url %s returned %d: %s", rawURL, resp.StatusCode, bytes.TrimSpace(limited))
 	}
 	body, err := io.ReadAll(resp.Body)
 	return body, resp.StatusCode, err
@@ -72,7 +78,11 @@ func (c *Client) fetchRedirectedLog(ctx context.Context, rawURL string) ([]byte,
 		_ = resp.Body.Close()
 	}()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, resp.StatusCode, nil
+		if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
+			return nil, resp.StatusCode, nil
+		}
+		limited, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return nil, resp.StatusCode, fmt.Errorf("github redirected log url %s returned %d: %s", rawURL, resp.StatusCode, bytes.TrimSpace(limited))
 	}
 	body, err := io.ReadAll(resp.Body)
 	return body, resp.StatusCode, err

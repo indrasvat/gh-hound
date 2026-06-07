@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
@@ -40,5 +41,47 @@ func TestFetchJobLogRefetchesWhenRedirectExpired(t *testing.T) {
 	}
 	if got := logEndpointCalls.Load(); got != 2 {
 		t.Fatalf("log endpoint calls = %s, want 2", strconv.FormatInt(got, 10))
+	}
+}
+
+func TestFetchJobLogReturnsErrorForLogEndpointFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/indrasvat/gh-hound/actions/jobs/399444496/logs" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		http.Error(w, "rate limited", http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client())
+	logText, err := client.FetchJobLog(context.Background(), "indrasvat/gh-hound", 399444496)
+	if err == nil {
+		t.Fatalf("FetchJobLog returned nil error and log %q", logText)
+	}
+	if !strings.Contains(err.Error(), "403") || !strings.Contains(err.Error(), "rate limited") {
+		t.Fatalf("error did not include status/body context: %v", err)
+	}
+}
+
+func TestFetchJobLogReturnsErrorForRedirectedLogFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/indrasvat/gh-hound/actions/jobs/399444496/logs":
+			http.Redirect(w, r, "/artifact", http.StatusFound)
+		case "/artifact":
+			http.Error(w, "artifact server exploded", http.StatusInternalServerError)
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client())
+	logText, err := client.FetchJobLog(context.Background(), "indrasvat/gh-hound", 399444496)
+	if err == nil {
+		t.Fatalf("FetchJobLog returned nil error and log %q", logText)
+	}
+	if !strings.Contains(err.Error(), "500") || !strings.Contains(err.Error(), "artifact server exploded") {
+		t.Fatalf("error did not include redirected status/body context: %v", err)
 	}
 }

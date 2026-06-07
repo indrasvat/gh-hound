@@ -2,10 +2,15 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
 func TestHelpListsEnvVarsForFlags(t *testing.T) {
@@ -35,11 +40,12 @@ func TestRunsNoTUIJSONUsesEnvOverrides(t *testing.T) {
 		Stdout: &out,
 		Stderr: &bytes.Buffer{},
 		Env: mapEnv(map[string]string{
-			"HOUND_REPO":   "indrasvat/gh-ghent",
-			"HOUND_BRANCH": "fix/parser",
-			"HOUND_STATUS": "failure",
-			"HOUND_NO_TUI": "true",
-			"HOUND_FORMAT": "json",
+			"HOUND_REPO":          "indrasvat/gh-ghent",
+			"HOUND_BRANCH":        "fix/parser",
+			"HOUND_STATUS":        "failure",
+			"HOUND_NO_TUI":        "true",
+			"HOUND_FORMAT":        "json",
+			"HOUND_FAKE_SCENARIO": "failure",
 		}),
 		IsTTY: true,
 	}, testBuildInfo())
@@ -68,6 +74,11 @@ func TestPipeDetectionDefaultsToStructuredOutput(t *testing.T) {
 		Stderr: &bytes.Buffer{},
 		Env:    emptyEnv,
 		IsTTY:  false,
+		GitHub: &cliGitHub{runs: []model.Run{cliRun(908, "CI", model.StatusCompleted, model.ConclusionSuccess)}},
+		Repo: &cliRepo{context: usecase.RepositoryContext{
+			Repo:   "indrasvat/gh-hound",
+			Branch: "main",
+		}},
 	}, testBuildInfo())
 	cmd.SetArgs([]string{})
 
@@ -88,7 +99,12 @@ func TestLaunchFlagsRouteRepoAllAndWatch(t *testing.T) {
 		Env: mapEnv(map[string]string{
 			"GH_REPO": "indrasvat/env-repo",
 		}),
-		IsTTY: false,
+		IsTTY:  false,
+		GitHub: &cliGitHub{runs: []model.Run{cliRun(909, "CI", model.StatusCompleted, model.ConclusionSuccess)}},
+		Repo: &cliRepo{context: usecase.RepositoryContext{
+			Repo:   "indrasvat/local",
+			Branch: "main",
+		}},
 	}, testBuildInfo())
 	cmd.SetArgs([]string{"--all", "--json"})
 
@@ -107,6 +123,11 @@ func TestLaunchFlagsRouteRepoAllAndWatch(t *testing.T) {
 		Stderr: io.Discard,
 		Env:    emptyEnv,
 		IsTTY:  false,
+		GitHub: &cliGitHub{runs: []model.Run{cliRun(910, "CI", model.StatusInProgress, model.ConclusionNone)}},
+		Repo: &cliRepo{context: usecase.RepositoryContext{
+			Repo:   "indrasvat/local",
+			Branch: "main",
+		}},
 	}, testBuildInfo())
 	cmd.SetArgs([]string{"watch", "-R", "indrasvat/other", "--json"})
 	code, err = executeCommand(cmd)
@@ -116,6 +137,77 @@ func TestLaunchFlagsRouteRepoAllAndWatch(t *testing.T) {
 	got = out.String()
 	if !strings.Contains(got, `"repo": "indrasvat/other"`) || !strings.Contains(got, `"status": "in_progress"`) {
 		t.Fatalf("watch did not route to requested repo and pending run:\n%s", got)
+	}
+}
+
+func TestNormalJSONPathUsesGitHubAdapter(t *testing.T) {
+	var out bytes.Buffer
+	github := &cliGitHub{runs: []model.Run{cliRun(777, "Release", model.StatusCompleted, model.ConclusionSuccess)}}
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: io.Discard,
+		Env:    emptyEnv,
+		IsTTY:  true,
+		GitHub: github,
+		Repo: &cliRepo{context: usecase.RepositoryContext{
+			Repo:   "indrasvat/real-repo",
+			Branch: "feature/real",
+		}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--json"})
+
+	code, err := executeCommand(cmd)
+	if code != 0 || err != nil {
+		t.Fatalf("runs --json code=%d err=%v out=%s", code, err, out.String())
+	}
+	if len(github.filters) != 1 {
+		t.Fatalf("ListRuns calls = %d, want 1", len(github.filters))
+	}
+	if got := github.filters[0]; got.Repo != "indrasvat/real-repo" || got.Branch != "feature/real" {
+		t.Fatalf("filter = %#v", got)
+	}
+	decoded := decodeJSON(t, out.Bytes())
+	runs := decoded["runs"].([]any)
+	run := runs[0].(map[string]any)
+	if run["id"] != float64(777) || run["workflow"] != "Release" {
+		t.Fatalf("normal path rendered fixture-looking data instead of adapter data:\n%s", out.String())
+	}
+}
+
+func TestNormalStatusFailureFiltersCompletedRunsByConclusion(t *testing.T) {
+	var out bytes.Buffer
+	github := &cliGitHub{runs: []model.Run{
+		cliRun(777, "Release", model.StatusCompleted, model.ConclusionSuccess),
+		cliRun(778, "CI", model.StatusCompleted, model.ConclusionFailure),
+	}}
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: io.Discard,
+		Env:    emptyEnv,
+		IsTTY:  true,
+		GitHub: github,
+		Repo: &cliRepo{context: usecase.RepositoryContext{
+			Repo:   "indrasvat/real-repo",
+			Branch: "feature/real",
+		}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--json", "--status", "failure"})
+
+	code, err := executeCommand(cmd)
+	if code != 1 || err == nil {
+		t.Fatalf("runs --status failure code=%d err=%v out=%s", code, err, out.String())
+	}
+	if got := github.filters[0].Status; got != model.StatusCompleted {
+		t.Fatalf("GitHub status filter = %q, want completed", got)
+	}
+	decoded := decodeJSON(t, out.Bytes())
+	runs := decoded["runs"].([]any)
+	if len(runs) != 1 {
+		t.Fatalf("rendered runs = %d, want one failure\n%s", len(runs), out.String())
+	}
+	run := runs[0].(map[string]any)
+	if run["id"] != float64(778) || run["conclusion"] != "failure" {
+		t.Fatalf("wrong run rendered after failure filter:\n%s", out.String())
 	}
 }
 
@@ -258,5 +350,88 @@ func mapEnv(values map[string]string) func(string) (string, bool) {
 	return func(key string) (string, bool) {
 		value, ok := values[key]
 		return value, ok
+	}
+}
+
+type cliRepo struct {
+	context usecase.RepositoryContext
+	err     error
+}
+
+func (r *cliRepo) Current(context.Context) (usecase.RepositoryContext, error) {
+	return r.context, r.err
+}
+
+type cliGitHub struct {
+	runs    []model.Run
+	filters []usecase.RunFilter
+	err     error
+}
+
+func (g *cliGitHub) ListRuns(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
+	g.filters = append(g.filters, filter)
+	return g.runs, g.err
+}
+
+func (g *cliGitHub) GetRun(context.Context, string, int64) (model.Run, error) {
+	return model.Run{}, nil
+}
+
+func (g *cliGitHub) ListJobs(context.Context, string, int64) ([]model.Job, error) {
+	return nil, nil
+}
+
+func (g *cliGitHub) GetJob(context.Context, string, int64) (model.Job, error) {
+	return model.Job{}, nil
+}
+
+func (g *cliGitHub) ListWorkflows(context.Context, string) ([]model.Workflow, error) {
+	return nil, nil
+}
+
+func (g *cliGitHub) ListAnnotations(context.Context, string, model.Job) ([]model.Annotation, error) {
+	return nil, nil
+}
+
+func (g *cliGitHub) FetchJobLog(context.Context, string, int64) (string, error) {
+	return "", nil
+}
+
+func (g *cliGitHub) RerunRun(context.Context, string, int64, bool) (usecase.ActionResult, error) {
+	return usecase.ActionResult{}, nil
+}
+
+func (g *cliGitHub) RerunFailedJobs(context.Context, string, int64) (usecase.ActionResult, error) {
+	return usecase.ActionResult{}, nil
+}
+
+func (g *cliGitHub) RerunJob(context.Context, string, int64) (usecase.ActionResult, error) {
+	return usecase.ActionResult{}, nil
+}
+
+func (g *cliGitHub) CancelRun(context.Context, string, int64) (usecase.ActionResult, error) {
+	return usecase.ActionResult{}, nil
+}
+
+func (g *cliGitHub) ForceCancelRun(context.Context, string, int64) (usecase.ActionResult, error) {
+	return usecase.ActionResult{}, nil
+}
+
+func (g *cliGitHub) DispatchWorkflow(context.Context, string, string, usecase.DispatchRequest) (usecase.ActionResult, error) {
+	return usecase.ActionResult{}, nil
+}
+
+func cliRun(id int64, workflow string, status model.Status, conclusion model.Conclusion) model.Run {
+	return model.Run{
+		ID:         id,
+		Name:       workflow,
+		Status:     status,
+		Conclusion: conclusion,
+		Event:      "pull_request",
+		HeadBranch: "feature/real",
+		HeadSHA:    "abcdef0",
+		RunNumber:  int(id % 1000),
+		CreatedAt:  time.Date(2026, 6, 7, 17, 42, 0, 0, time.UTC),
+		HTMLURL:    "https://github.com/indrasvat/gh-hound/actions/runs/777",
 	}
 }

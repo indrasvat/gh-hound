@@ -1,17 +1,23 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/indrasvat/gh-hound/internal/adapter/github"
+	"github.com/indrasvat/gh-hound/internal/adapter/repository"
+	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/render"
 	"github.com/indrasvat/gh-hound/internal/tui"
 	tuibanner "github.com/indrasvat/gh-hound/internal/tui/banner"
+	"github.com/indrasvat/gh-hound/internal/usecase"
 	"github.com/spf13/cobra"
 )
 
@@ -54,6 +60,8 @@ type commandRuntime struct {
 	Env       func(string) (string, bool)
 	IsTTY     bool
 	StateHome string
+	GitHub    usecase.GitHub
+	Repo      usecase.RepositoryContextProvider
 }
 
 type cliOptions struct {
@@ -97,7 +105,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 			}
 			applyEnv(&options, runtime.Env)
 			if structuredOutput(options, runtime) {
-				return writeResult(runtime.Stdout, options)
+				return writeResult(cmd.Context(), runtime.Stdout, options, runtime)
 			}
 			return printPlaceholder(runtime.Stdout)
 		},
@@ -177,7 +185,7 @@ func newRunsCommand(runtime commandRuntime, options *cliOptions) *cobra.Command 
 		Short: "List GitHub Actions runs",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyEnv(options, runtime.Env)
-			return writeResult(runtime.Stdout, *options)
+			return writeResult(cmd.Context(), runtime.Stdout, *options, runtime)
 		},
 	}
 	cmd.Flags().StringVar(&options.Status, "status", "", "filter runs by status or conclusion (env HOUND_STATUS)")
@@ -192,7 +200,7 @@ func newWatchCommand(runtime commandRuntime, options *cliOptions) *cobra.Command
 			options.Status = "in_progress"
 			options.NoTUI = true
 			options.Watch = true
-			return writeResult(runtime.Stdout, *options)
+			return writeResult(cmd.Context(), runtime.Stdout, *options, runtime)
 		},
 	}
 }
@@ -203,7 +211,7 @@ func newDispatchCommand(runtime commandRuntime, options *cliOptions) *cobra.Comm
 		Short: "Trigger a workflow_dispatch workflow",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			options.NoTUI = true
-			return writeResult(runtime.Stdout, *options)
+			return writeResult(cmd.Context(), runtime.Stdout, *options, runtime)
 		},
 	}
 }
@@ -247,8 +255,8 @@ func isOutcome(err error) bool {
 	return errors.As(err, &outcome)
 }
 
-func writeResult(w io.Writer, options cliOptions) error {
-	result, err := resultForOptions(options)
+func writeResult(ctx context.Context, w io.Writer, options cliOptions, runtime commandRuntime) error {
+	result, err := resultForOptions(ctx, options, runtime)
 	if err != nil {
 		return err
 	}
@@ -262,12 +270,140 @@ func writeResult(w io.Writer, options cliOptions) error {
 	return nil
 }
 
-func resultForOptions(options cliOptions) (render.Result, error) {
+func resultForOptions(ctx context.Context, options cliOptions, runtime commandRuntime) (render.Result, error) {
+	if options.Fake == "" {
+		return liveResult(ctx, options, runtime)
+	}
 	scenario := normalizedScenario(options)
 	if scenario == "api_error" || scenario == "network_error" || scenario == "rate_limited" {
 		return render.Result{}, errors.New("github api unavailable")
 	}
 	return fakeResult(options, scenario), nil
+}
+
+func liveResult(ctx context.Context, options cliOptions, runtime commandRuntime) (render.Result, error) {
+	githubClient := runtime.GitHub
+	if githubClient == nil {
+		githubClient = github.NewClient("https://api.github.com", authenticatedHTTPClient(runtime.Env))
+	}
+	repoProvider := runtime.Repo
+	if repoProvider == nil {
+		repoProvider = repository.Detector{LookupEnv: runtime.Env}
+	}
+
+	repoCtx, err := repoProvider.Current(ctx)
+	if err != nil && options.Repo == "" {
+		return render.Result{}, fmt.Errorf("%s; pass -R owner/repo or set GH_REPO", err)
+	}
+	repo := firstNonEmpty(options.Repo, repoCtx.Repo)
+	if repo == "" {
+		return render.Result{}, errors.New("repository context could not be resolved; pass -R owner/repo or set GH_REPO")
+	}
+	branch := firstNonEmpty(options.Branch, repoCtx.Branch)
+	if options.All {
+		branch = ""
+	}
+
+	filter := usecase.RunFilter{Repo: repo, Branch: branch, PerPage: 30}
+	if options.Status != "" {
+		status, err := parseStatusFilter(options.Status)
+		if err != nil {
+			return render.Result{}, err
+		}
+		filter.Status = status
+	}
+	runs, err := githubClient.ListRuns(ctx, filter)
+	if err != nil {
+		return render.Result{}, err
+	}
+	runs = filterRunsByConclusion(runs, options.Status)
+	return render.Result{Repo: repo, Branch: branch, Runs: mapRenderRuns(runs)}, nil
+}
+
+func parseStatusFilter(raw string) (model.Status, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "":
+		return "", nil
+	case "failure", "failed", "failing":
+		return model.StatusCompleted, nil
+	case "success", "passed", "green":
+		return model.StatusCompleted, nil
+	default:
+		return model.ParseStatus(raw)
+	}
+}
+
+func mapRenderRuns(runs []model.Run) []render.Run {
+	out := make([]render.Run, 0, len(runs))
+	for _, run := range runs {
+		out = append(out, render.Run{
+			ID:         run.ID,
+			Workflow:   firstNonEmpty(run.Name, run.DisplayTitle, run.Path),
+			RunNumber:  run.RunNumber,
+			Event:      run.Event,
+			HeadBranch: run.HeadBranch,
+			HeadSHA:    run.HeadSHA,
+			Status:     string(run.Status),
+			Conclusion: string(run.Conclusion),
+			CreatedAt:  run.CreatedAt,
+			HTMLURL:    run.HTMLURL,
+			Failed:     []render.Failure{},
+		})
+	}
+	return out
+}
+
+func filterRunsByConclusion(runs []model.Run, rawStatus string) []model.Run {
+	var want model.Conclusion
+	switch strings.ToLower(strings.TrimSpace(rawStatus)) {
+	case "failure", "failed", "failing":
+		want = model.ConclusionFailure
+	case "success", "passed", "green":
+		want = model.ConclusionSuccess
+	default:
+		return runs
+	}
+	filtered := make([]model.Run, 0, len(runs))
+	for _, run := range runs {
+		if run.Conclusion == want {
+			filtered = append(filtered, run)
+		}
+	}
+	return filtered
+}
+
+func authenticatedHTTPClient(lookup func(string) (string, bool)) *http.Client {
+	if lookup == nil {
+		lookup = os.LookupEnv
+	}
+	token := firstLookup(lookup, "GH_TOKEN", "GITHUB_TOKEN")
+	if token == "" {
+		return http.DefaultClient
+	}
+	return &http.Client{Transport: authTransport{
+		token: token,
+		base:  http.DefaultTransport,
+	}}
+}
+
+type authTransport struct {
+	token string
+	base  http.RoundTripper
+}
+
+func (t authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	clone := req.Clone(req.Context())
+	clone.Header.Set("Authorization", "Bearer "+t.token)
+	return t.base.RoundTrip(clone)
+}
+
+func firstLookup(lookup func(string) (string, bool), keys ...string) string {
+	for _, key := range keys {
+		if value, ok := lookup(key); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func fakeResult(options cliOptions, scenario string) render.Result {
