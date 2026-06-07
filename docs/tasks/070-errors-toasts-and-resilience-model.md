@@ -1,7 +1,7 @@
 # Task 070: error taxonomy, toasts, and resilience model
 
 ## Status
-TODO
+Done
 
 ## Ownership Boundary
 - **Primary area:** error taxonomy and toast data/model behavior.
@@ -77,12 +77,12 @@ GitHub failures must never blank the screen. Users need cached data plus clear t
 - Not required.
 
 ## Definition of Done
-- [ ] Red tests fail first.
-- [ ] Every taxonomy row is reproduced by fake adapter.
-- [ ] Auto-dismiss, `Esc`, and `g` are tested.
-- [ ] Toasts do not steal focus.
-- [ ] Cached data remains renderable during errors.
-- [ ] `make check` passes.
+- [x] Red tests fail first.
+- [x] Every taxonomy row is reproduced by fake adapter.
+- [x] Auto-dismiss, `Esc`, and `g` are tested.
+- [x] Toasts do not steal focus.
+- [x] Cached data remains renderable during errors.
+- [x] `make check` passes.
 
 ## Verification Commands
 ```bash
@@ -91,7 +91,7 @@ rtk make check
 ```
 
 ## Visual QA Checklist
-- [ ] Toast fixture uses severity accents and no emoji.
+- [x] Toast fixture uses severity accents and no emoji.
 
 ## Implementation Notes
 - Severity mapping: `err`, `warn`, `info`, `ok`.
@@ -100,10 +100,14 @@ rtk make check
 ## Session Protocol
 1. Re-read this task, the referenced PRD sections, and the relevant `docs/gh-hound-design.html` mock immediately before editing.
 2. Add failing taxonomy/toast tests.
-2. Implement.
-3. Verify.
-4. Commit and push.
+3. Implement.
+4. Verify.
+5. Commit and push.
 
 ## Commit Protocol
 - Expected commit: `feat(tui): add resilient toast model`
 
+## Completion Evidence
+- Red: `rtk go test -race ./internal/usecase ./internal/tui/toast` failed on missing resilience taxonomy and toast model APIs.
+- Focused tests: `rtk go test -race ./internal/usecase ./internal/tui/toast ./internal/adapter/fake`.
+- Full gate: `rtk make check`.

@@ -20,6 +20,9 @@ const (
 	ScenarioEmpty        Scenario = "empty"
 	ScenarioRateLimited  Scenario = "rate_limited"
 	ScenarioNetworkError Scenario = "network_error"
+	ScenarioPermission   Scenario = "permission"
+	ScenarioConflict     Scenario = "conflict"
+	ScenarioLogRender    Scenario = "log_render"
 )
 
 type Adapter struct {
@@ -49,6 +52,10 @@ func (a *Adapter) ListRuns(context.Context, usecase.RunFilter) ([]model.Run, err
 		return nil, errors.New("github api rate limited")
 	case ScenarioNetworkError:
 		return nil, errors.New("network unavailable")
+	case ScenarioPermission:
+		return nil, usecase.ActionError{Kind: usecase.ActionErrorPermission, Message: "permission denied", Status: http.StatusForbidden}
+	case ScenarioConflict:
+		return nil, usecase.ActionError{Kind: usecase.ActionErrorConflict, Message: "run already completed", Status: http.StatusConflict}
 	default:
 		return nil, errors.New("unknown fake scenario")
 	}
@@ -97,6 +104,9 @@ func (a *Adapter) ListAnnotations(context.Context, string, model.Job) ([]model.A
 }
 
 func (a *Adapter) FetchJobLog(context.Context, string, int64) (string, error) {
+	if a.scenario == ScenarioLogRender {
+		return "", usecase.LogRenderError{Message: "link expired"}
+	}
 	return strings.Join([]string{
 		"17:42:53.114Z go test ./... -race",
 		"##[group] Run go test ./...",
@@ -142,6 +152,10 @@ func (a *Adapter) actionResult(action usecase.Action, repo string, runID, jobID 
 		return usecase.ActionResult{}, usecase.ActionError{Kind: usecase.ActionErrorRateLimit, Message: "rate limited", Status: http.StatusTooManyRequests}
 	case ScenarioNetworkError:
 		return usecase.ActionResult{}, usecase.ActionError{Kind: usecase.ActionErrorNetwork, Message: "network unavailable"}
+	case ScenarioPermission:
+		return usecase.ActionResult{}, usecase.ActionError{Kind: usecase.ActionErrorPermission, Message: "permission denied", Status: http.StatusForbidden}
+	case ScenarioConflict:
+		return usecase.ActionResult{}, usecase.ActionError{Kind: usecase.ActionErrorConflict, Message: "run already completed", Status: http.StatusConflict}
 	default:
 		return usecase.ActionResult{
 			Action:     action,

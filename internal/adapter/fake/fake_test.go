@@ -38,3 +38,56 @@ func TestScenariosReturnDeterministicRuns(t *testing.T) {
 		}
 	}
 }
+
+func TestScenariosReproduceErrorTaxonomy(t *testing.T) {
+	tests := []struct {
+		name     string
+		scenario Scenario
+		action   func(*Adapter) error
+		want     usecase.ErrorClass
+	}{
+		{
+			name:     "rate limit",
+			scenario: ScenarioRateLimited,
+			action: func(adapter *Adapter) error {
+				_, err := adapter.CancelRun(context.Background(), "indrasvat/gh-hound", 571)
+				return err
+			},
+			want: usecase.ErrorClassRateLimit,
+		},
+		{
+			name:     "network",
+			scenario: ScenarioNetworkError,
+			action: func(adapter *Adapter) error {
+				_, err := adapter.ListRuns(context.Background(), usecase.RunFilter{Repo: "indrasvat/gh-hound"})
+				return err
+			},
+			want: usecase.ErrorClassNetwork,
+		},
+		{
+			name:     "log render",
+			scenario: ScenarioLogRender,
+			action: func(adapter *Adapter) error {
+				_, err := adapter.FetchJobLog(context.Background(), "indrasvat/gh-hound", 399444496)
+				return err
+			},
+			want: usecase.ErrorClassLogRender,
+		},
+		{
+			name:     "mutation rejected",
+			scenario: ScenarioConflict,
+			action: func(adapter *Adapter) error {
+				_, err := adapter.CancelRun(context.Background(), "indrasvat/gh-hound", 571)
+				return err
+			},
+			want: usecase.ErrorClassMutationRejected,
+		},
+	}
+	for _, tt := range tests {
+		err := tt.action(New(tt.scenario))
+		got := usecase.ResilienceFor(err, usecase.ErrorContext{})
+		if got.Class != tt.want {
+			t.Fatalf("%s class = %s, want %s (err %v)", tt.name, got.Class, tt.want, err)
+		}
+	}
+}
