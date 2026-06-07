@@ -1,7 +1,7 @@
 # Task 000: repository scaffold, tooling, hooks, and modern Go guardrails
 
 ## Status
-TODO
+Done
 
 ## Ownership Boundary
 - **Primary area:** repository root, build tooling, developer guardrails.
@@ -130,6 +130,7 @@ rtk lefthook run pre-push
 - Use `log/slog` and XDG-compatible state paths, but defer full logging behavior to Task 030.
 - `go fix` must run before `go mod tidy` in the apply target.
 - `go fix` check should copy or diff the worktree safely and fail if changes are needed.
+- Completion evidence: focused version test, `make check`, `make ci`, `make smoke-test`, `lefthook run pre-commit`, and `lefthook run pre-push` passed before commit/push.
 
 ## Session Protocol
 1. Re-read this task, the referenced PRD sections, and the relevant `docs/gh-hound-design.html` mock immediately before editing.
@@ -142,4 +143,3 @@ rtk lefthook run pre-push
 ## Commit Protocol
 - Expected commit: `chore(scaffold): add project tooling and guardrails`
 - Commit early once this foundation is green; do not mix feature logic into this commit.
-
