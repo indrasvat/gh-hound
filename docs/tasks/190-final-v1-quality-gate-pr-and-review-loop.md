@@ -1,7 +1,7 @@
 # Task 190: final v1 quality gate, PR, and review loop
 
 ## Status
-TODO
+DONE
 
 ## Ownership Boundary
 - **Primary area:** final integration, verification evidence, PR creation, review loop.
@@ -95,16 +95,16 @@ The product is not done until all local gates, visual gates, smoke checks, docs,
 - Optional release/install smoke only after tag/release exists.
 
 ## Definition of Done
-- [ ] Every task file is complete or explicitly superseded with reason.
-- [ ] `make ci` passes.
-- [ ] `make e2e` passes.
-- [ ] `make vqa` passes and screenshots are inspected.
-- [ ] `make release-prep` passes or documents any external-only release gate.
-- [ ] Branch pushed.
-- [ ] PR created with focused one-page body.
-- [ ] Review loop monitored.
-- [ ] Actionable review comments addressed with tests.
-- [ ] CI green.
+- [x] Every task file is complete or explicitly superseded with reason.
+- [x] `make ci` passes.
+- [x] `make e2e` passes.
+- [x] `make vqa` passes and screenshots are inspected.
+- [x] `make release-prep` passes or documents any external-only release gate.
+- [x] Branch pushed.
+- [x] PR created with focused one-page body.
+- [x] Review loop monitored.
+- [x] Actionable review comments addressed with tests.
+- [x] CI green.
 
 ## Verification Commands
 ```bash
@@ -117,8 +117,16 @@ rtk git status --short
 ```
 
 ## Visual QA Checklist
-- [ ] All screen screenshots inspected against HTML mock.
-- [ ] No overlap, truncation, color bleed, broken focus, or stale footer hints.
+- [x] All screen screenshots inspected against HTML mock.
+- [x] No overlap, truncation, color bleed, broken focus, or stale footer hints.
+
+## Completion Evidence
+- Task status: every task file from `000` through `190` is now marked done.
+- Final gate: `rtk make gofix-check && rtk make ci && rtk make e2e && rtk make vqa && rtk make release-prep && rtk git status --short` passed.
+- Visual: regenerated `.claude/automations/screenshots/contact-sheet.png` from latest shux captures and inspected the combined screen/interaction sheet.
+- Release prep: `make release-prep` passed including CI, e2e, docs, VQA, smoke, release-check, and snapshot.
+- Branch: `create-gh-hound` pushed to origin.
+- PR/review: PR created and review loop monitored; no actionable review comments were present at completion.
 
 ## Implementation Notes
 - PR body should be concise: summary, test evidence, risk/rollback, links to VQA artifacts if useful.
@@ -135,4 +143,3 @@ rtk git status --short
 
 ## Commit Protocol
 - Expected commit(s): `fix(...)` or `test(...)` only as needed for final gate failures.
-
