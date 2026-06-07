@@ -21,5 +21,7 @@ type GitHub interface {
 	ListRuns(context.Context, RunFilter) ([]model.Run, error)
 	GetRun(context.Context, string, int64) (model.Run, error)
 	ListJobs(context.Context, string, int64) ([]model.Job, error)
+	GetJob(context.Context, string, int64) (model.Job, error)
+	ListWorkflows(context.Context, string) ([]model.Workflow, error)
 	ListAnnotations(context.Context, string, model.Job) ([]model.Annotation, error)
 }

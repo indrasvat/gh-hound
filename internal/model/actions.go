@@ -91,6 +91,14 @@ type Annotation struct {
 	Title     string `json:"title"`
 }
 
+type Workflow struct {
+	ID      int64  `json:"id"`
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	State   string `json:"state"`
+	HTMLURL string `json:"html_url"`
+}
+
 func ParseStatus(raw string) (Status, error) {
 	status := Status(raw)
 	if !status.Valid() {

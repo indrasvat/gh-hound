@@ -1,7 +1,7 @@
 # Task 040: GitHub adapter, fakes, cache, request queue, and poller
 
 ## Status
-TODO
+Done
 
 ## Ownership Boundary
 - **Primary area:** `internal/adapter`, `internal/usecase` data-loading orchestration.
@@ -91,13 +91,13 @@ The app must be grounded in real GitHub Actions endpoints while remaining fakeab
 - Optional live smoke behind `HOUND_LIVE_TEST=1`; never required in CI.
 
 ## Definition of Done
-- [ ] Red tests fail first.
-- [ ] All read endpoints decode typed models.
-- [ ] ETag/304 behavior is verified.
-- [ ] Serial queue prevents concurrent API calls.
-- [ ] Adaptive poller is deterministic and testable.
-- [ ] Fake adapter supports green, failing, running, empty, rate-limited, network-error scenarios.
-- [ ] `make check` passes.
+- [x] Red tests fail first.
+- [x] All read endpoints decode typed models.
+- [x] ETag/304 behavior is verified.
+- [x] Serial queue prevents concurrent API calls.
+- [x] Adaptive poller is deterministic and testable.
+- [x] Fake adapter supports green, failing, running, empty, rate-limited, network-error scenarios.
+- [x] `make check` passes.
 
 ## Verification Commands
 ```bash
@@ -116,10 +116,15 @@ rtk make check
 ## Session Protocol
 1. Re-read this task, the referenced PRD sections, and the relevant `docs/gh-hound-design.html` mock immediately before editing.
 2. Add failing fixture/cache/queue/poller tests.
-2. Implement adapter and fake.
-3. Verify.
-4. Commit and push.
+3. Implement adapter and fake.
+4. Verify.
+5. Commit and push.
 
 ## Commit Protocol
 - Expected commit: `feat(adapter): add github actions data layer`
 
+## Completion Evidence
+- Grounding: re-read PRD §4/§11/§20 and HTML sections 04/05; checked current GitHub REST Actions workflow-runs and workflow-jobs docs.
+- Red: `rtk go test -race ./internal/adapter/... ./internal/usecase/...` failed on missing `NewClient`, `APIVersion`, queue/poller, fake scenarios, and `RunsService`.
+- Focused tests: `rtk go test -race ./internal/adapter/... ./internal/usecase/...`.
+- Full gate: `rtk make check`.
