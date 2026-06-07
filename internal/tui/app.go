@@ -5,11 +5,13 @@ import (
 	"time"
 
 	"github.com/indrasvat/gh-hound/internal/config"
+	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/banner"
 	"github.com/indrasvat/gh-hound/internal/tui/keys"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/failure"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/runs"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/welcome"
 	"github.com/indrasvat/gh-hound/internal/usecase"
@@ -138,6 +140,8 @@ func (a App) View() string {
 		}), 80, time.Now()))
 	} else if a.Route() == RouteDetail {
 		out.WriteString(detail.View(sampleDetailModel(), 80))
+	} else if a.Route() == RouteFailure {
+		out.WriteString(failure.View(sampleFailureModel(), 80))
 	} else {
 		out.WriteString(string(a.Route()))
 	}
@@ -242,4 +246,35 @@ func sampleDetailModel() detail.Model {
 		}},
 	}}
 	return detail.NewModel(run, jobs)
+}
+
+func sampleFailureModel() failure.Model {
+	report := usecase.FailureReport{
+		Job: model.Job{
+			ID:         100,
+			RunID:      571,
+			Name:       "build",
+			Status:     model.StatusCompleted,
+			Conclusion: model.ConclusionFailure,
+			Steps: []model.Step{{
+				Number:     6,
+				Name:       "go test ./...",
+				Status:     model.StatusCompleted,
+				Conclusion: model.ConclusionFailure,
+			}},
+		},
+		Log: logs.Parse(strings.Join([]string{
+			"17:42:53.114Z go test ./... -race",
+			"=== RUN   TestLexIdent/trailing_underscore",
+			"    internal/parser/lexer.go:142: got \"foo\" want \"foo_\"",
+			"--- FAIL: TestLexIdent/trailing_underscore (0.00s)",
+			"##[error]Process completed with exit code 1",
+		}, "\n")),
+		Annotations: []model.Annotation{{
+			Path:      "internal/parser/lexer.go",
+			StartLine: 142,
+			Message:   "identifier mismatch",
+		}},
+	}
+	return failure.NewModel("indrasvat/gh-hound", 571, report)
 }

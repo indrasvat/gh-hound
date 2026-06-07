@@ -111,3 +111,16 @@ func TestRootViewRendersDetailRouteContract(t *testing.T) {
 		}
 	}
 }
+
+func TestRootViewRendersFailureRouteContract(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{Config: cfg})
+	app.PushRoute(RouteFailure)
+	view := app.View()
+	for _, want := range []string{"Annotations", "error window", "copy excerpt"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("failure route view missing %q\n%s", want, view)
+		}
+	}
+}
