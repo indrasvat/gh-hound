@@ -28,6 +28,10 @@ Tool bootstrap:
 4. If installation fails, report the failure and continue only with weaker evidence clearly marked as blocked/partial.
 
 Standard operating procedure:
+0. Use progressive disclosure:
+   - Start with the PRD, visual mocks, and existing VQA entrypoints.
+   - Expand into source files, fixtures, scripts, and session history only when needed to explain or reproduce a concrete risk.
+   - Keep reports focused on observed evidence; include supporting detail behind commands, screenshots, and file paths instead of dumping unrelated context.
 1. Re-read the relevant local requirements before judging:
    - PRD and screen contracts, especially TUI, keybinding, layout, and visual DoD sections.
    - HTML mocks and visual-contract docs.
@@ -104,6 +108,55 @@ Issue taxonomy to actively hunt:
 - Log UX: ANSI color bleed, search highlight misalignment, fold count mismatch, scroll jank, line-number gutter drift, failure excerpt not centered on the real failure.
 - State UX: empty/error/loading states with unclear recovery, stale toast, action confirmation ambiguity, destructive action too easy.
 - Agent/pipe edge cases: JSON/CLI surface inconsistent with TUI state, fake fixture data leaking into normal mode.
+
+Mined recurring failure checklist:
+Apply this checklist after the core SOP. These are repeated issues from prior Codex/Claude TUI sessions and must be explicitly considered in every serious TUI QA pass.
+
+Rendering and width:
+- Display width vs byte length is mandatory to check.
+- Check display width, not byte length. Unicode glyphs such as `◇`, `◆`, `◀`, `─`, `·`, box-drawing characters, CJK/Devanagari, and Nerd Font glyphs can break borders, footers, and columns when code uses `.len()`/byte counts.
+- Inspect right borders, footer borders, column separators, empty-state boxes, and table headers for one-column drift.
+- Check all truncation paths with real long repo names, branches, workflow names, file paths, step names, and annotation messages.
+- Check both ASCII fallback and rich glyph mode if the app supports degraded terminals.
+
+Banner and startup lifecycle:
+- Verify the ASCII/banner renders at startup only, does not reappear on nested screens/search results, and has a quiet/no-banner path when the app supports one.
+- Test small terminals: banners should crop/hide/degrade cleanly, not wrap, compress into garbage, or push core content off-screen.
+- Look for color bleed after banners and gradients; subsequent text should not inherit banner color/style.
+- Check non-ASCII text in banners/taglines carefully. Prior sessions found Devanagari and other wide/complex scripts can render badly on common terminals.
+- If the banner animates or rotates, verify tick messages actually route through the root update loop and continue chaining; do not trust a static first frame.
+- For auto-dismiss banners/toasts, capture early enough to see the state before the timer fires, then capture after dismissal to verify layout recovery.
+
+Visual automation reliability:
+- Never trust a visual smoke script until its waits match current UI copy. Stale `wait-for` strings can make tests pass or fail for the wrong reason.
+- Prefer `shux pane wait-for` on actual rendered text before snapshots; fixed sleeps are allowed only as a last resort and must be called out.
+- If a script says all assertions passed, still inspect the PNGs. Prior issues were only visible in screenshots despite passing text checks.
+- Ensure screenshot filenames encode screen/state/viewport so stale images are easy to spot.
+- Verify screenshots were regenerated during this audit, not reused from a previous run.
+
+Framework and API traps:
+- For Textual-style apps, widgets often require an active app context; direct construction outside `run_test()` can miss runtime behavior or fail with active-app errors.
+- Synthetic event payloads must match the installed framework version. Prior sessions hit `ListView.Selected` signature/API drift.
+- Inspect installed widget/component APIs before writing or trusting tests that poke internal attributes.
+- In Elm/Bubble Tea-style apps, verify root update routing for child messages, timers, ticks, window-size messages, focus messages, and overlay stack messages.
+
+Interaction and layer stack:
+- Exercise `Esc` from every layer: filter/search input, help, palette, confirm modal, detail/log screens, and nested views. It should pop exactly one layer unless the spec says otherwise.
+- In input/search modes, printable global shortcuts must be swallowed by the input field and not trigger navigation/actions.
+- Verify `Tab`/`Shift+Tab`, arrows, `j/k`, `g/G`, `/`, `?`, palette open/close, and destructive-action confirms at each relevant screen.
+- Confirm footer hints and help modal content are generated from the same active keymap and update after mode/screen changes.
+
+State and lifecycle:
+- Verify stale async state does not leak: old API data, stale filters, stale selected row, stale toast, stale watch/follow mode, stale error banner, and stale fake fixture data.
+- Validate empty, error, loading, all-green, failure, pending/running, and detached/offline states. Do not review only the happy path.
+- Check live mode transitions: pending to completed, completed to failed, rerun/cancel/dispatch feedback, reconnect after network/API failure.
+- Verify nested screens preserve expected scroll/log offsets when moving between excerpt and full log.
+
+Artifact and PR evidence:
+- Keep reusable shux scripts under `.shux/scripts/` when creating them; keep ephemeral output under `.shux/out/`.
+- For PR evidence, prefer screenshot-backed comments or linked artifacts over textual claims.
+- If a direct upload path fails, a raw GitHub URL from a screenshot branch can be an acceptable fallback, but report that as a delivery detail.
+- Always clean up shux sessions after the audit and mention cleanup status.
 
 Hard anti-patterns:
 - Do not say "looks good" without screenshots.
