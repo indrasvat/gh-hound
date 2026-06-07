@@ -1,7 +1,7 @@
 # Task 090: launch context resolution and empty/error states
 
 ## Status
-TODO
+Done
 
 ## Ownership Boundary
 - **Primary area:** launch usecases and contextual fallback behavior.
@@ -80,11 +80,11 @@ The default launch must always land somewhere useful: current branch when possib
 - Optional live smoke inside a real repo.
 
 ## Definition of Done
-- [ ] Red tests fail first.
-- [ ] Every §8.2 fallback row is reproduced.
-- [ ] `-R`, `GH_REPO`, `-A`, and `watch` route correctly.
-- [ ] No blank screen states remain.
-- [ ] `make check` passes.
+- [x] Red tests fail first.
+- [x] Every §8.2 fallback row is reproduced.
+- [x] `-R`, `GH_REPO`, `-A`, and `watch` route correctly.
+- [x] No blank screen states remain.
+- [x] `make check` passes.
 
 ## Verification Commands
 ```bash
@@ -93,7 +93,26 @@ rtk make check
 ```
 
 ## Visual QA Checklist
-- [ ] Empty/error text fits at 80x24.
+- [x] Empty/error text fits at 80x24.
+
+## Verification Evidence
+```bash
+rtk go test -race ./internal/usecase ./internal/adapter/repository ./internal/tui/screens/empty ./cmd/gh-hound
+# Go test: 24 passed in 4 packages
+
+rtk make check
+# go fix check passed
+# 0 issues.
+# emoji check passed
+# architecture check passed
+# check passed
+```
+
+## Implementation Summary
+- Added `LaunchService` and `LaunchContext` contracts for repo/branch scope, notices, route state, all-green, watch, empty, and error outcomes.
+- Added repository detection behind `Detector`, with `GH_REPO`/`HOUND_REPO`, GitHub remote parsing, branch/head metadata, and detached-HEAD signaling.
+- Added minimal empty/error screen rendering with 80-column wrapping guarantees.
+- Tightened CLI fake routing so `--all`, `GH_REPO`, `-R`, and `watch` reflect the PRD launch semantics in structured output.
 
 ## Implementation Notes
 - Do not silently ignore unresolved remotes.
@@ -108,4 +127,3 @@ rtk make check
 
 ## Commit Protocol
 - Expected commit: `feat(launch): resolve repository and branch context`
-

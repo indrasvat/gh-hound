@@ -222,6 +222,9 @@ func writeResult(w io.Writer, options cliOptions) error {
 func fakeResult(options cliOptions) render.Result {
 	repo := firstNonEmpty(options.Repo, "indrasvat/gh-hound")
 	branch := firstNonEmpty(options.Branch, "main")
+	if options.All {
+		branch = ""
+	}
 	status := firstNonEmpty(options.Status, "success")
 	runStatus := "completed"
 	conclusion := "success"

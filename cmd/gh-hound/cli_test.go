@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 )
@@ -76,6 +77,45 @@ func TestPipeDetectionDefaultsToStructuredOutput(t *testing.T) {
 	}
 	if !strings.HasPrefix(strings.TrimSpace(out.String()), "{") {
 		t.Fatalf("pipe root did not render structured output:\n%s", out.String())
+	}
+}
+
+func TestLaunchFlagsRouteRepoAllAndWatch(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: io.Discard,
+		Env: mapEnv(map[string]string{
+			"GH_REPO": "indrasvat/env-repo",
+		}),
+		IsTTY: false,
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"--all", "--json"})
+
+	code, err := executeCommand(cmd)
+	if err != nil || code != 0 {
+		t.Fatalf("root --all returned code=%d err=%v", code, err)
+	}
+	got := out.String()
+	if !strings.Contains(got, `"repo": "indrasvat/env-repo"`) || strings.Contains(got, `"branch": "main"`) {
+		t.Fatalf("root --all did not route repo-wide with GH_REPO:\n%s", got)
+	}
+
+	out.Reset()
+	cmd = newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: io.Discard,
+		Env:    emptyEnv,
+		IsTTY:  false,
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"watch", "-R", "indrasvat/other", "--json"})
+	code, err = executeCommand(cmd)
+	if err == nil || code != 3 {
+		t.Fatalf("watch returned code=%d err=%v", code, err)
+	}
+	got = out.String()
+	if !strings.Contains(got, `"repo": "indrasvat/other"`) || !strings.Contains(got, `"status": "in_progress"`) {
+		t.Fatalf("watch did not route to requested repo and pending run:\n%s", got)
 	}
 }
 
