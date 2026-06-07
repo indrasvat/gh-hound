@@ -35,7 +35,7 @@ help: ## Show grouped help
 	@printf "$(COLOR_BOLD)Build & Run$(COLOR_RESET)\n"
 	@awk 'BEGIN {FS = ":.*##"} /^(build|install|run|clean):.*?##/ {printf "  $(COLOR_GREEN)%-18s$(COLOR_RESET) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf "\n$(COLOR_BOLD)Quality$(COLOR_RESET)\n"
-	@awk 'BEGIN {FS = ":.*##"} /^(fmt|fmt-check|gofix|gofix-check|lint|vet|test|coverage|coverage-check|check|ci|emoji-check|arch-check|visual-contract-check):.*?##/ {printf "  $(COLOR_GREEN)%-18s$(COLOR_RESET) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"} /^(fmt|fmt-check|gofix|gofix-check|lint|vet|test|coverage|coverage-check|docs-check|check|ci|emoji-check|arch-check|visual-contract-check):.*?##/ {printf "  $(COLOR_GREEN)%-18s$(COLOR_RESET) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf "\n$(COLOR_BOLD)Verification$(COLOR_RESET)\n"
 	@awk 'BEGIN {FS = ":.*##"} /^(e2e|vqa|vqa-screen|vqa-clean|demo|smoke-test):.*?##/ {printf "  $(COLOR_GREEN)%-18s$(COLOR_RESET) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf "\n$(COLOR_BOLD)Tooling & Release$(COLOR_RESET)\n"
@@ -121,8 +121,12 @@ arch-check: ## Check current architecture import boundaries
 visual-contract-check: ## Check implementation constants against the HTML visual contract
 	@./scripts/visual-contract-check.sh
 
+.PHONY: docs-check
+docs-check: ## Verify README/docs commands and required sections
+	@./scripts/docs-check.sh
+
 .PHONY: check
-check: gofix-check fmt-check lint vet emoji-check arch-check visual-contract-check test ## Run local green-bar gate
+check: gofix-check fmt-check lint vet emoji-check arch-check visual-contract-check docs-check test ## Run local green-bar gate
 	@printf "\n$(COLOR_GREEN)$(COLOR_BOLD)✓ check passed$(COLOR_RESET)\n\n"
 
 .PHONY: ci
@@ -149,7 +153,7 @@ vqa-clean: ## Remove VQA screenshots and captures
 	@printf "$(COLOR_GREEN)✓ cleaned VQA artifacts$(COLOR_RESET)\n"
 
 .PHONY: demo
-demo: ## Record README demo with VHS
+demo: build ## Record README demo with VHS
 	@command -v vhs >/dev/null 2>&1 || { printf "$(COLOR_RED)missing vhs$(COLOR_RESET)\n"; exit 1; }
 	@vhs assets/demo.tape
 

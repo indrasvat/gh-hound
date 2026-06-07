@@ -1,7 +1,7 @@
 # Task 170: README, user docs, demo, and development guide
 
 ## Status
-TODO
+DONE
 
 ## Ownership Boundary
 - **Primary area:** user-facing documentation and demo assets.
@@ -87,12 +87,12 @@ README is currently a placeholder. The finished project needs a polished, accura
 - Install command documented; actual release install verified in Task 180.
 
 ## Definition of Done
-- [ ] Red docs check fails first.
-- [ ] README matches referenced repos' completeness and polish.
-- [ ] Install, quick start, controls, config, architecture, dev, and agent sections exist.
-- [ ] Commands are verified.
-- [ ] Demo target is documented and works or has a tracked follow-up blocked only on release assets.
-- [ ] `make check` passes.
+- [x] Red docs check fails first.
+- [x] README matches referenced repos' completeness and polish.
+- [x] Install, quick start, controls, config, architecture, dev, and agent sections exist.
+- [x] Commands are verified.
+- [x] Demo target is documented and works.
+- [x] `make check` passes.
 
 ## Verification Commands
 ```bash
@@ -102,8 +102,15 @@ rtk make check
 ```
 
 ## Visual QA Checklist
-- [ ] README logo renders.
-- [ ] Screenshots/GIFs are real product output when available.
+- [x] README logo renders.
+- [x] Screenshots/GIFs are real product output when available.
+
+## Completion Evidence
+- Red: `rtk make docs-check` failed on placeholder README missing `## Overview`.
+- Docs: rewrote `README.md`; added `docs/development.md`, `docs/configuration.md`, and `assets/demo.tape`.
+- Demo: `rtk make demo` generated `assets/demo.gif`; extracted and inspected a settled frame showing the JSON failure object.
+- Commands: `rtk make docs-check` passed against the documented fake-scenario commands and exact exit codes.
+- Regression gate: `rtk make check` passed.
 
 ## Implementation Notes
 - Keep claims aligned with shipped implementation, not roadmap.
@@ -118,4 +125,3 @@ rtk make check
 
 ## Commit Protocol
 - Expected commit: `docs(readme): document gh-hound workflows`
-
