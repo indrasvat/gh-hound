@@ -1,7 +1,7 @@
 # Task 010: domain model, config, and architecture contracts
 
 ## Status
-TODO
+Done
 
 ## Ownership Boundary
 - **Primary area:** `internal/model`, `internal/config`, architecture checks.
@@ -108,6 +108,7 @@ rtk make check
 - Use `BurntSushi/toml` or the dependency chosen in 000.
 - Avoid global mutable config.
 - Keep config test fixtures in `internal/config/testdata/`.
+- Completion evidence: red model/config tests failed on missing symbols first; focused `go test -race ./internal/model ./internal/config ./internal/usecase` passed; `make check` passed.
 
 ## Session Protocol
 1. Re-read this task, the referenced PRD sections, and the relevant `docs/gh-hound-design.html` mock immediately before editing.
@@ -118,4 +119,3 @@ rtk make check
 
 ## Commit Protocol
 - Expected commit: `feat(core): add domain model and config contracts`
-
