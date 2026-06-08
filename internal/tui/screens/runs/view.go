@@ -13,46 +13,74 @@ import (
 )
 
 func View(m Model, width int, now time.Time) string {
+	return ViewSize(m, width, 0, now)
+}
+
+func ViewSize(m Model, width, height int, now time.Time) string {
 	if width <= 0 {
 		width = 80
 	}
 	if m.AllGreen() {
-		return renderAllGreen(m, width, now)
+		return renderAllGreen(m, width, height, now)
 	}
-	return renderRuns(m, width, now)
+	return renderRuns(m, width, height, now)
 }
 
-func renderRuns(m Model, width int, now time.Time) string {
+func renderRuns(m Model, width, height int, now time.Time) string {
+	runs := m.filteredRuns()
+	selected := clampSelection(m.Selected, len(runs))
+	rowCapacity := runRowCapacity(height, 2, m.InputMode, len(runs))
+	start, end := viewport(selected, len(runs), rowCapacity)
 	lines := []string{
 		fit("  Workflow           Event             #     Duration  Age", width),
 	}
-	for i, run := range m.Context.Runs {
-		lines = append(lines, row(run, i == m.Selected, width, now))
+	if m.InputMode {
+		lines = append(lines, filterLine(m.Filter, len(runs), width))
+	}
+	if len(runs) == 0 {
+		lines = append(lines, dimLine("  no runs match /"+m.Filter, width))
+	}
+	for i, run := range runs[start:end] {
+		index := start + i
+		lines = append(lines, row(run, index == selected, width, now))
 	}
 	summary := m.Summary()
-	lines = append(lines, fitANSI(summaryLine(summary), width))
+	lines = append(lines, fitANSI(joinRightANSI(summaryLine(summary), pageLine(start, end, len(runs)), width), width))
 	return strings.Join(lines, "\n")
 }
 
-func renderAllGreen(m Model, width int, now time.Time) string {
+func renderAllGreen(m Model, width, height int, now time.Time) string {
 	summary := m.Summary()
+	runs := m.filteredRuns()
+	selected := clampSelection(m.Selected, len(runs))
 	latestTitle := ""
 	latestMeta := ""
-	if len(m.Context.Runs) > 0 {
-		run := m.Context.Runs[0]
+	if len(runs) > 0 {
+		run := runs[0]
 		latestTitle = fmt.Sprintf("%s #%d", run.Name, run.RunNumber)
 		latestMeta = fmt.Sprintf("%s · success", duration(run))
 	}
 	branch := first(m.Context.Branch, "all branches")
+	rowCapacity := runRowCapacity(height, 5, m.InputMode, len(runs))
+	start, end := viewport(selected, len(runs), rowCapacity)
 	lines := []string{
 		allGreenBandLine("", width),
 		allGreenBandLine(joinRightANSI(successLead("All checks passing on "+branch), latestTitle, width), width),
-		allGreenBandLine(joinRightANSI("     "+fmt.Sprintf("%d recent runs · %d failing · last finished %s ago", len(m.Context.Runs), summary.Failing, age(m.Context.Runs[0], now)), latestMeta, width), width),
+		allGreenBandLine(joinRightANSI("     "+fmt.Sprintf("%d recent runs · %d failing · last finished %s ago", len(runs), summary.Failing, age(runs[0], now)), latestMeta, width), width),
 		allGreenBandLine("", width),
 		allGreenHeader(width),
 	}
-	for _, run := range m.Context.Runs {
-		lines = append(lines, allGreenRow(run, width, now))
+	if m.InputMode {
+		lines = append(lines, filterLine(m.Filter, len(runs), width))
+	}
+	if len(runs) == 0 {
+		lines = append(lines, dimLine("  no runs match /"+m.Filter, width))
+	}
+	for i, run := range runs[start:end] {
+		lines = append(lines, allGreenRow(run, start+i == selected, width, now))
+	}
+	if len(runs) > 0 {
+		lines = append(lines, dimLine(pageLine(start, end, len(runs)), width))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -220,7 +248,11 @@ func allGreenHeader(width int) string {
 	return dimLine("  Status  Workflow                         #    Age", width)
 }
 
-func allGreenRow(run model.Run, width int, now time.Time) string {
+func allGreenRow(run model.Run, selected bool, width int, now time.Time) string {
+	prefix := "  "
+	if selected {
+		prefix = icons.Cursor + " "
+	}
 	icon := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#4FD37A")).
 		Render(glyph(run))
@@ -234,9 +266,64 @@ func allGreenRow(run model.Run, width int, now time.Time) string {
 		Foreground(lipgloss.Color("#8C9179")).
 		Render(age(run, now))
 	if width >= 70 {
-		return fitANSI(joinRightANSI("  "+icon+"       "+name, num+"      "+runAge, width), width)
+		return fitANSI(joinRightANSI(prefix+icon+"       "+name, num+"      "+runAge, width), width)
 	}
-	return fitANSI(joinRightANSI("  "+icon+"       "+name, num+"    "+runAge, width), width)
+	return fitANSI(joinRightANSI(prefix+icon+"       "+name, num+"    "+runAge, width), width)
+}
+
+func filterLine(filter string, count int, width int) string {
+	return dimLine(fmt.Sprintf("  /%s  %d matches", filter, count), width)
+}
+
+func runRowCapacity(height, fixedRows int, inputMode bool, total int) int {
+	if height <= 0 {
+		return total
+	}
+	capacity := height - fixedRows
+	if inputMode {
+		capacity--
+	}
+	if total > capacity {
+		capacity--
+	}
+	return max(capacity, 1)
+}
+
+func viewport(selected, total, capacity int) (int, int) {
+	if total <= 0 || capacity <= 0 {
+		return 0, 0
+	}
+	if selected < 0 {
+		selected = 0
+	}
+	if selected >= total {
+		selected = total - 1
+	}
+	if capacity >= total {
+		return 0, total
+	}
+	start := max(selected-capacity/2, 0)
+	if start+capacity > total {
+		start = total - capacity
+	}
+	return start, start + capacity
+}
+
+func clampSelection(selected, total int) int {
+	if total <= 0 || selected < 0 {
+		return 0
+	}
+	if selected >= total {
+		return total - 1
+	}
+	return selected
+}
+
+func pageLine(start, end, total int) string {
+	if total == 0 {
+		return "0/0"
+	}
+	return fmt.Sprintf("rows %d-%d/%d", start+1, end, total)
 }
 
 func dimLine(value string, width int) string {

@@ -6,9 +6,11 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/config"
+	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
+	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -375,5 +377,25 @@ func TestRunsArrowKeysNavigateAndSelectedRunOpensDistinctDetail(t *testing.T) {
 	}
 	if strings.Contains(view, "CI #571") || strings.Contains(view, "Release #42") {
 		t.Fatalf("selected detail reused a different run:\n%s", view)
+	}
+}
+
+func TestLogRouteUsesAvailableFrameHeight(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{Config: cfg})
+	lines := make([]string, 60)
+	for i := range lines {
+		lines[i] = "line content"
+	}
+	app.log = logscreen.NewModel(logs.Parse(strings.Join(lines, "\n")), 1, 6)
+	app.PushRoute(RouteLog)
+
+	view := ansi.Strip(app.ViewSize(120, 40))
+	if !strings.Contains(view, "033 line content") {
+		t.Fatalf("log view did not expand to available height:\n%s", view)
+	}
+	if strings.Contains(view, "006 line content") && !strings.Contains(view, "020 line content") {
+		t.Fatalf("log view appears fixed to the model default height:\n%s", view)
 	}
 }

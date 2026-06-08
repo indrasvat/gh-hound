@@ -221,7 +221,11 @@ func RenderFixtureSize(screen string, width, height int) string {
 	case "watch":
 		return frameViewSize(app.theme, "hound", "CI #570", "streaming · follow ●", watch.View(sampleWatchModel(), bodyWidth), keys.FooterForScreen(keys.ScreenWatch), width, height, true)
 	case "log":
-		return frameViewSize(app.theme, "hound", "full log", "match 1/1", logscreen.View(sampleLogModel(), bodyWidth), keys.FooterForScreen(keys.ScreenLog), width, height, true)
+		m := sampleLogModel()
+		if rows := bodyHeight(height) - 1; rows > 0 {
+			m.Height = rows
+		}
+		return frameViewSize(app.theme, "hound", "full log", "match 1/1", logscreen.View(m, bodyWidth), keys.FooterForScreen(keys.ScreenLog), width, height, true)
 	case "dispatch":
 		return frameViewSize(app.theme, "hound", "workflow_dispatch", "Release", dispatch.View(sampleDispatchModel(), bodyWidth), keys.FooterForScreen(keys.ScreenDispatch), width, height, true)
 	case "palette":
@@ -270,6 +274,10 @@ func RenderInteractionFixtureSize(scenario string, width, height int) string {
 			m = m.Update(runs.KeyMsg{Key: key})
 		}
 		return frameViewSize(app.theme, "hound", "git fix/parser · @indrasvat", "filter /fail", runs.View(m, bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
+	case "runs-long":
+		m := sampleLongRunsModel(1000)
+		m.Selected = 500
+		return frameViewSize(app.theme, "hound", "git main · @indrasvat", "1,000 loaded", runs.ViewSize(m, bodyWidth, bodyHeight(height), time.Now()), keys.FooterForScreen(keys.ScreenAllGreen), width, height, true)
 	case "detail-nav":
 		m := sampleDetailModel()
 		for _, key := range []string{"tab", "j", "n"} {
@@ -286,6 +294,9 @@ func RenderInteractionFixtureSize(scenario string, width, height int) string {
 		m := sampleLogModel()
 		for _, key := range []string{"/", "t", "r", "a", "i", "l", "enter", "z"} {
 			m = m.Update(logscreen.KeyMsg{Key: key})
+		}
+		if rows := bodyHeight(height) - 1; rows > 0 {
+			m.Height = rows
 		}
 		return frameViewSize(app.theme, "hound", "full log", "search /trail", logscreen.View(m, bodyWidth), keys.FooterForScreen(keys.ScreenLog), width, height, true)
 	case "watch-toggle":
@@ -468,6 +479,8 @@ func runsHandled(key string) bool {
 	switch key {
 	case "j", "k", "down", "up", "g", "G", "/", "enter", "l", "w", "D", "o", "y", "r", "R", "x", "X", "esc", "backspace":
 		return true
+	case "ctrl+d", "ctrl+u":
+		return true
 	default:
 		return len([]rune(key)) == 1
 	}
@@ -494,6 +507,8 @@ func failureHandled(key string) bool {
 func logHandled(key string) bool {
 	switch key {
 	case "j", "k", "g", "G", "/", "n", "N", "z", "Z", "w", "enter", "backspace", "esc":
+		return true
+	case "ctrl+d", "ctrl+u":
 		return true
 	default:
 		return len([]rune(key)) == 1
@@ -629,13 +644,17 @@ func (a App) screenBody(width, height int) string {
 	case RouteWelcome:
 		return welcome.View(welcome.Model{Build: a.build}, bodyWidth, max(height-6, 0))
 	case RouteRuns:
-		return runs.View(a.runs, bodyWidth, time.Now())
+		return runs.ViewSize(a.runs, bodyWidth, bodyHeight(height), time.Now())
 	case RouteDetail:
 		return detail.View(a.detail, bodyWidth)
 	case RouteFailure:
 		return failure.View(a.failure, bodyWidth)
 	case RouteLog:
-		return logscreen.View(a.log, bodyWidth)
+		logModel := a.log
+		if rows := bodyHeight(height) - 1; rows > 0 {
+			logModel.Height = rows
+		}
+		return logscreen.View(logModel, bodyWidth)
 	case RouteWatch:
 		return watch.View(a.watch, bodyWidth)
 	case RouteDispatch:
@@ -651,6 +670,13 @@ func contentWidth(width int) int {
 	}
 	bodyWidth := max(width-2, 1)
 	return bodyWidth
+}
+
+func bodyHeight(frameHeight int) int {
+	if frameHeight <= 0 {
+		return 0
+	}
+	return max(frameHeight-6, 1)
 }
 
 func sampleDetailModel() detail.Model {
@@ -824,6 +850,34 @@ func sampleAllGreenModel() runs.Model {
 			{ID: 565, Name: "Security", Event: "workflow_dispatch", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 565, UpdatedAt: now.Add(-4 * time.Hour), RunStartedAt: now.Add(-241*time.Minute - 2*time.Second)},
 			{ID: 564, Name: "Deploy", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 564, UpdatedAt: now.Add(-5 * time.Hour), RunStartedAt: now.Add(-301*time.Minute - 2*time.Second)},
 		},
+	})
+}
+
+func sampleLongRunsModel(count int) runs.Model {
+	now := time.Now().UTC().Truncate(time.Second)
+	items := make([]model.Run, count)
+	for i := range items {
+		number := count - i
+		items[i] = model.Run{
+			ID:           int64(900000 + number),
+			Name:         "CI",
+			Event:        "push",
+			Status:       model.StatusCompleted,
+			Conclusion:   model.ConclusionSuccess,
+			RunNumber:    number,
+			Actor:        "indrasvat",
+			HeadBranch:   "main",
+			HeadSHA:      fmt.Sprintf("long%03d", number),
+			UpdatedAt:    now.Add(-time.Duration(i) * time.Minute),
+			RunStartedAt: now.Add(-time.Duration(i)*time.Minute - 90*time.Second),
+		}
+	}
+	return runs.NewModel(usecase.LaunchContext{
+		Repo:   "indrasvat/gh-hound",
+		Branch: "main",
+		Actor:  "indrasvat",
+		State:  usecase.LaunchStateAllGreen,
+		Runs:   items,
 	})
 }
 

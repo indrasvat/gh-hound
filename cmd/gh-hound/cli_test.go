@@ -134,6 +134,8 @@ func TestKeyNameDecodesANSIArrowsAndShiftTab(t *testing.T) {
 		"\x1b[D": "left",
 		"\x1b[Z": "shift+tab",
 		"\x1b":   "esc",
+		"\x04":   "ctrl+d",
+		"\x15":   "ctrl+u",
 		"\r":     "enter",
 		"\x7f":   "backspace",
 	}

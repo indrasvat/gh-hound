@@ -431,6 +431,10 @@ func keyName(input []byte) string {
 	switch input[0] {
 	case 0x03:
 		return "ctrl+c"
+	case 0x04:
+		return "ctrl+d"
+	case 0x15:
+		return "ctrl+u"
 	case '\r', '\n':
 		return "enter"
 	case '\t':

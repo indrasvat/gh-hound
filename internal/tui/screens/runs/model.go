@@ -1,6 +1,7 @@
 package runs
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/indrasvat/gh-hound/internal/model"
@@ -57,20 +58,25 @@ func (m Model) Update(msg KeyMsg) Model {
 	if m.InputMode {
 		return m.updateInput(msg)
 	}
+	total := len(m.filteredRuns())
 	switch msg.Key {
 	case "j", "down":
-		if m.Selected < len(m.Context.Runs)-1 {
+		if m.Selected < total-1 {
 			m.Selected++
 		}
 	case "k", "up":
 		if m.Selected > 0 {
 			m.Selected--
 		}
+	case "ctrl+d":
+		m.Selected = min(m.Selected+10, max(total-1, 0))
+	case "ctrl+u":
+		m.Selected = max(m.Selected-10, 0)
 	case "g":
 		m.Selected = 0
 	case "G":
-		if len(m.Context.Runs) > 0 {
-			m.Selected = len(m.Context.Runs) - 1
+		if total > 0 {
+			m.Selected = total - 1
 		}
 	case "/":
 		m.InputMode = true
@@ -105,6 +111,7 @@ func (m Model) updateInput(msg KeyMsg) Model {
 		m.InputMode = false
 	case "enter":
 		m.InputMode = false
+		m.Selected = 0
 		m.Intent = Intent{Kind: IntentFilter, Filter: m.Filter}
 	case "backspace":
 		if len(m.Filter) > 0 {
@@ -120,7 +127,7 @@ func (m Model) updateInput(msg KeyMsg) Model {
 
 func (m Model) Summary() Summary {
 	var summary Summary
-	for _, run := range m.Context.Runs {
+	for _, run := range m.filteredRuns() {
 		if isRunning(run) {
 			summary.Running++
 			continue
@@ -138,10 +145,11 @@ func (m Model) Summary() Summary {
 
 func (m Model) AllGreen() bool {
 	summary := m.Summary()
-	if len(m.Context.Runs) == 0 || summary.Failing > 0 {
+	runs := m.filteredRuns()
+	if len(runs) == 0 || summary.Failing > 0 {
 		return false
 	}
-	for _, run := range m.Context.Runs {
+	for _, run := range runs {
 		if run.Status != model.StatusCompleted {
 			return false
 		}
@@ -150,10 +158,15 @@ func (m Model) AllGreen() bool {
 }
 
 func (m Model) selectedRun() (model.Run, bool) {
-	if len(m.Context.Runs) == 0 || m.Selected < 0 || m.Selected >= len(m.Context.Runs) {
+	runs := m.filteredRuns()
+	if len(runs) == 0 {
 		return model.Run{}, false
 	}
-	return m.Context.Runs[m.Selected], true
+	selected := max(m.Selected, 0)
+	if selected >= len(runs) {
+		selected = len(runs) - 1
+	}
+	return runs[selected], true
 }
 
 func (m Model) SelectedRun() (model.Run, bool) {
@@ -166,6 +179,27 @@ func (m Model) intentFor(kind IntentKind) Intent {
 		return Intent{}
 	}
 	return Intent{Kind: kind, RunID: run.ID}
+}
+
+func (m Model) filteredRuns() []model.Run {
+	query := strings.ToLower(strings.TrimSpace(m.Filter))
+	if query == "" {
+		return m.Context.Runs
+	}
+	filtered := make([]model.Run, 0, len(m.Context.Runs))
+	for _, run := range m.Context.Runs {
+		if strings.Contains(strings.ToLower(run.Name), query) ||
+			strings.Contains(strings.ToLower(run.DisplayTitle), query) ||
+			strings.Contains(strings.ToLower(run.Event), query) ||
+			strings.Contains(strings.ToLower(run.HeadBranch), query) ||
+			strings.Contains(strings.ToLower(string(run.Status)), query) ||
+			strings.Contains(strings.ToLower(string(run.Conclusion)), query) ||
+			strings.Contains(strings.ToLower(run.Actor), query) ||
+			strings.Contains(fmt.Sprintf("%d", run.RunNumber), query) {
+			filtered = append(filtered, run)
+		}
+	}
+	return filtered
 }
 
 func isRunning(run model.Run) bool {

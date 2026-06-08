@@ -117,6 +117,58 @@ func TestViewMatchesRunsAndAllGreenMocks(t *testing.T) {
 	assertMaxWidth(t, view, 80)
 }
 
+func TestAllGreenViewKeepsSelectedRowAndFilterVisible(t *testing.T) {
+	m := NewModel(usecase.LaunchContext{
+		Repo:   "indrasvat/gh-hound",
+		Branch: "main",
+		State:  usecase.LaunchStateAllGreen,
+		Runs: []model.Run{
+			run(12, "CI", "push", model.StatusCompleted, model.ConclusionSuccess),
+			run(11, "CodeQL", "schedule", model.StatusCompleted, model.ConclusionSuccess),
+			run(10, "Docs", "push", model.StatusCompleted, model.ConclusionSuccess),
+		},
+	})
+	m = m.Update(KeyMsg{Key: "down"})
+	view := ViewSize(m, 80, 12, time.Date(2026, 6, 8, 21, 42, 0, 0, time.UTC))
+	visible := ansi.Strip(view)
+	if !strings.Contains(visible, "▌ ✔       CodeQL") {
+		t.Fatalf("all-green view did not highlight selected row:\n%s", visible)
+	}
+
+	m = m.Update(KeyMsg{Key: "/"})
+	m = m.Update(KeyMsg{Key: "d"})
+	m = m.Update(KeyMsg{Key: "o"})
+	m = m.Update(KeyMsg{Key: "c"})
+	view = ViewSize(m, 80, 12, time.Date(2026, 6, 8, 21, 42, 0, 0, time.UTC))
+	visible = ansi.Strip(view)
+	if !strings.Contains(visible, "/doc  1 matches") || !strings.Contains(visible, "Docs") || strings.Contains(visible, "CodeQL") {
+		t.Fatalf("filter prompt/results not reflected in all-green view:\n%s", visible)
+	}
+}
+
+func TestRunsViewVirtualizesLongListsAroundSelection(t *testing.T) {
+	runs := make([]model.Run, 1000)
+	for i := range runs {
+		number := 1000 - i
+		runs[i] = run(number, "CI", "push", model.StatusCompleted, model.ConclusionSuccess)
+	}
+	m := NewModel(usecase.LaunchContext{
+		Repo:   "indrasvat/gh-hound",
+		Branch: "main",
+		State:  usecase.LaunchStateAllGreen,
+		Runs:   runs,
+	})
+	m.Selected = 500
+	view := ViewSize(m, 120, 18, time.Date(2026, 6, 8, 21, 42, 0, 0, time.UTC))
+	visible := ansi.Strip(view)
+	if !strings.Contains(visible, "▌ ✔       CI") || !strings.Contains(visible, "rows ") || !strings.Contains(visible, "/1000") {
+		t.Fatalf("long all-green list did not show selected viewport/page marker:\n%s", visible)
+	}
+	if strings.Contains(visible, "1000 recent runs") && strings.Count(visible, "\n") > 18 {
+		t.Fatalf("long list rendered beyond requested viewport:\n%s", visible)
+	}
+}
+
 func TestAllGreenBandReappliesBackgroundAfterNestedReset(t *testing.T) {
 	line := allGreenBandLine(sgrOK+"✔"+sgrReset+" All checks passing", 40)
 	if !strings.HasPrefix(line, sgrBandFG+sgrBandBG) {
