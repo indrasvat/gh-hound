@@ -10,8 +10,8 @@ func TestScreenFootersMatchVisualContract(t *testing.T) {
 	contract := readVisualContract(t, "../../../docs/visual-contract.md")
 	expected := map[Screen]string{
 		ScreenWelcome:  "⏎ continue · ? help · q quit",
-		ScreenAllGreen: "j/k move · ⏎ open · w watch next push · D dispatch · / filter · ? help",
-		ScreenRunsList: "j/k move · ⏎ open · ↻ rerun · ✗ cancel · l logs · w watch · / filter · ? help",
+		ScreenAllGreen: "j/k move · s scope · ⏎ open · w watch · D dispatch · / filter · ? help",
+		ScreenRunsList: "j/k · s scope · ⏎ open · ↻ rerun · ✗ cancel · l log · w watch · / filter · ?",
 		ScreenDetail:   "⏎ expand · ↻ rerun job · R rerun failed · ✗ cancel · ⎋ back · ?",
 		ScreenFailure:  "↻ rerun failed · r rerun job · l full log · o browser · y copy excerpt",
 		ScreenWatch:    "✗ cancel · f follow · d debug · ⎋ detach",

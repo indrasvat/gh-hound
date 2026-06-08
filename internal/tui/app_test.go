@@ -171,7 +171,7 @@ func TestRootViewRendersRunsRoutePlaceholderContract(t *testing.T) {
 	cfg.Welcome = false
 	app := NewApp(Options{Config: cfg, Build: BuildInfo{Version: "v0.1.0"}})
 	view := app.View()
-	for _, want := range []string{"hound", "⌥ fix/parser · @indrasvat", "⏎ open · ↻ rerun · ✗ cancel"} {
+	for _, want := range []string{"hound", "⌥ branch fix/parser · @indrasvat", "⏎ open · ↻ rerun · ✗ cancel"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("runs route view missing %q\n%s", want, view)
 		}

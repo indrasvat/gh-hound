@@ -78,6 +78,8 @@ func (m Model) Update(msg KeyMsg) Model {
 		if total > 0 {
 			m.Selected = total - 1
 		}
+	case "s":
+		m = m.toggleScope()
 	case "/":
 		m.InputMode = true
 		m.Filter = ""
@@ -184,10 +186,11 @@ func (m Model) intentFor(kind IntentKind) Intent {
 func (m Model) filteredRuns() []model.Run {
 	query := strings.ToLower(strings.TrimSpace(m.Filter))
 	if query == "" {
-		return m.Context.Runs
+		return m.activeRuns()
 	}
-	filtered := make([]model.Run, 0, len(m.Context.Runs))
-	for _, run := range m.Context.Runs {
+	runs := m.activeRuns()
+	filtered := make([]model.Run, 0, len(runs))
+	for _, run := range runs {
 		if strings.Contains(strings.ToLower(run.Name), query) ||
 			strings.Contains(strings.ToLower(run.DisplayTitle), query) ||
 			strings.Contains(strings.ToLower(run.Event), query) ||
@@ -202,8 +205,51 @@ func (m Model) filteredRuns() []model.Run {
 	return filtered
 }
 
+func (m Model) activeRuns() []model.Run {
+	switch m.Context.Scope {
+	case usecase.LaunchScopeRepo:
+		if len(m.Context.RepoRuns) > 0 {
+			return m.Context.RepoRuns
+		}
+	case usecase.LaunchScopeBranch:
+		if len(m.Context.BranchRuns) > 0 {
+			return m.Context.BranchRuns
+		}
+	}
+	return m.Context.Runs
+}
+
+func (m Model) toggleScope() Model {
+	switch m.Context.Scope {
+	case usecase.LaunchScopeBranch:
+		if len(m.Context.RepoRuns) > 0 {
+			m.Context.Scope = usecase.LaunchScopeRepo
+			m.Context.Runs = m.Context.RepoRuns
+			m.Selected = 0
+		}
+	case usecase.LaunchScopeRepo:
+		if len(m.Context.BranchRuns) > 0 {
+			m.Context.Scope = usecase.LaunchScopeBranch
+			m.Context.Runs = m.Context.BranchRuns
+			m.Selected = 0
+		}
+	default:
+		if len(m.Context.BranchRuns) > 0 && len(m.Context.RepoRuns) > 0 {
+			m.Context.Scope = usecase.LaunchScopeRepo
+			m.Context.Runs = m.Context.RepoRuns
+			m.Selected = 0
+		}
+	}
+	return m
+}
+
 func isRunning(run model.Run) bool {
-	return run.Status == model.StatusInProgress
+	switch run.Status {
+	case model.StatusInProgress, model.StatusQueued, model.StatusWaiting, model.StatusPending, model.StatusRequested:
+		return true
+	default:
+		return false
+	}
 }
 
 func isFailing(run model.Run) bool {

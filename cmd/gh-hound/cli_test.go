@@ -456,7 +456,9 @@ func TestDefaultTUIAppHonorsWelcomeEnvOverride(t *testing.T) {
 	if app.Route() != tui.RouteRuns {
 		t.Fatalf("HOUND_WELCOME=false route = %s, want runs", app.Route())
 	}
-	if len(gh.filters) != 1 || gh.filters[0].Repo != "openclaw/openclaw" || gh.filters[0].Branch != "main" {
+	if len(gh.filters) != 2 ||
+		gh.filters[0].Repo != "openclaw/openclaw" || gh.filters[0].Branch != "main" ||
+		gh.filters[1].Repo != "openclaw/openclaw" || gh.filters[1].Branch != "" {
 		t.Fatalf("unexpected launch filters: %#v", gh.filters)
 	}
 }

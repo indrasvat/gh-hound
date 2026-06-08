@@ -10,6 +10,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/tui/components/sparkline"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
+	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
 func View(m Model, width int, now time.Time) string {
@@ -29,7 +30,12 @@ func ViewSize(m Model, width, height int, now time.Time) string {
 func renderRuns(m Model, width, height int, now time.Time) string {
 	runs := m.filteredRuns()
 	selected := clampSelection(m.Selected, len(runs))
-	rowCapacity := runRowCapacity(height, 2, m.InputMode, len(runs))
+	fixedRows := 2
+	notice := visibleNotice(m)
+	if notice != "" {
+		fixedRows++
+	}
+	rowCapacity := runRowCapacity(height, fixedRows, m.InputMode, len(runs))
 	start, end := viewport(selected, len(runs), rowCapacity)
 	lines := []string{
 		runsHeader(width),
@@ -43,6 +49,9 @@ func renderRuns(m Model, width, height int, now time.Time) string {
 	for i, run := range runs[start:end] {
 		index := start + i
 		lines = append(lines, row(run, index == selected, width, now))
+	}
+	if notice != "" {
+		lines = append(lines, dimLine("  "+notice, width))
 	}
 	summary := m.Summary()
 	lines = append(lines, fitANSI(joinRightANSI(summaryLine(summary), pageLine(start, end, len(runs)), width), width))
@@ -60,15 +69,23 @@ func renderAllGreen(m Model, width, height int, now time.Time) string {
 		latestTitle = fmt.Sprintf("%s #%d", run.Name, run.RunNumber)
 		latestMeta = fmt.Sprintf("%s · success", duration(run))
 	}
-	branch := first(m.Context.Branch, "all branches")
-	rowCapacity := runRowCapacity(height, 5, m.InputMode, len(runs))
+	branch := scopeTitle(m.Context.Scope, m.Context.Branch)
+	fixedRows := 5
+	notice := visibleNotice(m)
+	if notice != "" {
+		fixedRows++
+	}
+	rowCapacity := runRowCapacity(height, fixedRows, m.InputMode, len(runs))
 	start, end := viewport(selected, len(runs), rowCapacity)
 	lines := []string{
 		allGreenBandLine("", width),
-		allGreenBandLine(joinRightANSI(successLead("All checks passing on "+branch), latestTitle, width), width),
+		allGreenBandLine(joinRightANSI(successLead(nonFailingHeadline(runs, branch)), latestTitle, width), width),
 		allGreenBandLine(joinRightANSI("     "+fmt.Sprintf("%d recent runs · %d failing · last finished %s ago", len(runs), summary.Failing, age(runs[0], now)), latestMeta, width), width),
 		allGreenBandLine("", width),
 		allGreenHeader(width),
+	}
+	if notice != "" {
+		lines = append(lines, dimLine("  "+notice, width))
 	}
 	if m.InputMode {
 		lines = append(lines, filterLine(m.Filter, len(runs), width))
@@ -296,6 +313,29 @@ func allGreenRow(run model.Run, selected bool, width int, now time.Time) string 
 		return fitANSI(joinRightANSI(prefix+padANSI(num, 6)+" "+icon+"       "+label, runAge, width), width)
 	}
 	return fitANSI(joinRightANSI(prefix+padANSI(num, 6)+" "+icon+" "+label, runAge, width), width)
+}
+
+func scopeTitle(scope usecase.LaunchScope, branch string) string {
+	if scope == usecase.LaunchScopeRepo {
+		return "repo all branches"
+	}
+	return "branch " + first(branch, "all branches")
+}
+
+func visibleNotice(m Model) string {
+	if m.Context.Scope == usecase.LaunchScopeRepo {
+		return ""
+	}
+	return m.Context.Notice
+}
+
+func nonFailingHeadline(runs []model.Run, scope string) string {
+	for _, run := range runs {
+		if run.Status != model.StatusCompleted || run.Conclusion != model.ConclusionSuccess {
+			return "No failing checks on " + scope
+		}
+	}
+	return "All checks passing on " + scope
 }
 
 func filterLine(filter string, count int, width int) string {

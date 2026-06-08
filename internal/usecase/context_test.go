@@ -147,6 +147,40 @@ func TestLaunchRequestOverridesRepoBranchAndAllScope(t *testing.T) {
 	}
 }
 
+func TestLaunchServiceSniffsRepoActivityWhileStayingBranchScoped(t *testing.T) {
+	gh := &launchGitHub{
+		runsByBranch: map[string][]model.Run{
+			"main": {greenRun(101, "main")},
+			"":     {runningRun(202, "release/2026.6.5"), greenRun(101, "main")},
+		},
+		workflows: []model.Workflow{{ID: 1, Name: "CI", State: "active"}},
+	}
+	service := usecase.LaunchService{
+		Config:     config.Default(),
+		GitHub:     gh,
+		Repository: fakeRepository{context: usecase.RepositoryContext{Repo: "openclaw/openclaw", Branch: "main", Actor: "indrasvat"}},
+	}
+
+	got := service.Resolve(context.Background(), usecase.LaunchRequest{})
+
+	if got.Scope != usecase.LaunchScopeBranch || got.State != usecase.LaunchStateAllGreen {
+		t.Fatalf("launch scope/state = %s/%s, want branch/all_green: %#v", got.Scope, got.State, got)
+	}
+	if !strings.Contains(got.Notice, "repo activity") || !strings.Contains(got.Notice, "release/2026.6.5") {
+		t.Fatalf("notice = %q, want repo activity with active branch", got.Notice)
+	}
+	if len(got.BranchRuns) != 1 || len(got.RepoRuns) != 2 {
+		t.Fatalf("branch/repo runs = %d/%d, want 1/2", len(got.BranchRuns), len(got.RepoRuns))
+	}
+	wantCalls := []usecase.RunFilter{
+		{Repo: "openclaw/openclaw", Branch: "main", PerPage: 30},
+		{Repo: "openclaw/openclaw", PerPage: 30},
+	}
+	if !slices.EqualFunc(gh.calls, wantCalls, sameFilter) {
+		t.Fatalf("run calls = %#v, want %#v", gh.calls, wantCalls)
+	}
+}
+
 type fakeRepository struct {
 	context usecase.RepositoryContext
 	err     error

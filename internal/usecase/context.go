@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/indrasvat/gh-hound/internal/config"
 	"github.com/indrasvat/gh-hound/internal/model"
@@ -77,6 +78,8 @@ type LaunchContext struct {
 	Notice       string
 	ErrorMessage string
 	Runs         []model.Run
+	BranchRuns   []model.Run
+	RepoRuns     []model.Run
 	Workflows    []model.Workflow
 }
 
@@ -143,6 +146,9 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 		result.ErrorMessage = err.Error()
 		return result
 	}
+	if result.Scope == LaunchScopeBranch {
+		result.BranchRuns = runs
+	}
 
 	if len(runs) == 0 && result.Scope == LaunchScopeBranch {
 		result.Scope = LaunchScopeRepo
@@ -153,9 +159,20 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 			result.ErrorMessage = err.Error()
 			return result
 		}
+		result.RepoRuns = runs
+	} else if result.Scope == LaunchScopeBranch {
+		result.RepoRuns = s.sniffRepoRuns(ctx, result.Repo, perPage)
+		if notice := repoActivityNotice(result.Branch, runs, result.RepoRuns); notice != "" {
+			result.Notice = notice
+		}
+	} else {
+		result.RepoRuns = runs
 	}
 
 	result.Runs = runs
+	if result.Scope == LaunchScopeBranch && len(result.BranchRuns) == 0 {
+		result.BranchRuns = runs
+	}
 	if len(runs) == 0 {
 		workflows, err := s.GitHub.ListWorkflows(ctx, result.Repo)
 		if err != nil {
@@ -183,6 +200,14 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 	}
 	result.State = LaunchStateRuns
 	return result
+}
+
+func (s LaunchService) sniffRepoRuns(ctx context.Context, repo string, perPage int) []model.Run {
+	runs, err := s.GitHub.ListRuns(ctx, RunFilter{Repo: repo, PerPage: perPage})
+	if err != nil {
+		return nil
+	}
+	return runs
 }
 
 func (s LaunchService) currentRepository(ctx context.Context) (RepositoryContext, error) {
@@ -221,6 +246,83 @@ func hasInProgress(runs []model.Run) bool {
 		}
 	}
 	return false
+}
+
+func repoActivityNotice(branch string, branchRuns []model.Run, repoRuns []model.Run) string {
+	if len(repoRuns) == 0 {
+		return ""
+	}
+	repoSummary := summarize(repoRuns)
+	if repoSummary.Failing == 0 && repoSummary.Running == 0 {
+		return ""
+	}
+	branchSummary := summarize(branchRuns)
+	if branchSummary.Failing > 0 || branchSummary.Running > 0 {
+		return ""
+	}
+	parts := []string{}
+	if repoSummary.Failing > 0 {
+		parts = append(parts, fmt.Sprintf("%d failing", repoSummary.Failing))
+	}
+	if repoSummary.Running > 0 {
+		parts = append(parts, fmt.Sprintf("%d running", repoSummary.Running))
+	}
+	branches := activeBranches(branch, repoRuns)
+	if branches == "" {
+		return "repo activity: " + strings.Join(parts, ", ") + " across all branches · s scope"
+	}
+	return "repo activity: " + strings.Join(parts, ", ") + " across " + branches + " · s scope"
+}
+
+type runSummary struct {
+	Failing int
+	Running int
+}
+
+func summarize(runs []model.Run) runSummary {
+	var summary runSummary
+	for _, run := range runs {
+		if run.Status == model.StatusInProgress || run.Status == model.StatusQueued || run.Status == model.StatusWaiting || run.Status == model.StatusPending || run.Status == model.StatusRequested {
+			summary.Running++
+			continue
+		}
+		switch run.Conclusion {
+		case model.ConclusionFailure, model.ConclusionActionRequired, model.ConclusionTimedOut:
+			summary.Failing++
+		}
+	}
+	return summary
+}
+
+func activeBranches(current string, runs []model.Run) string {
+	seen := map[string]bool{}
+	branches := []string{}
+	for _, run := range runs {
+		if run.HeadBranch == "" || run.HeadBranch == current || seen[run.HeadBranch] {
+			continue
+		}
+		if !isAttentionRun(run) {
+			continue
+		}
+		seen[run.HeadBranch] = true
+		branches = append(branches, run.HeadBranch)
+		if len(branches) == 2 {
+			break
+		}
+	}
+	return strings.Join(branches, ", ")
+}
+
+func isAttentionRun(run model.Run) bool {
+	if run.Status == model.StatusInProgress || run.Status == model.StatusQueued || run.Status == model.StatusWaiting || run.Status == model.StatusPending || run.Status == model.StatusRequested {
+		return true
+	}
+	switch run.Conclusion {
+	case model.ConclusionFailure, model.ConclusionActionRequired, model.ConclusionTimedOut:
+		return true
+	default:
+		return false
+	}
 }
 
 func first(values ...string) string {

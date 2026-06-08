@@ -85,8 +85,8 @@ Footer text must be generated from keymap data, not copied into renderers.
 | Screen | Footer |
 |---|---|
 | welcome | ⏎ continue · ? help · q quit |
-| all_green | j/k move · ⏎ open · w watch next push · D dispatch · / filter · ? help |
-| runs_list | j/k move · ⏎ open · ↻ rerun · ✗ cancel · l logs · w watch · / filter · ? help |
+| all_green | j/k move · s scope · ⏎ open · w watch · D dispatch · / filter · ? help |
+| runs_list | j/k · s scope · ⏎ open · ↻ rerun · ✗ cancel · l log · w watch · / filter · ? |
 | detail | ⏎ expand · ↻ rerun job · R rerun failed · ✗ cancel · ⎋ back · ? |
 | failure | ↻ rerun failed · r rerun job · l full log · o browser · y copy excerpt |
 | watch | ✗ cancel · f follow · d debug · ⎋ detach |

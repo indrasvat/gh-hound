@@ -216,9 +216,9 @@ func RenderFixtureSize(screen string, width, height int) string {
 	case "welcome":
 		return NewApp(Options{Config: config.Default(), Build: BuildInfo{Version: "v0.1.0"}}).ViewSize(width, height)
 	case "all_green":
-		return frameViewSize(app.theme, "hound", "⌥ main · @indrasvat", "◔ 4,981/5k live", runs.View(sampleAllGreenModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenAllGreen), width, height, true)
+		return frameViewSize(app.theme, "hound", "⌥ branch main · @indrasvat", "◔ 4,981/5k live", runs.View(sampleAllGreenModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenAllGreen), width, height, true)
 	case "runs":
-		return frameViewSize(app.theme, "hound", "⌥ fix/parser · @indrasvat", "◔ 4,981/5k live 304", runs.View(sampleRunsModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
+		return frameViewSize(app.theme, "hound", "⌥ branch fix/parser · @indrasvat", "◔ 4,981/5k live 304", runs.View(sampleRunsModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
 	case "detail":
 		return frameViewSize(app.theme, "hound", "CI #571 › fix/parser", "a1b2c3d", detail.View(sampleDetailModel(), bodyWidth), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
 	case "failure":
@@ -482,7 +482,7 @@ func (a App) updateDispatch(msg KeyMsg) (App, bool) {
 
 func runsHandled(key string) bool {
 	switch key {
-	case "j", "k", "down", "up", "g", "G", "/", "enter", "l", "w", "D", "o", "y", "r", "R", "x", "X", "esc", "backspace":
+	case "j", "k", "down", "up", "g", "G", "s", "/", "enter", "l", "w", "D", "o", "y", "r", "R", "x", "X", "esc", "backspace":
 		return true
 	case "ctrl+d", "ctrl+u":
 		return true
@@ -599,9 +599,9 @@ func (a App) chromeParts() (string, string, string) {
 		return "hound", "workflow_dispatch", "Release"
 	default:
 		if a.runs.AllGreen() {
-			return "hound", branchContext(a.runs.Context.Branch, a.runs.Context.Actor), "◔ 4,981/5k live"
+			return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), "◔ 4,981/5k live"
 		}
-		return "hound", branchContext(a.runs.Context.Branch, a.runs.Context.Actor), "◔ 4,981/5k live 304"
+		return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), "◔ 4,981/5k live 304"
 	}
 }
 
@@ -609,14 +609,18 @@ func hasLaunchContext(ctx usecase.LaunchContext) bool {
 	return ctx.Repo != "" || ctx.Branch != "" || ctx.Actor != "" || ctx.State != "" || len(ctx.Runs) > 0 || len(ctx.Workflows) > 0 || ctx.Notice != "" || ctx.ErrorMessage != ""
 }
 
-func branchContext(branch, actor string) string {
+func branchContext(scope usecase.LaunchScope, branch, actor string) string {
 	if branch == "" {
 		branch = "all branches"
 	}
 	if actor == "" {
 		actor = "indrasvat"
 	}
-	return "⌥ " + branch + " · @" + actor
+	label := "branch " + branch
+	if scope == usecase.LaunchScopeRepo {
+		label = "repo all branches"
+	}
+	return "⌥ " + label + " · @" + actor
 }
 
 func detailContext(run model.Run) string {
