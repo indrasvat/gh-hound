@@ -214,7 +214,7 @@ func TestSelectedLineReappliesBackgroundAfterNestedReset(t *testing.T) {
 }
 
 func TestFixtureBackgroundLinesDoNotBleedAfterNestedReset(t *testing.T) {
-	for _, screen := range []string{
+	screens := []string{
 		"welcome",
 		"all_green",
 		"runs",
@@ -225,18 +225,29 @@ func TestFixtureBackgroundLinesDoNotBleedAfterNestedReset(t *testing.T) {
 		"dispatch",
 		"palette",
 		"help",
-	} {
-		view := RenderFixtureSize(screen, 120, 40)
-		for lineNumber, line := range strings.Split(view, "\n") {
-			if !strings.Contains(line, "\x1b[48;2;") {
-				continue
+	}
+	breakpoints := []struct {
+		width  int
+		height int
+	}{
+		{width: 80, height: 24},
+		{width: 120, height: 40},
+		{width: 200, height: 60},
+	}
+	for _, screen := range screens {
+		for _, bp := range breakpoints {
+			view := RenderFixtureSize(screen, bp.width, bp.height)
+			for lineNumber, line := range strings.Split(view, "\n") {
+				if !strings.Contains(line, "\x1b[48;2;") {
+					continue
+				}
+				assertBackgroundLineSafe(t, screen, bp.width, bp.height, lineNumber+1, line)
 			}
-			assertBackgroundLineSafe(t, screen, lineNumber+1, line)
 		}
 	}
 }
 
-func assertBackgroundLineSafe(t *testing.T, screen string, lineNumber int, line string) {
+func assertBackgroundLineSafe(t *testing.T, screen string, width int, height int, lineNumber int, line string) {
 	t.Helper()
 	for index := 0; index < len(line); {
 		resetAt := strings.Index(line[index:], sgrReset)
@@ -252,7 +263,7 @@ func assertBackgroundLineSafe(t *testing.T, screen string, lineNumber int, line 
 		}
 		prefix := remaining[:clampPrefix(len(remaining), 40)]
 		if !strings.HasPrefix(remaining, "\x1b[38;2;") || !strings.Contains(prefix, "\x1b[48;2;") {
-			t.Fatalf("%s line %d loses background after reset before visible content: %q", screen, lineNumber, line)
+			t.Fatalf("%s %dx%d line %d loses background after reset before visible content: %q", screen, width, height, lineNumber, line)
 		}
 		index = absoluteReset + len(sgrReset)
 	}

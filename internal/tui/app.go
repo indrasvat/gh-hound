@@ -766,9 +766,12 @@ func sampleLogModel() logscreen.Model {
 
 func sampleWatchModel() watch.Model {
 	doc := logs.Parse(strings.Join([]string{
-		"041 17:43:02.781Z go test ./... -race -count=1",
-		"042 ok    github.com/indrasvat/gh-hound/internal/api 0.214s",
-		"043 ok    github.com/indrasvat/gh-hound/internal/render 0.331s",
+		"17:43:02.781Z go test ./... -race -count=1",
+		"ok    github.com/indrasvat/gh-hound/internal/api 0.214s",
+		"ok    github.com/indrasvat/gh-hound/internal/render 0.331s",
+		"=== RUN   TestLexIdent",
+		"=== RUN   TestLexIdent/basic",
+		"--- PASS: TestLexIdent/basic (0.00s)",
 	}, "\n"))
 	return watch.NewModel(watch.State{
 		Repo:    "indrasvat/gh-hound",

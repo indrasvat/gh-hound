@@ -1,1 +1,1 @@
-{"contains":["watch · CI #570","streaming ⠹ 0m48s follow ●","incoming ▾ active step tail █","✗ cancel · f follow · d debug · ⎋ detach"]}
+{"contains":["watch · CI #570","streaming ⠹ 0m48s follow ●","▾ Run go test ./...","041 17:43:02.781Z go test ./... -race -count=1","046 --- PASS: TestLexIdent/basic (0.00s)█","✗ cancel · f follow · d debug · ⎋ detach"]}
