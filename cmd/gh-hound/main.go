@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -64,6 +65,7 @@ type commandRuntime struct {
 	Env       func(string) (string, bool)
 	IsTTY     bool
 	StateHome string
+	GHToken   func() string
 	GitHub    usecase.GitHub
 	Repo      usecase.RepositoryContextProvider
 }
@@ -366,7 +368,7 @@ func githubClientForRuntime(runtime commandRuntime) usecase.GitHub {
 	if runtime.GitHub != nil {
 		return runtime.GitHub
 	}
-	return github.NewClient("https://api.github.com", authenticatedHTTPClient(runtime.Env))
+	return github.NewClient("https://api.github.com", authenticatedHTTPClient(runtime.Env, ghTokenLookup(runtime)))
 }
 
 func repoProviderForRuntime(runtime commandRuntime) usecase.RepositoryContextProvider {
@@ -593,11 +595,14 @@ func filterRunsByConclusion(runs []model.Run, rawStatus string) []model.Run {
 	return filtered
 }
 
-func authenticatedHTTPClient(lookup func(string) (string, bool)) *http.Client {
+func authenticatedHTTPClient(lookup func(string) (string, bool), ghToken func() string) *http.Client {
 	if lookup == nil {
 		lookup = os.LookupEnv
 	}
 	token := firstLookup(lookup, "GH_TOKEN", "GITHUB_TOKEN")
+	if token == "" && ghToken != nil {
+		token = strings.TrimSpace(ghToken())
+	}
 	if token == "" {
 		return http.DefaultClient
 	}
@@ -605,6 +610,24 @@ func authenticatedHTTPClient(lookup func(string) (string, bool)) *http.Client {
 		token: token,
 		base:  http.DefaultTransport,
 	}}
+}
+
+func ghTokenLookup(runtime commandRuntime) func() string {
+	if runtime.GHToken != nil {
+		return runtime.GHToken
+	}
+	return ghAuthToken
+}
+
+func ghAuthToken() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "gh", "auth", "token")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 type authTransport struct {
@@ -615,6 +638,9 @@ type authTransport struct {
 func (t authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	clone := req.Clone(req.Context())
 	clone.Header.Set("Authorization", "Bearer "+t.token)
+	if t.base == nil {
+		t.base = http.DefaultTransport
+	}
 	return t.base.RoundTrip(clone)
 }
 

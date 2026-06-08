@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -386,6 +388,29 @@ func TestAgentSurfaceAPIErrorExitsTwo(t *testing.T) {
 	if strings.Contains(out.String(), "token") || strings.Contains(out.String(), "Authorization") {
 		t.Fatalf("error output leaked credential-shaped data:\n%s", out.String())
 	}
+}
+
+func TestAuthenticatedHTTPClientFallsBackToGhKeyring(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer gh-keyring-token" {
+			t.Fatalf("Authorization = %q, want gh keyring bearer token", got)
+		}
+		_, _ = w.Write([]byte("{}"))
+	}))
+	defer server.Close()
+
+	client := authenticatedHTTPClient(emptyEnv, func() string {
+		return "gh-keyring-token"
+	})
+	resp, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("GET with gh keyring auth failed: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Fatalf("close response body: %v", err)
+		}
+	}()
 }
 
 func TestWatchFailFastFailureScenario(t *testing.T) {
