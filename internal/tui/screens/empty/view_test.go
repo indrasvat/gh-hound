@@ -10,6 +10,7 @@ func TestViewFitsEmptyAndErrorStates(t *testing.T) {
 		{Kind: KindNoWorkflows, Repo: "indrasvat/gh-hound"},
 		{Kind: KindNoRepository, Message: "suggest gh hound -R owner/repo"},
 		{Kind: KindNoRuns, Repo: "indrasvat/gh-hound", Branch: "fix/parser"},
+		{Kind: KindError, Message: "github api rate limit exceeded"},
 	} {
 		view := View(model, 80)
 		for _, want := range []string{"hound", model.Title()} {

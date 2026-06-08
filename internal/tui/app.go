@@ -15,6 +15,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/tui/overlay/palette"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/dispatch"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/empty"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/failure"
 	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/runs"
@@ -65,6 +66,7 @@ type App struct {
 	inputMode        bool
 	quit             bool
 	welcomeDismissed bool
+	launchRoute      Route
 	runs             runs.Model
 	detail           detail.Model
 	failure          failure.Model
@@ -79,7 +81,8 @@ func NewApp(options Options) App {
 	if cfg.Theme == "" {
 		cfg = config.Default()
 	}
-	route := RouteRuns
+	launchRoute := routeForLaunch(options.Launch)
+	route := launchRoute
 	if cfg.Welcome {
 		route = RouteWelcome
 	}
@@ -95,16 +98,18 @@ func NewApp(options Options) App {
 	if run, ok := runsModel.SelectedRun(); ok {
 		initialDetail = detailResolver(run)
 	}
+	watchModel := watchModelForLaunch(options.Launch, runsModel)
 	return App{
 		config:         cfg,
 		build:          options.Build,
 		theme:          theme.ForMode(theme.Mode(cfg.Theme)),
 		routes:         []Route{route},
+		launchRoute:    launchRoute,
 		runs:           runsModel,
 		detail:         initialDetail,
 		failure:        sampleFailureModel(),
 		log:            sampleLogModel(),
-		watch:          sampleWatchModel(),
+		watch:          watchModel,
 		dispatch:       sampleDispatchModel(),
 		detailResolver: detailResolver,
 	}
@@ -169,7 +174,7 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 	case "enter":
 		if a.Route() == RouteWelcome {
 			a.welcomeDismissed = true
-			a.routes[len(a.routes)-1] = RouteRuns
+			a.routes[len(a.routes)-1] = a.launchRoute
 			return a, true
 		}
 	}
@@ -588,7 +593,8 @@ func (a App) chromeParts() (string, string, string) {
 	case RouteLog:
 		return "hound", "full log", "match 1/1"
 	case RouteWatch:
-		return "hound", "CI #570", "streaming · follow ●"
+		run := a.watch.State.Run
+		return "hound", fmt.Sprintf("%s #%d", firstNonEmpty(run.Name, "workflow"), run.RunNumber), "streaming · follow ●"
 	case RouteDispatch:
 		return "hound", "workflow_dispatch", "Release"
 	default:
@@ -644,6 +650,9 @@ func (a App) screenBody(width, height int) string {
 	case RouteWelcome:
 		return welcome.View(welcome.Model{Build: a.build}, bodyWidth, max(height-6, 0))
 	case RouteRuns:
+		if body, ok := a.launchStateBody(bodyWidth); ok {
+			return body
+		}
 		return runs.ViewSize(a.runs, bodyWidth, bodyHeight(height), time.Now())
 	case RouteDetail:
 		return detail.View(a.detail, bodyWidth)
@@ -661,6 +670,61 @@ func (a App) screenBody(width, height int) string {
 		return dispatch.View(a.dispatch, bodyWidth)
 	default:
 		return string(a.Route())
+	}
+}
+
+func routeForLaunch(ctx usecase.LaunchContext) Route {
+	switch ctx.State {
+	case usecase.LaunchStateWatch:
+		return RouteWatch
+	case usecase.LaunchStateDispatch:
+		return RouteDispatch
+	default:
+		return RouteRuns
+	}
+}
+
+func watchModelForLaunch(ctx usecase.LaunchContext, runsModel runs.Model) watch.Model {
+	if ctx.State != usecase.LaunchStateWatch {
+		return sampleWatchModel()
+	}
+	run, ok := runsModel.SelectedRun()
+	if !ok {
+		return sampleWatchModel()
+	}
+	sample := sampleWatchModel()
+	return watch.NewModel(watch.State{
+		Repo:    ctx.Repo,
+		Branch:  firstNonEmpty(ctx.Branch, run.HeadBranch),
+		Run:     run,
+		Lines:   sample.State.Lines,
+		Elapsed: sample.State.Elapsed,
+	})
+}
+
+func (a App) launchStateBody(width int) (string, bool) {
+	ctx := a.runs.Context
+	switch ctx.State {
+	case usecase.LaunchStateError:
+		return empty.View(empty.Model{
+			Kind:    empty.KindError,
+			Repo:    ctx.Repo,
+			Branch:  ctx.Branch,
+			Message: ctx.ErrorMessage,
+		}, width), true
+	case usecase.LaunchStateEmpty:
+		kind := empty.KindNoRuns
+		if len(ctx.Workflows) == 0 {
+			kind = empty.KindNoWorkflows
+		}
+		return empty.View(empty.Model{
+			Kind:    kind,
+			Repo:    ctx.Repo,
+			Branch:  ctx.Branch,
+			Message: ctx.Notice,
+		}, width), true
+	default:
+		return "", false
 	}
 }
 

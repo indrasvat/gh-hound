@@ -11,6 +11,7 @@ const (
 	KindNoWorkflows  Kind = "no_workflows"
 	KindNoRepository Kind = "no_repository"
 	KindNoRuns       Kind = "no_runs"
+	KindError        Kind = "error"
 )
 
 type Model struct {
@@ -28,6 +29,8 @@ func (m Model) Title() string {
 		return "Repository needed"
 	case KindNoRuns:
 		return "No runs found"
+	case KindError:
+		return "Runs unavailable"
 	default:
 		return "Nothing to show"
 	}
@@ -64,6 +67,11 @@ func body(model Model) []string {
 		return []string{
 			fmt.Sprintf("No workflow runs were found for %s on %s.", model.Repo, model.Branch),
 			"Push the branch or use --all to show runs across every branch.",
+		}
+	case KindError:
+		return []string{
+			first(model.Message, "GitHub Actions runs could not be loaded."),
+			"Check repository access, GitHub auth, rate limits, or try again later.",
 		}
 	default:
 		return []string{"No data is available for this screen yet."}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/tui"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -411,6 +412,66 @@ func TestAuthenticatedHTTPClientFallsBackToGhKeyring(t *testing.T) {
 			t.Fatalf("close response body: %v", err)
 		}
 	}()
+}
+
+func TestAuthenticatedHTTPClientEnvTokenWinsOverGhKeyring(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer env-token" {
+			t.Fatalf("Authorization = %q, want env bearer token", got)
+		}
+		_, _ = w.Write([]byte("{}"))
+	}))
+	defer server.Close()
+
+	client := authenticatedHTTPClient(mapEnv(map[string]string{"GH_TOKEN": "env-token"}), func() string {
+		return "gh-keyring-token"
+	})
+	resp, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("GET with env auth failed: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Fatalf("close response body: %v", err)
+		}
+	}()
+}
+
+func TestDefaultTUIAppHonorsWelcomeEnvOverride(t *testing.T) {
+	gh := &cliGitHub{runs: []model.Run{cliRun(101, "CI", model.StatusCompleted, model.ConclusionSuccess)}}
+	app, err := defaultTUIApp(context.Background(), commandRuntime{
+		Env: mapEnv(map[string]string{
+			"HOUND_WELCOME": "false",
+		}),
+		GitHub: gh,
+		Repo: &cliRepo{context: usecase.RepositoryContext{
+			Repo:   "openclaw/openclaw",
+			Branch: "main",
+			Actor:  "indrasvat",
+		}},
+	}, tui.BuildInfo{Version: "test"}, cliOptions{})
+	if err != nil {
+		t.Fatalf("defaultTUIApp returned error: %v", err)
+	}
+	if app.Route() != tui.RouteRuns {
+		t.Fatalf("HOUND_WELCOME=false route = %s, want runs", app.Route())
+	}
+	if len(gh.filters) != 1 || gh.filters[0].Repo != "openclaw/openclaw" || gh.filters[0].Branch != "main" {
+		t.Fatalf("unexpected launch filters: %#v", gh.filters)
+	}
+}
+
+func TestDefaultTUIAppRejectsInvalidConfigEnv(t *testing.T) {
+	_, err := defaultTUIApp(context.Background(), commandRuntime{
+		Env: mapEnv(map[string]string{
+			"HOUND_PER_PAGE": "1000",
+		}),
+		GitHub: &cliGitHub{},
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "openclaw/openclaw", Branch: "main"}},
+	}, tui.BuildInfo{Version: "test"}, cliOptions{})
+	if err == nil || !strings.Contains(err.Error(), "per_page") {
+		t.Fatalf("defaultTUIApp error = %v, want per_page validation", err)
+	}
 }
 
 func TestWatchFailFastFailureScenario(t *testing.T) {

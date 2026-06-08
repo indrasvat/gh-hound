@@ -244,7 +244,10 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 		Commit:  info.Commit,
 		Date:    info.Date,
 	}
-	cfg := defaultTUIApp(ctx, runtime, build, options)
+	cfg, err := defaultTUIApp(ctx, runtime, build, options)
+	if err != nil {
+		return err
+	}
 	if options.Fake != "" {
 		cfg = tui.NewScenarioApp(options.Fake, build)
 	}
@@ -336,8 +339,11 @@ func (d *keyDecoder) pop() (string, bool) {
 	return key, true
 }
 
-func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildInfo, options cliOptions) tui.App {
-	cfg := defaultConfig()
+func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildInfo, options cliOptions) (tui.App, error) {
+	cfg, err := defaultConfig(runtime.Env)
+	if err != nil {
+		return tui.App{}, err
+	}
 	githubClient := githubClientForRuntime(runtime)
 	repoProvider := repoProviderForRuntime(runtime)
 	launch := usecase.LaunchService{
@@ -361,7 +367,7 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			}
 			return detail.NewModel(run, jobs)
 		},
-	})
+	}), nil
 }
 
 func githubClientForRuntime(runtime commandRuntime) usecase.GitHub {
@@ -450,9 +456,12 @@ func keyName(input []byte) string {
 	}
 }
 
-func defaultConfig() config.Config {
-	cfg := config.Default()
-	return cfg
+func defaultConfig(lookup ...func(string) (string, bool)) (config.Config, error) {
+	var env func(string) (string, bool)
+	if len(lookup) > 0 {
+		env = lookup[0]
+	}
+	return config.Load(config.LoadOptions{LookupEnv: env})
 }
 
 func ttyView(view string) string {

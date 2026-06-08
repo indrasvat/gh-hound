@@ -83,6 +83,65 @@ func TestWelcomeCanBeDisabled(t *testing.T) {
 	}
 }
 
+func TestWelcomeDismissesToResolvedLaunchState(t *testing.T) {
+	cfg := config.Default()
+	launch := usecase.LaunchContext{
+		Repo:   "openclaw/openclaw",
+		Branch: "main",
+		Actor:  "indrasvat",
+		State:  usecase.LaunchStateWatch,
+		Runs: []model.Run{{
+			ID:         658258,
+			Name:       "ClawSweeper Dispatch",
+			Status:     model.StatusInProgress,
+			Conclusion: model.ConclusionNone,
+			RunNumber:  658258,
+			HeadBranch: "main",
+		}},
+	}
+	app := NewApp(Options{Config: cfg, Launch: launch})
+	if app.Route() != RouteWelcome {
+		t.Fatalf("initial route = %s, want welcome", app.Route())
+	}
+
+	app, handled := app.Update(KeyMsg{Key: "enter"})
+	if !handled || app.Route() != RouteWatch {
+		t.Fatalf("welcome enter handled=%v route=%s, want watch", handled, app.Route())
+	}
+	view := ansi.Strip(app.ViewSize(120, 32))
+	for _, want := range []string{"watch · ClawSweeper Dispatch #658258 · main", "streaming"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("watch view missing launch run %q\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "CI #570") {
+		t.Fatalf("watch view used sample run after welcome:\n%s", view)
+	}
+}
+
+func TestLaunchErrorIsVisibleInsteadOfEmptyRunsList(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{
+			Repo:         "openclaw/openclaw",
+			Branch:       "main",
+			State:        usecase.LaunchStateError,
+			ErrorMessage: "github api GET /repos/openclaw/openclaw/actions/runs: API rate limit exceeded",
+		},
+	})
+	view := ansi.Strip(app.ViewSize(120, 32))
+	for _, want := range []string{"Runs unavailable", "API rate limit exceeded"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("error launch view missing %q\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "no runs match") {
+		t.Fatalf("error launch was rendered as an empty filtered runs list:\n%s", view)
+	}
+}
+
 func TestRootViewContainsChromeAndFooter(t *testing.T) {
 	app := NewApp(Options{Config: config.Default(), Build: BuildInfo{Version: "v0.1.0"}})
 	view := app.View()
