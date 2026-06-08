@@ -96,9 +96,18 @@ func TestTTYRootLaunchesInteractiveTUI(t *testing.T) {
 	cmd := newRootCommandWithRuntime(commandRuntime{
 		Stdout: &out,
 		Stderr: io.Discard,
-		Stdin:  strings.NewReader("q"),
+		Stdin:  strings.NewReader("\nq"),
 		Env:    emptyEnv,
 		IsTTY:  true,
+		GitHub: &cliGitHub{runs: []model.Run{
+			cliRun(901, "Release", model.StatusCompleted, model.ConclusionSuccess),
+			cliRun(902, "CodeQL", model.StatusCompleted, model.ConclusionSuccess),
+		}},
+		Repo: &cliRepo{context: usecase.RepositoryContext{
+			Repo:   "indrasvat/gh-hound",
+			Branch: "main",
+			Actor:  "indrasvat",
+		}},
 	}, testBuildInfo())
 	cmd.SetArgs([]string{})
 
@@ -110,9 +119,42 @@ func TestTTYRootLaunchesInteractiveTUI(t *testing.T) {
 	if strings.Contains(got, "TUI scaffold is ready") {
 		t.Fatalf("tty root printed scaffold placeholder:\n%s", got)
 	}
-	for _, want := range []string{"██╗  ██╗ ██████╗", "Hunt down your GitHub Actions CI", "⏎ continue · ? help · q quit"} {
+	for _, want := range []string{"\x1b[?25l", "\x1b[?25h", "██╗  ██╗ ██████╗", "Hunt down your GitHub Actions CI", "⏎ continue · ? help · q quit", "Release"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("tty root missing %q\n%s", want, got)
+		}
+	}
+}
+
+func TestKeyNameDecodesANSIArrowsAndShiftTab(t *testing.T) {
+	tests := map[string]string{
+		"\x1b[A": "up",
+		"\x1b[B": "down",
+		"\x1b[C": "right",
+		"\x1b[D": "left",
+		"\x1b[Z": "shift+tab",
+		"\x1b":   "esc",
+		"\r":     "enter",
+		"\x7f":   "backspace",
+	}
+	for input, want := range tests {
+		if got := keyName([]byte(input)); got != want {
+			t.Fatalf("keyName(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestKeyDecoderDoesNotDropBatchedInput(t *testing.T) {
+	reader := strings.NewReader("j\x1b[Bq")
+	decoder := keyDecoder{}
+	scratch := make([]byte, 8)
+	for _, want := range []string{"j", "down", "q"} {
+		got, err := decoder.Next(reader, scratch)
+		if err != nil {
+			t.Fatalf("Next returned error: %v", err)
+		}
+		if got != want {
+			t.Fatalf("Next = %q, want %q", got, want)
 		}
 	}
 }

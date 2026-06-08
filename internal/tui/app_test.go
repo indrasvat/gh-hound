@@ -6,8 +6,10 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/config"
+	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
+	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
 func TestAppShellHandlesGlobalsAndStacks(t *testing.T) {
@@ -302,6 +304,11 @@ func TestRootShellDelegatesScreenKeysAndRoutes(t *testing.T) {
 		t.Fatalf("runs j should move selection to running row: handled=%v\n%s", handled, view)
 	}
 
+	app, handled = app.Update(KeyMsg{Key: "k"})
+	if view := ansi.Strip(app.View()); !handled || !strings.Contains(view, "▌✗ CI") {
+		t.Fatalf("runs k should move selection back to failing row: handled=%v\n%s", handled, view)
+	}
+
 	app, handled = app.Update(KeyMsg{Key: "enter"})
 	if !handled || app.Route() != RouteDetail {
 		t.Fatalf("runs enter should route to detail: handled=%v route=%s", handled, app.Route())
@@ -325,5 +332,48 @@ func TestRootShellDelegatesScreenKeysAndRoutes(t *testing.T) {
 	app, handled = app.Update(KeyMsg{Key: "esc"})
 	if !handled || app.Route() != RouteFailure {
 		t.Fatalf("log esc should return to failure: handled=%v route=%s", handled, app.Route())
+	}
+}
+
+func TestRunsArrowKeysNavigateAndSelectedRunOpensDistinctDetail(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	release := model.Run{ID: 2001, Name: "Release", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure, RunNumber: 42, HeadBranch: "main", HeadSHA: "rel1234"}
+	codeQL := model.Run{ID: 2002, Name: "CodeQL", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 43, HeadBranch: "main", HeadSHA: "ql56789"}
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{
+			Repo:   "indrasvat/gh-hound",
+			Branch: "main",
+			Actor:  "indrasvat",
+			State:  usecase.LaunchStateRuns,
+			Runs:   []model.Run{release, codeQL},
+		},
+		DetailResolver: func(run model.Run) detail.Model {
+			job := model.Job{ID: run.ID + 10, RunID: run.ID, Name: run.Name + " job", Status: run.Status, Conclusion: run.Conclusion}
+			return detail.NewModel(run, []model.Job{job})
+		},
+	})
+
+	app, handled := app.Update(KeyMsg{Key: "down"})
+	if !handled {
+		t.Fatal("down key was not handled on the runs screen")
+	}
+	if view := ansi.Strip(app.View()); !strings.Contains(view, "▌✔ CodeQL") {
+		t.Fatalf("down key did not select CodeQL row:\n%s", view)
+	}
+
+	app, handled = app.Update(KeyMsg{Key: "enter"})
+	if !handled || app.Route() != RouteDetail {
+		t.Fatalf("enter did not open selected detail: handled=%v route=%s", handled, app.Route())
+	}
+	view := ansi.Strip(app.View())
+	for _, want := range []string{"CodeQL #43", "CodeQL job", "ql56789"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("selected detail missing %q\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "CI #571") || strings.Contains(view, "Release #42") {
+		t.Fatalf("selected detail reused a different run:\n%s", view)
 	}
 }

@@ -11,7 +11,7 @@ func TestScreenFootersMatchVisualContract(t *testing.T) {
 	expected := map[Screen]string{
 		ScreenWelcome:  "⏎ continue · ? help · q quit",
 		ScreenAllGreen: "w watch next push · D dispatch · / filter · ? help",
-		ScreenRunsList: "⏎ open · ↻ rerun · ✗ cancel · l logs · w watch · / filter · ? help",
+		ScreenRunsList: "j/k move · ⏎ open · ↻ rerun · ✗ cancel · l logs · w watch · / filter · ? help",
 		ScreenDetail:   "⏎ expand · ↻ rerun job · R rerun failed · ✗ cancel · ⎋ back · ?",
 		ScreenFailure:  "↻ rerun failed · r rerun job · l full log · o browser · y copy excerpt",
 		ScreenWatch:    "✗ cancel · f follow · d debug · ⎋ detach",

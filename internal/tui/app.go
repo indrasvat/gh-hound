@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -49,8 +50,10 @@ type KeyMsg struct {
 }
 
 type Options struct {
-	Config config.Config
-	Build  BuildInfo
+	Config         config.Config
+	Build          BuildInfo
+	Launch         usecase.LaunchContext
+	DetailResolver func(model.Run) detail.Model
 }
 
 type App struct {
@@ -68,6 +71,7 @@ type App struct {
 	log              logscreen.Model
 	watch            watch.Model
 	dispatch         dispatch.Model
+	detailResolver   func(model.Run) detail.Model
 }
 
 func NewApp(options Options) App {
@@ -79,17 +83,30 @@ func NewApp(options Options) App {
 	if cfg.Welcome {
 		route = RouteWelcome
 	}
+	runsModel := sampleRunsModel()
+	if hasLaunchContext(options.Launch) {
+		runsModel = runs.NewModel(options.Launch)
+	}
+	detailResolver := options.DetailResolver
+	if detailResolver == nil {
+		detailResolver = DetailModelForRun
+	}
+	initialDetail := sampleDetailModel()
+	if run, ok := runsModel.SelectedRun(); ok {
+		initialDetail = detailResolver(run)
+	}
 	return App{
-		config:   cfg,
-		build:    options.Build,
-		theme:    theme.ForMode(theme.Mode(cfg.Theme)),
-		routes:   []Route{route},
-		runs:     sampleRunsModel(),
-		detail:   sampleDetailModel(),
-		failure:  sampleFailureModel(),
-		log:      sampleLogModel(),
-		watch:    sampleWatchModel(),
-		dispatch: sampleDispatchModel(),
+		config:         cfg,
+		build:          options.Build,
+		theme:          theme.ForMode(theme.Mode(cfg.Theme)),
+		routes:         []Route{route},
+		runs:           runsModel,
+		detail:         initialDetail,
+		failure:        sampleFailureModel(),
+		log:            sampleLogModel(),
+		watch:          sampleWatchModel(),
+		dispatch:       sampleDispatchModel(),
+		detailResolver: detailResolver,
 	}
 }
 
@@ -373,6 +390,9 @@ func (a App) updateRuns(msg KeyMsg) (App, bool) {
 	a.runs = a.runs.Update(runs.KeyMsg{Key: msg.Key})
 	switch a.runs.Intent.Kind {
 	case runs.IntentOpenDetail:
+		if run, ok := a.runs.SelectedRun(); ok {
+			a.detail = a.detailResolver(run)
+		}
 		a.PushRoute(RouteDetail)
 	case runs.IntentOpenLogs:
 		a.PushRoute(RouteLog)
@@ -547,7 +567,7 @@ func (a App) chromeParts() (string, string, string) {
 	case RouteWelcome:
 		return "hound", "welcome · first run", a.build.Version
 	case RouteDetail:
-		return "hound", "CI #571 › fix/parser", "a1b2c3d"
+		return "hound", detailContext(a.detail.Run), shortSHA(a.detail.Run.HeadSHA)
 	case RouteFailure:
 		return "hound", "build › failed step", "exit 1"
 	case RouteLog:
@@ -564,6 +584,10 @@ func (a App) chromeParts() (string, string, string) {
 	}
 }
 
+func hasLaunchContext(ctx usecase.LaunchContext) bool {
+	return ctx.Repo != "" || ctx.Branch != "" || ctx.Actor != "" || ctx.State != "" || len(ctx.Runs) > 0 || len(ctx.Workflows) > 0 || ctx.Notice != "" || ctx.ErrorMessage != ""
+}
+
 func branchContext(branch, actor string) string {
 	if branch == "" {
 		branch = "all branches"
@@ -572,6 +596,31 @@ func branchContext(branch, actor string) string {
 		actor = "indrasvat"
 	}
 	return "⌥ " + branch + " · @" + actor
+}
+
+func detailContext(run model.Run) string {
+	name := firstNonEmpty(run.Name, run.DisplayTitle, run.Path, "workflow")
+	branch := firstNonEmpty(run.HeadBranch, "branch")
+	return fmt.Sprintf("%s #%d › %s", name, run.RunNumber, branch)
+}
+
+func shortSHA(sha string) string {
+	if sha == "" {
+		return "sha"
+	}
+	if len(sha) > 7 {
+		return sha[:7]
+	}
+	return sha
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (a App) screenBody(width, height int) string {
@@ -641,6 +690,70 @@ func sampleDetailModel() detail.Model {
 		{ID: 104, Name: "deploy", Status: model.StatusQueued, Conclusion: model.ConclusionNone, Labels: []string{"ubuntu-latest"}},
 	}
 	return detail.NewModel(run, jobs)
+}
+
+func DetailModelForRun(run model.Run) detail.Model {
+	if run.ID == 571 && run.Name == "CI" && run.RunNumber == 571 {
+		return sampleDetailModel()
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	started := run.RunStartedAt
+	if started.IsZero() {
+		started = run.UpdatedAt.Add(-90 * time.Second)
+	}
+	if started.IsZero() {
+		started = now.Add(-90 * time.Second)
+	}
+	completed := run.UpdatedAt
+	if completed.IsZero() {
+		completed = started.Add(90 * time.Second)
+	}
+	jobStatus := run.Status
+	jobConclusion := run.Conclusion
+	if jobStatus == "" {
+		jobStatus = model.StatusCompleted
+	}
+	job := model.Job{
+		ID:          run.ID*100 + 1,
+		RunID:       run.ID,
+		Name:        firstNonEmpty(run.Name, run.DisplayTitle, "workflow"),
+		Status:      jobStatus,
+		Conclusion:  jobConclusion,
+		Labels:      []string{"ubuntu-latest"},
+		StartedAt:   started,
+		CompletedAt: completed,
+		Steps: []model.Step{
+			stepForRun(1, "Set up job", model.StatusCompleted, model.ConclusionSuccess, started, 500*time.Millisecond),
+			stepForRun(2, "Run "+firstNonEmpty(run.Name, "workflow"), jobStatus, jobConclusion, started.Add(time.Second), completed.Sub(started)-time.Second),
+		},
+	}
+	if jobStatus != model.StatusCompleted {
+		job.CompletedAt = time.Time{}
+		job.Steps[1].CompletedAt = time.Time{}
+	}
+	return detail.NewModel(run, []model.Job{job})
+}
+
+func stepForRun(number int, name string, status model.Status, conclusion model.Conclusion, started time.Time, elapsed time.Duration) model.Step {
+	completed := started.Add(maxDuration(elapsed, time.Second))
+	if status != model.StatusCompleted {
+		completed = time.Time{}
+	}
+	return model.Step{
+		Number:      number,
+		Name:        name,
+		Status:      status,
+		Conclusion:  conclusion,
+		StartedAt:   started,
+		CompletedAt: completed,
+	}
+}
+
+func maxDuration(value, fallback time.Duration) time.Duration {
+	if value <= 0 {
+		return fallback
+	}
+	return value
 }
 
 func job(id int64, name string, conclusion model.Conclusion, started time.Time, elapsed time.Duration) model.Job {

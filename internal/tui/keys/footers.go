@@ -31,6 +31,7 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "?", Action: "help", Help: "help", ShowInFooter: true},
 	},
 	ScreenRunsList: {
+		{Key: "j/k", Action: "move", Help: "move", ShowInFooter: true},
 		{Key: "enter", Display: "⏎", Action: "open", Help: "open", ShowInFooter: true},
 		{Key: "r", Display: "↻", Action: "rerun", Help: "rerun", ShowInFooter: true},
 		{Key: "x", Display: "✗", Action: "cancel", Help: "cancel", ShowInFooter: true},

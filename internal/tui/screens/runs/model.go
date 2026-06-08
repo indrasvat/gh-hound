@@ -156,6 +156,10 @@ func (m Model) selectedRun() (model.Run, bool) {
 	return m.Context.Runs[m.Selected], true
 }
 
+func (m Model) SelectedRun() (model.Run, bool) {
+	return m.selectedRun()
+}
+
 func (m Model) intentFor(kind IntentKind) Intent {
 	run, ok := m.selectedRun()
 	if !ok {

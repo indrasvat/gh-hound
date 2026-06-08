@@ -17,7 +17,7 @@ func View(screen keys.Screen, width int) string {
 		}
 		text := key + " " + binding.Help
 		switch binding.Action {
-		case "open", "expand", "back", "scroll", "top_bottom", "continue":
+		case "open", "expand", "back", "scroll", "top_bottom", "continue", "move":
 			nav = append(nav, text)
 		case "rerun", "rerun_job", "rerun_failed", "cancel", "dispatch", "run":
 			actions = append(actions, text)

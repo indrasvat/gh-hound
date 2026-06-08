@@ -18,6 +18,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/render"
 	"github.com/indrasvat/gh-hound/internal/tui"
 	tuibanner "github.com/indrasvat/gh-hound/internal/tui/banner"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -113,7 +114,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 			if structuredOutput(options, runtime) {
 				return writeResult(cmd.Context(), runtime.Stdout, options, runtime)
 			}
-			return runTUI(runtime, info, options)
+			return runTUI(cmd.Context(), runtime, info, options)
 		},
 	}
 
@@ -235,13 +236,13 @@ func printVersion(w io.Writer, info buildInfo) error {
 	return err
 }
 
-func runTUI(runtime commandRuntime, info buildInfo, options cliOptions) error {
+func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options cliOptions) error {
 	build := tui.BuildInfo{
 		Version: info.Version,
 		Commit:  info.Commit,
 		Date:    info.Date,
 	}
-	cfg := tui.NewApp(tui.Options{Config: defaultConfig(), Build: build})
+	cfg := defaultTUIApp(ctx, runtime, build, options)
 	if options.Fake != "" {
 		cfg = tui.NewScenarioApp(options.Fake, build)
 	}
@@ -251,10 +252,18 @@ func runTUI(runtime commandRuntime, info buildInfo, options cliOptions) error {
 		return err
 	}
 	defer restore()
+	if runtime.IsTTY {
+		if _, err := io.WriteString(runtime.Stdout, "\x1b[?25l"); err != nil {
+			return err
+		}
+		defer func() {
+			_, _ = io.WriteString(runtime.Stdout, "\x1b[?25h")
+		}()
+	}
 
 	render := func() error {
 		if runtime.IsTTY {
-			if _, err := io.WriteString(runtime.Stdout, "\x1b[2J\x1b[H"); err != nil {
+			if _, err := io.WriteString(runtime.Stdout, "\x1b[?25l\x1b[2J\x1b[H"); err != nil {
 				return err
 			}
 			_, err := io.WriteString(runtime.Stdout, ttyView(cfg.ViewSize(width, height)))
@@ -267,19 +276,16 @@ func runTUI(runtime commandRuntime, info buildInfo, options cliOptions) error {
 		return err
 	}
 
-	buf := make([]byte, 1)
+	buf := make([]byte, 8)
+	decoder := keyDecoder{}
 	for !cfg.ShouldQuit() {
-		n, err := runtime.Stdin.Read(buf)
+		key, err := decoder.Next(runtime.Stdin, buf)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
 			return err
 		}
-		if n == 0 {
-			continue
-		}
-		key := keyName(buf[0], runtime.Stdin)
 		var handled bool
 		cfg, handled = cfg.Update(tui.KeyMsg{Key: key})
 		if handled {
@@ -289,6 +295,85 @@ func runTUI(runtime commandRuntime, info buildInfo, options cliOptions) error {
 		}
 	}
 	return nil
+}
+
+type keyDecoder struct {
+	pending []byte
+}
+
+func (d *keyDecoder) Next(reader io.Reader, scratch []byte) (string, error) {
+	if len(scratch) == 0 {
+		scratch = make([]byte, 8)
+	}
+	for {
+		if key, ok := d.pop(); ok {
+			return key, nil
+		}
+		n, err := reader.Read(scratch)
+		if err != nil {
+			return "", err
+		}
+		if n > 0 {
+			d.pending = append(d.pending, scratch[:n]...)
+		}
+	}
+}
+
+func (d *keyDecoder) pop() (string, bool) {
+	if len(d.pending) == 0 {
+		return "", false
+	}
+	if len(d.pending) >= 3 && d.pending[0] == 0x1b && d.pending[1] == '[' {
+		if key := keyName(d.pending[:3]); key != "esc" {
+			d.pending = d.pending[3:]
+			return key, true
+		}
+	}
+	key := keyName(d.pending[:1])
+	d.pending = d.pending[1:]
+	return key, true
+}
+
+func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildInfo, options cliOptions) tui.App {
+	cfg := defaultConfig()
+	githubClient := githubClientForRuntime(runtime)
+	repoProvider := repoProviderForRuntime(runtime)
+	launch := usecase.LaunchService{
+		Config:     cfg,
+		GitHub:     githubClient,
+		Repository: repoProvider,
+	}.Resolve(ctx, usecase.LaunchRequest{
+		Repo:    options.Repo,
+		Branch:  options.Branch,
+		All:     options.All,
+		PerPage: cfg.PerPage,
+	})
+	return tui.NewApp(tui.Options{
+		Config: cfg,
+		Build:  build,
+		Launch: launch,
+		DetailResolver: func(run model.Run) detail.Model {
+			jobs, err := githubClient.ListJobs(ctx, launch.Repo, run.ID)
+			if err != nil || len(jobs) == 0 {
+				return tui.DetailModelForRun(run)
+			}
+			return detail.NewModel(run, jobs)
+		},
+	})
+}
+
+func githubClientForRuntime(runtime commandRuntime) usecase.GitHub {
+	if runtime.GitHub != nil {
+		return runtime.GitHub
+	}
+	return github.NewClient("https://api.github.com", authenticatedHTTPClient(runtime.Env))
+}
+
+func repoProviderForRuntime(runtime commandRuntime) usecase.RepositoryContextProvider {
+	if runtime.Repo != nil {
+		return runtime.Repo
+	}
+	return repository.Detector{LookupEnv: runtime.Env}
 }
 
 func rawInput(reader io.Reader, enabled bool) (func(), error) {
@@ -327,8 +412,23 @@ func terminalSize(writer io.Writer) (int, int) {
 	return width, height
 }
 
-func keyName(first byte, reader io.Reader) string {
-	switch first {
+func keyName(input []byte) string {
+	if len(input) == 0 {
+		return ""
+	}
+	switch string(input) {
+	case "\x1b[A":
+		return "up"
+	case "\x1b[B":
+		return "down"
+	case "\x1b[C":
+		return "right"
+	case "\x1b[D":
+		return "left"
+	case "\x1b[Z":
+		return "shift+tab"
+	}
+	switch input[0] {
 	case 0x03:
 		return "ctrl+c"
 	case '\r', '\n':
@@ -340,7 +440,7 @@ func keyName(first byte, reader io.Reader) string {
 	case 0x1b:
 		return "esc"
 	default:
-		return string(rune(first))
+		return string(rune(input[0]))
 	}
 }
 
@@ -405,14 +505,8 @@ func resultForOptions(ctx context.Context, options cliOptions, runtime commandRu
 }
 
 func liveResult(ctx context.Context, options cliOptions, runtime commandRuntime) (render.Result, error) {
-	githubClient := runtime.GitHub
-	if githubClient == nil {
-		githubClient = github.NewClient("https://api.github.com", authenticatedHTTPClient(runtime.Env))
-	}
-	repoProvider := runtime.Repo
-	if repoProvider == nil {
-		repoProvider = repository.Detector{LookupEnv: runtime.Env}
-	}
+	githubClient := githubClientForRuntime(runtime)
+	repoProvider := repoProviderForRuntime(runtime)
 
 	repoCtx, err := repoProvider.Current(ctx)
 	if err != nil && options.Repo == "" {
