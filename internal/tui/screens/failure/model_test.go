@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/usecase"
@@ -36,26 +37,51 @@ func TestModelActionsRouteWithSameLogOffset(t *testing.T) {
 func TestViewRendersAnnotationsExcerptAndFooter(t *testing.T) {
 	m := NewModel("indrasvat/gh-hound", 571, report())
 	view := View(m, 80)
+	plain := ansi.Strip(view)
 	for _, want := range []string{
 		"… › build › ✗ go test ./... · step 6 · exit 1",
 		"Annotations",
-		"✗ _internal/parser/lexer.go:142_ — identifier mismatch",
+		"✗ internal/parser/lexer.go:142",
+		"identifier lexer drops trailing underscore",
+		"✗ internal/parser/lexer_test.go:88",
+		"FAIL TestLexIdent/trailing_underscore",
 		"error window · 5 of 8 lines",
-		"005 │ HIT      internal/parser/lexer.go:142: got \"foo\" want \"foo_\"",
-		"l opens full log at this offset · y copies excerpt",
+		"005 internal/parser/lexer.go:142: got \"foo\" want \"foo_\"",
+		"⤓ expand full log (l)",
 	} {
-		if !strings.Contains(view, want) {
+		if !strings.Contains(plain, want) {
 			t.Fatalf("failure view missing %q\n%s", want, view)
 		}
 	}
 	assertWidth(t, view, 80)
 }
 
+func TestViewMatchesMockErrorWindowChromeAndColors(t *testing.T) {
+	view := View(NewModel("indrasvat/gh-hound", 571, report()), 80)
+	plain := ansi.Strip(view)
+	for _, banned := range []string{"╭", "╮", "╰", "╯", "HIT ", "FAIL ##[error]"} {
+		if strings.Contains(plain, banned) {
+			t.Fatalf("failure view should use pane/log styling, not marker %q\n%s", banned, view)
+		}
+	}
+	for _, want := range []string{
+		"\x1b[38;2;226;86;75m✗\x1b[0m",
+		"\x1b[38;2;110;156;181m\x1b[4minternal/parser/lexer.go:142\x1b[0m",
+		"\x1b[48;2;43;33;24m",
+		"\x1b[38;2;79;211;122m\"foo\"\x1b[0m",
+		"\x1b[38;2;226;86;75m\"foo_\"\x1b[0m",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("failure view missing styled token %q\n%s", want, view)
+		}
+	}
+}
+
 func assertWidth(t *testing.T, view string, width int) {
 	t.Helper()
 	for line := range strings.SplitSeq(view, "\n") {
-		if len([]rune(line)) > width {
-			t.Fatalf("line too wide (%d): %q\n%s", len([]rune(line)), line, view)
+		if got := ansi.StringWidth(line); got > width {
+			t.Fatalf("line too wide (%d): %q\n%s", got, line, view)
 		}
 	}
 }
@@ -95,7 +121,14 @@ func report() usecase.FailureReport {
 			StartLine: 142,
 			EndLine:   142,
 			Level:     "failure",
-			Message:   "identifier mismatch",
+			Message:   "identifier lexer drops trailing underscore",
+			Title:     "go test",
+		}, {
+			Path:      "internal/parser/lexer_test.go",
+			StartLine: 88,
+			EndLine:   88,
+			Level:     "failure",
+			Message:   "FAIL TestLexIdent/trailing_underscore",
 			Title:     "go test",
 		}},
 	}

@@ -739,7 +739,11 @@ func sampleFailureModel() failure.Model {
 		Annotations: []model.Annotation{{
 			Path:      "internal/parser/lexer.go",
 			StartLine: 142,
-			Message:   "identifier mismatch",
+			Message:   "identifier lexer drops trailing underscore",
+		}, {
+			Path:      "internal/parser/lexer_test.go",
+			StartLine: 88,
+			Message:   "FAIL TestLexIdent/trailing_underscore",
 		}},
 	}
 	return failure.NewModel("indrasvat/gh-hound", 571, report)
