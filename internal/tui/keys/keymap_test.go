@@ -44,14 +44,14 @@ func TestShortHelpComesFromBindings(t *testing.T) {
 	layer := Layer{
 		Name: "runs",
 		Bindings: []Binding{
-			{Key: "enter", Action: "open", Help: "open", ShowInFooter: true},
+			{Key: "enter", Display: "⏎", Action: "open", Help: "open", ShowInFooter: true},
 			{Key: "?", Action: "help", Help: "help", ShowInFooter: true},
 			{Key: "x", Action: "cancel", Help: "cancel"},
 		},
 	}
 
 	got := ShortHelp(layer)
-	want := []string{"enter open", "? help"}
+	want := []string{"⏎ open", "? help"}
 	if len(got) != len(want) {
 		t.Fatalf("ShortHelp length = %d, want %d (%#v)", len(got), len(want), got)
 	}

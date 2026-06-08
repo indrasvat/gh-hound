@@ -9,6 +9,7 @@ const ActionInsertText = "insert_text"
 
 type Binding struct {
 	Key          string
+	Display      string
 	Action       string
 	Help         string
 	Group        string
@@ -66,11 +67,15 @@ func ShortHelp(layer Layer) []string {
 	items := make([]string, 0, len(layer.Bindings))
 	for _, binding := range layer.Bindings {
 		if binding.ShowInFooter {
+			key := binding.Key
+			if binding.Display != "" {
+				key = binding.Display
+			}
 			if binding.Help == "" {
-				items = append(items, binding.Key)
+				items = append(items, key)
 				continue
 			}
-			items = append(items, binding.Key+" "+binding.Help)
+			items = append(items, key+" "+binding.Help)
 		}
 	}
 	return items

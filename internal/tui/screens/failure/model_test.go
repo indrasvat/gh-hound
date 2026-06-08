@@ -39,11 +39,10 @@ func TestViewRendersAnnotationsExcerptAndFooter(t *testing.T) {
 	for _, want := range []string{
 		"… › build › ✗ go test ./... · step 6 · exit 1",
 		"Annotations",
-		"✗ internal/parser/lexer.go:142 — identifier mismatch",
-		"error window · 5 of 6 lines",
-		"004 === RUN   TestLexIdent/trailing_underscore",
-		"005     internal/parser/lexer.go:142: got \"foo\" want \"foo_\"",
-		"R rerun failed · r rerun job · l full log · o browser · y copy excerpt",
+		"✗ _internal/parser/lexer.go:142_ — identifier mismatch",
+		"error window · 5 of 8 lines",
+		"005 │ HIT      internal/parser/lexer.go:142: got \"foo\" want \"foo_\"",
+		"l opens full log at this offset · y copies excerpt",
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("failure view missing %q\n%s", want, view)

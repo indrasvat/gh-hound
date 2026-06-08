@@ -138,7 +138,15 @@ func (m Model) Summary() Summary {
 
 func (m Model) AllGreen() bool {
 	summary := m.Summary()
-	return len(m.Context.Runs) > 0 && summary.Failing == 0 && summary.Running == 0
+	if len(m.Context.Runs) == 0 || summary.Failing > 0 {
+		return false
+	}
+	for _, run := range m.Context.Runs {
+		if run.Status != model.StatusCompleted {
+			return false
+		}
+	}
+	return true
 }
 
 func (m Model) selectedRun() (model.Run, bool) {
@@ -157,12 +165,7 @@ func (m Model) intentFor(kind IntentKind) Intent {
 }
 
 func isRunning(run model.Run) bool {
-	switch run.Status {
-	case model.StatusInProgress, model.StatusQueued, model.StatusPending, model.StatusRequested, model.StatusWaiting:
-		return true
-	default:
-		return false
-	}
+	return run.Status == model.StatusInProgress
 }
 
 func isFailing(run model.Run) bool {

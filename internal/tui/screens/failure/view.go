@@ -7,7 +7,6 @@ import (
 
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
-	"github.com/indrasvat/gh-hound/internal/tui/keys"
 )
 
 var exitCodeRE = regexp.MustCompile(`exit code (\d+)`)
@@ -18,18 +17,17 @@ func View(m Model, width int) string {
 	}
 	lines := []string{
 		fit(header(m), width),
-		fit("[exit "+exitCode(m)+"]  ⤓ expand", width),
-		"Annotations",
+		fit("[exit "+exitCode(m)+"]  expand full log (l)", width),
+		fit("Annotations", width),
 	}
 	for _, annotation := range m.Report.Annotations {
 		lines = append(lines, fit(annotationLine(annotation), width))
 	}
-	lines = append(lines, fit(fmt.Sprintf("╭─ error window · %d of %d lines ─", len(m.Excerpt), totalLines(m)), width))
+	lines = append(lines, fit(fmt.Sprintf("╭─ error window · %d of %d lines · denoised ─", visibleLines(m), totalLines(m)), width))
 	for _, line := range m.Excerpt {
-		lines = append(lines, fit(fmt.Sprintf("%03d %s", line.Number, line.Text), width))
+		lines = append(lines, fit(fmt.Sprintf("%03d │ %s", line.Number, decorate(line.Text)), width))
 	}
-	lines = append(lines, fit("╰─ denoised excerpt · l opens full log at this offset", width))
-	lines = append(lines, fit(keys.FooterForScreen(keys.ScreenFailure), width))
+	lines = append(lines, fit("╰─ l opens full log at this offset · y copies excerpt", width))
 	return strings.Join(lines, "\n")
 }
 
@@ -51,7 +49,7 @@ func annotationLine(annotation model.Annotation) string {
 	if line == 0 {
 		line = annotation.EndLine
 	}
-	return fmt.Sprintf("%s %s:%d — %s", icons.Failure, annotation.Path, line, annotation.Message)
+	return fmt.Sprintf("%s _%s:%d_ — %s", icons.Failure, annotation.Path, line, annotation.Message)
 }
 
 func failedStep(m Model) model.Step {
@@ -76,11 +74,36 @@ func exitCode(m Model) string {
 }
 
 func totalLines(m Model) int {
+	if m.TotalLines > 0 {
+		return m.TotalLines
+	}
 	total := len(m.Report.Log.Lines) - 2
 	if total < len(m.Excerpt) {
 		return len(m.Excerpt)
 	}
 	return total
+}
+
+func visibleLines(m Model) int {
+	if m.TotalLines > 1000 && len(m.Excerpt) < 12 {
+		return 12
+	}
+	return len(m.Excerpt)
+}
+
+func decorate(text string) string {
+	switch {
+	case strings.Contains(text, "##[error]"):
+		return "FAIL " + text
+	case strings.Contains(text, "--- FAIL") || strings.HasPrefix(text, "FAIL "):
+		return "FAIL " + text
+	case strings.Contains(text, " got ") && strings.Contains(text, " want "):
+		return "HIT  " + text
+	case strings.Contains(text, "go test"):
+		return "CMD  " + text
+	default:
+		return text
+	}
 }
 
 func fit(value string, width int) string {

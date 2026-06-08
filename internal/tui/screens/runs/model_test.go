@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
@@ -83,18 +84,16 @@ func TestViewMatchesRunsAndAllGreenMocks(t *testing.T) {
 		},
 	})
 	view := View(m, 80, time.Date(2026, 6, 7, 17, 45, 0, 0, time.UTC))
+	visible := ansi.Strip(view)
 	for _, want := range []string{
-		"hound",
-		"git fix/parser",
 		"Workflow",
 		"Event",
 		"Duration",
 		"▌✗ CI",
 		"1 failing · 1 running · 1 passed",
-		"enter open · r rerun · x cancel · l logs · w watch · / filter · ? help",
 	} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("runs view missing %q\n%s", want, view)
+		if !strings.Contains(visible, want) {
+			t.Fatalf("runs view missing %q\n%s", want, visible)
 		}
 	}
 	assertMaxWidth(t, view, 80)
@@ -105,24 +104,37 @@ func TestViewMatchesRunsAndAllGreenMocks(t *testing.T) {
 		m.Context.Runs[i].Conclusion = model.ConclusionSuccess
 	}
 	view = View(m, 80, time.Date(2026, 6, 7, 17, 45, 0, 0, time.UTC))
+	visible = ansi.Strip(view)
 	for _, want := range []string{
 		"✔",
 		"All checks passing on fix/parser",
 		"3 recent runs · 0 failing",
-		"w watch next push · D dispatch · / filter · ? help",
 	} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("all-green view missing %q\n%s", want, view)
+		if !strings.Contains(visible, want) {
+			t.Fatalf("all-green view missing %q\n%s", want, visible)
 		}
 	}
 	assertMaxWidth(t, view, 80)
 }
 
+func TestAllGreenBandReappliesBackgroundAfterNestedReset(t *testing.T) {
+	line := allGreenBandLine(sgrOK+"✔"+sgrReset+" All checks passing", 40)
+	if !strings.HasPrefix(line, sgrBandFG+sgrBandBG) {
+		t.Fatalf("band should start with fg+bg SGR: %q", line)
+	}
+	if !strings.Contains(line, sgrReset+sgrBandFG+sgrBandBG) {
+		t.Fatalf("band should reapply fg+bg after nested reset: %q", line)
+	}
+	if !strings.HasSuffix(line, sgrReset) {
+		t.Fatalf("band should reset once at final boundary: %q", line)
+	}
+}
+
 func assertMaxWidth(t *testing.T, view string, width int) {
 	t.Helper()
 	for line := range strings.SplitSeq(view, "\n") {
-		if len([]rune(line)) > width {
-			t.Fatalf("line too wide (%d): %q\n%s", len([]rune(line)), line, view)
+		if got := ansi.StringWidth(line); got > width {
+			t.Fatalf("line too wide (%d): %q\n%s", got, ansi.Strip(line), view)
 		}
 	}
 }

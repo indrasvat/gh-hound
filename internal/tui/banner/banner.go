@@ -21,6 +21,18 @@ const Mark = `██╗  ██╗ ██████╗ ██╗   ██╗�
 
 func RenderVersion(info BuildInfo) string {
 	var out strings.Builder
+	out.WriteString(RenderMark())
+	out.WriteString("\n\n")
+	out.WriteString(info.Version)
+	out.WriteString(" · commit ")
+	out.WriteString(info.Commit)
+	out.WriteString(" · built ")
+	out.WriteString(info.Date)
+	out.WriteString("\nHunt down your GitHub Actions CI\n")
+	return out.String()
+}
+
+func RenderMark() string {
 	styles := []lipgloss.Style{
 		lipgloss.NewStyle().Foreground(lipgloss.Color("#4FD37A")),
 		lipgloss.NewStyle().Foreground(lipgloss.Color("#66BE8A")),
@@ -29,16 +41,9 @@ func RenderVersion(info BuildInfo) string {
 		lipgloss.NewStyle().Foreground(lipgloss.Color("#CFCDBB")),
 		lipgloss.NewStyle().Foreground(lipgloss.Color("#EAE8D9")),
 	}
-	for i, line := range strings.Split(Mark, "\n") {
-		out.WriteString(styles[i%len(styles)].Render(line))
-		out.WriteByte('\n')
+	lines := strings.Split(Mark, "\n")
+	for i, line := range lines {
+		lines[i] = styles[i%len(styles)].Render(line)
 	}
-	out.WriteByte('\n')
-	out.WriteString(info.Version)
-	out.WriteString(" · commit ")
-	out.WriteString(info.Commit)
-	out.WriteString(" · built ")
-	out.WriteString(info.Date)
-	out.WriteString("\nHunt down your GitHub Actions CI\n")
-	return out.String()
+	return strings.Join(lines, "\n")
 }

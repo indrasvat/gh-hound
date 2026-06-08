@@ -54,13 +54,13 @@ Semantic mapping: success uses `ok`; failure uses `fail`; in-progress uses `run`
 
 ## Glyphs
 
-All glyphs are text presentation only. Do not append emoji variation selectors.
+All glyphs are text presentation only. Do not append emoji variation selectors. The HTML mock uses `⎇` for branch, but shux's bundled snapshot font renders U+2387 as tofu; the implementation uses the render-safe `⌥` variant until the screenshot font chain supports U+2387.
 
 | Name | Glyph |
 |---|---|
 | success | ✔ |
 | failure | ✗ |
-| in_progress | > |
+| in_progress | ⠹ |
 | queued | ◌ |
 | cancelled | ⊘ |
 | skipped | ⊝ |
@@ -68,15 +68,15 @@ All glyphs are text presentation only. Do not append emoji variation selectors.
 | timed_out | ⧗ |
 | neutral | ◇ |
 | selection_bar | ▌ |
-| branch | git |
+| branch | ⌥ |
 | breadcrumb | › |
 | fold_open | ▾ |
 | fold_closed | ▸ |
 | prompt | ❯ |
-| rerun | r |
+| rerun | ↻ |
 | dispatch | ▶ |
-| enter | enter |
-| escape | esc |
+| enter | ⏎ |
+| escape | ⎋ |
 
 ## Footers
 
@@ -84,17 +84,17 @@ Footer text must be generated from keymap data, not copied into renderers.
 
 | Screen | Footer |
 |---|---|
-| welcome | enter continue · ? help · q quit |
+| welcome | ⏎ continue · ? help · q quit |
 | all_green | w watch next push · D dispatch · / filter · ? help |
-| runs_list | enter open · r rerun · x cancel · l logs · w watch · / filter · ? help |
-| detail | enter expand · r rerun job · R rerun failed · x cancel · esc back · ? |
-| failure | R rerun failed · r rerun job · l full log · o browser · y copy excerpt |
-| watch | x cancel · f follow · d debug · esc detach |
-| log | j/k scroll · g/G ends · / search · n/N match · z/Z fold · w wrap · esc back |
-| dispatch | enter run · tab next · esc cancel |
+| runs_list | ⏎ open · ↻ rerun · ✗ cancel · l logs · w watch · / filter · ? help |
+| detail | ⏎ expand · ↻ rerun job · R rerun failed · ✗ cancel · ⎋ back · ? |
+| failure | ↻ rerun failed · r rerun job · l full log · o browser · y copy excerpt |
+| watch | ✗ cancel · f follow · d debug · ⎋ detach |
+| log | j/k scroll · g/G ends · / search · n/N match · z/Z fold · w wrap · ⎋ back |
+| dispatch | ⏎ run · ⇥ next · ⎋ cancel |
 | palette | workflows · watch · diff (v2) · theme |
-| help | : palette · ? close · esc close |
-| toasts | esc dismiss · g dismiss all · r retry · ? help |
+| help | : palette · ? close · ⎋ close |
+| toasts | ⎋ dismiss · g dismiss all · r retry · ? help |
 
 ## Breakpoints
 

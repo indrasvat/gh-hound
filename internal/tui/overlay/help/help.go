@@ -11,7 +11,11 @@ func View(screen keys.Screen, width int) string {
 	layer := keys.FooterLayer(screen)
 	var nav, actions, views []string
 	for _, binding := range layer.Bindings {
-		text := binding.Key + " " + binding.Help
+		key := binding.Key
+		if binding.Display != "" {
+			key = binding.Display
+		}
+		text := key + " " + binding.Help
 		switch binding.Action {
 		case "open", "expand", "back", "scroll", "top_bottom", "continue":
 			nav = append(nav, text)

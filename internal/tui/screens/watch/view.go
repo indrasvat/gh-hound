@@ -6,7 +6,6 @@ import (
 
 	"github.com/indrasvat/gh-hound/internal/tui/components/logview"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
-	"github.com/indrasvat/gh-hound/internal/tui/keys"
 )
 
 func View(m Model, width int) string {
@@ -22,7 +21,6 @@ func View(m Model, width int) string {
 		lines = append(lines, logview.Line(line.Number+40, line.Text, width))
 	}
 	lines = append(lines, fit("incoming ▾ active step tail █", width))
-	lines = append(lines, fit(keys.FooterForScreen(keys.ScreenWatch), width))
 	return strings.Join(lines, "\n")
 }
 

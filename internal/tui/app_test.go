@@ -82,7 +82,7 @@ func TestWelcomeCanBeDisabled(t *testing.T) {
 func TestRootViewContainsChromeAndFooter(t *testing.T) {
 	app := NewApp(Options{Config: config.Default(), Build: BuildInfo{Version: "v0.1.0"}})
 	view := app.View()
-	for _, want := range []string{"hound", "welcome", "WATCH", "DIAGNOSE", "RERUN", "enter continue · ? help · q quit"} {
+	for _, want := range []string{"hound", "welcome", "WATCH", "DIAGNOSE", "RERUN", "⏎ continue · ? help · q quit"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q\n%s", want, view)
 		}
@@ -108,7 +108,7 @@ func TestRootViewRendersRunsRoutePlaceholderContract(t *testing.T) {
 	cfg.Welcome = false
 	app := NewApp(Options{Config: cfg, Build: BuildInfo{Version: "v0.1.0"}})
 	view := app.View()
-	for _, want := range []string{"hound", "runs", "enter open · r rerun · x cancel"} {
+	for _, want := range []string{"hound", "⌥ fix/parser · @indrasvat", "⏎ open · ↻ rerun · ✗ cancel"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("runs route view missing %q\n%s", want, view)
 		}
@@ -120,8 +120,8 @@ func TestRootViewRendersDetailRouteContract(t *testing.T) {
 	cfg.Welcome = false
 	app := NewApp(Options{Config: cfg})
 	app.PushRoute(RouteDetail)
-	view := app.View()
-	for _, want := range []string{"CI #571", "Steps", "go test ./...", "enter expand · r rerun job"} {
+	view := ansi.Strip(app.View())
+	for _, want := range []string{"CI #571", "build [failure]", "go test ./...", "⏎ expand · ↻ rerun job"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("detail route view missing %q\n%s", want, view)
 		}
@@ -160,7 +160,7 @@ func TestRootViewRendersWatchRouteContract(t *testing.T) {
 	app := NewApp(Options{Config: cfg})
 	app.PushRoute(RouteWatch)
 	view := app.View()
-	for _, want := range []string{"watch · CI #570", "streaming", "follow", "x cancel"} {
+	for _, want := range []string{"watch · CI #570", "streaming", "follow", "✗ cancel"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("watch route view missing %q\n%s", want, view)
 		}
@@ -173,7 +173,7 @@ func TestRootViewRendersDispatchRouteContract(t *testing.T) {
 	app := NewApp(Options{Config: cfg})
 	app.PushRoute(RouteDispatch)
 	view := app.View()
-	for _, want := range []string{"dispatch · Release", "POST …/workflows/release.yml/dispatches", "enter run"} {
+	for _, want := range []string{"dispatch · Release", "POST …/workflows/release.yml/dispatches", "⏎ run"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("dispatch route view missing %q\n%s", want, view)
 		}
@@ -198,14 +198,97 @@ func TestRootViewRendersHelpAndPaletteOverlays(t *testing.T) {
 	}
 }
 
+func TestSelectedLineReappliesBackgroundAfterNestedReset(t *testing.T) {
+	th := theme.ForMode(theme.ModeBramble)
+	style := sgrHex(th.FG, false) + sgrHex(th.Surface2, true)
+	line := selectedLine(th, "\x1b[38;2;79;211;122m✔\x1b[0m CI", 24)
+	if !strings.HasPrefix(line, style) {
+		t.Fatalf("selected line should start with fg+bg SGR: %q", line)
+	}
+	if !strings.Contains(line, sgrReset+style) {
+		t.Fatalf("selected line should reapply fg+bg after nested reset: %q", line)
+	}
+	if !strings.HasSuffix(line, sgrReset) {
+		t.Fatalf("selected line should reset at final boundary: %q", line)
+	}
+}
+
+func TestFixtureBackgroundLinesDoNotBleedAfterNestedReset(t *testing.T) {
+	for _, screen := range []string{
+		"welcome",
+		"all_green",
+		"runs",
+		"detail",
+		"failure",
+		"watch",
+		"log",
+		"dispatch",
+		"palette",
+		"help",
+	} {
+		view := RenderFixtureSize(screen, 120, 40)
+		for lineNumber, line := range strings.Split(view, "\n") {
+			if !strings.Contains(line, "\x1b[48;2;") {
+				continue
+			}
+			assertBackgroundLineSafe(t, screen, lineNumber+1, line)
+		}
+	}
+}
+
+func assertBackgroundLineSafe(t *testing.T, screen string, lineNumber int, line string) {
+	t.Helper()
+	for index := 0; index < len(line); {
+		resetAt := strings.Index(line[index:], sgrReset)
+		if resetAt == -1 {
+			return
+		}
+		absoluteReset := index + resetAt
+		remaining := line[absoluteReset+len(sgrReset):]
+		visibleRemaining := strings.TrimSpace(ansi.Strip(remaining))
+		if visibleRemaining == "" || strings.HasPrefix(visibleRemaining, "│") {
+			index = absoluteReset + len(sgrReset)
+			continue
+		}
+		prefix := remaining[:clampPrefix(len(remaining), 40)]
+		if !strings.HasPrefix(remaining, "\x1b[38;2;") || !strings.Contains(prefix, "\x1b[48;2;") {
+			t.Fatalf("%s line %d loses background after reset before visible content: %q", screen, lineNumber, line)
+		}
+		index = absoluteReset + len(sgrReset)
+	}
+}
+
+func clampPrefix(length, maxLength int) int {
+	if length < maxLength {
+		return length
+	}
+	return maxLength
+}
+
+func TestScreenBodiesDoNotRenderFrameFooters(t *testing.T) {
+	tests := map[string]string{
+		"detail":   "⏎ expand · ↻ rerun job",
+		"failure":  "↻ rerun failed · r rerun job",
+		"watch":    "✗ cancel · f follow",
+		"log":      "j/k scroll · g/G ends",
+		"dispatch": "⏎ run · ⇥ next",
+	}
+	for screen, footer := range tests {
+		view := RenderFixtureSize(screen, 120, 40)
+		if count := strings.Count(ansi.Strip(view), footer); count != 1 {
+			t.Fatalf("%s rendered footer %d times, want frame-only footer once\n%s", screen, count, view)
+		}
+	}
+}
+
 func TestRootShellDelegatesScreenKeysAndRoutes(t *testing.T) {
 	cfg := config.Default()
 	cfg.Welcome = false
 	app := NewApp(Options{Config: cfg})
 
 	app, handled := app.Update(KeyMsg{Key: "j"})
-	if !handled || !strings.Contains(app.View(), "▌> CI") {
-		t.Fatalf("runs j should move selection to running row: handled=%v\n%s", handled, app.View())
+	if view := ansi.Strip(app.View()); !handled || !strings.Contains(view, "▌⠹ CI") {
+		t.Fatalf("runs j should move selection to running row: handled=%v\n%s", handled, view)
 	}
 
 	app, handled = app.Update(KeyMsg{Key: "enter"})

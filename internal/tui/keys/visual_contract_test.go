@@ -9,17 +9,17 @@ import (
 func TestScreenFootersMatchVisualContract(t *testing.T) {
 	contract := readVisualContract(t, "../../../docs/visual-contract.md")
 	expected := map[Screen]string{
-		ScreenWelcome:  "enter continue · ? help · q quit",
+		ScreenWelcome:  "⏎ continue · ? help · q quit",
 		ScreenAllGreen: "w watch next push · D dispatch · / filter · ? help",
-		ScreenRunsList: "enter open · r rerun · x cancel · l logs · w watch · / filter · ? help",
-		ScreenDetail:   "enter expand · r rerun job · R rerun failed · x cancel · esc back · ?",
-		ScreenFailure:  "R rerun failed · r rerun job · l full log · o browser · y copy excerpt",
-		ScreenWatch:    "x cancel · f follow · d debug · esc detach",
-		ScreenLog:      "j/k scroll · g/G ends · / search · n/N match · z/Z fold · w wrap · esc back",
-		ScreenDispatch: "enter run · tab next · esc cancel",
+		ScreenRunsList: "⏎ open · ↻ rerun · ✗ cancel · l logs · w watch · / filter · ? help",
+		ScreenDetail:   "⏎ expand · ↻ rerun job · R rerun failed · ✗ cancel · ⎋ back · ?",
+		ScreenFailure:  "↻ rerun failed · r rerun job · l full log · o browser · y copy excerpt",
+		ScreenWatch:    "✗ cancel · f follow · d debug · ⎋ detach",
+		ScreenLog:      "j/k scroll · g/G ends · / search · n/N match · z/Z fold · w wrap · ⎋ back",
+		ScreenDispatch: "⏎ run · ⇥ next · ⎋ cancel",
 		ScreenPalette:  "workflows · watch · diff (v2) · theme",
-		ScreenHelp:     ": palette · ? close · esc close",
-		ScreenToasts:   "esc dismiss · g dismiss all · r retry · ? help",
+		ScreenHelp:     ": palette · ? close · ⎋ close",
+		ScreenToasts:   "⎋ dismiss · g dismiss all · r retry · ? help",
 	}
 
 	for screen, want := range expected {

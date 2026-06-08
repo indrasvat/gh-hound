@@ -20,7 +20,7 @@ const (
 
 var footerByScreen = map[Screen][]Binding{
 	ScreenWelcome: {
-		{Key: "enter", Action: "continue", Help: "continue", ShowInFooter: true},
+		{Key: "enter", Display: "⏎", Action: "continue", Help: "continue", ShowInFooter: true},
 		{Key: "?", Action: "help", Help: "help", ShowInFooter: true},
 		{Key: "q", Action: "quit", Help: "quit", ShowInFooter: true},
 	},
@@ -31,34 +31,34 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "?", Action: "help", Help: "help", ShowInFooter: true},
 	},
 	ScreenRunsList: {
-		{Key: "enter", Action: "open", Help: "open", ShowInFooter: true},
-		{Key: "r", Action: "rerun", Help: "rerun", ShowInFooter: true},
-		{Key: "x", Action: "cancel", Help: "cancel", ShowInFooter: true},
+		{Key: "enter", Display: "⏎", Action: "open", Help: "open", ShowInFooter: true},
+		{Key: "r", Display: "↻", Action: "rerun", Help: "rerun", ShowInFooter: true},
+		{Key: "x", Display: "✗", Action: "cancel", Help: "cancel", ShowInFooter: true},
 		{Key: "l", Action: "logs", Help: "logs", ShowInFooter: true},
 		{Key: "w", Action: "watch", Help: "watch", ShowInFooter: true},
 		{Key: "/", Action: "filter", Help: "filter", ShowInFooter: true},
 		{Key: "?", Action: "help", Help: "help", ShowInFooter: true},
 	},
 	ScreenDetail: {
-		{Key: "enter", Action: "expand", Help: "expand", ShowInFooter: true},
-		{Key: "r", Action: "rerun_job", Help: "rerun job", ShowInFooter: true},
+		{Key: "enter", Display: "⏎", Action: "expand", Help: "expand", ShowInFooter: true},
+		{Key: "r", Display: "↻", Action: "rerun_job", Help: "rerun job", ShowInFooter: true},
 		{Key: "R", Action: "rerun_failed", Help: "rerun failed", ShowInFooter: true},
-		{Key: "x", Action: "cancel", Help: "cancel", ShowInFooter: true},
-		{Key: "esc", Action: "back", Help: "back", ShowInFooter: true},
+		{Key: "x", Display: "✗", Action: "cancel", Help: "cancel", ShowInFooter: true},
+		{Key: "esc", Display: "⎋", Action: "back", Help: "back", ShowInFooter: true},
 		{Key: "?", Action: "help", Help: "", ShowInFooter: true},
 	},
 	ScreenFailure: {
-		{Key: "R", Action: "rerun_failed", Help: "rerun failed", ShowInFooter: true},
+		{Key: "R", Display: "↻", Action: "rerun_failed", Help: "rerun failed", ShowInFooter: true},
 		{Key: "r", Action: "rerun_job", Help: "rerun job", ShowInFooter: true},
 		{Key: "l", Action: "full_log", Help: "full log", ShowInFooter: true},
 		{Key: "o", Action: "browser", Help: "browser", ShowInFooter: true},
 		{Key: "y", Action: "copy_excerpt", Help: "copy excerpt", ShowInFooter: true},
 	},
 	ScreenWatch: {
-		{Key: "x", Action: "cancel", Help: "cancel", ShowInFooter: true},
+		{Key: "x", Display: "✗", Action: "cancel", Help: "cancel", ShowInFooter: true},
 		{Key: "f", Action: "follow", Help: "follow", ShowInFooter: true},
 		{Key: "d", Action: "debug", Help: "debug", ShowInFooter: true},
-		{Key: "esc", Action: "detach", Help: "detach", ShowInFooter: true},
+		{Key: "esc", Display: "⎋", Action: "detach", Help: "detach", ShowInFooter: true},
 	},
 	ScreenLog: {
 		{Key: "j/k", Action: "scroll", Help: "scroll", ShowInFooter: true},
@@ -67,12 +67,12 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "n/N", Action: "match", Help: "match", ShowInFooter: true},
 		{Key: "z/Z", Action: "fold", Help: "fold", ShowInFooter: true},
 		{Key: "w", Action: "wrap", Help: "wrap", ShowInFooter: true},
-		{Key: "esc", Action: "back", Help: "back", ShowInFooter: true},
+		{Key: "esc", Display: "⎋", Action: "back", Help: "back", ShowInFooter: true},
 	},
 	ScreenDispatch: {
-		{Key: "enter", Action: "run", Help: "run", ShowInFooter: true},
-		{Key: "tab", Action: "next", Help: "next", ShowInFooter: true},
-		{Key: "esc", Action: "cancel", Help: "cancel", ShowInFooter: true},
+		{Key: "enter", Display: "⏎", Action: "run", Help: "run", ShowInFooter: true},
+		{Key: "tab", Display: "⇥", Action: "next", Help: "next", ShowInFooter: true},
+		{Key: "esc", Display: "⎋", Action: "cancel", Help: "cancel", ShowInFooter: true},
 	},
 	ScreenPalette: {
 		{Key: "workflows", Action: "workflows", Help: "", ShowInFooter: true},
@@ -83,10 +83,10 @@ var footerByScreen = map[Screen][]Binding{
 	ScreenHelp: {
 		{Key: ":", Action: "palette", Help: "palette", ShowInFooter: true},
 		{Key: "?", Action: "close", Help: "close", ShowInFooter: true},
-		{Key: "esc", Action: "close", Help: "close", ShowInFooter: true},
+		{Key: "esc", Display: "⎋", Action: "close", Help: "close", ShowInFooter: true},
 	},
 	ScreenToasts: {
-		{Key: "esc", Action: "dismiss", Help: "dismiss", ShowInFooter: true},
+		{Key: "esc", Display: "⎋", Action: "dismiss", Help: "dismiss", ShowInFooter: true},
 		{Key: "g", Action: "dismiss_all", Help: "dismiss all", ShowInFooter: true},
 		{Key: "r", Action: "retry", Help: "retry", ShowInFooter: true},
 		{Key: "?", Action: "help", Help: "help", ShowInFooter: true},

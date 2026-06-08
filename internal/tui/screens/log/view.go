@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/indrasvat/gh-hound/internal/tui/components/logview"
-	"github.com/indrasvat/gh-hound/internal/tui/keys"
 )
 
 func View(m Model, width int) string {
@@ -24,7 +23,6 @@ func View(m Model, width int) string {
 		}
 		lines = append(lines, logview.Line(row.Line.Number, text, width))
 	}
-	lines = append(lines, fit(keys.FooterForScreen(keys.ScreenLog), width))
 	return strings.Join(lines, "\n")
 }
 

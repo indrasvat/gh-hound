@@ -113,7 +113,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 			if structuredOutput(options, runtime) {
 				return writeResult(cmd.Context(), runtime.Stdout, options, runtime)
 			}
-			return runTUI(runtime, info)
+			return runTUI(runtime, info, options)
 		},
 	}
 
@@ -235,12 +235,16 @@ func printVersion(w io.Writer, info buildInfo) error {
 	return err
 }
 
-func runTUI(runtime commandRuntime, info buildInfo) error {
-	cfg := tui.NewApp(tui.Options{Config: defaultConfig(), Build: tui.BuildInfo{
+func runTUI(runtime commandRuntime, info buildInfo, options cliOptions) error {
+	build := tui.BuildInfo{
 		Version: info.Version,
 		Commit:  info.Commit,
 		Date:    info.Date,
-	}})
+	}
+	cfg := tui.NewApp(tui.Options{Config: defaultConfig(), Build: build})
+	if options.Fake != "" {
+		cfg = tui.NewScenarioApp(options.Fake, build)
+	}
 	width, height := terminalSize(runtime.Stdout)
 	restore, err := rawInput(runtime.Stdin, runtime.IsTTY)
 	if err != nil {

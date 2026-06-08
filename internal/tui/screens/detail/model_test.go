@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
 )
 
@@ -43,37 +44,60 @@ func TestModelPreselectsFailureFocusAndIntents(t *testing.T) {
 func TestViewMatchesMasterDetailAndNarrowCollapse(t *testing.T) {
 	m := NewModel(run(), jobs())
 	view := View(m, 120)
+	plain := ansi.Strip(view)
 	for _, want := range []string{
 		"indrasvat/gh-hound › CI #571 › fix/parser · @a1b2c3d",
 		"Jobs",
-		"Steps",
-		"build failure ubuntu-latest 2m14s",
-		"▌✗ 6 go test ./...",
-		"enter expand · r rerun job · R rerun failed · x cancel · esc back · ?",
+		"build [failure] [ubuntu-latest]",
+		"2m14s",
+		"▌ ✗ 6  go test ./...",
 	} {
-		if !strings.Contains(view, want) {
+		if !strings.Contains(plain, want) {
 			t.Fatalf("detail view missing %q\n%s", want, view)
 		}
 	}
 	assertWidth(t, view, 120)
 
 	narrow := View(m, 80)
-	for _, want := range []string{"Steps", "build failure", "▌✗ 6 go test ./..."} {
-		if !strings.Contains(narrow, want) {
+	plainNarrow := ansi.Strip(narrow)
+	for _, want := range []string{"build [failure]", "▌ ✗ 6  go test ./..."} {
+		if !strings.Contains(plainNarrow, want) {
 			t.Fatalf("narrow view missing %q\n%s", want, narrow)
 		}
 	}
-	if strings.Contains(narrow, "Jobs |") {
+	if strings.Contains(plainNarrow, "Jobs |") {
 		t.Fatalf("narrow view should collapse the jobs pane:\n%s", narrow)
 	}
 	assertWidth(t, narrow, 80)
 }
 
+func TestViewMatchesMockPaneRowsAndFailHighlight(t *testing.T) {
+	view := View(NewModel(run(), jobs()), 120)
+	plain := ansi.Strip(view)
+	for _, banned := range []string{"╭", "╮", "╰", "╯"} {
+		if strings.Contains(plain, banned) {
+			t.Fatalf("detail view should use row panes, not ASCII boxes %q\n%s", banned, view)
+		}
+	}
+	if !strings.Contains(view, "\x1b[48;2;36;39;30m") {
+		t.Fatalf("selected job should use surface-2 background fill\n%s", view)
+	}
+	if !strings.Contains(view, "\x1b[48;2;40;19;18m") {
+		t.Fatalf("failed step should use fail-tinted background fill\n%s", view)
+	}
+	if !strings.Contains(view, "\x1b[38;2;226;86;75m▌") {
+		t.Fatalf("failed step should have fail-colored left bar\n%s", view)
+	}
+	if strings.Count(plain, "n jump to failure") != 1 {
+		t.Fatalf("detail hint should render once in the steps pane\n%s", view)
+	}
+}
+
 func assertWidth(t *testing.T, view string, width int) {
 	t.Helper()
 	for line := range strings.SplitSeq(view, "\n") {
-		if len([]rune(line)) > width {
-			t.Fatalf("line too wide (%d): %q\n%s", len([]rune(line)), line, view)
+		if got := ansi.StringWidth(line); got > width {
+			t.Fatalf("line too wide (%d): %q\n%s", got, line, view)
 		}
 	}
 }

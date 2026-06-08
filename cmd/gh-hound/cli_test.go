@@ -110,7 +110,7 @@ func TestTTYRootLaunchesInteractiveTUI(t *testing.T) {
 	if strings.Contains(got, "TUI scaffold is ready") {
 		t.Fatalf("tty root printed scaffold placeholder:\n%s", got)
 	}
-	for _, want := range []string{"██╗  ██╗ ██████╗", "Hunt down your GitHub Actions CI", "enter continue · ? help · q quit"} {
+	for _, want := range []string{"██╗  ██╗ ██████╗", "Hunt down your GitHub Actions CI", "⏎ continue · ? help · q quit"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("tty root missing %q\n%s", want, got)
 		}

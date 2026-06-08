@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/indrasvat/gh-hound/internal/tui/keys"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -142,7 +141,7 @@ func View(m Model, width int) string {
 		}
 		lines = append(lines, fit(fmt.Sprintf("%s%-12s %s", prefix, field.Name, control), width))
 	}
-	lines = append(lines, "POST …/workflows/"+m.Workflow.ID+"/dispatches", keys.FooterForScreen(keys.ScreenDispatch))
+	lines = append(lines, fit("POST …/workflows/"+m.Workflow.ID+"/dispatches", width))
 	return strings.Join(lines, "\n")
 }
 

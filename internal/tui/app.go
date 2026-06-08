@@ -93,6 +93,17 @@ func NewApp(options Options) App {
 	}
 }
 
+func NewScenarioApp(scenario string, build BuildInfo) App {
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{Config: cfg, Build: build})
+	switch strings.ToLower(scenario) {
+	case "green", "ok", "success":
+		app.runs = sampleAllGreenModel()
+	}
+	return app
+}
+
 func (a App) Update(msg KeyMsg) (App, bool) {
 	if a.inputMode {
 		if msg.Key == "esc" {
@@ -158,7 +169,7 @@ func (a App) ViewSized(width int) string {
 
 func (a App) ViewSize(width, height int) string {
 	title, context, right := a.chromeParts()
-	body := a.screenBody(width)
+	body := a.screenBody(width, height)
 	footer := keys.FooterForScreen(a.footerScreen())
 	if a.TopOverlay() != OverlayNone {
 		body = overlayBox(a.theme, a.overlayTitle(), a.overlayView(width), width)
@@ -183,9 +194,9 @@ func RenderFixtureSize(screen string, width, height int) string {
 	case "welcome":
 		return NewApp(Options{Config: config.Default(), Build: BuildInfo{Version: "v0.1.0"}}).ViewSize(width, height)
 	case "all_green":
-		return frameViewSize(app.theme, "hound", "git main · @indrasvat", "live · cache 304", runs.View(sampleAllGreenModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenAllGreen), width, height, true)
+		return frameViewSize(app.theme, "hound", "⌥ main · @indrasvat", "◔ 4,981/5k live", runs.View(sampleAllGreenModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenAllGreen), width, height, true)
 	case "runs":
-		return frameViewSize(app.theme, "hound", "git fix/parser · @indrasvat", "◔ live · cache 304", runs.View(sampleRunsModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
+		return frameViewSize(app.theme, "hound", "⌥ fix/parser · @indrasvat", "◔ 4,981/5k live 304", runs.View(sampleRunsModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
 	case "detail":
 		return frameViewSize(app.theme, "hound", "CI #571 › fix/parser", "a1b2c3d", detail.View(sampleDetailModel(), bodyWidth), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
 	case "failure":
@@ -502,6 +513,9 @@ func (a App) footerScreen() keys.Screen {
 	case RouteDispatch:
 		return keys.ScreenDispatch
 	default:
+		if a.Route() == RouteRuns && a.runs.AllGreen() {
+			return keys.ScreenAllGreen
+		}
 		return keys.ScreenRunsList
 	}
 }
@@ -543,15 +557,28 @@ func (a App) chromeParts() (string, string, string) {
 	case RouteDispatch:
 		return "hound", "workflow_dispatch", "Release"
 	default:
-		return "hound", "runs · git fix/parser · @indrasvat", "◔ live · cache 304"
+		if a.runs.AllGreen() {
+			return "hound", branchContext(a.runs.Context.Branch, a.runs.Context.Actor), "◔ 4,981/5k live"
+		}
+		return "hound", branchContext(a.runs.Context.Branch, a.runs.Context.Actor), "◔ 4,981/5k live 304"
 	}
 }
 
-func (a App) screenBody(width int) string {
+func branchContext(branch, actor string) string {
+	if branch == "" {
+		branch = "all branches"
+	}
+	if actor == "" {
+		actor = "indrasvat"
+	}
+	return "⌥ " + branch + " · @" + actor
+}
+
+func (a App) screenBody(width, height int) string {
 	bodyWidth := contentWidth(width)
 	switch a.Route() {
 	case RouteWelcome:
-		return welcome.View(welcome.Model{Build: a.build})
+		return welcome.View(welcome.Model{Build: a.build}, bodyWidth, max(height-6, 0))
 	case RouteRuns:
 		return runs.View(a.runs, bodyWidth, time.Now())
 	case RouteDetail:
@@ -588,52 +615,101 @@ func sampleDetailModel() detail.Model {
 		HeadSHA:    "a1b2c3d",
 		RunNumber:  571,
 	}
-	jobs := []model.Job{{
-		ID:          100,
-		Name:        "build",
-		Status:      model.StatusCompleted,
-		Conclusion:  model.ConclusionFailure,
-		Labels:      []string{"ubuntu-latest"},
-		StartedAt:   start,
-		CompletedAt: start.Add(134 * time.Second),
-		Steps: []model.Step{{
-			Number:      6,
-			Name:        "go test ./...",
+	jobs := []model.Job{
+		{
+			ID:          100,
+			Name:        "build",
 			Status:      model.StatusCompleted,
 			Conclusion:  model.ConclusionFailure,
+			Labels:      []string{"ubuntu-latest"},
 			StartedAt:   start,
-			CompletedAt: start.Add(41 * time.Second),
-		}},
-	}}
+			CompletedAt: start.Add(134 * time.Second),
+			Steps: []model.Step{
+				step(1, "Set up job", model.ConclusionSuccess, start, 400*time.Millisecond),
+				step(2, "Checkout", model.ConclusionSuccess, start.Add(1*time.Second), 1200*time.Millisecond),
+				step(3, "Setup Go 1.26", model.ConclusionSuccess, start.Add(3*time.Second), 3100*time.Millisecond),
+				step(4, "Cache modules", model.ConclusionSuccess, start.Add(7*time.Second), 2*time.Second),
+				step(5, "go build ./...", model.ConclusionSuccess, start.Add(10*time.Second), 18700*time.Millisecond),
+				step(6, "go test ./...", model.ConclusionFailure, start.Add(31*time.Second), 41300*time.Millisecond),
+				step(7, "Upload coverage", model.ConclusionSkipped, start.Add(74*time.Second), 0),
+				step(8, "Complete job", model.ConclusionSuccess, start.Add(133*time.Second), 100*time.Millisecond),
+			},
+		},
+		job(101, "lint", model.ConclusionSuccess, start.Add(5*time.Second), 31*time.Second),
+		job(102, "test (1.25)", model.ConclusionSuccess, start.Add(7*time.Second), 108*time.Second),
+		job(103, "test (1.26)", model.ConclusionSuccess, start.Add(9*time.Second), 112*time.Second),
+		{ID: 104, Name: "deploy", Status: model.StatusQueued, Conclusion: model.ConclusionNone, Labels: []string{"ubuntu-latest"}},
+	}
 	return detail.NewModel(run, jobs)
 }
 
+func job(id int64, name string, conclusion model.Conclusion, started time.Time, elapsed time.Duration) model.Job {
+	return model.Job{
+		ID:          id,
+		Name:        name,
+		Status:      model.StatusCompleted,
+		Conclusion:  conclusion,
+		Labels:      []string{"ubuntu-latest"},
+		StartedAt:   started,
+		CompletedAt: started.Add(elapsed),
+		Steps: []model.Step{
+			step(1, "Set up job", model.ConclusionSuccess, started, 500*time.Millisecond),
+			step(2, "Run "+name, conclusion, started.Add(time.Second), elapsed-time.Second),
+		},
+	}
+}
+
+func step(number int, name string, conclusion model.Conclusion, started time.Time, elapsed time.Duration) model.Step {
+	status := model.StatusCompleted
+	completed := started.Add(elapsed)
+	if conclusion == model.ConclusionNone {
+		status = model.StatusQueued
+		completed = time.Time{}
+	}
+	return model.Step{
+		Number:      number,
+		Name:        name,
+		Status:      status,
+		Conclusion:  conclusion,
+		StartedAt:   started,
+		CompletedAt: completed,
+	}
+}
+
 func sampleRunsModel() runs.Model {
-	now := time.Date(2026, 6, 7, 17, 45, 0, 0, time.UTC)
+	now := time.Now().UTC().Truncate(time.Second)
 	return runs.NewModel(usecase.LaunchContext{
 		Repo:   "indrasvat/gh-hound",
 		Branch: "fix/parser",
 		Actor:  "indrasvat",
 		State:  usecase.LaunchStateRuns,
 		Runs: []model.Run{
-			{ID: 571, Name: "CI", Event: "pull_request", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure, RunNumber: 571, UpdatedAt: now.Add(-12 * time.Second), RunStartedAt: now.Add(-2 * time.Minute)},
-			{ID: 570, Name: "CI", Event: "push", Status: model.StatusInProgress, Conclusion: model.ConclusionNone, RunNumber: 570, UpdatedAt: now, RunStartedAt: now.Add(-48 * time.Second)},
-			{ID: 569, Name: "Release", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 569, UpdatedAt: now.Add(-3 * time.Minute), RunStartedAt: now.Add(-4 * time.Minute)},
+			{ID: 571, Name: "CI", Event: "pull_request", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure, RunNumber: 571, Actor: "indrasvat", HeadSHA: "a1b2c3d", UpdatedAt: now.Add(-12 * time.Second), RunStartedAt: now.Add(-2 * time.Minute)},
+			{ID: 570, Name: "CI", Event: "push", Status: model.StatusInProgress, Conclusion: model.ConclusionNone, RunNumber: 570, Actor: "indrasvat", HeadSHA: "b4c5d6e", UpdatedAt: now, RunStartedAt: now.Add(-48 * time.Second)},
+			{ID: 569, Name: "Release", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 569, Actor: "indrasvat", HeadSHA: "c7d8e9f", UpdatedAt: now.Add(-3 * time.Minute), RunStartedAt: now.Add(-4 * time.Minute)},
+			{ID: 568, Name: "CodeQL", Event: "schedule", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 568, Actor: "github", HeadSHA: "d0e1f2a", UpdatedAt: now.Add(-2 * time.Hour), RunStartedAt: now.Add(-121 * time.Minute)},
+			{ID: 567, Name: "CI", Event: "workflow_dispatch", Status: model.StatusCompleted, Conclusion: model.ConclusionCancelled, RunNumber: 567, Actor: "indrasvat", HeadSHA: "1029384", UpdatedAt: now.Add(-3 * time.Hour), RunStartedAt: now.Add(-181 * time.Minute)},
+			{ID: 566, Name: "Deploy", Event: "push", Status: model.StatusQueued, Conclusion: model.ConclusionNone, RunNumber: 566, Actor: "indrasvat", HeadSHA: "5647382", UpdatedAt: now.Add(-3 * time.Hour), RunStartedAt: now.Add(-3 * time.Hour)},
+			{ID: 565, Name: "Docs", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 565, Actor: "indrasvat", HeadSHA: "e3f4a5b", UpdatedAt: now.Add(-3 * time.Hour), RunStartedAt: now.Add(-181 * time.Minute)},
+			{ID: 564, Name: "Security", Event: "workflow_dispatch", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 564, Actor: "dependabot", HeadSHA: "f6a7b8c", UpdatedAt: now.Add(-4 * time.Hour), RunStartedAt: now.Add(-241 * time.Minute)},
 		},
 	})
 }
 
 func sampleAllGreenModel() runs.Model {
-	now := time.Date(2026, 6, 7, 17, 45, 0, 0, time.UTC)
+	now := time.Now().UTC().Truncate(time.Second)
 	return runs.NewModel(usecase.LaunchContext{
 		Repo:   "indrasvat/gh-hound",
 		Branch: "main",
 		Actor:  "indrasvat",
 		State:  usecase.LaunchStateAllGreen,
 		Runs: []model.Run{
-			{ID: 569, Name: "CI", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 569, UpdatedAt: now.Add(-3 * time.Minute), RunStartedAt: now.Add(-4 * time.Minute)},
-			{ID: 568, Name: "Release", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 568, UpdatedAt: now.Add(-1 * time.Hour), RunStartedAt: now.Add(-61 * time.Minute)},
-			{ID: 567, Name: "CodeQL", Event: "schedule", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 567, UpdatedAt: now.Add(-2 * time.Hour), RunStartedAt: now.Add(-121 * time.Minute)},
+			{ID: 569, Name: "CI", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 569, UpdatedAt: now.Add(-3 * time.Minute), RunStartedAt: now.Add(-4*time.Minute - 2*time.Second)},
+			{ID: 568, Name: "Release", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 568, UpdatedAt: now.Add(-1 * time.Hour), RunStartedAt: now.Add(-61*time.Minute - 2*time.Second)},
+			{ID: 567, Name: "CodeQL", Event: "schedule", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 567, UpdatedAt: now.Add(-2 * time.Hour), RunStartedAt: now.Add(-121*time.Minute - 2*time.Second)},
+			{ID: 566, Name: "Docs", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 566, UpdatedAt: now.Add(-3 * time.Hour), RunStartedAt: now.Add(-181*time.Minute - 2*time.Second)},
+			{ID: 565, Name: "Security", Event: "workflow_dispatch", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 565, UpdatedAt: now.Add(-4 * time.Hour), RunStartedAt: now.Add(-241*time.Minute - 2*time.Second)},
+			{ID: 564, Name: "Deploy", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 564, UpdatedAt: now.Add(-5 * time.Hour), RunStartedAt: now.Add(-301*time.Minute - 2*time.Second)},
 		},
 	})
 }

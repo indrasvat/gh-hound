@@ -5,10 +5,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/tui/components/sparkline"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
-	"github.com/indrasvat/gh-hound/internal/tui/keys"
 )
 
 func View(m Model, width int, now time.Time) string {
@@ -23,69 +24,57 @@ func View(m Model, width int, now time.Time) string {
 
 func renderRuns(m Model, width int, now time.Time) string {
 	lines := []string{
-		fit(header(m, true), width),
-		fit("  Workflow           Event             #     Duration  Age      Actor/SHA", width),
+		fit("  Workflow           Event             #     Duration  Age", width),
 	}
 	for i, run := range m.Context.Runs {
 		lines = append(lines, row(run, i == m.Selected, width, now))
 	}
 	summary := m.Summary()
-	lines = append(lines,
-		fit(fmt.Sprintf("%d failing · %d running · %d passed", summary.Failing, summary.Running, summary.Passed), width),
-		fit(keys.FooterForScreen(keys.ScreenRunsList), width),
-	)
+	lines = append(lines, fitANSI(summaryLine(summary), width))
 	return strings.Join(lines, "\n")
 }
 
 func renderAllGreen(m Model, width int, now time.Time) string {
 	summary := m.Summary()
-	latest := ""
+	latestTitle := ""
+	latestMeta := ""
 	if len(m.Context.Runs) > 0 {
 		run := m.Context.Runs[0]
-		latest = fmt.Sprintf("%s #%d · success", run.Name, run.RunNumber)
+		latestTitle = fmt.Sprintf("%s #%d", run.Name, run.RunNumber)
+		latestMeta = fmt.Sprintf("%s · success", duration(run))
 	}
+	branch := first(m.Context.Branch, "all branches")
 	lines := []string{
-		fit(header(m, false), width),
-		fit("╭─ all clear ─────────────────────────────────────────────╮", width),
-		fit("│ ✔  All checks passing on "+first(m.Context.Branch, "all branches"), width),
-		fit(fmt.Sprintf("│ %d recent runs · %d failing · last finished %s", len(m.Context.Runs), summary.Failing, age(m.Context.Runs[0], now)), width),
-		fit("│ latest "+latest, width),
-		fit("╰──────────────────────────────────────────────────────────╯", width),
+		allGreenBandLine("", width),
+		allGreenBandLine(joinRightANSI(successLead("All checks passing on "+branch), latestTitle, width), width),
+		allGreenBandLine(joinRightANSI("     "+fmt.Sprintf("%d recent runs · %d failing · last finished %s ago", len(m.Context.Runs), summary.Failing, age(m.Context.Runs[0], now)), latestMeta, width), width),
+		allGreenBandLine("", width),
+		allGreenHeader(width),
 	}
 	for _, run := range m.Context.Runs {
-		lines = append(lines, fit(fmt.Sprintf("%s %s #%d %s", glyph(run), truncate(run.Name, 22), run.RunNumber, age(run, now)), width))
+		lines = append(lines, allGreenRow(run, width, now))
 	}
-	lines = append(lines, fit(keys.FooterForScreen(keys.ScreenAllGreen), width))
 	return strings.Join(lines, "\n")
-}
-
-func header(m Model, focused bool) string {
-	branch := first(m.Context.Branch, "all branches")
-	right := "◔ 4,981/5k live"
-	if focused {
-		right += " 304"
-	}
-	return fmt.Sprintf("hound %s %s · @%s %s", icons.Branch, branch, first(m.Context.Actor, "indrasvat"), right)
 }
 
 func row(run model.Run, selected bool, width int, now time.Time) string {
 	prefix := " "
 	if selected {
-		prefix = icons.Cursor
+		prefix = colorize(sgrOK, icons.Cursor)
 	}
-	line := fmt.Sprintf("%s%s %-16s %-16s #%3d  %-8s %s",
-		prefix,
-		glyph(run),
-		truncate(run.Name, 16),
-		truncate(run.Event, 16),
-		run.RunNumber,
-		sparkline.Render([]int{30, 55, 90, 65, 40}, 5),
-		age(run, now),
-	)
-	if width >= 110 {
-		line = fmt.Sprintf("%s  @indrasvat a1b2c3d", line)
-	}
-	return fit(line, width)
+	status := colorize(statusColor(run), glyph(run))
+	name := colorize(sgrFGSoft, truncate(run.Name, 16))
+	event := colorize(eventColor(run), truncate(run.Event, 16))
+	number := colorize(sgrMuted, fmt.Sprintf("#%d", run.RunNumber))
+	duration := colorize(durationColor(run), sparkline.Render(sparkValues(run), 5))
+	runAge := colorize(sgrSubtle, age(run, now))
+	line := prefix + status + " " +
+		padANSI(name, 16) + " " +
+		padANSI(event, 16) + " " +
+		padANSI(number, 5) + " " +
+		padANSI(duration, 8) + " " +
+		runAge
+	return fitANSI(line, width)
 }
 
 func glyph(run model.Run) string {
@@ -104,8 +93,11 @@ func age(run model.Run, now time.Time) string {
 		return "now"
 	}
 	duration := now.Sub(base)
-	if duration < time.Minute {
+	if duration < time.Second {
 		return "now"
+	}
+	if duration < time.Minute {
+		return fmt.Sprintf("%ds", int(duration.Seconds()))
 	}
 	if duration < time.Hour {
 		return fmt.Sprintf("%dm", int(duration.Minutes()))
@@ -113,8 +105,191 @@ func age(run model.Run, now time.Time) string {
 	return fmt.Sprintf("%dh", int(duration.Hours()))
 }
 
+func duration(run model.Run) string {
+	if run.RunStartedAt.IsZero() || run.UpdatedAt.IsZero() || run.UpdatedAt.Before(run.RunStartedAt) {
+		return "queued"
+	}
+	d := run.UpdatedAt.Sub(run.RunStartedAt)
+	if d < time.Minute {
+		return fmt.Sprintf("%.0fs", d.Seconds())
+	}
+	return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
+}
+
 func fit(value string, width int) string {
-	return truncate(value, width)
+	return fitANSI(value, width)
+}
+
+func summaryLine(summary Summary) string {
+	return colorize(sgrFail, fmt.Sprintf("%d failing", summary.Failing)) +
+		" · " +
+		colorize(sgrRun, fmt.Sprintf("%d running", summary.Running)) +
+		" · " +
+		colorize(sgrSubtle, fmt.Sprintf("%d passed", summary.Passed))
+}
+
+func statusColor(run model.Run) string {
+	if run.Status == model.StatusCompleted {
+		switch run.Conclusion {
+		case model.ConclusionSuccess:
+			return sgrOK
+		case model.ConclusionFailure:
+			return sgrFail
+		case model.ConclusionCancelled, model.ConclusionSkipped, model.ConclusionNeutral, model.ConclusionNone:
+			return sgrNeutral
+		case model.ConclusionActionRequired, model.ConclusionTimedOut:
+			return sgrWarn
+		default:
+			return sgrNeutral
+		}
+	}
+	switch run.Status {
+	case model.StatusInProgress:
+		return sgrRun
+	case model.StatusQueued, model.StatusPending, model.StatusRequested, model.StatusWaiting:
+		return sgrInfo
+	default:
+		return sgrNeutral
+	}
+}
+
+func eventColor(run model.Run) string {
+	if run.Status == model.StatusInProgress {
+		return sgrRun
+	}
+	if run.Status != model.StatusCompleted {
+		return sgrInfo
+	}
+	if run.Conclusion == model.ConclusionSuccess {
+		return sgrOK
+	}
+	return sgrSubtle
+}
+
+func durationColor(run model.Run) string {
+	if run.Status == model.StatusInProgress {
+		return sgrRun
+	}
+	if run.Status != model.StatusCompleted {
+		return sgrInfo
+	}
+	if run.Conclusion == model.ConclusionSuccess {
+		return sgrOK
+	}
+	return sgrFGSoft
+}
+
+func sparkValues(run model.Run) []int {
+	switch {
+	case run.Status == model.StatusInProgress:
+		return []int{40, 55, 80, 30, 20}
+	case run.Status != model.StatusCompleted:
+		return []int{15, 15}
+	case run.Conclusion == model.ConclusionSuccess:
+		return []int{30, 35, 50, 65, 50}
+	case run.Conclusion == model.ConclusionCancelled:
+		return []int{25, 25}
+	default:
+		return []int{35, 60, 100, 70, 45}
+	}
+}
+
+func colorize(sgr, value string) string {
+	return sgr + value + sgrReset
+}
+
+func allGreenBandLine(value string, width int) string {
+	value = fitANSI(value, width)
+	value = padANSI(value, width)
+	value = strings.ReplaceAll(value, sgrReset, sgrReset+sgrBandFG+sgrBandBG)
+	return sgrBandFG + sgrBandBG + value + sgrReset
+}
+
+func successLead(title string) string {
+	return "  " +
+		sgrOK + sgrBold + icons.Success + sgrNoBold +
+		sgrBandFG + "  " +
+		sgrTitleFG + sgrBold + title + sgrNoBold +
+		sgrBandFG
+}
+
+func allGreenHeader(width int) string {
+	if width >= 70 {
+		return dimLine("  Status  Workflow                                      #      Age", width)
+	}
+	return dimLine("  Status  Workflow                         #    Age", width)
+}
+
+func allGreenRow(run model.Run, width int, now time.Time) string {
+	icon := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#4FD37A")).
+		Render(glyph(run))
+	name := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#CFCDBB")).
+		Render(truncate(run.Name, 28))
+	num := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#6B7060")).
+		Render(fmt.Sprintf("%d", run.RunNumber))
+	runAge := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#8C9179")).
+		Render(age(run, now))
+	if width >= 70 {
+		return fitANSI(joinRightANSI("  "+icon+"       "+name, num+"      "+runAge, width), width)
+	}
+	return fitANSI(joinRightANSI("  "+icon+"       "+name, num+"    "+runAge, width), width)
+}
+
+func dimLine(value string, width int) string {
+	value = fitANSI(value, width)
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#8C9179")).
+		Render(padANSI(value, width))
+}
+
+func joinRightANSI(left, right string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	right = fitANSI(right, width)
+	leftWidth := max(width-ansi.StringWidth(right)-2, 1)
+	left = fitANSI(left, leftWidth)
+	spaces := max(width-ansi.StringWidth(left)-ansi.StringWidth(right), 1)
+	return left + strings.Repeat(" ", spaces) + right
+}
+
+const (
+	sgrBold    = "\x1b[1m"
+	sgrNoBold  = "\x1b[22m"
+	sgrBandFG  = "\x1b[38;2;207;205;187m"
+	sgrBandBG  = "\x1b[48;2;20;35;24m"
+	sgrTitleFG = "\x1b[38;2;234;232;217m"
+	sgrOK      = "\x1b[38;2;79;211;122m"
+	sgrFail    = "\x1b[38;2;226;86;75m"
+	sgrRun     = "\x1b[38;2;224;163;62m"
+	sgrInfo    = "\x1b[38;2;110;156;181m"
+	sgrWarn    = "\x1b[38;2;232;137;90m"
+	sgrNeutral = "\x1b[38;2;107;112;96m"
+	sgrMuted   = "\x1b[38;2;174;179;155m"
+	sgrSubtle  = "\x1b[38;2;140;145;121m"
+	sgrFGSoft  = "\x1b[38;2;207;205;187m"
+	sgrReset   = "\x1b[0m"
+)
+
+func fitANSI(value string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if ansi.StringWidth(value) <= width {
+		return value
+	}
+	if width == 1 {
+		return "…"
+	}
+	return ansi.Truncate(value, width, "…")
+}
+
+func padANSI(value string, width int) string {
+	return value + strings.Repeat(" ", max(width-ansi.StringWidth(value), 0))
 }
 
 func first(values ...string) string {

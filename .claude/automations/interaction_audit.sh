@@ -51,10 +51,15 @@ for scenario in "${scenarios[@]}"; do
   cat >"$runner" <<RUNNER
 #!/usr/bin/env bash
 set -euo pipefail
+export TERM=xterm-256color
+export COLORTERM=truecolor
+export CLICOLOR_FORCE=1
+unset NO_COLOR
 sleep 0.25
-printf '\\033[2J\\033[H'
+printf '\\033[?25l\\033[2J\\033[H'
 "$abs_bin" __interact --scenario "$scenario" --width 80
 sleep 30
+printf '\\033[?25h'
 RUNNER
   chmod +x "$runner"
   shux session kill "$session" >/dev/null 2>&1 || true
@@ -65,7 +70,9 @@ RUNNER
   }
   trap cleanup EXIT
   shux pane set-size -s "$session" --cols 80 --rows 24 >/dev/null
-  sleep 0.55
+  needle="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["contains"][0])' "$assertion")"
+  shux pane wait-for -s "$session" --text "$needle" --timeout-ms 5000 >/dev/null
+  sleep 0.15
   txt="$out_dir/${scenario}.txt"
   png="$out_dir/${scenario}.png"
   shux pane capture -s "$session" --lines 24 --format plain >"$txt"

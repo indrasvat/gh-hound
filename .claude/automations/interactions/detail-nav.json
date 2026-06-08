@@ -1,7 +1,7 @@
 {
   "contains": [
-    "Steps",
-    "build failure",
-    "▌✗ 6 go test ./..."
+    "build [failure]",
+    "go test ./...",
+    "n jump to failure"
   ]
 }

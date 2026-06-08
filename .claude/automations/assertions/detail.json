@@ -1,1 +1,1 @@
-{"contains":["CI #571","Steps","go test ./..."]}
+{"contains":["CI #571","indrasvat/gh-hound › CI #571 › fix/parser","build [failure] [ubuntu-latest]","▌ ✗ 6  go test ./...","⏎ expand · ↻ rerun job"]}

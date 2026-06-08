@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss/v2"
@@ -109,11 +111,7 @@ func selectedLine(th theme.Theme, value string, width int) string {
 	if width < 2 {
 		return value
 	}
-	return lipgloss.NewStyle().
-		Width(width).
-		Foreground(lipgloss.Color(th.FG)).
-		Background(lipgloss.Color(th.Surface2)).
-		Render(fitPlain(value, width))
+	return backgroundSafeLine(value, width, th.FG, th.Surface2)
 }
 
 func fitANSIBlock(value string, width int) string {
@@ -169,13 +167,19 @@ func colorizeBody(th theme.Theme, value string, width int) string {
 		line = fitPlain(line, width)
 		plain := ansi.Strip(line)
 		trimmed := strings.TrimSpace(plain)
-		if trimmed == "" || strings.Contains(line, "\x1b[") {
+		if trimmed == "" {
+			lines[i] = line
+			continue
+		}
+		if strings.HasPrefix(trimmed, "▌") {
+			lines[i] = selectedLine(th, line, width)
+			continue
+		}
+		if strings.Contains(line, "\x1b[") {
 			lines[i] = line
 			continue
 		}
 		switch {
-		case strings.HasPrefix(trimmed, "▌"):
-			lines[i] = selectedLine(th, line, width)
 		case strings.Contains(trimmed, "✗") || strings.Contains(trimmed, "FAIL") || strings.Contains(strings.ToLower(trimmed), "error"):
 			lines[i] = lipgloss.NewStyle().Foreground(lipgloss.Color(th.Fail)).Render(line)
 		case strings.Contains(trimmed, "✔") || strings.Contains(trimmed, "PASS") || strings.Contains(trimmed, "All checks"):
@@ -222,3 +226,38 @@ func fitPlain(value string, width int) string {
 func visibleLen(value string) int {
 	return ansi.StringWidth(value)
 }
+
+func backgroundSafeLine(value string, width int, fg string, bg string) string {
+	value = fitPlain(value, width)
+	value += strings.Repeat(" ", max(width-ansi.StringWidth(value), 0))
+	style := sgrHex(fg, false) + sgrHex(bg, true)
+	if style == "" {
+		return lipgloss.NewStyle().
+			Width(width).
+			Foreground(lipgloss.Color(fg)).
+			Background(lipgloss.Color(bg)).
+			Render(value)
+	}
+	value = strings.ReplaceAll(value, sgrReset, sgrReset+style)
+	return style + value + sgrReset
+}
+
+func sgrHex(color string, background bool) string {
+	color = strings.TrimPrefix(color, "#")
+	if len(color) != 6 {
+		return ""
+	}
+	r, errR := strconv.ParseUint(color[0:2], 16, 8)
+	g, errG := strconv.ParseUint(color[2:4], 16, 8)
+	b, errB := strconv.ParseUint(color[4:6], 16, 8)
+	if errR != nil || errG != nil || errB != nil {
+		return ""
+	}
+	code := 38
+	if background {
+		code = 48
+	}
+	return fmt.Sprintf("\x1b[%d;2;%d;%d;%dm", code, r, g, b)
+}
+
+const sgrReset = "\x1b[0m"

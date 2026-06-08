@@ -30,12 +30,13 @@ type Intent struct {
 }
 
 type Model struct {
-	Repo    string
-	RunID   int64
-	Report  usecase.FailureReport
-	Offset  int
-	Excerpt []logs.Line
-	Intent  Intent
+	Repo       string
+	RunID      int64
+	Report     usecase.FailureReport
+	Offset     int
+	Excerpt    []logs.Line
+	TotalLines int
+	Intent     Intent
 }
 
 func NewModel(repo string, runID int64, report usecase.FailureReport) Model {
@@ -45,11 +46,12 @@ func NewModel(repo string, runID int64, report usecase.FailureReport) Model {
 	}
 	excerpt := excerptFrom(report.Log.Failure.Lines, offset, 5)
 	return Model{
-		Repo:    repo,
-		RunID:   runID,
-		Report:  report,
-		Offset:  offset,
-		Excerpt: excerpt,
+		Repo:       repo,
+		RunID:      runID,
+		Report:     report,
+		Offset:     offset,
+		Excerpt:    excerpt,
+		TotalLines: len(report.Log.Lines),
 	}
 }
 
