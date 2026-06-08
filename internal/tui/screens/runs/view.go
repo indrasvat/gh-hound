@@ -32,7 +32,7 @@ func renderRuns(m Model, width, height int, now time.Time) string {
 	rowCapacity := runRowCapacity(height, 2, m.InputMode, len(runs))
 	start, end := viewport(selected, len(runs), rowCapacity)
 	lines := []string{
-		fit("  Workflow           Event             #     Duration  Age", width),
+		runsHeader(width),
 	}
 	if m.InputMode {
 		lines = append(lines, filterLine(m.Filter, len(runs), width))
@@ -90,16 +90,17 @@ func row(run model.Run, selected bool, width int, now time.Time) string {
 	if selected {
 		prefix = colorize(sgrOK, icons.Cursor)
 	}
-	status := colorize(statusColor(run), glyph(run))
-	name := colorize(sgrFGSoft, truncate(run.Name, 16))
-	event := colorize(eventColor(run), truncate(run.Event, 16))
 	number := colorize(sgrMuted, fmt.Sprintf("#%d", run.RunNumber))
+	status := colorize(statusColor(run), glyph(run))
+	label := runLabel(run, 30)
+	event := colorize(eventColor(run), truncate(run.Event, 16))
 	duration := colorize(durationColor(run), sparkline.Render(sparkValues(run), 5))
 	runAge := colorize(sgrSubtle, age(run, now))
-	line := prefix + status + " " +
-		padANSI(name, 16) + " " +
+	line := prefix +
+		padANSI(number, 6) + " " +
+		status + " " +
+		padANSI(label, 30) + " " +
 		padANSI(event, 16) + " " +
-		padANSI(number, 5) + " " +
 		padANSI(duration, 8) + " " +
 		runAge
 	return fitANSI(line, width)
@@ -144,8 +145,36 @@ func duration(run model.Run) string {
 	return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
 }
 
-func fit(value string, width int) string {
-	return fitANSI(value, width)
+func runsHeader(width int) string {
+	if width >= 92 {
+		return dimLine("  #      Status  Workflow / detail              Event             Duration  Age", width)
+	}
+	return dimLine("  #      St  Workflow / detail              Event             Dur.  Age", width)
+}
+
+func runLabel(run model.Run, width int) string {
+	name := first(strings.TrimSpace(run.Name), strings.TrimSpace(run.Path), "workflow")
+	detail := runDetail(run)
+	if detail == "" {
+		return colorize(sgrFGSoft, truncate(name, width))
+	}
+	nameWidth := max(min(ansi.StringWidth(name), width/2), 6)
+	if ansi.StringWidth(name)+3+ansi.StringWidth(detail) <= width {
+		nameWidth = ansi.StringWidth(name)
+	}
+	detailWidth := max(width-nameWidth-3, 1)
+	return colorize(sgrFGSoft, truncate(name, nameWidth)) +
+		colorize(sgrSubtle, " · "+truncate(detail, detailWidth))
+}
+
+func runDetail(run model.Run) string {
+	for _, value := range []string{run.DisplayTitle, run.HeadBranch, run.Event} {
+		value = strings.TrimSpace(value)
+		if value != "" && !strings.EqualFold(value, strings.TrimSpace(run.Name)) {
+			return value
+		}
+	}
+	return ""
 }
 
 func summaryLine(summary Summary) string {
@@ -243,9 +272,9 @@ func successLead(title string) string {
 
 func allGreenHeader(width int) string {
 	if width >= 70 {
-		return dimLine("  Status  Workflow                                      #      Age", width)
+		return dimLine("  #      Status  Workflow / detail                                  Age", width)
 	}
-	return dimLine("  Status  Workflow                         #    Age", width)
+	return dimLine("  #      St  Workflow / detail                         Age", width)
 }
 
 func allGreenRow(run model.Run, selected bool, width int, now time.Time) string {
@@ -256,19 +285,17 @@ func allGreenRow(run model.Run, selected bool, width int, now time.Time) string 
 	icon := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#4FD37A")).
 		Render(glyph(run))
-	name := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#CFCDBB")).
-		Render(truncate(run.Name, 28))
 	num := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#6B7060")).
-		Render(fmt.Sprintf("%d", run.RunNumber))
+		Render(fmt.Sprintf("#%d", run.RunNumber))
+	label := runLabel(run, 36)
 	runAge := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#8C9179")).
 		Render(age(run, now))
 	if width >= 70 {
-		return fitANSI(joinRightANSI(prefix+icon+"       "+name, num+"      "+runAge, width), width)
+		return fitANSI(joinRightANSI(prefix+padANSI(num, 6)+" "+icon+"       "+label, runAge, width), width)
 	}
-	return fitANSI(joinRightANSI(prefix+icon+"       "+name, num+"    "+runAge, width), width)
+	return fitANSI(joinRightANSI(prefix+padANSI(num, 6)+" "+icon+" "+label, runAge, width), width)
 }
 
 func filterLine(filter string, count int, width int) string {

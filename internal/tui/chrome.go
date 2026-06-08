@@ -198,7 +198,7 @@ func colorizeBody(th theme.Theme, value string, width int) string {
 }
 
 func looksLikeSectionHeader(value string) bool {
-	if value == "Workflow           Event             #     Duration  Age" {
+	if strings.Contains(value, "Workflow / detail") {
 		return true
 	}
 	for _, prefix := range []string{"Jobs", "Steps", "Annotations", "log", "dispatch", "watch", "hound "} {

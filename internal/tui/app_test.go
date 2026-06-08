@@ -302,12 +302,12 @@ func TestRootShellDelegatesScreenKeysAndRoutes(t *testing.T) {
 	app := NewApp(Options{Config: cfg})
 
 	app, handled := app.Update(KeyMsg{Key: "j"})
-	if view := ansi.Strip(app.View()); !handled || !strings.Contains(view, "▌⠹ CI") {
+	if view := ansi.Strip(app.View()); !handled || !strings.Contains(view, "▌#570") || !strings.Contains(view, "CI · push smoke") {
 		t.Fatalf("runs j should move selection to running row: handled=%v\n%s", handled, view)
 	}
 
 	app, handled = app.Update(KeyMsg{Key: "k"})
-	if view := ansi.Strip(app.View()); !handled || !strings.Contains(view, "▌✗ CI") {
+	if view := ansi.Strip(app.View()); !handled || !strings.Contains(view, "▌#571") || !strings.Contains(view, "CI · parser fix validation") {
 		t.Fatalf("runs k should move selection back to failing row: handled=%v\n%s", handled, view)
 	}
 
@@ -361,7 +361,7 @@ func TestRunsArrowKeysNavigateAndSelectedRunOpensDistinctDetail(t *testing.T) {
 	if !handled {
 		t.Fatal("down key was not handled on the runs screen")
 	}
-	if view := ansi.Strip(app.View()); !strings.Contains(view, "▌✔ CodeQL") {
+	if view := ansi.Strip(app.View()); !strings.Contains(view, "▌#43") || !strings.Contains(view, "CodeQL · main") {
 		t.Fatalf("down key did not select CodeQL row:\n%s", view)
 	}
 

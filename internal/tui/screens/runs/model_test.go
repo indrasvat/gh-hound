@@ -86,10 +86,11 @@ func TestViewMatchesRunsAndAllGreenMocks(t *testing.T) {
 	view := View(m, 80, time.Date(2026, 6, 7, 17, 45, 0, 0, time.UTC))
 	visible := ansi.Strip(view)
 	for _, want := range []string{
-		"Workflow",
+		"Workflow / detail",
 		"Event",
-		"Duration",
-		"▌✗ CI",
+		"Dur.",
+		"▌#571   ✗ CI",
+		"CI · fix/parser",
 		"1 failing · 1 running · 1 passed",
 	} {
 		if !strings.Contains(visible, want) {
@@ -131,7 +132,7 @@ func TestAllGreenViewKeepsSelectedRowAndFilterVisible(t *testing.T) {
 	m = m.Update(KeyMsg{Key: "down"})
 	view := ViewSize(m, 80, 12, time.Date(2026, 6, 8, 21, 42, 0, 0, time.UTC))
 	visible := ansi.Strip(view)
-	if !strings.Contains(visible, "▌ ✔       CodeQL") {
+	if !strings.Contains(visible, "▌ #11") || !strings.Contains(visible, "CodeQL · fix/parser") {
 		t.Fatalf("all-green view did not highlight selected row:\n%s", visible)
 	}
 
@@ -161,7 +162,7 @@ func TestRunsViewVirtualizesLongListsAroundSelection(t *testing.T) {
 	m.Selected = 500
 	view := ViewSize(m, 120, 18, time.Date(2026, 6, 8, 21, 42, 0, 0, time.UTC))
 	visible := ansi.Strip(view)
-	if !strings.Contains(visible, "▌ ✔       CI") || !strings.Contains(visible, "rows ") || !strings.Contains(visible, "/1000") {
+	if !strings.Contains(visible, "▌ #500") || !strings.Contains(visible, "CI · fix/parser") || !strings.Contains(visible, "rows ") || !strings.Contains(visible, "/1000") {
 		t.Fatalf("long all-green list did not show selected viewport/page marker:\n%s", visible)
 	}
 	if strings.Contains(visible, "1000 recent runs") && strings.Count(visible, "\n") > 18 {
