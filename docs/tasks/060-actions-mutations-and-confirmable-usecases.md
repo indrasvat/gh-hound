@@ -98,7 +98,7 @@ rtk make check
 ```
 
 ## Visual QA Checklist
-- [ ] Not applicable here.
+- [x] Not applicable here.
 
 ## Implementation Notes
 - Force-cancel must require explicit confirmation at TUI layer; expose metadata so UI can enforce it.

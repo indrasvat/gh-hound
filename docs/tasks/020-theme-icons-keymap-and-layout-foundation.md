@@ -90,14 +90,14 @@ The product's quality depends on consistent tokens, no emoji, generated key help
 - Not required.
 
 ## Definition of Done
-- [ ] Red tests fail first.
-- [ ] All PRD tokens exist exactly.
-- [ ] No color constants outside `internal/theme` except tests and docs.
-- [ ] All glyphs centralized and emoji-free.
-- [ ] Keymap conflict test covers globals, overlays, screens, and input mode.
-- [ ] Footer/help can be generated from the same keymap data.
-- [ ] Breakpoint behavior is deterministic.
-- [ ] `make check` passes.
+- [x] Red tests fail first.
+- [x] All PRD tokens exist exactly.
+- [x] No color constants outside `internal/theme` except tests and docs.
+- [x] All glyphs centralized and emoji-free.
+- [x] Keymap conflict test covers globals, overlays, screens, and input mode.
+- [x] Footer/help can be generated from the same keymap data.
+- [x] Breakpoint behavior is deterministic.
+- [x] `make check` passes.
 
 ## Verification Commands
 ```bash
@@ -107,8 +107,8 @@ rtk make check
 ```
 
 ## Visual QA Checklist
-- [ ] Fixture component uses Bramble/Bone tokens correctly.
-- [ ] No emoji or VS16 appears in rendered text.
+- [x] Fixture component uses Bramble/Bone tokens correctly.
+- [x] No emoji or VS16 appears in rendered text.
 
 ## Implementation Notes
 - `✔`, `✗`, and `▶` are emoji-capable codepoints; never append VS16.

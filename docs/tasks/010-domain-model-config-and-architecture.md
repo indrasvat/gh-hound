@@ -86,13 +86,13 @@ All future behavior depends on stable typed domain objects, config loading, fake
 - Not required.
 
 ## Definition of Done
-- [ ] Red tests fail first.
-- [ ] Model matches Appendix A.
-- [ ] Exact enum values accepted; invented values rejected.
-- [ ] Config precedence is built-in defaults -> file -> env -> flags.
-- [ ] Keybinding conflicts can be represented for Task 020 validation.
-- [ ] Architecture check is part of `make check`.
-- [ ] `make check` passes.
+- [x] Red tests fail first.
+- [x] Model matches Appendix A.
+- [x] Exact enum values accepted; invented values rejected.
+- [x] Config precedence is built-in defaults -> file -> env -> flags.
+- [x] Keybinding conflicts can be represented for Task 020 validation.
+- [x] Architecture check is part of `make check`.
+- [x] `make check` passes.
 
 ## Verification Commands
 ```bash
@@ -102,7 +102,7 @@ rtk make check
 ```
 
 ## Visual QA Checklist
-- [ ] Not applicable.
+- [x] Not applicable.
 
 ## Implementation Notes
 - Use `BurntSushi/toml` or the dependency chosen in 000.

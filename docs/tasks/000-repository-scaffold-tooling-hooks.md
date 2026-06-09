@@ -99,16 +99,16 @@ The repository only contains docs and assets. Every later task needs a compilabl
 - `make smoke-test` verifies local build, `--version`, `--help`, and clean non-interactive exit behavior.
 
 ## Definition of Done
-- [ ] Red CLI/tooling tests fail for the intended missing behavior first.
-- [ ] `go build ./...` passes.
-- [ ] `make help` renders grouped colorful output.
-- [ ] `make gofix-check` passes.
-- [ ] `make check` passes.
-- [ ] `lefthook install` succeeds.
-- [ ] `lefthook run pre-commit` succeeds.
-- [ ] `lefthook run pre-push` succeeds or documents only the future VQA placeholder.
-- [ ] `gh-hound --version` prints banner/build metadata/tagline.
-- [ ] Hooks and CI paths call Makefile targets.
+- [x] Red CLI/tooling tests fail for the intended missing behavior first.
+- [x] `go build ./...` passes.
+- [x] `make help` renders grouped colorful output.
+- [x] `make gofix-check` passes.
+- [x] `make check` passes.
+- [x] `lefthook install` succeeds.
+- [x] `lefthook run pre-commit` succeeds.
+- [x] `lefthook run pre-push` succeeds.
+- [x] `gh-hound --version` prints banner/build metadata/tagline.
+- [x] Hooks and CI paths call Makefile targets.
 
 ## Verification Commands
 ```bash
@@ -122,8 +122,8 @@ rtk lefthook run pre-push
 ```
 
 ## Visual QA Checklist
-- [ ] `make help` is readable, grouped, and colorized.
-- [ ] `--version` banner degrades without emoji or broken glyphs.
+- [x] `make help` is readable, grouped, and colorized.
+- [x] `--version` banner degrades without emoji or broken glyphs.
 
 ## Implementation Notes
 - Use `github.com/spf13/cobra` with `SilenceUsage` and `SilenceErrors` configured sanely.

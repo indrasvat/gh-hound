@@ -106,7 +106,7 @@ rtk make check
 ```
 
 ## Visual QA Checklist
-- [ ] Not applicable.
+- [x] Not applicable.
 
 ## Implementation Notes
 - Use REST as the backbone. GraphQL is optional and must not block v1.

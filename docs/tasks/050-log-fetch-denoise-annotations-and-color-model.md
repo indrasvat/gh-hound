@@ -102,7 +102,7 @@ rtk make check
 ```
 
 ## Visual QA Checklist
-- [ ] Not applicable here; visual color fidelity is Task 130.
+- [x] Not applicable here; visual color fidelity is Task 130.
 
 ## Implementation Notes
 - Prefer job logs over run zip logs for drill-down.
