@@ -17,6 +17,13 @@ type RunFilter struct {
 	Page    int
 }
 
+type RequestMeta struct {
+	Resource      string
+	Status        int
+	Cache         string
+	RateRemaining string
+}
+
 type GitHub interface {
 	ListRuns(context.Context, RunFilter) ([]model.Run, error)
 	GetRun(context.Context, string, int64) (model.Run, error)
@@ -32,4 +39,8 @@ type GitHub interface {
 	CancelRun(context.Context, string, int64) (ActionResult, error)
 	ForceCancelRun(context.Context, string, int64) (ActionResult, error)
 	DispatchWorkflow(context.Context, string, string, DispatchRequest) (ActionResult, error)
+}
+
+type GitHubDiagnostics interface {
+	LastRequestMeta(resource string) (RequestMeta, bool)
 }

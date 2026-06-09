@@ -64,6 +64,7 @@ type Options struct {
 	LogResolver      func(model.Run, model.Job) (logscreen.Model, error)
 	WatchResolver    func(model.Run) (watch.Model, error)
 	DispatchResolver func() (dispatch.Model, error)
+	RunsMetadata     func() (usecase.RequestMeta, bool)
 	ActionHandler    func(ActionRequest) (usecase.ActionResult, error)
 	OpenURL          func(string) error
 	CopyText         func(string) error
@@ -98,6 +99,7 @@ type App struct {
 	dispatch         dispatch.Model
 	confirm          confirm.Model
 	toasts           toast.Model
+	runsMeta         usecase.RequestMeta
 	pendingAction    *pendingAction
 	routeErrors      map[Route]string
 	detailResolver   func(model.Run) (detail.Model, error)
@@ -106,6 +108,7 @@ type App struct {
 	logResolver      func(model.Run, model.Job) (logscreen.Model, error)
 	watchResolver    func(model.Run) (watch.Model, error)
 	dispatchResolver func() (dispatch.Model, error)
+	runsMetadata     func() (usecase.RequestMeta, bool)
 	actionHandler    func(ActionRequest) (usecase.ActionResult, error)
 	openURL          func(string) error
 	copyText         func(string) error
@@ -149,6 +152,12 @@ func NewApp(options Options) App {
 		}
 	}
 	watchModel := watchModelForLaunch(launch, runsModel)
+	var runsMeta usecase.RequestMeta
+	if options.RunsMetadata != nil {
+		if meta, ok := options.RunsMetadata(); ok {
+			runsMeta = meta
+		}
+	}
 	return App{
 		config:           cfg,
 		build:            options.Build,
@@ -161,12 +170,14 @@ func NewApp(options Options) App {
 		routeErrors:      routeErrors,
 		watch:            watchModel,
 		toasts:           toast.New(),
+		runsMeta:         runsMeta,
 		detailResolver:   options.DetailResolver,
 		runsResolver:     options.RunsResolver,
 		failureResolver:  options.FailureResolver,
 		logResolver:      options.LogResolver,
 		watchResolver:    options.WatchResolver,
 		dispatchResolver: options.DispatchResolver,
+		runsMetadata:     options.RunsMetadata,
 		actionHandler:    options.ActionHandler,
 		openURL:          options.OpenURL,
 		copyText:         options.CopyText,
@@ -802,6 +813,11 @@ func (a App) refreshRuns() (App, bool) {
 	a.runs.Context.PerPage = perPage
 	a.runs.Context.HasMore = len(resolved) >= perPage || a.runs.Context.HasMore
 	a.runs.Selected = indexOfRun(a.runs.Context.Runs, selectedID)
+	if a.runsMetadata != nil {
+		if meta, ok := a.runsMetadata(); ok {
+			a.runsMeta = meta
+		}
+	}
 	a.pollInterval = nextPollIntervalForRuns(resolved, a.pollInterval, a.config)
 	return a, true
 }
@@ -1418,9 +1434,9 @@ func (a App) chromeParts() (string, string, string) {
 		return "hound", "workflow_dispatch", firstNonEmpty(a.dispatch.Workflow.Name, a.dispatch.Workflow.ID)
 	default:
 		if a.runs.AllGreen() {
-			return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), runsRight(a.runs, a.refreshCount)
+			return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), runsRight(a.runs, a.refreshCount, a.runsMeta)
 		}
-		return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), runsRight(a.runs, a.refreshCount)
+		return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), runsRight(a.runs, a.refreshCount, a.runsMeta)
 	}
 }
 
@@ -1455,7 +1471,7 @@ func runChromeTitle(run model.Run) string {
 	}
 }
 
-func runsRight(m runs.Model, refreshCount int) string {
+func runsRight(m runs.Model, refreshCount int, meta usecase.RequestMeta) string {
 	count := len(m.Context.Runs)
 	if m.Context.Scope == usecase.LaunchScopeRepo && len(m.Context.RepoRuns) > 0 {
 		count = len(m.Context.RepoRuns)
@@ -1469,6 +1485,12 @@ func runsRight(m runs.Model, refreshCount int) string {
 	value := fmt.Sprintf("%d runs loaded", count)
 	if refreshCount > 0 {
 		value += " · live"
+	}
+	if meta.RateRemaining != "" {
+		value += fmt.Sprintf(" · %s/5k", meta.RateRemaining)
+	}
+	if meta.Status == 304 || meta.Cache == "hit" {
+		value += " · 304"
 	}
 	return value
 }

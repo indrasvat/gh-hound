@@ -424,6 +424,13 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			}
 			return githubClient.ListRuns(ctx, filter)
 		},
+		RunsMetadata: func() (usecase.RequestMeta, bool) {
+			diagnostics, ok := githubClient.(usecase.GitHubDiagnostics)
+			if !ok {
+				return usecase.RequestMeta{}, false
+			}
+			return diagnostics.LastRequestMeta(githubRunsResource(launch.Repo))
+		},
 		DetailResolver: func(run model.Run) (detail.Model, error) {
 			jobs, err := githubClient.ListJobs(ctx, launch.Repo, run.ID)
 			if err != nil {
@@ -682,6 +689,10 @@ func workflowIdentifier(workflow model.Workflow) string {
 		return strconv.FormatInt(workflow.ID, 10)
 	}
 	return ""
+}
+
+func githubRunsResource(repo string) string {
+	return "/repos/" + strings.Trim(strings.TrimSpace(repo), "/") + "/actions/runs"
 }
 
 func workflowDisplayName(workflow model.Workflow) string {

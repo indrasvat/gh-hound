@@ -27,6 +27,8 @@ type Client struct {
 	cache   *Cache
 	queue   *Queue
 	trace   traceOptions
+	metaMu  sync.RWMutex
+	meta    map[string]usecase.RequestMeta
 }
 
 func NewClient(baseURL string, httpClient *http.Client) *Client {
@@ -57,6 +59,7 @@ func NewClientWithOptions(baseURL string, httpClient *http.Client, options Clien
 		cache:   NewCache(),
 		queue:   NewQueue(),
 		trace:   traceOptions{enabled: options.TraceHTTP, logger: logger},
+		meta:    map[string]usecase.RequestMeta{},
 	}
 }
 
@@ -288,6 +291,9 @@ type traceRecord struct {
 }
 
 func (c *Client) traceHTTP(ctx context.Context, record traceRecord) {
+	if record.Status != 0 && record.Resource != "" {
+		c.storeRequestMeta(record)
+	}
 	if !c.trace.enabled || c.trace.logger == nil {
 		return
 	}
@@ -315,6 +321,27 @@ func (c *Client) traceHTTP(ctx context.Context, record traceRecord) {
 		attrs = append(attrs, slog.String("error", record.Err))
 	}
 	c.trace.logger.LogAttrs(ctx, slog.LevelDebug, "github_http", attrs...)
+}
+
+func (c *Client) storeRequestMeta(record traceRecord) {
+	c.metaMu.Lock()
+	defer c.metaMu.Unlock()
+	if c.meta == nil {
+		c.meta = map[string]usecase.RequestMeta{}
+	}
+	c.meta[record.Resource] = usecase.RequestMeta{
+		Resource:      record.Resource,
+		Status:        record.Status,
+		Cache:         record.Cache,
+		RateRemaining: record.RateRemaining,
+	}
+}
+
+func (c *Client) LastRequestMeta(resource string) (usecase.RequestMeta, bool) {
+	c.metaMu.RLock()
+	defer c.metaMu.RUnlock()
+	meta, ok := c.meta[resource]
+	return meta, ok
 }
 
 func mapReadHTTPError(method, resource string, status int, header http.Header, payload []byte) error {

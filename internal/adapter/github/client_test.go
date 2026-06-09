@@ -132,6 +132,10 @@ func TestETagCacheReusesBodyOnNotModified(t *testing.T) {
 			t.Fatalf("cached runs call %d = %#v", i+1, runs)
 		}
 	}
+	meta, ok := client.LastRequestMeta("/repos/indrasvat/gh-hound/actions/runs")
+	if !ok || meta.Status != http.StatusNotModified || meta.Cache != "hit" {
+		t.Fatalf("last request meta = %#v, %v", meta, ok)
+	}
 }
 
 func TestTraceHTTPLogsRequestMetadataWithoutSecrets(t *testing.T) {

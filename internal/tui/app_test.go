@@ -905,6 +905,56 @@ func TestRefreshBacksOffIdleRunsAndResetsWhenRunning(t *testing.T) {
 	}
 }
 
+func TestRunsChromeShowsRealRateAndCacheMetadata(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	meta := usecase.RequestMeta{}
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{
+			Repo:    "openclaw/openclaw",
+			Branch:  "main",
+			Scope:   usecase.LaunchScopeBranch,
+			State:   usecase.LaunchStateRuns,
+			PerPage: 30,
+			Runs: []model.Run{{
+				ID:         9001,
+				Name:       "CI",
+				RunNumber:  44,
+				Status:     model.StatusCompleted,
+				Conclusion: model.ConclusionSuccess,
+				HeadBranch: "main",
+			}},
+		},
+		RunsResolver: func(usecase.RunFilter) ([]model.Run, error) {
+			meta = usecase.RequestMeta{Status: 304, Cache: "hit", RateRemaining: "4998"}
+			return []model.Run{{
+				ID:         9001,
+				Name:       "CI",
+				RunNumber:  44,
+				Status:     model.StatusCompleted,
+				Conclusion: model.ConclusionSuccess,
+				HeadBranch: "main",
+			}}, nil
+		},
+		RunsMetadata: func() (usecase.RequestMeta, bool) {
+			return meta, meta.Status != 0 || meta.RateRemaining != ""
+		},
+	})
+
+	before := ansi.Strip(app.ViewSize(120, 20))
+	if strings.Contains(before, "4998/5k") || strings.Contains(before, "304") {
+		t.Fatalf("header invented metadata before refresh:\n%s", before)
+	}
+	app, _ = app.Refresh()
+	after := ansi.Strip(app.ViewSize(120, 20))
+	for _, want := range []string{"1 runs loaded", "live", "4998/5k", "304"} {
+		if !strings.Contains(after, want) {
+			t.Fatalf("header missing %q:\n%s", want, after)
+		}
+	}
+}
+
 func TestRefreshErrorKeepsCachedRunsAndShowsToast(t *testing.T) {
 	cfg := config.Default()
 	cfg.Welcome = false
