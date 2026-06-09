@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/tui"
 	"github.com/indrasvat/gh-hound/internal/usecase"
@@ -166,6 +167,47 @@ func TestTTYRootLaunchesInteractiveTUI(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("tty root missing %q\n%s", want, got)
 		}
+	}
+}
+
+func TestInteractiveTUIRefreshesWithoutKeypress(t *testing.T) {
+	var out bytes.Buffer
+	stdin, stdinWriter := io.Pipe()
+	defer func() { _ = stdinWriter.Close() }()
+	defer func() { _ = stdin.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Millisecond)
+	defer cancel()
+	github := &cliGitHub{runBatches: [][]model.Run{
+		{cliRun(910, "CI", model.StatusInProgress, model.ConclusionNone)},
+		{cliRun(910, "CI", model.StatusCompleted, model.ConclusionSuccess)},
+	}}
+
+	err := runTUI(ctx, commandRuntime{
+		Stdout: &out,
+		Stderr: io.Discard,
+		Stdin:  stdin,
+		Env: mapEnv(map[string]string{
+			"HOUND_WELCOME":     "false",
+			"HOUND_POLL_MIN_MS": "20",
+			"HOUND_POLL_MAX_MS": "20",
+		}),
+		IsTTY:  false,
+		GitHub: github,
+		Repo: &cliRepo{context: usecase.RepositoryContext{
+			Repo:   "indrasvat/gh-hound",
+			Branch: "feature/real",
+			Actor:  "indrasvat",
+		}},
+	}, buildInfo{Version: "test"}, cliOptions{})
+	if err == nil || !strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Fatalf("runTUI err = %v", err)
+	}
+	if len(github.filters) < 2 {
+		t.Fatalf("ListRuns calls = %d, want initial load plus refresh", len(github.filters))
+	}
+	visible := ansi.Strip(out.String())
+	if !strings.Contains(visible, "⠹") || !strings.Contains(visible, "✔") || !strings.Contains(visible, "live") {
+		t.Fatalf("TUI did not repaint from running to success without keypress:\n%s", visible)
 	}
 }
 
@@ -703,6 +745,7 @@ func (r *cliRepo) Current(context.Context) (usecase.RepositoryContext, error) {
 
 type cliGitHub struct {
 	runs        []model.Run
+	runBatches  [][]model.Run
 	jobs        []model.Job
 	jobLog      string
 	filters     []usecase.RunFilter
@@ -713,6 +756,13 @@ type cliGitHub struct {
 
 func (g *cliGitHub) ListRuns(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
 	g.filters = append(g.filters, filter)
+	if len(g.runBatches) > 0 {
+		batch := g.runBatches[0]
+		if len(g.runBatches) > 1 {
+			g.runBatches = g.runBatches[1:]
+		}
+		return batch, g.err
+	}
 	return g.runs, g.err
 }
 

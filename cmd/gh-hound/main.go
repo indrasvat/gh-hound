@@ -252,7 +252,7 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 		Commit:  info.Commit,
 		Date:    info.Date,
 	}
-	cfg, err := defaultTUIApp(ctx, runtime, build, options)
+	app, err := defaultTUIApp(ctx, runtime, build, options)
 	if err != nil {
 		return err
 	}
@@ -276,35 +276,69 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 			if _, err := io.WriteString(runtime.Stdout, "\x1b[?25l\x1b[2J\x1b[H"); err != nil {
 				return err
 			}
-			_, err := io.WriteString(runtime.Stdout, ttyView(cfg.ViewSize(width, height)))
+			_, err := io.WriteString(runtime.Stdout, ttyView(app.ViewSize(width, height)))
 			return err
 		}
-		_, err := fmt.Fprintln(runtime.Stdout, cfg.ViewSize(width, height))
+		_, err := fmt.Fprintln(runtime.Stdout, app.ViewSize(width, height))
 		return err
 	}
 	if err := render(); err != nil {
 		return err
 	}
 
-	buf := make([]byte, 8)
-	decoder := keyDecoder{}
-	for !cfg.ShouldQuit() {
-		key, err := decoder.Next(runtime.Stdin, buf)
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return nil
+	events := readKeys(runtime.Stdin)
+	ticker := time.NewTicker(app.PollInterval())
+	defer ticker.Stop()
+	for !app.ShouldQuit() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case event := <-events:
+			if event.err != nil {
+				if errors.Is(event.err, io.EOF) {
+					return nil
+				}
+				return event.err
 			}
-			return err
-		}
-		var handled bool
-		cfg, handled = cfg.Update(tui.KeyMsg{Key: key})
-		if handled {
-			if err := render(); err != nil {
-				return err
+			var handled bool
+			app, handled = app.Update(tui.KeyMsg{Key: event.key})
+			if handled {
+				if err := render(); err != nil {
+					return err
+				}
+			}
+		case <-ticker.C:
+			var changed bool
+			app, changed = app.Refresh()
+			if changed {
+				if err := render(); err != nil {
+					return err
+				}
 			}
 		}
 	}
 	return nil
+}
+
+type keyEvent struct {
+	key string
+	err error
+}
+
+func readKeys(reader io.Reader) <-chan keyEvent {
+	events := make(chan keyEvent, 1)
+	go func() {
+		buf := make([]byte, 8)
+		decoder := keyDecoder{}
+		for {
+			key, err := decoder.Next(reader, buf)
+			events <- keyEvent{key: key, err: err}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	return events
 }
 
 type keyDecoder struct {

@@ -778,6 +778,61 @@ func TestRunsEndLoadsNextGitHubPage(t *testing.T) {
 	}
 }
 
+func TestRefreshReloadsVisibleRunsWithoutKeypress(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	calls := 0
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{
+			Repo:    "openclaw/openclaw",
+			Branch:  "main",
+			Scope:   usecase.LaunchScopeBranch,
+			State:   usecase.LaunchStateRuns,
+			PerPage: 30,
+			Runs: []model.Run{{
+				ID:         9001,
+				Name:       "CI",
+				RunNumber:  44,
+				Status:     model.StatusInProgress,
+				Conclusion: model.ConclusionNone,
+				HeadBranch: "main",
+			}},
+			BranchRuns: []model.Run{{
+				ID:         9001,
+				Name:       "CI",
+				RunNumber:  44,
+				Status:     model.StatusInProgress,
+				Conclusion: model.ConclusionNone,
+				HeadBranch: "main",
+			}},
+		},
+		RunsResolver: func(filter usecase.RunFilter) ([]model.Run, error) {
+			calls++
+			if filter.Page != 1 || filter.Branch != "main" {
+				t.Fatalf("refresh filter = %#v", filter)
+			}
+			return []model.Run{{
+				ID:         9001,
+				Name:       "CI",
+				RunNumber:  44,
+				Status:     model.StatusCompleted,
+				Conclusion: model.ConclusionSuccess,
+				HeadBranch: "main",
+			}}, nil
+		},
+	})
+
+	app, changed := app.Refresh()
+	if !changed || calls != 1 {
+		t.Fatalf("refresh changed=%v calls=%d", changed, calls)
+	}
+	view := ansi.Strip(app.ViewSize(100, 20))
+	if !strings.Contains(view, "✔") || !strings.Contains(view, "live") || strings.Contains(view, "⠹") {
+		t.Fatalf("refresh did not update visible run status:\n%s", view)
+	}
+}
+
 func TestNestedMutationShortcutsRequireConfirmation(t *testing.T) {
 	cfg := config.Default()
 	cfg.Welcome = false

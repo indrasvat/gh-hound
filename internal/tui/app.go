@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -83,6 +84,7 @@ type App struct {
 	inputMode        bool
 	quit             bool
 	welcomeDismissed bool
+	refreshCount     int
 	launchRoute      Route
 	runs             runs.Model
 	detail           detail.Model
@@ -425,6 +427,27 @@ func (a App) ShouldQuit() bool {
 	return a.quit
 }
 
+func (a App) PollInterval() time.Duration {
+	if a.config.PollMin > 0 {
+		return a.config.PollMin
+	}
+	return config.Default().PollMin
+}
+
+func (a App) Refresh() (App, bool) {
+	if a.TopOverlay() != OverlayNone || a.routeInputMode() {
+		return a, false
+	}
+	switch a.Route() {
+	case RouteRuns:
+		return a.refreshRuns()
+	case RouteWatch:
+		return a.refreshWatch()
+	default:
+		return a, false
+	}
+}
+
 func (a App) WelcomeDismissed() bool {
 	return a.welcomeDismissed
 }
@@ -703,6 +726,73 @@ func (a App) loadMoreRuns() App {
 	appended := a.appendActiveRuns(resolved)
 	a.runs.Context.HasMore = len(resolved) >= perPage && appended > 0
 	return a
+}
+
+func (a App) refreshRuns() (App, bool) {
+	if a.runsResolver == nil {
+		return a, false
+	}
+	filter := baseRunsFilter(a.runs.Context, a.config.PerPage)
+	if strings.TrimSpace(a.runs.Filter) != "" {
+		if serverFilter, ok := serverRunFilter(a.runs.Context, a.config.PerPage, a.runs.Filter); ok {
+			filter = serverFilter
+		}
+	}
+	filter.Page = 1
+	selectedID := int64(0)
+	if selected, ok := a.runs.SelectedRun(); ok {
+		selectedID = selected.ID
+	}
+	resolved, err := a.runsResolver(filter)
+	if err != nil {
+		a.setRouteError(RouteRuns, "refresh failed: "+err.Error())
+		a.refreshCount++
+		return a, true
+	}
+	a.clearRouteError(RouteRuns)
+	a.refreshCount++
+	perPage := perPageFor(a.runs.Context, a.config.PerPage)
+	merged := append(slices.Clone(resolved), dedupeNewRuns(resolved, a.runs.Context.Runs)...)
+	a.runs.Context.Runs = merged
+	switch a.runs.Context.Scope {
+	case usecase.LaunchScopeBranch:
+		a.runs.Context.BranchRuns = merged
+	case usecase.LaunchScopeRepo:
+		a.runs.Context.RepoRuns = merged
+	}
+	a.runs.Context.Page = max(a.runs.Context.Page, 1)
+	a.runs.Context.PerPage = perPage
+	a.runs.Context.HasMore = len(resolved) >= perPage || a.runs.Context.HasMore
+	a.runs.Selected = indexOfRun(a.runs.Context.Runs, selectedID)
+	return a, true
+}
+
+func (a App) refreshWatch() (App, bool) {
+	if a.watchResolver == nil || a.watch.State.Run.ID == 0 {
+		return a, false
+	}
+	resolved, err := a.watchResolver(a.watch.State.Run)
+	if err != nil {
+		a.setRouteError(RouteWatch, "watch refresh failed: "+err.Error())
+		a.refreshCount++
+		return a, true
+	}
+	a.clearRouteError(RouteWatch)
+	a.refreshCount++
+	a.watch = resolved
+	return a, true
+}
+
+func indexOfRun(runs []model.Run, id int64) int {
+	if id == 0 {
+		return 0
+	}
+	for index, run := range runs {
+		if run.ID == id {
+			return index
+		}
+	}
+	return 0
 }
 
 func (a *App) appendActiveRuns(next []model.Run) int {
@@ -1129,9 +1219,9 @@ func (a App) chromeParts() (string, string, string) {
 		return "hound", "workflow_dispatch", firstNonEmpty(a.dispatch.Workflow.Name, a.dispatch.Workflow.ID)
 	default:
 		if a.runs.AllGreen() {
-			return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), runsRight(a.runs)
+			return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), runsRight(a.runs, a.refreshCount)
 		}
-		return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), runsRight(a.runs)
+		return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), runsRight(a.runs, a.refreshCount)
 	}
 }
 
@@ -1166,7 +1256,7 @@ func runChromeTitle(run model.Run) string {
 	}
 }
 
-func runsRight(m runs.Model) string {
+func runsRight(m runs.Model, refreshCount int) string {
 	count := len(m.Context.Runs)
 	if m.Context.Scope == usecase.LaunchScopeRepo && len(m.Context.RepoRuns) > 0 {
 		count = len(m.Context.RepoRuns)
@@ -1177,7 +1267,11 @@ func runsRight(m runs.Model) string {
 	if count == 0 {
 		return "no runs loaded"
 	}
-	return fmt.Sprintf("%d runs loaded", count)
+	value := fmt.Sprintf("%d runs loaded", count)
+	if refreshCount > 0 {
+		value += " · live"
+	}
+	return value
 }
 
 func logRight(m logscreen.Model) string {
