@@ -77,6 +77,9 @@ type LaunchContext struct {
 	State        LaunchState
 	Notice       string
 	ErrorMessage string
+	PerPage      int
+	Page         int
+	HasMore      bool
 	Runs         []model.Run
 	BranchRuns   []model.Run
 	RepoRuns     []model.Run
@@ -103,23 +106,25 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 		}
 	}
 
+	perPage := request.PerPage
+	if perPage == 0 {
+		perPage = cfg.PerPage
+	}
+
 	result := LaunchContext{
 		Repo:    first(request.Repo, repoCtx.Repo),
 		Branch:  first(request.Branch, repoCtx.Branch),
 		HeadSHA: repoCtx.HeadSHA,
 		Actor:   repoCtx.Actor,
 		Scope:   LaunchScopeBranch,
+		PerPage: perPage,
+		Page:    1,
 	}
 	if result.Repo == "" {
 		return LaunchContext{
 			State:        LaunchStateError,
 			ErrorMessage: "repository context could not be resolved; suggest gh hound -R owner/repo",
 		}
-	}
-
-	perPage := request.PerPage
-	if perPage == 0 {
-		perPage = cfg.PerPage
 	}
 
 	if request.Route == LaunchRouteDispatch {
@@ -170,6 +175,7 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 	}
 
 	result.Runs = runs
+	result.HasMore = perPage > 0 && len(runs) >= perPage
 	if result.Scope == LaunchScopeBranch && len(result.BranchRuns) == 0 {
 		result.BranchRuns = runs
 	}

@@ -523,6 +523,8 @@ func (a App) updateRuns(msg KeyMsg) (App, bool) {
 		}
 	case runs.IntentFilter:
 		a = a.reloadRuns(a.runs.Intent.Filter)
+	case runs.IntentLoadMore:
+		a = a.loadMoreRuns()
 	}
 	return a, runsHandled(msg.Key) || before.Selected != a.runs.Selected || before.Filter != a.runs.Filter || before.InputMode != a.runs.InputMode || a.runs.Intent.Kind != runs.IntentNone
 }
@@ -665,8 +667,101 @@ func (a App) reloadRuns(query string) App {
 	case usecase.LaunchScopeRepo:
 		a.runs.Context.RepoRuns = resolved
 	}
+	a.runs.Context.Page = 1
+	a.runs.Context.PerPage = perPageFor(a.runs.Context, a.config.PerPage)
+	a.runs.Context.HasMore = len(resolved) >= a.runs.Context.PerPage
 	a.runs.Selected = 0
 	return a
+}
+
+func (a App) loadMoreRuns() App {
+	filter := baseRunsFilter(a.runs.Context, a.config.PerPage)
+	if strings.TrimSpace(a.runs.Filter) != "" {
+		if serverFilter, ok := serverRunFilter(a.runs.Context, a.config.PerPage, a.runs.Filter); ok {
+			filter = serverFilter
+		}
+	}
+	perPage := perPageFor(a.runs.Context, a.config.PerPage)
+	nextPage := a.runs.Context.Page + 1
+	if nextPage <= 1 {
+		nextPage = 2
+	}
+	filter.PerPage = perPage
+	filter.Page = nextPage
+	a.clearRouteError(RouteRuns)
+	if a.runsResolver == nil {
+		a.setRouteError(RouteRuns, "next page unavailable: live GitHub runs loader is not configured")
+		return a
+	}
+	resolved, err := a.runsResolver(filter)
+	if err != nil {
+		a.setRouteError(RouteRuns, "next page failed: "+err.Error())
+		return a
+	}
+	a.runs.Context.Page = nextPage
+	a.runs.Context.PerPage = perPage
+	appended := a.appendActiveRuns(resolved)
+	a.runs.Context.HasMore = len(resolved) >= perPage && appended > 0
+	return a
+}
+
+func (a *App) appendActiveRuns(next []model.Run) int {
+	if len(next) == 0 {
+		return 0
+	}
+	next = dedupeNewRuns(a.runs.Context.Runs, next)
+	if len(next) == 0 {
+		return 0
+	}
+	switch a.runs.Context.Scope {
+	case usecase.LaunchScopeBranch:
+		a.runs.Context.BranchRuns = append(a.runs.Context.BranchRuns, next...)
+		a.runs.Context.Runs = a.runs.Context.BranchRuns
+	case usecase.LaunchScopeRepo:
+		a.runs.Context.RepoRuns = append(a.runs.Context.RepoRuns, next...)
+		a.runs.Context.Runs = a.runs.Context.RepoRuns
+	default:
+		a.runs.Context.Runs = append(a.runs.Context.Runs, next...)
+	}
+	return len(next)
+}
+
+func dedupeNewRuns(existing, next []model.Run) []model.Run {
+	seen := map[int64]bool{}
+	for _, run := range existing {
+		if run.ID != 0 {
+			seen[run.ID] = true
+		}
+	}
+	out := make([]model.Run, 0, len(next))
+	for _, run := range next {
+		if run.ID != 0 && seen[run.ID] {
+			continue
+		}
+		if run.ID != 0 {
+			seen[run.ID] = true
+		}
+		out = append(out, run)
+	}
+	return out
+}
+
+func baseRunsFilter(ctx usecase.LaunchContext, defaultPerPage int) usecase.RunFilter {
+	filter := usecase.RunFilter{Repo: ctx.Repo, PerPage: perPageFor(ctx, defaultPerPage)}
+	if ctx.Scope == usecase.LaunchScopeBranch && strings.TrimSpace(ctx.Branch) != "" {
+		filter.Branch = ctx.Branch
+	}
+	return filter
+}
+
+func perPageFor(ctx usecase.LaunchContext, fallback int) int {
+	if ctx.PerPage > 0 {
+		return ctx.PerPage
+	}
+	if fallback > 0 {
+		return fallback
+	}
+	return config.Default().PerPage
 }
 
 func serverRunFilter(ctx usecase.LaunchContext, perPage int, query string) (usecase.RunFilter, bool) {
@@ -674,10 +769,7 @@ func serverRunFilter(ctx usecase.LaunchContext, perPage int, query string) (usec
 	if query == "" || strings.TrimSpace(ctx.Repo) == "" {
 		return usecase.RunFilter{}, false
 	}
-	filter := usecase.RunFilter{Repo: ctx.Repo, PerPage: perPage}
-	if ctx.Scope == usecase.LaunchScopeBranch && strings.TrimSpace(ctx.Branch) != "" {
-		filter.Branch = ctx.Branch
-	}
+	filter := baseRunsFilter(ctx, perPage)
 	key, value, tagged := strings.Cut(query, ":")
 	if tagged {
 		value = strings.TrimSpace(value)

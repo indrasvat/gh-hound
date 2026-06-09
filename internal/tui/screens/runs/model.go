@@ -27,6 +27,7 @@ const (
 	IntentCancel      IntentKind = "cancel"
 	IntentForceCancel IntentKind = "force_cancel"
 	IntentFilter      IntentKind = "filter"
+	IntentLoadMore    IntentKind = "load_more"
 )
 
 type Intent struct {
@@ -50,6 +51,12 @@ type Model struct {
 }
 
 func NewModel(ctx usecase.LaunchContext) Model {
+	if ctx.Page == 0 {
+		ctx.Page = 1
+	}
+	if !ctx.HasMore && ctx.PerPage > 0 && len(activeRuns(ctx)) >= ctx.PerPage {
+		ctx.HasMore = true
+	}
 	return Model{Context: ctx}
 }
 
@@ -77,6 +84,9 @@ func (m Model) Update(msg KeyMsg) Model {
 	case "G":
 		if total > 0 {
 			m.Selected = total - 1
+		}
+		if m.Context.HasMore && total > 0 {
+			m.Intent = Intent{Kind: IntentLoadMore}
 		}
 	case "s":
 		m = m.toggleScope()
@@ -228,17 +238,21 @@ func queryAliases(query string) []string {
 }
 
 func (m Model) activeRuns() []model.Run {
-	switch m.Context.Scope {
+	return activeRuns(m.Context)
+}
+
+func activeRuns(ctx usecase.LaunchContext) []model.Run {
+	switch ctx.Scope {
 	case usecase.LaunchScopeRepo:
-		if len(m.Context.RepoRuns) > 0 {
-			return m.Context.RepoRuns
+		if len(ctx.RepoRuns) > 0 {
+			return ctx.RepoRuns
 		}
 	case usecase.LaunchScopeBranch:
-		if len(m.Context.BranchRuns) > 0 {
-			return m.Context.BranchRuns
+		if len(ctx.BranchRuns) > 0 {
+			return ctx.BranchRuns
 		}
 	}
-	return m.Context.Runs
+	return ctx.Runs
 }
 
 func (m Model) toggleScope() Model {

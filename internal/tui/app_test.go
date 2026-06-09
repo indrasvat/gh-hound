@@ -726,6 +726,58 @@ func TestRunsFilterReloadsServerSupportedQueries(t *testing.T) {
 	}
 }
 
+func TestRunsEndLoadsNextGitHubPage(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	cfg.PerPage = 3
+	calls := []usecase.RunFilter{}
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{
+			Repo:    "openclaw/openclaw",
+			Scope:   usecase.LaunchScopeRepo,
+			State:   usecase.LaunchStateRuns,
+			PerPage: 3,
+			Runs: []model.Run{
+				{ID: 1003, Name: "CI", RunNumber: 1003, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess},
+				{ID: 1002, Name: "CI", RunNumber: 1002, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess},
+				{ID: 1001, Name: "CI", RunNumber: 1001, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess},
+			},
+			RepoRuns: []model.Run{
+				{ID: 1003, Name: "CI", RunNumber: 1003, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess},
+				{ID: 1002, Name: "CI", RunNumber: 1002, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess},
+				{ID: 1001, Name: "CI", RunNumber: 1001, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess},
+			},
+		},
+		RunsResolver: func(filter usecase.RunFilter) ([]model.Run, error) {
+			calls = append(calls, filter)
+			return []model.Run{
+				{ID: 1001, Name: "CI", RunNumber: 1001, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess},
+				{ID: 1000, Name: "CI", RunNumber: 1000, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess},
+				{ID: 999, Name: "Release", RunNumber: 999, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess},
+			}, nil
+		},
+	})
+
+	app, handled := app.Update(KeyMsg{Key: "G"})
+	if !handled {
+		t.Fatal("G should be handled")
+	}
+	if len(calls) != 1 {
+		t.Fatalf("pagination resolver calls = %d, want 1", len(calls))
+	}
+	if calls[0].Repo != "openclaw/openclaw" || calls[0].Page != 2 || calls[0].PerPage != 3 {
+		t.Fatalf("pagination filter = %#v", calls[0])
+	}
+	view := ansi.Strip(app.ViewSize(120, 20))
+	if !strings.Contains(view, "#999") || !strings.Contains(view, "rows 1-") || !strings.Contains(view, "/5") {
+		t.Fatalf("next page was not appended to visible runs:\n%s", view)
+	}
+	if strings.Count(view, "#1001") != 1 {
+		t.Fatalf("pagination should deduplicate overlapping live pages:\n%s", view)
+	}
+}
+
 func TestNestedMutationShortcutsRequireConfirmation(t *testing.T) {
 	cfg := config.Default()
 	cfg.Welcome = false

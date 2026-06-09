@@ -264,6 +264,24 @@ func TestRunsViewVirtualizesLongListsAroundSelection(t *testing.T) {
 	}
 }
 
+func TestRunsViewShowsMorePagesAffordance(t *testing.T) {
+	m := NewModel(usecase.LaunchContext{
+		Repo:    "openclaw/openclaw",
+		Scope:   usecase.LaunchScopeRepo,
+		State:   usecase.LaunchStateRuns,
+		PerPage: 3,
+		Runs: []model.Run{
+			run(3, "CI", "push", model.StatusCompleted, model.ConclusionSuccess),
+			run(2, "CI", "push", model.StatusCompleted, model.ConclusionSuccess),
+			run(1, "CI", "push", model.StatusCompleted, model.ConclusionSuccess),
+		},
+	})
+	view := ansi.Strip(ViewSize(m, 100, 12, time.Date(2026, 6, 8, 21, 42, 0, 0, time.UTC)))
+	if !strings.Contains(view, "G load more") || !strings.Contains(view, "/3+") {
+		t.Fatalf("more-pages affordance missing:\n%s", view)
+	}
+}
+
 func TestAllGreenBandReappliesBackgroundAfterNestedReset(t *testing.T) {
 	line := allGreenBandLine(sgrOK+"✔"+sgrReset+" All checks passing", 40)
 	if !strings.HasPrefix(line, sgrBandFG+sgrBandBG) {

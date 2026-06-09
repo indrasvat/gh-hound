@@ -55,7 +55,7 @@ func renderRuns(m Model, width, height int, now time.Time) string {
 		lines = append(lines, dimLine("  "+notice, width))
 	}
 	summary := m.Summary()
-	lines = append(lines, fitANSI(joinRightANSI(summaryLine(summary), pageLine(start, end, len(runs)), width), width))
+	lines = append(lines, fitANSI(joinRightANSI(summaryLine(summary, m.Context.HasMore), pageLine(start, end, len(runs), m.Context.HasMore), width), width))
 	return strings.Join(lines, "\n")
 }
 
@@ -99,7 +99,11 @@ func renderAllGreen(m Model, width, height int, now time.Time) string {
 		lines = append(lines, allGreenRow(run, start+i == selected, width, now))
 	}
 	if len(runs) > 0 {
-		lines = append(lines, dimLine(pageLine(start, end, len(runs)), width))
+		moreHint := ""
+		if m.Context.HasMore {
+			moreHint = " · G load more"
+		}
+		lines = append(lines, dimLine(pageLine(start, end, len(runs), m.Context.HasMore)+moreHint, width))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -211,12 +215,16 @@ func runDetail(run model.Run) string {
 	return ""
 }
 
-func summaryLine(summary Summary) string {
-	return colorize(sgrFail, fmt.Sprintf("%d failing", summary.Failing)) +
+func summaryLine(summary Summary, hasMore bool) string {
+	line := colorize(sgrFail, fmt.Sprintf("%d failing", summary.Failing)) +
 		" · " +
 		colorize(sgrRun, fmt.Sprintf("%d running", summary.Running)) +
 		" · " +
 		colorize(sgrSubtle, fmt.Sprintf("%d passed", summary.Passed))
+	if hasMore {
+		line += " · " + colorize(sgrSubtle, "G load more")
+	}
+	return line
 }
 
 func statusColor(run model.Run) string {
@@ -419,11 +427,15 @@ func clampSelection(selected, total int) int {
 	return selected
 }
 
-func pageLine(start, end, total int) string {
+func pageLine(start, end, total int, hasMore bool) string {
 	if total == 0 {
 		return "0/0"
 	}
-	return fmt.Sprintf("rows %d-%d/%d", start+1, end, total)
+	suffix := ""
+	if hasMore {
+		suffix = "+"
+	}
+	return fmt.Sprintf("rows %d-%d/%d%s", start+1, end, total, suffix)
 }
 
 func dimLine(value string, width int) string {
