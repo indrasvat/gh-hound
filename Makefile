@@ -17,6 +17,7 @@ GOBIN       := $(shell go env GOPATH)/bin
 GOLANGCI    := $(shell command -v golangci-lint 2>/dev/null || echo "$(GOBIN)/golangci-lint")
 GOTESTSUM   := $(shell command -v gotestsum 2>/dev/null || echo "$(GOBIN)/gotestsum")
 GOIMPORTS   := $(shell command -v goimports 2>/dev/null || echo "$(GOBIN)/goimports")
+ACTIONLINT  := $(shell command -v actionlint 2>/dev/null || echo "$(GOBIN)/actionlint")
 LEFTHOOK    := $(shell command -v lefthook 2>/dev/null || echo "$(GOBIN)/lefthook")
 
 COLOR_RESET := \033[0m
@@ -35,7 +36,7 @@ help: ## Show grouped help
 	@printf "$(COLOR_BOLD)Build & Run$(COLOR_RESET)\n"
 	@awk 'BEGIN {FS = ":.*##"} /^(build|install|run|clean):.*?##/ {printf "  $(COLOR_GREEN)%-18s$(COLOR_RESET) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf "\n$(COLOR_BOLD)Quality$(COLOR_RESET)\n"
-	@awk 'BEGIN {FS = ":.*##"} /^(fmt|fmt-check|gofix|gofix-check|lint|vet|test|coverage|coverage-check|docs-check|check|ci|emoji-check|arch-check|visual-contract-check):.*?##/ {printf "  $(COLOR_GREEN)%-18s$(COLOR_RESET) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"} /^(fmt|fmt-check|gofix|gofix-check|lint|vet|test|coverage|coverage-check|docs-check|check|ci|emoji-check|arch-check|visual-contract-check|workflow-check|shellcheck):.*?##/ {printf "  $(COLOR_GREEN)%-18s$(COLOR_RESET) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf "\n$(COLOR_BOLD)Verification$(COLOR_RESET)\n"
 	@awk 'BEGIN {FS = ":.*##"} /^(e2e|vqa|vqa-screen|vqa-clean|demo|smoke-test):.*?##/ {printf "  $(COLOR_GREEN)%-18s$(COLOR_RESET) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf "\n$(COLOR_BOLD)Tooling & Release$(COLOR_RESET)\n"
@@ -125,8 +126,18 @@ visual-contract-check: ## Check implementation constants against the HTML visual
 docs-check: ## Verify README/docs commands and required sections
 	@./scripts/docs-check.sh
 
+.PHONY: workflow-check
+workflow-check: ## Validate GitHub Actions workflows with actionlint
+	@[ -x "$(ACTIONLINT)" ] || { printf "$(COLOR_RED)missing actionlint; run make tools-ci$(COLOR_RESET)\n"; exit 1; }
+	@"$(ACTIONLINT)" .github/workflows/*.yml
+
+.PHONY: shellcheck
+shellcheck: ## Lint shell scripts
+	@command -v shellcheck >/dev/null 2>&1 || { printf "$(COLOR_RED)missing shellcheck$(COLOR_RESET)\n"; exit 1; }
+	@shellcheck install.sh scripts/*.sh
+
 .PHONY: check
-check: gofix-check fmt-check lint vet emoji-check arch-check visual-contract-check docs-check test ## Run local green-bar gate
+check: gofix-check fmt-check lint vet workflow-check shellcheck emoji-check arch-check visual-contract-check docs-check test ## Run local green-bar gate
 	@printf "\n$(COLOR_GREEN)$(COLOR_BOLD)✓ check passed$(COLOR_RESET)\n\n"
 
 .PHONY: ci
@@ -170,6 +181,7 @@ tools: tools-ci ## Install all local development tools
 tools-ci: ## Install CI/dev tools required by gates
 	@GOTOOLCHAIN=$(GO_VERSION) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0
 	@GOTOOLCHAIN=$(GO_VERSION) go install gotest.tools/gotestsum@latest
+	@GOTOOLCHAIN=$(GO_VERSION) go install github.com/rhysd/actionlint/cmd/actionlint@latest
 
 .PHONY: hooks
 hooks: ## Install lefthook git hooks

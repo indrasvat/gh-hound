@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-files="$(find . -name '*.go' -not -path './.git/*')"
-if [ -z "$files" ]; then
+mapfile -d '' files < <(find . -name '*.go' -not -path './.git/*' -print0)
+if [ "${#files[@]}" -eq 0 ]; then
   exit 0
 fi
 
-if LC_ALL=C grep -n $'\xEF\xB8\x8F' $files >/tmp/gh-hound-emoji-vs16.txt 2>/dev/null; then
+if LC_ALL=C grep -n $'\xEF\xB8\x8F' "${files[@]}" >/tmp/gh-hound-emoji-vs16.txt 2>/dev/null; then
   echo "emoji variation selector U+FE0F found:" >&2
   cat /tmp/gh-hound-emoji-vs16.txt >&2
   exit 1
