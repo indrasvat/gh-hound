@@ -7,7 +7,7 @@ cd "$root"
 if ! command -v shux >/dev/null 2>&1; then
   cat >&2 <<'MSG'
 missing shux; install it before running interaction audit:
-  npx skills add indrasvat/shux --global --yes
+  curl -sSf https://shux.pages.dev/install.sh | sh
 MSG
   exit 1
 fi
@@ -131,8 +131,8 @@ RUNNER
   txt="$out_dir/${scenario}.txt"
   png="$out_dir/${scenario}.png"
   shux pane capture -s "$session" --lines 24 --format plain >"$txt"
-  python3 .claude/automations/verify_capture.py "$assertion" "$txt"
   shux pane snapshot -s "$session" -o "$png" >/dev/null
+  python3 .claude/automations/verify_capture.py "$assertion" "$txt" "$png" 80 24
   cleanup
   trap - EXIT
   printf "audited real-pty interaction %s -> %s\n" "$scenario" "$png"

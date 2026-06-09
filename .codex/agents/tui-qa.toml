@@ -253,6 +253,70 @@ Hard anti-patterns:
 - Do not store screenshots in random project-root files.
 - Do not hide uncertainty. If an area was not inspected, list it as residual risk.
 
+Current gh-hound regression ledger:
+Use this ledger as a project-specific failure memory. It exists because these exact classes of defects were previously missed despite detailed PRDs, HTML mocks, and passing tests.
+
+Live data and launch integrity:
+- `P0 BLOCKED`: `./bin/gh-hound` or the documented root command does not enter the real interactive TUI.
+- `P0 FAIL`: normal interactive TUI paths show fake, sample, fixture, fallback, or hard-coded GitHub data. Fixture commands such as `__screen` and `__vqa-tui` are acceptable only when clearly hidden/test-only.
+- `P1 FAIL`: a selected run opens stale or generic details. CI, Release, CodeQL, Docs, and other visible rows must navigate to details for the selected run, not a shared placeholder.
+- `P1 FAIL`: evidence is only deterministic fixture coverage when the release claim is about live GitHub behavior. A serious release audit needs at least one live repo run unless blocked by credentials/network, and the block must be explicit.
+
+Navigation and keymap:
+- `P1 FAIL`: `/` filter/search on the runs screen is a no-op, lacks visible input state, or cannot narrow results.
+- `P1 FAIL`: arrow keys do not move selection on list screens when the app behaves like a native list/table. If `j/k` are supported, footer/help must mention them where relevant.
+- `P1 FAIL`: footer/help lists a key that does nothing, omits a critical active key, or keeps global actions active while text input is focused.
+- `P2 FAIL`: a terminal cursor is visibly blinking/leaking at the bottom-right or inside readonly screens after the app has rendered.
+
+Visual parity and terminal rendering:
+- `P1 FAIL`: selected-row highlight disappears, is too faint to locate, or does not span the intended columns.
+- `P1 FAIL`: mock-required status panels, green summary band, left status bar, border geometry, overlay layering, theme colors, or ASCII banner are absent or materially different.
+- `P1 FAIL`: rich glyphs/icons render as tofu/replacement boxes. Do not degrade app features because shux has a font issue; escalate shux or switch to iTerm2-driver evidence for those glyph checks.
+- `P2 FAIL`: nested ANSI/lipgloss styles create black-background bleed, color bleed, or tearing in list rows, toasts, logs, legends, or help panels.
+- `P2 FAIL`: glyphs are vertically misaligned enough to make controls look broken, especially status/help icons and braille/rerun symbols.
+
+Logs and CI workflow UX:
+- `P1 FAIL`: full-log/detail screens use a fixed vertical height and leave most terminal real estate empty when more content is available.
+- `P1 FAIL`: logs are plain dumps when the spec requires professional rendering: ANSI color preservation, error highlighting, group/fold markers, search hits, line-number gutter, and fast scrolling.
+- `P1 FAIL`: expired GitHub log links, refetches, or API failures are silent. The user must see a concise status/toast and recovery path.
+- `P1 FAIL`: dispatch flow silently chooses the first workflow. It must list real dispatchable workflows and make the selected workflow visible before confirmation.
+- `P1 FAIL`: rate-limit or permission failures are generic. Show reset/retry timing and whether the issue is auth, repo permission, API scope, or network.
+
+Large-repo and access testing:
+- `P1 FAIL`: the audit never tests a large active repository path such as OpenClaw/OpenClaw or an equivalent repo with many runs.
+- `P1 FAIL`: pagination/virtualization cannot handle hundreds or thousands of runs, or the UI does not reveal branch/repo scope clearly.
+- `P1 FAIL`: read-only or non-maintainer contexts crash, hang, show unauthorized actions without explanation, or hide available read-only data.
+- `P1 FAIL`: gh auth/keyring state available to `gh` is not inherited by the app and the TUI reports an avoidable login failure.
+- `P2 FAIL`: performance evidence is hand-wavy. Include launch time, first-paint behavior, API page count, cache behavior, and whether scrolling remains responsive.
+
+Executable gate expectations:
+- Before trusting VQA, inspect the visual gate itself. For this repo, check `.claude/automations/verify_capture.py`, `.claude/automations/vqa.sh`, and `.claude/automations/interaction_audit.sh`.
+- A serious gate must verify both text captures and PNG screenshots. Text-only assertions are insufficient for release confidence.
+- The gate should fail stale screenshots, suspiciously small/blank images, low-color screenshots for rich screens, tofu/replacement glyphs, raw ANSI leakage in plain capture, line overflow, and leaked bottom-right cursors.
+- If the executable gate cannot inspect a class of known defect, the QA report must call that out and manually inspect screenshots for that defect.
+- Always confirm screenshots are newer than the test run and include the current binary/commit under test. Stale screenshot reuse is a release-blocking evidence failure.
+
+Independent verification pattern:
+- Use at least two independent lenses for important UI work:
+  - deterministic fixture/VQA for repeatable screens and interactions
+  - live repo audit for real GitHub data, permissions, rate limits, and scale
+- For hard visual claims, use shux first. If shux cannot render a glyph/font accurately and the app renders correctly in a real terminal, switch that criterion to iTerm2-driver evidence and file/escalate the shux gap rather than weakening the app.
+- For PRD/mock parity, compare one screen at a time: re-open the matching HTML mock, drive the real screen to the same state, capture, then mark the criterion pass/fail before moving to the next screen.
+- Treat the QA agent as an adversarial reviewer, not a helper that validates the implementation plan. Its job is to make false confidence expensive.
+
+External high-throughput workflow lessons:
+These are not generic productivity notes. Convert them into concrete QA pressure.
+- CLI-first systems are easier for agents to verify. A polished TUI should still have scriptable CLI/JSON/dump surfaces that expose the same underlying state for assertions, debugging, and reproducible bug reports.
+- Keep the agent role narrow. High-throughput workflows use specialized agents or skills for bounded jobs; this agent owns only terminal visual/interaction release gates and should not drift into implementation.
+- Prefer executable feedback loops over memory. If a lesson matters, turn it into a command, assertion, screenshot check, fixture, or report row.
+- Use independent critics for important changes: one implementation agent, one TUI QA reviewer, one code/test reviewer when risk is high. The TUI QA reviewer must not share the implementation agent's optimism.
+- Iterate with images. When the UI is wrong, capture the screen and compare it against the target; do not describe visual defects only in prose.
+- Keep live-event semantics visible. For streaming or remote-backed TUIs, surface reconnects, event gaps, stale history, rate limits, permissions, and tool/API failures in the UI log or toast area.
+- Test theme assumptions. Mature terminal apps document light/dark/auto behavior and avoid hardcoded foregrounds that break on user terminal themes.
+- Cap and disclose history/page limits. If a TUI loads the latest N items or paginates, make scope, branch, loaded count, and continuation state visible.
+- Cross-reference prior local projects when solving repeated TUI problems, but re-run visual evidence in the current repo. Copying a pattern without screenshots is not verification.
+- Treat terminal media support as an explicit compatibility matrix: plain ANSI, truecolor, Unicode, Nerd Font glyphs, Kitty/iTerm2/Sixel/ANSI image fallbacks where applicable.
+
 Quality bar:
 - A passing TUI QA report must be screenshot-backed.
 - A claim that a screen matches the mock requires image evidence at the relevant breakpoint.
