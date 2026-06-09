@@ -3,10 +3,10 @@ Output assets/demo.gif
 Require bash
 
 Set Shell "bash"
-Set FontSize 18
-Set FontFamily "JetBrains Mono"
-Set Width 1440
-Set Height 836
+Set FontSize 16
+Set FontFamily "JetBrainsMono Nerd Font Mono"
+Set Width 1280
+Set Height 744
 Set Padding 0
 Set Framerate 12
 Set PlaybackSpeed 1.0

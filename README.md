@@ -1,7 +1,7 @@
 <p align="center">
   <img src="assets/gh-hound_logo.png" alt="gh-hound logo" width="210"><br>
-  <strong>Hunt down GitHub Actions failures from the terminal.</strong><br>
-  <em>A fast, focused TUI for live runs, failure triage, rich logs, guarded actions, and agent-ready CI output.</em><br><br>
+  <strong>GitHub Actions, without the browser side quest.</strong><br>
+  <em>A fast terminal cockpit for "what broke?", "where?", "can I rerun it?", and "what should my agent fix?"</em><br><br>
   <a href="https://github.com/indrasvat/gh-hound/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/indrasvat/gh-hound/ci.yml?branch=main&style=flat&labelColor=1a1a1a&label=CI" alt="CI"></a>
   <a href="https://github.com/indrasvat/gh-hound/releases/latest"><img src="https://img.shields.io/github/v/release/indrasvat/gh-hound?style=flat&labelColor=1a1a1a" alt="release"></a>
   <a href="go.mod"><img src="https://img.shields.io/github/go-mod-go-version/indrasvat/gh-hound?style=flat&labelColor=1a1a1a" alt="Go version"></a>
@@ -9,11 +9,11 @@
 </p>
 
 <p align="center">
-  <a href="#screenshots">Screenshots</a> •
   <a href="#why-gh-hound">Why</a> •
+  <a href="#screenshots">Proof</a> •
   <a href="#performance">Performance</a> •
-  <a href="#features">Features</a> •
   <a href="#install">Install</a> •
+  <a href="#quick-start">Quick Start</a> •
   <a href="#agent-surface">Agent Surface</a> •
   <a href="#development">Development</a>
 </p>
@@ -23,69 +23,67 @@
     <img src="assets/readme/hero-gallery.png" alt="High-resolution gh-hound screenshot gallery" width="980">
   </a>
   <br>
-  <sub>High-resolution gallery. Click to open the full 3200px-wide image.</sub>
+  <sub>Real shux captures from live repositories. Click for the 3200px-wide image.</sub>
 </p>
 
 ---
 
 ## Overview
 
-`gh-hound` is a `gh` extension and standalone CLI/TUI for GitHub Actions. It opens on the CI state you usually care about: current repository, current branch or repo-wide scope, latest runs, selected job, step timeline, readable logs, and the actions to rerun, cancel, watch, or dispatch.
+`gh-hound` is a `gh` extension and standalone CLI/TUI for GitHub Actions. It opens where developers actually work: the current repository, the current branch or repo-wide scope, the latest runs, the selected job, the failing step, the full log, and the rerun/cancel/dispatch action surface.
 
-The human path is a keyboard-first terminal UI. The automation path is stable structured output: JSON, Markdown, XML, explicit exit codes, and failure objects with annotations and log excerpts.
+The TUI is for humans. The structured output is for agents and scripts. Both paths share the same usecase core, so CI state, failures, annotations, excerpts, and exit codes stay consistent.
+
+## Why gh-hound
+
+Because "open Actions, click run, click job, expand logs, search, scroll, open another tab, forget which branch this was" is not a debugging workflow. It is a browser obstacle course.
+
+`gh-hound` gives you the CI loop you wanted:
+
+| Question | One terminal answer |
+| --- | --- |
+| Is my branch green? | `gh hound` opens the scoped run list with status, age, event, rate budget, and cache/live state. |
+| What failed? | `Enter` drills into jobs and steps; `n` jumps to the next failure. |
+| Where is the useful log line? | `l` opens the full log with folds, search, line numbers, highlights, and a scrollbar. |
+| Can I retry safely? | `r`, `R`, `x`, and dispatch flows are local, visible, and confirmation-gated. |
+| Can an agent consume this? | `--no-tui --json` returns schema-stable CI objects and deterministic exit codes. |
+
+Short version: your browser has enough tabs. Keep CI triage beside the code.
 
 ## Screenshots
 
-These frames were captured from the real binary through `shux`. The gallery uses live repositories: `openclaw/openclaw` for a high-volume Actions feed and `indrasvat/gh-hound` for run detail and full logs.
+The top image is the gallery. Use these source frames when you want to inspect the pixels:
 
-<p align="center">
-  <a href="assets/readme/00-ascii-banner.png"><img src="assets/readme/00-ascii-banner.png" alt="gh-hound ASCII banner" width="780"></a><br>
-  <sub>First impression: the actual `gh-hound --version` ASCII banner, rendered by the binary.</sub>
-</p>
-
-| Live runs at scale | Advanced full log viewer |
+| Frame | What it proves |
 | --- | --- |
-| <a href="assets/readme/02-openclaw-live-runs.png"><img src="assets/readme/02-openclaw-live-runs.png" alt="OpenClaw live repo-wide Actions runs in gh-hound"></a> | <a href="assets/readme/09-gh-hound-self-log-search.png"><img src="assets/readme/09-gh-hound-self-log-search.png" alt="gh-hound full log viewer with search highlighting"></a> |
-| OpenClaw repo-wide feed with status glyphs, run numbers first, event names, sparklines, summary counts, and visible rate budget. | Real CI log with 1,028 lines, line-number gutter, fold rows, scrollbar, and search-hit highlighting. |
-
-| Run detail | Guarded actions |
-| --- | --- |
-| <a href="assets/readme/07-gh-hound-self-detail.png"><img src="assets/readme/07-gh-hound-self-detail.png" alt="gh-hound run detail with jobs and step timeline"></a> | <a href="assets/readme/11-action-confirm-rerun.png"><img src="assets/readme/11-action-confirm-rerun.png" alt="gh-hound rerun confirmation modal"></a> |
-| Master-detail view for jobs and steps, with job durations and contextual footer actions. | Rerun/cancel flows are available from the TUI, but destructive API mutations require explicit confirmation. |
-
-| Contextual help |
-| --- |
-| <a href="assets/readme/10-gh-hound-context-help.png"><img src="assets/readme/10-gh-hound-context-help.png" alt="gh-hound contextual help overlay"></a> |
-| Help is generated from the active keymap and rendered as an overlay over the current screen. |
+| [ASCII banner](assets/readme/00-ascii-banner.png) | The first impression is branded, terminal-native, and rendered by the real binary. |
+| [OpenClaw live runs](assets/readme/02-openclaw-live-runs.png) | Repo-wide high-volume Actions feed with run numbers first, event names, sparklines, scope, and rate budget. |
+| [Full log viewer](assets/readme/09-gh-hound-self-log-search.png) | Real CI log rendering with line numbers, folds, scrollbar, search count, and highlighted matches. |
+| [Run detail](assets/readme/07-gh-hound-self-detail.png) | Jobs and step timeline from a live run, not fixture data. |
+| [Guarded rerun](assets/readme/11-action-confirm-rerun.png) | Mutation flows are present, but confirmation-gated. |
+| [Context help](assets/readme/10-gh-hound-context-help.png) | Help is generated from the active keymap and overlays the current screen. |
 
 ### Demo
 
 <p align="center">
-  <img src="assets/demo.gif" alt="gh-hound TUI walkthrough demo" width="980">
+  <a href="assets/demo.gif">
+    <img src="assets/demo.gif" alt="gh-hound TUI walkthrough demo" width="720">
+  </a>
+  <br>
+  <sub>Generated by <code>vhs assets/demo.tape</code>. Click to open the raw animation.</sub>
 </p>
 
-The demo is generated from `assets/demo.tape` with the current TUI: banner, live runs, detail, full logs, search, help, and a guarded rerun action.
+The GIF is deliberately secondary: static shux captures are the visual truth; VHS is the quick motion tour.
 
-## Why gh-hound
-
-GitHub Actions debugging often means loading the checks page, opening a run, opening a job, expanding logs, searching manually, then jumping back to rerun or cancel. `gh-hound` keeps that loop close to the code:
-
-- Launch directly from the repository you are editing.
-- See the branch or repo-wide run state immediately.
-- Move from run -> job -> step -> full log with the keyboard.
-- Search and fold logs without waiting on a browser log viewer.
-- Trigger rerun/cancel/dispatch flows from the same surface.
-- Give coding agents a structured CI contract instead of screen-scraping.
-
-### Compared With The GitHub Web UI
+## Compared With The GitHub Web UI
 
 | Web UI friction | gh-hound behavior |
 | --- | --- |
-| Multiple page loads to get from check summary to the failing step. | One terminal launch, then `Enter` / `n` / `l` to move through run, job, failure, and log. |
+| Multiple page loads to reach the failing step. | One terminal launch, then `Enter` / `n` / `l`. |
 | Browser log pages can feel heavy on large logs. | The TUI renders only the visible log window and keeps folding/search state local. |
-| CI scope is easy to lose across tabs. | Header shows branch/repo scope, loaded count, rate budget, and live/cache state. |
-| Rerun/cancel actions are separated from diagnosis. | Actions are available where the run is visible and guarded by explicit confirmation. |
-| Agents must parse human pages or raw logs. | `--no-tui --json` returns schema-stable runs, failures, annotations, and excerpts. |
+| Scope gets lost across tabs. | Header keeps branch/repo scope, loaded count, rate budget, and cache/live state visible. |
+| Rerun/cancel lives away from diagnosis. | Actions are available in context and guarded by explicit confirmation. |
+| Agents get raw pages or raw logs. | `--no-tui --json` returns schema-stable runs, failures, annotations, and excerpts. |
 
 ## Performance
 
