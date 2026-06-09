@@ -423,8 +423,8 @@ func TestNormalStatusFailureFiltersCompletedRunsByConclusion(t *testing.T) {
 	if code != 1 || err == nil {
 		t.Fatalf("runs --status failure code=%d err=%v out=%s", code, err, out.String())
 	}
-	if got := github.filters[0].Status; got != model.StatusCompleted {
-		t.Fatalf("GitHub status filter = %q, want completed", got)
+	if got := github.filters[0].Status; got != "failure" {
+		t.Fatalf("GitHub status filter = %q, want failure", got)
 	}
 	decoded := decodeJSON(t, out.Bytes())
 	runs := decoded["runs"].([]any)

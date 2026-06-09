@@ -41,7 +41,7 @@ func TestClientDecodesReadEndpoints(t *testing.T) {
 
 	client := NewClient(server.URL, server.Client())
 	ctx := context.Background()
-	runs, err := client.ListRuns(ctx, usecase.RunFilter{Repo: "indrasvat/gh-hound", Branch: "main", Status: model.StatusCompleted, PerPage: 30})
+	runs, err := client.ListRuns(ctx, usecase.RunFilter{Repo: "indrasvat/gh-hound", Branch: "main", Status: string(model.StatusCompleted), PerPage: 30})
 	if err != nil {
 		t.Fatalf("ListRuns returned error: %v", err)
 	}

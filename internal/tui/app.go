@@ -57,6 +57,7 @@ type Options struct {
 	Build            BuildInfo
 	Launch           usecase.LaunchContext
 	DetailResolver   func(model.Run) (detail.Model, error)
+	RunsResolver     func(usecase.RunFilter) ([]model.Run, error)
 	FailureResolver  func(model.Run, model.Job) (failure.Model, logscreen.Model, error)
 	LogResolver      func(model.Run, model.Job) (logscreen.Model, error)
 	WatchResolver    func(model.Run) (watch.Model, error)
@@ -93,6 +94,7 @@ type App struct {
 	pendingAction    *pendingAction
 	routeErrors      map[Route]string
 	detailResolver   func(model.Run) (detail.Model, error)
+	runsResolver     func(usecase.RunFilter) ([]model.Run, error)
 	failureResolver  func(model.Run, model.Job) (failure.Model, logscreen.Model, error)
 	logResolver      func(model.Run, model.Job) (logscreen.Model, error)
 	watchResolver    func(model.Run) (watch.Model, error)
@@ -149,6 +151,7 @@ func NewApp(options Options) App {
 		routeErrors:      routeErrors,
 		watch:            watchModel,
 		detailResolver:   options.DetailResolver,
+		runsResolver:     options.RunsResolver,
 		failureResolver:  options.FailureResolver,
 		logResolver:      options.LogResolver,
 		watchResolver:    options.WatchResolver,
@@ -170,6 +173,9 @@ func NewScenarioApp(scenario string, build BuildInfo) App {
 	app.routeErrors = map[Route]string{}
 	app.detailResolver = func(model.Run) (detail.Model, error) {
 		return sampleDetailModel(), nil
+	}
+	app.runsResolver = func(usecase.RunFilter) ([]model.Run, error) {
+		return sampleRunsModel().Context.Runs, nil
 	}
 	app.failureResolver = func(model.Run, model.Job) (failure.Model, logscreen.Model, error) {
 		return sampleFailureModel(), sampleLogModel(), nil
@@ -351,7 +357,7 @@ func RenderInteractionFixtureSize(scenario string, width, height int) string {
 		return frameViewSize(app.theme, "hound", "git fix/parser · @indrasvat", "◔ live · cache 304", runs.View(m, bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
 	case "runs-filter":
 		m := sampleRunsModel()
-		for _, key := range []string{"/", "f", "a", "i", "l"} {
+		for _, key := range []string{"/", "f", "a", "i", "l", "enter"} {
 			m = m.Update(runs.KeyMsg{Key: key})
 		}
 		return frameViewSize(app.theme, "hound", "git fix/parser · @indrasvat", "filter /fail", runs.View(m, bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
@@ -515,6 +521,8 @@ func (a App) updateRuns(msg KeyMsg) (App, bool) {
 		if run, ok := a.runs.SelectedRun(); ok {
 			a = a.handleAction(RouteRuns, ActionRequest{Action: usecase.ActionForceCancelRun, Run: run})
 		}
+	case runs.IntentFilter:
+		a = a.reloadRuns(a.runs.Intent.Filter)
 	}
 	return a, runsHandled(msg.Key) || before.Selected != a.runs.Selected || before.Filter != a.runs.Filter || before.InputMode != a.runs.InputMode || a.runs.Intent.Kind != runs.IntentNone
 }
@@ -633,6 +641,109 @@ func (a App) loadDetail(run model.Run) App {
 	}
 	a.detail = resolved
 	return a
+}
+
+func (a App) reloadRuns(query string) App {
+	filter, ok := serverRunFilter(a.runs.Context, a.config.PerPage, query)
+	if !ok {
+		return a
+	}
+	a.clearRouteError(RouteRuns)
+	if a.runsResolver == nil {
+		a.setRouteError(RouteRuns, "runs filter unavailable: live GitHub runs loader is not configured")
+		return a
+	}
+	resolved, err := a.runsResolver(filter)
+	if err != nil {
+		a.setRouteError(RouteRuns, "runs filter failed: "+err.Error())
+		return a
+	}
+	a.runs.Context.Runs = resolved
+	switch a.runs.Context.Scope {
+	case usecase.LaunchScopeBranch:
+		a.runs.Context.BranchRuns = resolved
+	case usecase.LaunchScopeRepo:
+		a.runs.Context.RepoRuns = resolved
+	}
+	a.runs.Selected = 0
+	return a
+}
+
+func serverRunFilter(ctx usecase.LaunchContext, perPage int, query string) (usecase.RunFilter, bool) {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" || strings.TrimSpace(ctx.Repo) == "" {
+		return usecase.RunFilter{}, false
+	}
+	filter := usecase.RunFilter{Repo: ctx.Repo, PerPage: perPage}
+	if ctx.Scope == usecase.LaunchScopeBranch && strings.TrimSpace(ctx.Branch) != "" {
+		filter.Branch = ctx.Branch
+	}
+	key, value, tagged := strings.Cut(query, ":")
+	if tagged {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return usecase.RunFilter{}, false
+		}
+		switch strings.TrimSpace(key) {
+		case "actor":
+			filter.Actor = value
+			return filter, true
+		case "branch":
+			filter.Branch = value
+			return filter, true
+		case "event":
+			filter.Event = value
+			return filter, true
+		case "sha", "head", "head_sha":
+			filter.HeadSHA = value
+			return filter, true
+		case "status", "conclusion":
+			status, ok := normalizedRunStatus(value)
+			if !ok {
+				return usecase.RunFilter{}, false
+			}
+			filter.Status = status
+			return filter, true
+		default:
+			return usecase.RunFilter{}, false
+		}
+	}
+	if status, ok := normalizedRunStatus(query); ok {
+		filter.Status = status
+		return filter, true
+	}
+	if isKnownEvent(query) {
+		filter.Event = query
+		return filter, true
+	}
+	return usecase.RunFilter{}, false
+}
+
+func normalizedRunStatus(query string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(query)) {
+	case "failure", "failed", "failing", "red":
+		return string(model.ConclusionFailure), true
+	case "success", "passed", "passing", "green":
+		return string(model.ConclusionSuccess), true
+	case "cancelled", "canceled":
+		return string(model.ConclusionCancelled), true
+	}
+	if status, err := model.ParseStatus(query); err == nil {
+		return string(status), true
+	}
+	if conclusion, err := model.ParseConclusion(query); err == nil && conclusion != model.ConclusionNone {
+		return string(conclusion), true
+	}
+	return "", false
+}
+
+func isKnownEvent(query string) bool {
+	switch query {
+	case "push", "pull_request", "workflow_dispatch", "schedule", "workflow_run", "repository_dispatch", "merge_group":
+		return true
+	default:
+		return false
+	}
 }
 
 func (a App) loadFailure(run model.Run, job model.Job) App {

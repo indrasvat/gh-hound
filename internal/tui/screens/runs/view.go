@@ -35,12 +35,13 @@ func renderRuns(m Model, width, height int, now time.Time) string {
 	if notice != "" {
 		fixedRows++
 	}
-	rowCapacity := runRowCapacity(height, fixedRows, m.InputMode, len(runs))
+	showFilter := m.InputMode || strings.TrimSpace(m.Filter) != ""
+	rowCapacity := runRowCapacity(height, fixedRows, showFilter, len(runs))
 	start, end := viewport(selected, len(runs), rowCapacity)
 	lines := []string{
 		runsHeader(width),
 	}
-	if m.InputMode {
+	if showFilter {
 		lines = append(lines, filterLine(m.Filter, len(runs), width))
 	}
 	if len(runs) == 0 {
@@ -75,7 +76,8 @@ func renderAllGreen(m Model, width, height int, now time.Time) string {
 	if notice != "" {
 		fixedRows++
 	}
-	rowCapacity := runRowCapacity(height, fixedRows, m.InputMode, len(runs))
+	showFilter := m.InputMode || strings.TrimSpace(m.Filter) != ""
+	rowCapacity := runRowCapacity(height, fixedRows, showFilter, len(runs))
 	start, end := viewport(selected, len(runs), rowCapacity)
 	lines := []string{
 		allGreenBandLine("", width),
@@ -87,7 +89,7 @@ func renderAllGreen(m Model, width, height int, now time.Time) string {
 	if notice != "" {
 		lines = append(lines, dimLine("  "+notice, width))
 	}
-	if m.InputMode {
+	if showFilter {
 		lines = append(lines, filterLine(m.Filter, len(runs), width))
 	}
 	if len(runs) == 0 {

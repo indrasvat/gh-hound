@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/config"
@@ -663,6 +664,65 @@ func TestRunsMutationShortcutsRequireConfirmation(t *testing.T) {
 				t.Fatalf("%s confirmed call = %#v", tt.key, calls)
 			}
 		})
+	}
+}
+
+func TestRunsFilterReloadsServerSupportedQueries(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	cfg.PerPage = 50
+	calls := []usecase.RunFilter{}
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{
+			Repo:   "openclaw/openclaw",
+			Branch: "main",
+			Scope:  usecase.LaunchScopeBranch,
+			State:  usecase.LaunchStateRuns,
+			Runs: []model.Run{{
+				ID:           1001,
+				Name:         "CI",
+				DisplayTitle: "green tip",
+				RunNumber:    101,
+				Status:       model.StatusCompleted,
+				Conclusion:   model.ConclusionSuccess,
+				HeadBranch:   "main",
+			}},
+		},
+		RunsResolver: func(filter usecase.RunFilter) ([]model.Run, error) {
+			calls = append(calls, filter)
+			return []model.Run{{
+				ID:           2002,
+				Name:         "Integration",
+				DisplayTitle: "staging failure",
+				RunNumber:    202,
+				Status:       model.StatusCompleted,
+				Conclusion:   model.ConclusionFailure,
+				HeadBranch:   "main",
+				HTMLURL:      "https://github.com/openclaw/openclaw/actions/runs/2002",
+				RunStartedAt: time.Now().Add(-5 * time.Minute),
+				UpdatedAt:    time.Now().Add(-2 * time.Minute),
+			}}, nil
+		},
+	})
+
+	for _, key := range []string{"/", "f", "a", "i", "l", "i", "n", "g", "enter"} {
+		var handled bool
+		app, handled = app.Update(KeyMsg{Key: key})
+		if !handled {
+			t.Fatalf("key %q was not handled", key)
+		}
+	}
+
+	if len(calls) != 1 {
+		t.Fatalf("runs resolver calls = %d, want 1", len(calls))
+	}
+	if calls[0].Repo != "openclaw/openclaw" || calls[0].Branch != "main" || calls[0].Status != "failure" || calls[0].PerPage != 50 {
+		t.Fatalf("resolver filter = %#v", calls[0])
+	}
+	view := ansi.Strip(app.ViewSize(120, 32))
+	if !strings.Contains(view, "/failing  1 matches") || !strings.Contains(view, "#202") || !strings.Contains(view, "Integration · staging failure") || strings.Contains(view, "#101") {
+		t.Fatalf("server-filtered runs did not replace visible list:\n%s", view)
 	}
 }
 

@@ -45,7 +45,7 @@ func (c *Client) ListRuns(ctx context.Context, filter usecase.RunFilter) ([]mode
 		values.Set("branch", filter.Branch)
 	}
 	if filter.Status != "" {
-		values.Set("status", string(filter.Status))
+		values.Set("status", filter.Status)
 	}
 	if filter.Event != "" {
 		values.Set("event", filter.Event)

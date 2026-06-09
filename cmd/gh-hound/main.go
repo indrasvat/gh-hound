@@ -371,6 +371,12 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 		Config: cfg,
 		Build:  build,
 		Launch: launch,
+		RunsResolver: func(filter usecase.RunFilter) ([]model.Run, error) {
+			if filter.PerPage == 0 {
+				filter.PerPage = cfg.PerPage
+			}
+			return githubClient.ListRuns(ctx, filter)
+		},
 		DetailResolver: func(run model.Run) (detail.Model, error) {
 			jobs, err := githubClient.ListJobs(ctx, launch.Repo, run.ID)
 			if err != nil {
@@ -742,16 +748,23 @@ func liveResult(ctx context.Context, options cliOptions, runtime commandRuntime)
 	return render.Result{Repo: repo, Branch: branch, Runs: mapRenderRuns(runs)}, nil
 }
 
-func parseStatusFilter(raw string) (model.Status, error) {
+func parseStatusFilter(raw string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "":
 		return "", nil
 	case "failure", "failed", "failing":
-		return model.StatusCompleted, nil
+		return string(model.ConclusionFailure), nil
 	case "success", "passed", "green":
-		return model.StatusCompleted, nil
+		return string(model.ConclusionSuccess), nil
 	default:
-		return model.ParseStatus(raw)
+		if status, err := model.ParseStatus(raw); err == nil {
+			return string(status), nil
+		}
+		conclusion, err := model.ParseConclusion(raw)
+		if err != nil {
+			return "", err
+		}
+		return string(conclusion), nil
 	}
 }
 

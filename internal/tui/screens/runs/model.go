@@ -191,18 +191,40 @@ func (m Model) filteredRuns() []model.Run {
 	runs := m.activeRuns()
 	filtered := make([]model.Run, 0, len(runs))
 	for _, run := range runs {
-		if strings.Contains(strings.ToLower(run.Name), query) ||
-			strings.Contains(strings.ToLower(run.DisplayTitle), query) ||
-			strings.Contains(strings.ToLower(run.Event), query) ||
-			strings.Contains(strings.ToLower(run.HeadBranch), query) ||
-			strings.Contains(strings.ToLower(string(run.Status)), query) ||
-			strings.Contains(strings.ToLower(string(run.Conclusion)), query) ||
-			strings.Contains(strings.ToLower(run.Actor), query) ||
-			strings.Contains(fmt.Sprintf("%d", run.RunNumber), query) {
+		if runMatchesQuery(run, query) {
 			filtered = append(filtered, run)
 		}
 	}
 	return filtered
+}
+
+func runMatchesQuery(run model.Run, query string) bool {
+	for _, alias := range queryAliases(query) {
+		if strings.Contains(strings.ToLower(run.Name), alias) ||
+			strings.Contains(strings.ToLower(run.DisplayTitle), alias) ||
+			strings.Contains(strings.ToLower(run.Event), alias) ||
+			strings.Contains(strings.ToLower(run.HeadBranch), alias) ||
+			strings.Contains(strings.ToLower(string(run.Status)), alias) ||
+			strings.Contains(strings.ToLower(string(run.Conclusion)), alias) ||
+			strings.Contains(strings.ToLower(run.Actor), alias) ||
+			strings.Contains(fmt.Sprintf("%d", run.RunNumber), alias) {
+			return true
+		}
+	}
+	return false
+}
+
+func queryAliases(query string) []string {
+	switch query {
+	case "failed", "failing", "red":
+		return []string{query, "failure"}
+	case "passed", "passing", "green":
+		return []string{query, "success"}
+	case "canceled":
+		return []string{query, "cancelled"}
+	default:
+		return []string{query}
+	}
 }
 
 func (m Model) activeRuns() []model.Run {

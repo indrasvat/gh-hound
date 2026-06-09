@@ -9,7 +9,7 @@ import (
 type RunFilter struct {
 	Repo    string
 	Branch  string
-	Status  model.Status
+	Status  string
 	Event   string
 	Actor   string
 	HeadSHA string
