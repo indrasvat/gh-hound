@@ -88,7 +88,7 @@ binary_url="${release_url}/${asset}"
 checksums_url="${release_url}/checksums.txt"
 
 echo "downloading ${binary_url}"
-curl -fsSL "$binary_url" -o "$tmp/gh-hound"
+curl -fsSL "$binary_url" -o "$tmp/$asset"
 curl -fsSL "$checksums_url" -o "$tmp/checksums.txt"
 
 (
@@ -98,7 +98,7 @@ curl -fsSL "$checksums_url" -o "$tmp/checksums.txt"
 )
 
 install -d "$install_dir"
-install -m 755 "$tmp/gh-hound" "$install_dir/gh-hound"
+install -m 755 "$tmp/$asset" "$install_dir/gh-hound"
 
 if [ "$os" = "darwin" ] && command -v xattr >/dev/null 2>&1; then
   xattr -d com.apple.quarantine "$install_dir/gh-hound" >/dev/null 2>&1 || true

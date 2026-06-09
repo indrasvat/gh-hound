@@ -44,6 +44,9 @@ need_grep "shellcheck install.sh scripts/\\*.sh" Makefile
 need_grep "cli/gh-extension-precompile@v2.1.0" .github/workflows/release.yml
 need_grep "go_version_file: go.mod" .github/workflows/release.yml
 need_grep "build_script_override: scripts/build-release.sh" .github/workflows/release.yml
+need_grep "darwin/arm64" scripts/build-release.sh
+need_grep "linux/amd64" scripts/build-release.sh
+need_grep "linux/arm64" scripts/build-release.sh
 need_grep "codecov/codecov-action@v5" .github/workflows/ci.yml
 need_grep "fail_ci_if_error: false" .github/workflows/ci.yml
 need_grep "use_oidc:" .github/workflows/ci.yml
@@ -54,5 +57,10 @@ bash -n scripts/build-release.sh scripts/smoke-test.sh install.sh
 
 actionlint .github/workflows/*.yml
 shellcheck install.sh scripts/*.sh
+
+if grep -qE 'darwin/amd64|windows/' scripts/build-release.sh; then
+  echo "release script should publish only darwin/arm64 and linux binaries" >&2
+  exit 1
+fi
 
 echo "release config valid"

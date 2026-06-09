@@ -10,12 +10,9 @@ cmd="./cmd/gh-hound"
 ldflags="-s -w -X main.version=${tag} -X main.commit=${commit} -X main.date=${date}"
 
 platforms=(
-  "darwin/amd64"
   "darwin/arm64"
   "linux/amd64"
   "linux/arm64"
-  "windows/amd64"
-  "windows/arm64"
 )
 
 rm -rf dist
