@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/logs"
 )
 
@@ -60,19 +61,46 @@ func TestViewRendersViewportOnlyGutterFoldsSearchAndFooter(t *testing.T) {
 	m = m.Update(KeyMsg{Key: "z"})
 
 	view := View(m, 80)
+	visible := ansi.Strip(view)
 	for _, want := range []string{
 		"log · /trail · match 1/2",
 		"001 17:42:53Z go test ./... -race",
 		"002 ▸ Run go test ./... 7 lines",
 	} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("log view missing %q\n%s", want, view)
+		if !strings.Contains(visible, want) {
+			t.Fatalf("log view missing %q\n%s", want, visible)
 		}
 	}
-	if strings.Contains(view, "010") {
-		t.Fatalf("view rendered outside visible viewport:\n%s", view)
+	if strings.Contains(visible, "010") {
+		t.Fatalf("view rendered outside visible viewport:\n%s", visible)
 	}
-	assertWidth(t, view, 80)
+	assertANSIWidth(t, view, 80)
+}
+
+func TestViewHighlightsLogTokensAndSearchHits(t *testing.T) {
+	m := NewModel(document(), 1, 10)
+	m = m.Update(KeyMsg{Key: "/"})
+	for _, key := range []string{"t", "r", "a", "i", "l", "enter"} {
+		m = m.Update(KeyMsg{Key: key})
+	}
+	m.Offset = 1
+
+	view := View(m, 100)
+	for _, want := range []string{
+		sgrTimestamp + "17:42:53Z" + sgrReset,
+		sgrCommand + "go test ./... -race" + sgrReset,
+		sgrOK + "ok" + sgrReset,
+		sgrPath + "lexer_test.go:88" + sgrReset,
+		sgrStringOK + "\"foo\"" + sgrReset,
+		sgrStringFail + "\"foo_\"" + sgrReset,
+		sgrFail + "--- FAIL: TestLexIdent/trailing_underscore (0.00s)" + sgrReset,
+		sgrSearchBG,
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("highlighted log view missing %q\n%s", want, view)
+		}
+	}
+	assertANSIWidth(t, view, 100)
 }
 
 func TestRenderLargeLogUsesVisibleWindow(t *testing.T) {
@@ -83,12 +111,38 @@ func TestRenderLargeLogUsesVisibleWindow(t *testing.T) {
 	m := NewModel(logs.Parse(builder.String()), 9_990, 8)
 	start := time.Now()
 	view := View(m, 100)
+	visible := ansi.Strip(view)
 	if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
 		t.Fatalf("large render took %s", elapsed)
 	}
-	if strings.Contains(view, "0001") || !strings.Contains(view, "9990") {
-		t.Fatalf("viewport did not stay near offset:\n%s", view)
+	if strings.Contains(visible, "0001") || !strings.Contains(visible, "9990") {
+		t.Fatalf("viewport did not stay near offset:\n%s", visible)
 	}
+}
+
+func TestRenderLargeHighlightedLogUsesVisibleWindow(t *testing.T) {
+	var builder strings.Builder
+	for i := range 10_000 {
+		if i%7 == 0 {
+			builder.WriteString("2026-06-09T00:02:27.3782201Z ##[error]Process completed with exit code 1\n")
+			continue
+		}
+		builder.WriteString("2026-06-09T00:02:27.3782201Z ok github.com/openclaw/openclaw/internal/api 0.214s\n")
+	}
+	m := NewModel(logs.Parse(builder.String()), 9_990, 12)
+	start := time.Now()
+	view := View(m, 120)
+	visible := ansi.Strip(view)
+	if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
+		t.Fatalf("large highlighted render took %s", elapsed)
+	}
+	if strings.Contains(visible, "0001") || !strings.Contains(visible, "9990") {
+		t.Fatalf("viewport did not stay near offset:\n%s", visible)
+	}
+	if !strings.Contains(view, sgrTimestamp) || !strings.Contains(view, sgrOK) {
+		t.Fatalf("large highlighted render missed semantic colors:\n%s", view)
+	}
+	assertANSIWidth(t, view, 120)
 }
 
 func BenchmarkView10kLineViewport(b *testing.B) {
@@ -103,11 +157,11 @@ func BenchmarkView10kLineViewport(b *testing.B) {
 	}
 }
 
-func assertWidth(t *testing.T, view string, width int) {
+func assertANSIWidth(t *testing.T, view string, width int) {
 	t.Helper()
 	for line := range strings.SplitSeq(view, "\n") {
-		if len([]rune(line)) > width {
-			t.Fatalf("line too wide (%d): %q\n%s", len([]rune(line)), line, view)
+		if got := ansi.StringWidth(line); got > width {
+			t.Fatalf("line too wide (%d): %q\n%s", got, ansi.Strip(line), view)
 		}
 	}
 }

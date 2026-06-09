@@ -36,6 +36,8 @@ type Line struct {
 type Token struct {
 	Class TokenClass
 	Text  string
+	Start int
+	End   int
 }
 
 type Fold struct {
@@ -55,7 +57,7 @@ type FailureWindow struct {
 }
 
 var (
-	timestampRE = regexp.MustCompile(`\b\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\b`)
+	timestampRE = regexp.MustCompile(`\b(?:\d{4}-\d{2}-\d{2}T)?\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\b`)
 	pathRE      = regexp.MustCompile(`\b[\w./-]+\.go:\d+\b`)
 	quotedRE    = regexp.MustCompile(`"[^"]*"`)
 	numberRE    = regexp.MustCompile(`\b\d+\b`)
@@ -117,36 +119,65 @@ func Parse(raw string) Document {
 
 func tokenize(text string) []Token {
 	tokens := make([]Token, 0, 4)
-	if match := timestampRE.FindString(text); match != "" {
-		tokens = append(tokens, Token{Class: ClassTimestamp, Text: match})
+	add := func(class TokenClass, start, end int) {
+		if start < 0 || end <= start || start >= len(text) || end > len(text) {
+			return
+		}
+		tokens = append(tokens, Token{Class: class, Text: text[start:end], Start: start, End: end})
 	}
-	if strings.Contains(text, "go test") || strings.HasPrefix(strings.TrimSpace(text), "$ ") {
-		tokens = append(tokens, Token{Class: ClassCommand, Text: strings.TrimSpace(text)})
+	if loc := timestampRE.FindStringIndex(text); loc != nil {
+		add(ClassTimestamp, loc[0], loc[1])
+	}
+	if index := strings.Index(text, "go test"); index >= 0 {
+		add(ClassCommand, index, len(text))
+	} else if index := strings.Index(text, "$ "); index >= 0 && strings.TrimSpace(text[:index]) == "" {
+		add(ClassCommand, index, len(text))
 	}
 	if strings.HasPrefix(text, "ok") || strings.Contains(text, "--- PASS") || strings.TrimSpace(text) == "PASS" {
-		tokens = append(tokens, Token{Class: ClassOK, Text: "ok"})
+		index := strings.Index(text, "ok")
+		if index < 0 {
+			index = strings.Index(text, "PASS")
+		}
+		add(ClassOK, index, index+len(firstTokenAt(text, index)))
+	} else if index := strings.Index(text, " ok "); index >= 0 {
+		start := index + 1
+		add(ClassOK, start, start+len(firstTokenAt(text, start)))
 	}
 	if strings.Contains(text, "##[warning]") || strings.Contains(text, "WARN") || strings.Contains(text, "--- SKIP") {
-		tokens = append(tokens, Token{Class: ClassWarn, Text: "warn"})
+		add(ClassWarn, 0, len(text))
 	}
 	if isFailureText(text) {
-		tokens = append(tokens, Token{Class: ClassFail, Text: "fail"})
+		add(ClassFail, 0, len(text))
 	}
-	for _, match := range pathRE.FindAllString(text, -1) {
-		tokens = append(tokens, Token{Class: ClassPath, Text: match})
+	for _, loc := range pathRE.FindAllStringIndex(text, -1) {
+		add(ClassPath, loc[0], loc[1])
 	}
-	for _, match := range quotedRE.FindAllString(text, -1) {
-		tokens = append(tokens, Token{Class: ClassString, Text: match})
+	for _, loc := range quotedRE.FindAllStringIndex(text, -1) {
+		add(ClassString, loc[0], loc[1])
 	}
 	if strings.Contains(text, " want ") {
-		tokens = append(tokens, Token{Class: ClassWant, Text: strings.TrimSpace(text[strings.Index(text, " want ")+1:])})
+		index := strings.Index(text, " want ") + 1
+		add(ClassWant, index, len(text))
 	}
 	if strings.Contains(text, "exit code") {
-		if match := numberRE.FindString(text); match != "" {
-			tokens = append(tokens, Token{Class: ClassNumber, Text: match})
+		loc := numberRE.FindAllStringIndex(text, -1)
+		if len(loc) > 0 {
+			last := loc[len(loc)-1]
+			add(ClassNumber, last[0], last[1])
 		}
 	}
 	return tokens
+}
+
+func firstTokenAt(text string, index int) string {
+	if index < 0 || index >= len(text) {
+		return ""
+	}
+	end := index
+	for end < len(text) && !strings.ContainsRune(" \t", rune(text[end])) {
+		end++
+	}
+	return text[index:end]
 }
 
 func extractFailure(lines []Line) FailureWindow {
