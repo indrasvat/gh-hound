@@ -92,11 +92,21 @@ type Annotation struct {
 }
 
 type Workflow struct {
-	ID      int64  `json:"id"`
-	Name    string `json:"name"`
-	Path    string `json:"path"`
-	State   string `json:"state"`
-	HTMLURL string `json:"html_url"`
+	ID      int64           `json:"id"`
+	Name    string          `json:"name"`
+	Path    string          `json:"path"`
+	State   string          `json:"state"`
+	HTMLURL string          `json:"html_url"`
+	Inputs  []WorkflowInput `json:"inputs,omitempty"`
+}
+
+type WorkflowInput struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Required    bool     `json:"required"`
+	Type        string   `json:"type"`
+	Default     string   `json:"default,omitempty"`
+	Options     []string `json:"options,omitempty"`
 }
 
 func ParseStatus(raw string) (Status, error) {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -32,6 +33,11 @@ func TestClientDecodesReadEndpoints(t *testing.T) {
 			writeJSON(w, jobFixture)
 		case "/repos/indrasvat/gh-hound/actions/workflows":
 			writeJSON(w, workflowsFixture)
+		case "/repos/indrasvat/gh-hound/contents/.github/workflows/ci.yml":
+			if got := r.Header.Get("Accept"); got != "application/vnd.github.raw" {
+				t.Fatalf("workflow file Accept = %q", got)
+			}
+			_, _ = w.Write([]byte("on:\n  workflow_dispatch:\n"))
 		case "/repos/indrasvat/gh-hound/check-runs/399444496/annotations":
 			writeJSON(w, annotationsFixture)
 		default:
@@ -67,6 +73,10 @@ func TestClientDecodesReadEndpoints(t *testing.T) {
 	workflows, err := client.ListWorkflows(ctx, "indrasvat/gh-hound")
 	if err != nil || len(workflows) != 1 || workflows[0].Path != ".github/workflows/ci.yml" {
 		t.Fatalf("ListWorkflows = %#v, %v", workflows, err)
+	}
+	workflowFile, err := client.FetchWorkflowFile(ctx, "indrasvat/gh-hound", ".github/workflows/ci.yml")
+	if err != nil || !strings.Contains(workflowFile, "workflow_dispatch") {
+		t.Fatalf("FetchWorkflowFile = %q, %v", workflowFile, err)
 	}
 	annotations, err := client.ListAnnotations(ctx, "indrasvat/gh-hound", job)
 	if err != nil || len(annotations) != 1 || annotations[0].StartLine != 142 {

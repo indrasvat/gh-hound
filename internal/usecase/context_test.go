@@ -234,6 +234,10 @@ func (g *launchGitHub) ListWorkflows(context.Context, string) ([]model.Workflow,
 	return slices.Clone(g.workflows), nil
 }
 
+func (g *launchGitHub) FetchWorkflowFile(context.Context, string, string) (string, error) {
+	return "on:\n  workflow_dispatch:\n", nil
+}
+
 func (g *launchGitHub) ListAnnotations(context.Context, string, model.Job) ([]model.Annotation, error) {
 	return nil, errors.New("not implemented")
 }

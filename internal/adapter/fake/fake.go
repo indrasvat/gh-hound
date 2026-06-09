@@ -92,6 +92,22 @@ func (a *Adapter) ListWorkflows(context.Context, string) ([]model.Workflow, erro
 	}}, nil
 }
 
+func (a *Adapter) FetchWorkflowFile(context.Context, string, string) (string, error) {
+	return `name: CI
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        required: true
+        type: string
+      channel:
+        type: choice
+        options:
+          - stable
+          - beta
+`, nil
+}
+
 func (a *Adapter) ListAnnotations(context.Context, string, model.Job) ([]model.Annotation, error) {
 	return []model.Annotation{{
 		Path:      "internal/parser/lexer.go",

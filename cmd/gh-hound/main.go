@@ -468,7 +468,7 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 					return dispatch.Model{}, err
 				}
 			}
-			workflow, err := chooseWorkflow(workflows)
+			workflow, err := chooseDispatchWorkflow(ctx, githubClient, launch.Repo, workflows)
 			if err != nil {
 				return dispatch.Model{}, err
 			}
@@ -482,9 +482,10 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 				return dispatch.Model{}, err
 			}
 			return dispatch.NewModel(dispatch.Workflow{
-				Name: workflowName,
-				ID:   workflowID,
-				Ref:  ref,
+				Name:   workflowName,
+				ID:     workflowID,
+				Ref:    ref,
+				Inputs: dispatchInputs(workflow.Inputs),
 			}), nil
 		},
 		ActionHandler: func(request tui.ActionRequest) (usecase.ActionResult, error) {
@@ -609,16 +610,58 @@ func resolveJobForRun(ctx context.Context, githubClient usecase.GitHub, repo str
 	return jobs[0], nil
 }
 
-func chooseWorkflow(workflows []model.Workflow) (model.Workflow, error) {
+func chooseDispatchWorkflow(ctx context.Context, githubClient usecase.GitHub, repo string, workflows []model.Workflow) (model.Workflow, error) {
 	for _, workflow := range workflows {
-		if workflow.State == "active" {
-			return workflow, nil
+		if workflow.State != "" && workflow.State != "active" {
+			continue
 		}
+		if strings.TrimSpace(workflow.Path) == "" {
+			continue
+		}
+		raw, err := githubClient.FetchWorkflowFile(ctx, repo, workflow.Path)
+		if err != nil {
+			var apiErr usecase.APIError
+			if errors.As(err, &apiErr) && apiErr.Kind == usecase.APIErrorNotFound {
+				continue
+			}
+			return model.Workflow{}, err
+		}
+		inputs, ok, err := usecase.ParseWorkflowDispatchInputs(raw)
+		if err != nil {
+			return model.Workflow{}, err
+		}
+		if !ok {
+			continue
+		}
+		workflow.Inputs = inputs
+		return workflow, nil
 	}
-	if len(workflows) > 0 {
-		return workflows[0], nil
+	return model.Workflow{}, fmt.Errorf("no workflow_dispatch workflows found")
+}
+
+func dispatchInputs(inputs []model.WorkflowInput) []dispatch.Input {
+	out := make([]dispatch.Input, 0, len(inputs))
+	for _, input := range inputs {
+		mapped := dispatch.Input{
+			Name:     input.Name,
+			Required: input.Required,
+			Default:  input.Default,
+			Options:  append([]string(nil), input.Options...),
+		}
+		switch input.Type {
+		case "boolean":
+			mapped.Type = dispatch.InputBool
+			if len(mapped.Options) == 0 {
+				mapped.Options = []string{"false", "true"}
+			}
+		case "choice":
+			mapped.Type = dispatch.InputSelect
+		default:
+			mapped.Type = dispatch.InputText
+		}
+		out = append(out, mapped)
 	}
-	return model.Workflow{}, fmt.Errorf("no GitHub Actions workflows found")
+	return out
 }
 
 func workflowIdentifier(workflow model.Workflow) string {

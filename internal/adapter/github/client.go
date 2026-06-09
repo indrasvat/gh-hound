@@ -121,6 +121,18 @@ func (c *Client) ListWorkflows(ctx context.Context, repo string) ([]model.Workfl
 	return workflows, nil
 }
 
+func (c *Client) FetchWorkflowFile(ctx context.Context, repo, workflowPath string) (string, error) {
+	workflowPath = strings.TrimSpace(workflowPath)
+	if workflowPath == "" {
+		return "", fmt.Errorf("workflow path is required")
+	}
+	body, err := c.getRaw(ctx, resourcePath(repo, "contents/"+workflowPath), nil)
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
+}
+
 func (c *Client) ListAnnotations(ctx context.Context, repo string, job model.Job) ([]model.Annotation, error) {
 	checkID := strconv.FormatInt(job.ID, 10)
 	if job.CheckRunURL != "" {
@@ -143,6 +155,39 @@ func (c *Client) ListAnnotations(ctx context.Context, repo string, job model.Job
 		})
 	}
 	return annotations, nil
+}
+
+func (c *Client) getRaw(ctx context.Context, resource string, query url.Values) ([]byte, error) {
+	var body []byte
+	err := c.queue.Do(ctx, func(ctx context.Context) error {
+		reqURL := c.baseURL + resource
+		if len(query) > 0 {
+			reqURL += "?" + query.Encode()
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Accept", "application/vnd.github.raw")
+		req.Header.Set("X-GitHub-Api-Version", APIVersion)
+		resp, err := c.http.Do(req)
+		if err != nil {
+			return usecase.APIError{Kind: usecase.APIErrorNetwork, Method: req.Method, Resource: resource, Message: err.Error()}
+		}
+		defer func() {
+			_ = resp.Body.Close()
+		}()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			limited, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+			return mapReadHTTPError(req.Method, resource, resp.StatusCode, resp.Header, bytes.TrimSpace(limited))
+		}
+		body, err = io.ReadAll(resp.Body)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return body, nil
 }
 
 func (c *Client) getJSON(ctx context.Context, resource string, query url.Values, out any) error {

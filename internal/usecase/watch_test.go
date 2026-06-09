@@ -92,6 +92,10 @@ func (g *watchGitHub) ListWorkflows(context.Context, string) ([]model.Workflow, 
 	return nil, errors.New("not implemented")
 }
 
+func (g *watchGitHub) FetchWorkflowFile(context.Context, string, string) (string, error) {
+	return "", errors.New("not implemented")
+}
+
 func (g *watchGitHub) ListAnnotations(context.Context, string, model.Job) ([]model.Annotation, error) {
 	return nil, errors.New("not implemented")
 }

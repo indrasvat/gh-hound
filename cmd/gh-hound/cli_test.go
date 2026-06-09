@@ -270,6 +270,45 @@ func TestDefaultTUIAppDeepRoutesUseGitHubPortData(t *testing.T) {
 	}
 }
 
+func TestDefaultTUIAppLoadsDispatchInputsFromWorkflowFile(t *testing.T) {
+	github := &cliGitHub{
+		runs: []model.Run{cliRun(778, "CI", model.StatusCompleted, model.ConclusionSuccess)},
+		workflows: []model.Workflow{
+			{ID: 1, Name: "CI", Path: ".github/workflows/ci.yml", State: "active"},
+			{ID: 2, Name: "Release", Path: ".github/workflows/release.yml", State: "active"},
+		},
+		workflowFiles: map[string]string{
+			".github/workflows/release.yml": "on:\n  workflow_dispatch:\n    inputs:\n      version:\n        required: true\n        type: string\n      channel:\n        type: choice\n        options: [stable, beta, nightly]\n",
+		},
+		workflowErrors: map[string]error{
+			".github/workflows/ci.yml": usecase.APIError{Kind: usecase.APIErrorNotFound, Status: 404, Message: "Not Found"},
+		},
+	}
+	app, err := defaultTUIApp(context.Background(), commandRuntime{
+		Env:    mapEnv(map[string]string{"HOUND_WELCOME": "false"}),
+		GitHub: github,
+		Repo: &cliRepo{context: usecase.RepositoryContext{
+			Repo:   "openclaw/openclaw",
+			Branch: "release/v1",
+			Actor:  "indrasvat",
+		}},
+	}, tui.BuildInfo{Version: "v0.1.0"}, cliOptions{})
+	if err != nil {
+		t.Fatalf("defaultTUIApp returned error: %v", err)
+	}
+
+	app, handled := app.Update(tui.KeyMsg{Key: "D"})
+	if !handled || app.Route() != tui.RouteDispatch {
+		t.Fatalf("D did not open dispatch: handled=%v route=%s", handled, app.Route())
+	}
+	view := ansi.Strip(app.ViewSize(120, 32))
+	for _, want := range []string{"dispatch · Release", "version", "channel", "● stable  ○ beta  ○ nightly", "POST …/workflows/.github/workflows/release.yml/dispatches"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("dispatch view missing %q\n%s", want, view)
+		}
+	}
+}
+
 func TestExternalCommandSelection(t *testing.T) {
 	name, args, err := browserCommand("darwin", "https://github.com/openclaw/openclaw/actions/runs/1")
 	if err != nil || name != "open" || len(args) != 1 {
@@ -766,14 +805,17 @@ func (r *cliRepo) Current(context.Context) (usecase.RepositoryContext, error) {
 }
 
 type cliGitHub struct {
-	runs        []model.Run
-	runBatches  [][]model.Run
-	jobs        []model.Job
-	jobLog      string
-	filters     []usecase.RunFilter
-	listJobs    int
-	fetchJobLog int
-	err         error
+	runs           []model.Run
+	runBatches     [][]model.Run
+	jobs           []model.Job
+	jobLog         string
+	filters        []usecase.RunFilter
+	listJobs       int
+	fetchJobLog    int
+	workflows      []model.Workflow
+	workflowFiles  map[string]string
+	workflowErrors map[string]error
+	err            error
 }
 
 func (g *cliGitHub) ListRuns(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
@@ -802,7 +844,17 @@ func (g *cliGitHub) GetJob(context.Context, string, int64) (model.Job, error) {
 }
 
 func (g *cliGitHub) ListWorkflows(context.Context, string) ([]model.Workflow, error) {
-	return nil, nil
+	return g.workflows, g.err
+}
+
+func (g *cliGitHub) FetchWorkflowFile(_ context.Context, _ string, path string) (string, error) {
+	if g.workflowErrors != nil && g.workflowErrors[path] != nil {
+		return "", g.workflowErrors[path]
+	}
+	if g.workflowFiles != nil {
+		return g.workflowFiles[path], g.err
+	}
+	return "on:\n  workflow_dispatch:\n", g.err
 }
 
 func (g *cliGitHub) ListAnnotations(context.Context, string, model.Job) ([]model.Annotation, error) {

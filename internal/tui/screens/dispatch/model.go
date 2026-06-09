@@ -26,6 +26,7 @@ type Input struct {
 	Name     string
 	Required bool
 	Type     InputType
+	Default  string
 	Options  []string
 }
 
@@ -64,7 +65,15 @@ func NewModel(workflow Workflow) Model {
 	fields := make([]Field, len(workflow.Inputs))
 	for i, input := range workflow.Inputs {
 		fields[i] = Field{Input: input}
-		if len(input.Options) > 0 {
+		if input.Default != "" {
+			fields[i].Value = input.Default
+			for index, option := range input.Options {
+				if option == input.Default {
+					fields[i].Index = index
+					break
+				}
+			}
+		} else if len(input.Options) > 0 {
 			fields[i].Value = input.Options[0]
 		}
 	}
