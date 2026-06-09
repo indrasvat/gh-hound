@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"path"
@@ -25,17 +26,37 @@ type Client struct {
 	http    *http.Client
 	cache   *Cache
 	queue   *Queue
+	trace   traceOptions
 }
 
 func NewClient(baseURL string, httpClient *http.Client) *Client {
+	return NewClientWithOptions(baseURL, httpClient, ClientOptions{})
+}
+
+type ClientOptions struct {
+	TraceHTTP bool
+	Logger    *slog.Logger
+}
+
+type traceOptions struct {
+	enabled bool
+	logger  *slog.Logger
+}
+
+func NewClientWithOptions(baseURL string, httpClient *http.Client, options ClientOptions) *Client {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
+	}
+	logger := options.Logger
+	if logger == nil {
+		logger = slog.Default()
 	}
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		http:    httpClient,
 		cache:   NewCache(),
 		queue:   NewQueue(),
+		trace:   traceOptions{enabled: options.TraceHTTP, logger: logger},
 	}
 }
 
@@ -160,6 +181,7 @@ func (c *Client) ListAnnotations(ctx context.Context, repo string, job model.Job
 func (c *Client) getRaw(ctx context.Context, resource string, query url.Values) ([]byte, error) {
 	var body []byte
 	err := c.queue.Do(ctx, func(ctx context.Context) error {
+		start := time.Now()
 		reqURL := c.baseURL + resource
 		if len(query) > 0 {
 			reqURL += "?" + query.Encode()
@@ -172,11 +194,13 @@ func (c *Client) getRaw(ctx context.Context, resource string, query url.Values) 
 		req.Header.Set("X-GitHub-Api-Version", APIVersion)
 		resp, err := c.http.Do(req)
 		if err != nil {
+			c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: resource, Duration: time.Since(start), Err: err.Error()})
 			return usecase.APIError{Kind: usecase.APIErrorNetwork, Method: req.Method, Resource: resource, Message: err.Error()}
 		}
 		defer func() {
 			_ = resp.Body.Close()
 		}()
+		c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: resource, Status: resp.StatusCode, Duration: time.Since(start), RateRemaining: resp.Header.Get("X-RateLimit-Remaining")})
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			limited, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 			return mapReadHTTPError(req.Method, resource, resp.StatusCode, resp.Header, bytes.TrimSpace(limited))
@@ -193,6 +217,7 @@ func (c *Client) getRaw(ctx context.Context, resource string, query url.Values) 
 func (c *Client) getJSON(ctx context.Context, resource string, query url.Values, out any) error {
 	var body []byte
 	err := c.queue.Do(ctx, func(ctx context.Context) error {
+		start := time.Now()
 		reqURL := c.baseURL + resource
 		if len(query) > 0 {
 			reqURL += "?" + query.Encode()
@@ -203,17 +228,21 @@ func (c *Client) getJSON(ctx context.Context, resource string, query url.Values,
 		}
 		req.Header.Set("Accept", "application/vnd.github+json")
 		req.Header.Set("X-GitHub-Api-Version", APIVersion)
+		ifNoneMatch := ""
 		if etag, ok := c.cache.ETag(reqURL); ok {
 			req.Header.Set("If-None-Match", etag)
+			ifNoneMatch = etag
 		}
 		resp, err := c.http.Do(req)
 		if err != nil {
+			c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: resource, Duration: time.Since(start), IfNoneMatch: ifNoneMatch, Err: err.Error()})
 			return usecase.APIError{Kind: usecase.APIErrorNetwork, Method: req.Method, Resource: resource, Message: err.Error()}
 		}
 		defer func() {
 			_ = resp.Body.Close()
 		}()
 		if resp.StatusCode == http.StatusNotModified {
+			c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: resource, Status: resp.StatusCode, Duration: time.Since(start), IfNoneMatch: ifNoneMatch, RateRemaining: resp.Header.Get("X-RateLimit-Remaining"), Cache: "hit"})
 			cached, ok := c.cache.Body(reqURL)
 			if !ok {
 				return fmt.Errorf("not modified without cached body for %s", reqURL)
@@ -222,6 +251,7 @@ func (c *Client) getJSON(ctx context.Context, resource string, query url.Values,
 			return nil
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: resource, Status: resp.StatusCode, Duration: time.Since(start), IfNoneMatch: ifNoneMatch, RateRemaining: resp.Header.Get("X-RateLimit-Remaining"), Cache: "miss"})
 			limited, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 			return mapReadHTTPError(req.Method, resource, resp.StatusCode, resp.Header, bytes.TrimSpace(limited))
 		}
@@ -229,7 +259,9 @@ func (c *Client) getJSON(ctx context.Context, resource string, query url.Values,
 		if err != nil {
 			return err
 		}
-		if etag := resp.Header.Get("ETag"); etag != "" {
+		etag := resp.Header.Get("ETag")
+		c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: resource, Status: resp.StatusCode, Duration: time.Since(start), IfNoneMatch: ifNoneMatch, ETag: etag, RateRemaining: resp.Header.Get("X-RateLimit-Remaining"), Cache: "miss"})
+		if etag != "" {
 			c.cache.Store(reqURL, etag, body)
 		}
 		return nil
@@ -241,6 +273,48 @@ func (c *Client) getJSON(ctx context.Context, resource string, query url.Values,
 		return fmt.Errorf("decode github response %s: %w", resource, err)
 	}
 	return nil
+}
+
+type traceRecord struct {
+	Method        string
+	Resource      string
+	Status        int
+	Duration      time.Duration
+	ETag          string
+	IfNoneMatch   string
+	RateRemaining string
+	Cache         string
+	Err           string
+}
+
+func (c *Client) traceHTTP(ctx context.Context, record traceRecord) {
+	if !c.trace.enabled || c.trace.logger == nil {
+		return
+	}
+	attrs := []slog.Attr{
+		slog.String("method", record.Method),
+		slog.String("resource", record.Resource),
+		slog.Int64("duration_ms", record.Duration.Milliseconds()),
+	}
+	if record.Status != 0 {
+		attrs = append(attrs, slog.Int("status", record.Status))
+	}
+	if record.ETag != "" {
+		attrs = append(attrs, slog.String("etag", record.ETag))
+	}
+	if record.IfNoneMatch != "" {
+		attrs = append(attrs, slog.String("if_none_match", record.IfNoneMatch))
+	}
+	if record.RateRemaining != "" {
+		attrs = append(attrs, slog.String("rate_remaining", record.RateRemaining))
+	}
+	if record.Cache != "" {
+		attrs = append(attrs, slog.String("cache", record.Cache))
+	}
+	if record.Err != "" {
+		attrs = append(attrs, slog.String("error", record.Err))
+	}
+	c.trace.logger.LogAttrs(ctx, slog.LevelDebug, "github_http", attrs...)
 }
 
 func mapReadHTTPError(method, resource string, status int, header http.Header, payload []byte) error {

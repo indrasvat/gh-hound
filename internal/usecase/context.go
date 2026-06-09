@@ -141,7 +141,7 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 		result.Notice = "detached HEAD — showing all branches"
 	}
 
-	filter := RunFilter{Repo: result.Repo, PerPage: perPage}
+	filter := RunFilter{Repo: result.Repo, PerPage: perPage, Page: result.Page}
 	if result.Scope == LaunchScopeBranch {
 		filter.Branch = result.Branch
 	}
@@ -158,7 +158,7 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 	if len(runs) == 0 && result.Scope == LaunchScopeBranch {
 		result.Scope = LaunchScopeRepo
 		result.Notice = fmt.Sprintf("no runs on %s — showing all branches", result.Branch)
-		runs, err = s.GitHub.ListRuns(ctx, RunFilter{Repo: result.Repo, PerPage: perPage})
+		runs, err = s.GitHub.ListRuns(ctx, RunFilter{Repo: result.Repo, PerPage: perPage, Page: result.Page})
 		if err != nil {
 			result.State = LaunchStateError
 			result.ErrorMessage = launchErrorMessage(err)
@@ -220,7 +220,7 @@ func launchErrorMessage(err error) string {
 }
 
 func (s LaunchService) sniffRepoRuns(ctx context.Context, repo string, perPage int) []model.Run {
-	runs, err := s.GitHub.ListRuns(ctx, RunFilter{Repo: repo, PerPage: perPage})
+	runs, err := s.GitHub.ListRuns(ctx, RunFilter{Repo: repo, PerPage: perPage, Page: 1})
 	if err != nil {
 		return nil
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/adapter/github"
 	"github.com/indrasvat/gh-hound/internal/adapter/repository"
 	"github.com/indrasvat/gh-hound/internal/config"
+	"github.com/indrasvat/gh-hound/internal/logging"
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/render"
@@ -255,7 +256,14 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 		Commit:  info.Commit,
 		Date:    info.Date,
 	}
-	app, err := defaultTUIApp(ctx, runtime, build, options)
+	preparedRuntime, closeTrace, err := runtimeWithGitHubClient(runtime, options)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = closeTrace()
+	}()
+	app, err := defaultTUIApp(ctx, preparedRuntime, build, options)
 	if err != nil {
 		return err
 	}
@@ -729,6 +737,24 @@ func githubClientForRuntime(runtime commandRuntime) usecase.GitHub {
 	return github.NewClient("https://api.github.com", authenticatedHTTPClient(runtime.Env, ghTokenLookup(runtime)))
 }
 
+func runtimeWithGitHubClient(runtime commandRuntime, options cliOptions) (commandRuntime, func() error, error) {
+	if runtime.GitHub != nil {
+		return runtime, func() error { return nil }, nil
+	}
+	closeTrace := func() error { return nil }
+	var loggerOptions github.ClientOptions
+	if options.TraceHTTP {
+		configured, err := logging.Configure(logging.Options{StateHome: runtime.StateHome, Level: "debug"})
+		if err != nil {
+			return runtime, closeTrace, err
+		}
+		closeTrace = configured.Close
+		loggerOptions = github.ClientOptions{TraceHTTP: true, Logger: configured.Logger}
+	}
+	runtime.GitHub = github.NewClientWithOptions("https://api.github.com", authenticatedHTTPClient(runtime.Env, ghTokenLookup(runtime)), loggerOptions)
+	return runtime, closeTrace, nil
+}
+
 func repoProviderForRuntime(runtime commandRuntime) usecase.RepositoryContextProvider {
 	if runtime.Repo != nil {
 		return runtime.Repo
@@ -872,8 +898,15 @@ func resultForOptions(ctx context.Context, options cliOptions, runtime commandRu
 }
 
 func liveResult(ctx context.Context, options cliOptions, runtime commandRuntime) (render.Result, error) {
-	githubClient := githubClientForRuntime(runtime)
-	repoProvider := repoProviderForRuntime(runtime)
+	preparedRuntime, closeTrace, err := runtimeWithGitHubClient(runtime, options)
+	if err != nil {
+		return render.Result{}, err
+	}
+	defer func() {
+		_ = closeTrace()
+	}()
+	githubClient := githubClientForRuntime(preparedRuntime)
+	repoProvider := repoProviderForRuntime(preparedRuntime)
 
 	repoCtx, err := repoProvider.Current(ctx)
 	if err != nil && options.Repo == "" {

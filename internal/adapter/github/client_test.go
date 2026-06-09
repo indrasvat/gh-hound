@@ -1,8 +1,11 @@
 package github
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -128,6 +131,57 @@ func TestETagCacheReusesBodyOnNotModified(t *testing.T) {
 		if len(runs) != 1 || runs[0].ID != 30433642 {
 			t.Fatalf("cached runs call %d = %#v", i+1, runs)
 		}
+	}
+}
+
+func TestTraceHTTPLogsRequestMetadataWithoutSecrets(t *testing.T) {
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if calls.Load() == 1 {
+			w.Header().Set("ETag", `"runs-v1"`)
+			w.Header().Set("X-RateLimit-Remaining", "4999")
+			writeJSON(w, runsFixture)
+			return
+		}
+		w.Header().Set("X-RateLimit-Remaining", "4998")
+		w.WriteHeader(http.StatusNotModified)
+	}))
+	defer server.Close()
+
+	var log bytes.Buffer
+	client := NewClientWithOptions(server.URL, server.Client(), ClientOptions{
+		TraceHTTP: true,
+		Logger:    slog.New(slog.NewJSONHandler(&log, &slog.HandlerOptions{Level: slog.LevelDebug})),
+	})
+
+	ctx := context.Background()
+	for range 2 {
+		if _, err := client.ListRuns(ctx, usecase.RunFilter{Repo: "indrasvat/gh-hound"}); err != nil {
+			t.Fatalf("ListRuns returned error: %v", err)
+		}
+	}
+
+	lines := strings.Split(strings.TrimSpace(log.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("trace line count = %d, want 2\n%s", len(lines), log.String())
+	}
+	var first map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
+		t.Fatalf("decode trace line: %v\n%s", err, lines[0])
+	}
+	if first["msg"] != "github_http" || first["method"] != "GET" || first["resource"] != "/repos/indrasvat/gh-hound/actions/runs" || first["status"].(float64) != 200 || first["etag"].(string) != `"runs-v1"` || first["rate_remaining"].(string) != "4999" {
+		t.Fatalf("unexpected first trace: %#v", first)
+	}
+	var second map[string]any
+	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {
+		t.Fatalf("decode second trace line: %v\n%s", err, lines[1])
+	}
+	if second["status"].(float64) != http.StatusNotModified || second["cache"].(string) != "hit" || second["if_none_match"].(string) != `"runs-v1"` {
+		t.Fatalf("unexpected second trace: %#v", second)
+	}
+	if strings.Contains(log.String(), "Authorization") || strings.Contains(log.String(), "token") {
+		t.Fatalf("trace leaked credentials:\n%s", log.String())
 	}
 }
 

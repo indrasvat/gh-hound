@@ -38,8 +38,8 @@ func TestLaunchServiceHandlesPRD82Fallbacks(t *testing.T) {
 			wantState:  usecase.LaunchStateAllGreen,
 			wantNotice: "no runs on fix/parser — showing all branches",
 			wantCalls: []usecase.RunFilter{
-				{Repo: "indrasvat/gh-hound", Branch: "fix/parser", PerPage: 30},
-				{Repo: "indrasvat/gh-hound", PerPage: 30},
+				{Repo: "indrasvat/gh-hound", Branch: "fix/parser", PerPage: 30, Page: 1},
+				{Repo: "indrasvat/gh-hound", PerPage: 30, Page: 1},
 			},
 		},
 		{
@@ -183,8 +183,8 @@ func TestLaunchServiceSniffsRepoActivityWhileStayingBranchScoped(t *testing.T) {
 		t.Fatalf("branch/repo runs = %d/%d, want 1/2", len(got.BranchRuns), len(got.RepoRuns))
 	}
 	wantCalls := []usecase.RunFilter{
-		{Repo: "openclaw/openclaw", Branch: "main", PerPage: 30},
-		{Repo: "openclaw/openclaw", PerPage: 30},
+		{Repo: "openclaw/openclaw", Branch: "main", PerPage: 30, Page: 1},
+		{Repo: "openclaw/openclaw", PerPage: 30, Page: 1},
 	}
 	if !slices.EqualFunc(gh.calls, wantCalls, sameFilter) {
 		t.Fatalf("run calls = %#v, want %#v", gh.calls, wantCalls)
@@ -289,5 +289,5 @@ func runningRun(number int, branch string) model.Run {
 }
 
 func sameFilter(a, b usecase.RunFilter) bool {
-	return a.Repo == b.Repo && a.Branch == b.Branch && a.PerPage == b.PerPage
+	return a.Repo == b.Repo && a.Branch == b.Branch && a.PerPage == b.PerPage && a.Page == b.Page
 }

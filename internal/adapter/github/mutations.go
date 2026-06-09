@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
@@ -47,6 +48,7 @@ func (c *Client) DispatchWorkflow(ctx context.Context, repo, workflowID string, 
 
 func (c *Client) postJSON(ctx context.Context, resource string, body any) error {
 	return c.queue.Do(ctx, func(ctx context.Context) error {
+		start := time.Now()
 		var reader io.Reader
 		if body != nil {
 			var encoded bytes.Buffer
@@ -66,11 +68,13 @@ func (c *Client) postJSON(ctx context.Context, resource string, body any) error 
 		}
 		resp, err := c.http.Do(req)
 		if err != nil {
+			c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: resource, Duration: time.Since(start), Err: err.Error()})
 			return usecase.ActionError{Kind: usecase.ActionErrorNetwork, Message: err.Error()}
 		}
 		defer func() {
 			_ = resp.Body.Close()
 		}()
+		c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: resource, Status: resp.StatusCode, Duration: time.Since(start), RateRemaining: resp.Header.Get("X-RateLimit-Remaining")})
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return nil
 		}

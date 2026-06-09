@@ -8,17 +8,18 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 func (c *Client) FetchJobLog(ctx context.Context, repo string, jobID int64) (string, error) {
 	resource := resourcePath(repo, "actions/jobs/"+strconv.FormatInt(jobID, 10)+"/logs")
 	endpoint := c.baseURL + resource
-	body, status, err := c.fetchLogURL(ctx, endpoint)
+	body, status, err := c.fetchLogURL(ctx, endpoint, resource)
 	if err != nil {
 		return "", err
 	}
 	if status == http.StatusNotFound || status == http.StatusGone {
-		body, status, err = c.fetchLogURL(ctx, endpoint)
+		body, status, err = c.fetchLogURL(ctx, endpoint, resource)
 		if err != nil {
 			return "", err
 		}
@@ -29,7 +30,8 @@ func (c *Client) FetchJobLog(ctx context.Context, repo string, jobID int64) (str
 	return string(body), nil
 }
 
-func (c *Client) fetchLogURL(ctx context.Context, rawURL string) ([]byte, int, error) {
+func (c *Client) fetchLogURL(ctx context.Context, rawURL, resource string) ([]byte, int, error) {
+	start := time.Now()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, 0, err
@@ -38,11 +40,13 @@ func (c *Client) fetchLogURL(ctx context.Context, rawURL string) ([]byte, int, e
 	req.Header.Set("X-GitHub-Api-Version", APIVersion)
 	resp, err := noRedirectClient(c.http).Do(req)
 	if err != nil {
+		c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: resource, Duration: time.Since(start), Err: err.Error()})
 		return nil, 0, err
 	}
 	defer func() {
 		_ = resp.Body.Close()
 	}()
+	c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: resource, Status: resp.StatusCode, Duration: time.Since(start), RateRemaining: resp.Header.Get("X-RateLimit-Remaining")})
 	if resp.StatusCode == http.StatusFound || resp.StatusCode == http.StatusTemporaryRedirect {
 		location, err := resp.Location()
 		if err != nil {
@@ -66,17 +70,20 @@ func (c *Client) fetchLogURL(ctx context.Context, rawURL string) ([]byte, int, e
 }
 
 func (c *Client) fetchRedirectedLog(ctx context.Context, rawURL string) ([]byte, int, error) {
+	start := time.Now()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, 0, err
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
+		c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: "github-actions-log-download", Duration: time.Since(start), Err: err.Error()})
 		return nil, 0, err
 	}
 	defer func() {
 		_ = resp.Body.Close()
 	}()
+	c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: "github-actions-log-download", Status: resp.StatusCode, Duration: time.Since(start)})
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
 			return nil, resp.StatusCode, nil
