@@ -163,7 +163,7 @@ func (c *Client) getJSON(ctx context.Context, resource string, query url.Values,
 		}
 		resp, err := c.http.Do(req)
 		if err != nil {
-			return err
+			return usecase.APIError{Kind: usecase.APIErrorNetwork, Method: req.Method, Resource: resource, Message: err.Error()}
 		}
 		defer func() {
 			_ = resp.Body.Close()
@@ -178,7 +178,7 @@ func (c *Client) getJSON(ctx context.Context, resource string, query url.Values,
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			limited, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-			return fmt.Errorf("github api %s %s: %s", req.Method, resource, bytes.TrimSpace(limited))
+			return mapReadHTTPError(req.Method, resource, resp.StatusCode, resp.Header, bytes.TrimSpace(limited))
 		}
 		body, err = io.ReadAll(resp.Body)
 		if err != nil {
@@ -196,6 +196,49 @@ func (c *Client) getJSON(ctx context.Context, resource string, query url.Values,
 		return fmt.Errorf("decode github response %s: %w", resource, err)
 	}
 	return nil
+}
+
+func mapReadHTTPError(method, resource string, status int, header http.Header, payload []byte) error {
+	kind := usecase.APIErrorUnknown
+	switch status {
+	case http.StatusUnauthorized:
+		kind = usecase.APIErrorAuth
+	case http.StatusForbidden:
+		if header.Get("X-RateLimit-Remaining") == "0" {
+			kind = usecase.APIErrorRateLimit
+		} else {
+			kind = usecase.APIErrorPermission
+		}
+	case http.StatusNotFound, http.StatusGone:
+		kind = usecase.APIErrorNotFound
+	case http.StatusTooManyRequests:
+		kind = usecase.APIErrorRateLimit
+	}
+	message := decodeErrorMessage(payload)
+	if message == "" {
+		message = fmt.Sprintf("github api returned status %d", status)
+	}
+	return usecase.APIError{
+		Kind:     kind,
+		Method:   method,
+		Resource: resource,
+		Status:   status,
+		Message:  message,
+	}
+}
+
+func decodeErrorMessage(payload []byte) string {
+	trimmed := strings.TrimSpace(string(payload))
+	if trimmed == "" {
+		return ""
+	}
+	var decoded struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(payload, &decoded); err == nil && strings.TrimSpace(decoded.Message) != "" {
+		return strings.TrimSpace(decoded.Message)
+	}
+	return trimmed
 }
 
 type Cache struct {

@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -70,6 +71,24 @@ func TestClientDecodesReadEndpoints(t *testing.T) {
 	annotations, err := client.ListAnnotations(ctx, "indrasvat/gh-hound", job)
 	if err != nil || len(annotations) != 1 || annotations[0].StartLine != 142 {
 		t.Fatalf("ListAnnotations = %#v, %v", annotations, err)
+	}
+}
+
+func TestReadEndpointErrorsAreTyped(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message":"Resource not accessible by personal access token"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client())
+	_, err := client.ListRuns(context.Background(), usecase.RunFilter{Repo: "openclaw/openclaw"})
+	var apiErr usecase.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("ListRuns err = %T %v, want usecase.APIError", err, err)
+	}
+	if apiErr.Kind != usecase.APIErrorPermission || apiErr.Status != http.StatusForbidden {
+		t.Fatalf("api error = %#v", apiErr)
 	}
 }
 

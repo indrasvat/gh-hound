@@ -833,6 +833,104 @@ func TestRefreshReloadsVisibleRunsWithoutKeypress(t *testing.T) {
 	}
 }
 
+func TestRefreshErrorKeepsCachedRunsAndShowsToast(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{
+			Repo:    "openclaw/openclaw",
+			Branch:  "integration",
+			Scope:   usecase.LaunchScopeBranch,
+			State:   usecase.LaunchStateRuns,
+			PerPage: 30,
+			Runs: []model.Run{{
+				ID:           8100,
+				Name:         "CI",
+				DisplayTitle: "cached branch run",
+				RunNumber:    8100,
+				Status:       model.StatusCompleted,
+				Conclusion:   model.ConclusionSuccess,
+				HeadBranch:   "integration",
+			}},
+			BranchRuns: []model.Run{{
+				ID:           8100,
+				Name:         "CI",
+				DisplayTitle: "cached branch run",
+				RunNumber:    8100,
+				Status:       model.StatusCompleted,
+				Conclusion:   model.ConclusionSuccess,
+				HeadBranch:   "integration",
+			}},
+		},
+		RunsResolver: func(usecase.RunFilter) ([]model.Run, error) {
+			return nil, usecase.APIError{
+				Kind:    usecase.APIErrorPermission,
+				Status:  403,
+				Message: "Resource not accessible by personal access token",
+			}
+		},
+	})
+
+	app, changed := app.Refresh()
+	if !changed {
+		t.Fatal("refresh error should repaint cached rows with toast")
+	}
+	view := ansi.Strip(app.ViewSize(120, 24))
+	for _, want := range []string{"cached branch run", "GitHub access denied", "Resource not accessible by personal access token"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("refresh error view missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "hound · empty") {
+		t.Fatalf("refresh error should not replace cached runs with an empty screen:\n%s", view)
+	}
+}
+
+func TestActionPermissionErrorKeepsCurrentScreenAndShowsToast(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{
+			Repo:   "openclaw/openclaw",
+			Branch: "main",
+			Scope:  usecase.LaunchScopeBranch,
+			State:  usecase.LaunchStateRuns,
+			Runs: []model.Run{{
+				ID:           8200,
+				Name:         "CI",
+				DisplayTitle: "read only run",
+				RunNumber:    8200,
+				Status:       model.StatusCompleted,
+				Conclusion:   model.ConclusionFailure,
+			}},
+		},
+		ActionHandler: func(ActionRequest) (usecase.ActionResult, error) {
+			return usecase.ActionResult{}, usecase.ActionError{
+				Kind:    usecase.ActionErrorPermission,
+				Status:  403,
+				Message: "Must have admin rights to Repository.",
+			}
+		},
+	})
+
+	app = app.executeAction(RouteRuns, ActionRequest{
+		Action: usecase.ActionRerunFailedJobs,
+		Run:    model.Run{ID: 8200, RunNumber: 8200},
+	})
+
+	view := ansi.Strip(app.ViewSize(120, 24))
+	for _, want := range []string{"read only run", "Mutation rejected", "Must have admin rights"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("action permission view missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "hound · empty") {
+		t.Fatalf("action error should not replace current screen:\n%s", view)
+	}
+}
+
 func TestNestedMutationShortcutsRequireConfirmation(t *testing.T) {
 	cfg := config.Default()
 	cfg.Welcome = false

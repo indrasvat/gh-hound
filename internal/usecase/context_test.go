@@ -61,6 +61,16 @@ func TestLaunchServiceHandlesPRD82Fallbacks(t *testing.T) {
 			wantError:  "suggest gh hound -R owner/repo",
 		},
 		{
+			name:       "github access denied is categorized",
+			repository: fakeRepository{context: usecase.RepositoryContext{Repo: "openclaw/openclaw", Branch: "integration"}},
+			github: &launchGitHub{
+				err: usecase.APIError{Kind: usecase.APIErrorPermission, Status: 403, Message: "Resource not accessible by personal access token"},
+			},
+			wantScope: usecase.LaunchScopeBranch,
+			wantState: usecase.LaunchStateError,
+			wantError: "GitHub access denied: Resource not accessible by personal access token",
+		},
+		{
 			name:       "detached head falls back to repo-wide",
 			repository: fakeRepository{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", HeadSHA: "a1b2c3d", Detached: true}},
 			github: &launchGitHub{
@@ -197,10 +207,14 @@ type launchGitHub struct {
 	runsByBranch map[string][]model.Run
 	workflows    []model.Workflow
 	calls        []usecase.RunFilter
+	err          error
 }
 
 func (g *launchGitHub) ListRuns(ctx context.Context, filter usecase.RunFilter) ([]model.Run, error) {
 	g.calls = append(g.calls, filter)
+	if g.err != nil {
+		return nil, g.err
+	}
 	return slices.Clone(g.runsByBranch[filter.Branch]), nil
 }
 

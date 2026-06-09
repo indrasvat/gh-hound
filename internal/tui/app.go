@@ -23,6 +23,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/tui/screens/runs"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/watch"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/welcome"
+	"github.com/indrasvat/gh-hound/internal/tui/toast"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -93,6 +94,7 @@ type App struct {
 	watch            watch.Model
 	dispatch         dispatch.Model
 	confirm          confirm.Model
+	toasts           toast.Model
 	pendingAction    *pendingAction
 	routeErrors      map[Route]string
 	detailResolver   func(model.Run) (detail.Model, error)
@@ -152,6 +154,7 @@ func NewApp(options Options) App {
 		detail:           initialDetail,
 		routeErrors:      routeErrors,
 		watch:            watchModel,
+		toasts:           toast.New(),
 		detailResolver:   options.DetailResolver,
 		runsResolver:     options.RunsResolver,
 		failureResolver:  options.FailureResolver,
@@ -236,6 +239,12 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 		}
 	}
 
+	var toastHandled bool
+	a.toasts, toastHandled = a.toasts.Update(toast.KeyMsg{Key: msg.Key})
+	if toastHandled {
+		return a, true
+	}
+
 	switch msg.Key {
 	case "T":
 		a.toggleTheme()
@@ -280,6 +289,8 @@ func (a App) ViewSize(width, height int) string {
 		if a.TopOverlay() == OverlayConfirm {
 			footer = "y confirm · enter/n/esc cancel"
 		}
+	} else {
+		body = toastLayer(a.theme, body, a.toasts, contentWidth(width))
 	}
 	return frameViewSize(a.theme, title, context, right, body, footer, width, height, true)
 }
@@ -680,7 +691,7 @@ func (a App) reloadRuns(query string) App {
 	}
 	resolved, err := a.runsResolver(filter)
 	if err != nil {
-		a.setRouteError(RouteRuns, "runs filter failed: "+err.Error())
+		a = a.handleRunsError(RouteRuns, "runs-filter", "runs filter failed: "+err.Error(), err)
 		return a
 	}
 	a.runs.Context.Runs = resolved
@@ -718,7 +729,7 @@ func (a App) loadMoreRuns() App {
 	}
 	resolved, err := a.runsResolver(filter)
 	if err != nil {
-		a.setRouteError(RouteRuns, "next page failed: "+err.Error())
+		a = a.handleRunsError(RouteRuns, "runs-page", "next page failed: "+err.Error(), err)
 		return a
 	}
 	a.runs.Context.Page = nextPage
@@ -745,7 +756,7 @@ func (a App) refreshRuns() (App, bool) {
 	}
 	resolved, err := a.runsResolver(filter)
 	if err != nil {
-		a.setRouteError(RouteRuns, "refresh failed: "+err.Error())
+		a = a.handleRunsError(RouteRuns, "runs-refresh", "refresh failed: "+err.Error(), err)
 		a.refreshCount++
 		return a, true
 	}
@@ -1003,8 +1014,10 @@ func (a App) executeAction(route Route, request ActionRequest) App {
 		a.setRouteError(route, "action unavailable: live GitHub mutation handler is not configured")
 		return a
 	}
-	if _, err := a.actionHandler(request); err != nil {
-		a.setRouteError(route, "action failed: "+err.Error())
+	if result, err := a.actionHandler(request); err != nil {
+		a.pushErrorToast("action-failed", usecase.ResilienceFor(err, usecase.ErrorContext{}))
+	} else {
+		a.pushToast("action-ok", usecase.ResilienceForSuccess(result))
 	}
 	return a
 }
@@ -1094,6 +1107,31 @@ func (a *App) setRouteError(route Route, message string) {
 		a.routeErrors = map[Route]string{}
 	}
 	a.routeErrors[route] = message
+}
+
+func (a App) handleRunsError(route Route, id, routeMessage string, err error) App {
+	if !a.hasRuns() {
+		a.setRouteError(route, routeMessage)
+		return a
+	}
+	a.clearRouteError(route)
+	a.pushErrorToast(id, usecase.ResilienceFor(err, usecase.ErrorContext{}))
+	return a
+}
+
+func (a App) hasRuns() bool {
+	return len(a.runs.Context.Runs) > 0 || len(a.runs.Context.BranchRuns) > 0 || len(a.runs.Context.RepoRuns) > 0
+}
+
+func (a *App) pushErrorToast(id string, resilience usecase.Resilience) {
+	a.pushToast(id, resilience)
+}
+
+func (a *App) pushToast(id string, resilience usecase.Resilience) {
+	if a.toasts.Toasts == nil {
+		a.toasts = toast.New()
+	}
+	a.toasts = a.toasts.Push(toast.FromResilience(id, resilience, 8*time.Second))
 }
 
 func runsHandled(key string) bool {
@@ -1462,6 +1500,55 @@ func contentWidth(width int) int {
 	}
 	bodyWidth := max(width-2, 1)
 	return bodyWidth
+}
+
+func toastLayer(th theme.Theme, body string, model toast.Model, width int) string {
+	if len(model.Toasts) == 0 || width <= 0 {
+		return body
+	}
+	bodyLines := splitLines(body)
+	toasts := model.Toasts
+	if len(toasts) > 2 {
+		toasts = toasts[len(toasts)-2:]
+	}
+	for i, item := range toasts {
+		line := toastText(th, item, width)
+		if i >= len(bodyLines) {
+			bodyLines = append(bodyLines, "")
+		}
+		bodyLines[i] = mergeRight(bodyLines[i], line, width)
+	}
+	return strings.Join(bodyLines, "\n")
+}
+
+func toastText(th theme.Theme, item toast.Toast, width int) string {
+	message := strings.TrimSpace(item.Message)
+	value := toast.Glyph(item.Severity) + " " + item.Title
+	if message != "" {
+		value += " · " + message
+	}
+	value = fitPlain(value, width)
+	color := th.Info
+	switch item.Severity {
+	case usecase.SeverityOK:
+		color = th.OK
+	case usecase.SeverityWarn:
+		color = th.Run
+	case usecase.SeverityError:
+		color = th.Fail
+	}
+	return sgrHex(color, false) + value + sgrReset
+}
+
+func mergeRight(left, right string, width int) string {
+	rightWidth := visibleLen(right)
+	if rightWidth >= width {
+		return fitPlain(right, width)
+	}
+	leftWidth := max(width-rightWidth-1, 0)
+	left = fitPlain(left, leftWidth)
+	spacer := max(width-visibleLen(left)-rightWidth, 1)
+	return left + strings.Repeat(" ", spacer) + right
 }
 
 func bodyHeight(frameHeight int) int {

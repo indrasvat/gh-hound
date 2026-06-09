@@ -49,6 +49,14 @@ func TestResilienceForTaxonomyRows(t *testing.T) {
 			wantSev:   SeverityError,
 			wantRetry: "retry",
 		},
+		{
+			name:      "read permission",
+			err:       APIError{Kind: APIErrorPermission, Status: 403, Message: "Resource not accessible by personal access token"},
+			wantClass: ErrorClassAccessDenied,
+			wantTitle: "GitHub access denied",
+			wantSev:   SeverityError,
+			wantRetry: "reauth",
+		},
 	}
 	for _, tt := range tests {
 		got := ResilienceFor(tt.err, ErrorContext{CachedAge: 3 * time.Minute})

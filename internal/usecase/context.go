@@ -148,7 +148,7 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 	runs, err := s.GitHub.ListRuns(ctx, filter)
 	if err != nil {
 		result.State = LaunchStateError
-		result.ErrorMessage = err.Error()
+		result.ErrorMessage = launchErrorMessage(err)
 		return result
 	}
 	if result.Scope == LaunchScopeBranch {
@@ -161,7 +161,7 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 		runs, err = s.GitHub.ListRuns(ctx, RunFilter{Repo: result.Repo, PerPage: perPage})
 		if err != nil {
 			result.State = LaunchStateError
-			result.ErrorMessage = err.Error()
+			result.ErrorMessage = launchErrorMessage(err)
 			return result
 		}
 		result.RepoRuns = runs
@@ -183,7 +183,7 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 		workflows, err := s.GitHub.ListWorkflows(ctx, result.Repo)
 		if err != nil {
 			result.State = LaunchStateError
-			result.ErrorMessage = err.Error()
+			result.ErrorMessage = launchErrorMessage(err)
 			return result
 		}
 		result.Workflows = workflows
@@ -206,6 +206,17 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 	}
 	result.State = LaunchStateRuns
 	return result
+}
+
+func launchErrorMessage(err error) string {
+	resilience := ResilienceFor(err, ErrorContext{})
+	if resilience.Title == "" {
+		return err.Error()
+	}
+	if resilience.Message == "" {
+		return resilience.Title
+	}
+	return resilience.Title + ": " + resilience.Message
 }
 
 func (s LaunchService) sniffRepoRuns(ctx context.Context, repo string, perPage int) []model.Run {
