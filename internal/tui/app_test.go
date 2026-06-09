@@ -833,6 +833,78 @@ func TestRefreshReloadsVisibleRunsWithoutKeypress(t *testing.T) {
 	}
 }
 
+func TestRefreshBacksOffIdleRunsAndResetsWhenRunning(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	cfg.PollMin = time.Second
+	cfg.PollMax = 8 * time.Second
+	responses := [][]model.Run{
+		{{
+			ID:         9001,
+			Name:       "CI",
+			RunNumber:  44,
+			Status:     model.StatusCompleted,
+			Conclusion: model.ConclusionSuccess,
+			HeadBranch: "main",
+		}},
+		{{
+			ID:         9001,
+			Name:       "CI",
+			RunNumber:  44,
+			Status:     model.StatusCompleted,
+			Conclusion: model.ConclusionSuccess,
+			HeadBranch: "main",
+		}},
+		{{
+			ID:         9002,
+			Name:       "CI",
+			RunNumber:  45,
+			Status:     model.StatusInProgress,
+			Conclusion: model.ConclusionNone,
+			HeadBranch: "main",
+		}},
+	}
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{
+			Repo:    "openclaw/openclaw",
+			Branch:  "main",
+			Scope:   usecase.LaunchScopeBranch,
+			State:   usecase.LaunchStateRuns,
+			PerPage: 30,
+			Runs: []model.Run{{
+				ID:         9001,
+				Name:       "CI",
+				RunNumber:  44,
+				Status:     model.StatusCompleted,
+				Conclusion: model.ConclusionSuccess,
+				HeadBranch: "main",
+			}},
+		},
+		RunsResolver: func(usecase.RunFilter) ([]model.Run, error) {
+			next := responses[0]
+			responses = responses[1:]
+			return next, nil
+		},
+	})
+
+	if got := app.PollInterval(); got != time.Second {
+		t.Fatalf("initial poll interval = %s, want 1s", got)
+	}
+	app, _ = app.Refresh()
+	if got := app.PollInterval(); got != 2*time.Second {
+		t.Fatalf("first idle poll interval = %s, want 2s", got)
+	}
+	app, _ = app.Refresh()
+	if got := app.PollInterval(); got != 4*time.Second {
+		t.Fatalf("second idle poll interval = %s, want 4s", got)
+	}
+	app, _ = app.Refresh()
+	if got := app.PollInterval(); got != time.Second {
+		t.Fatalf("running poll interval = %s, want reset to 1s", got)
+	}
+}
+
 func TestRefreshErrorKeepsCachedRunsAndShowsToast(t *testing.T) {
 	cfg := config.Default()
 	cfg.Welcome = false

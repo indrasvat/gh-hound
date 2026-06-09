@@ -88,6 +88,7 @@ type App struct {
 	quit             bool
 	welcomeDismissed bool
 	refreshCount     int
+	pollInterval     time.Duration
 	launchRoute      Route
 	runs             runs.Model
 	detail           detail.Model
@@ -153,6 +154,7 @@ func NewApp(options Options) App {
 		build:            options.Build,
 		theme:            theme.ForMode(theme.Mode(cfg.Theme)),
 		routes:           []Route{route},
+		pollInterval:     initialPollInterval(cfg),
 		launchRoute:      launchRoute,
 		runs:             runsModel,
 		detail:           initialDetail,
@@ -445,10 +447,10 @@ func (a App) ShouldQuit() bool {
 }
 
 func (a App) PollInterval() time.Duration {
-	if a.config.PollMin > 0 {
-		return a.config.PollMin
+	if a.pollInterval > 0 {
+		return a.pollInterval
 	}
-	return config.Default().PollMin
+	return initialPollInterval(a.config)
 }
 
 func (a App) Refresh() (App, bool) {
@@ -781,6 +783,7 @@ func (a App) refreshRuns() (App, bool) {
 	resolved, err := a.runsResolver(filter)
 	if err != nil {
 		a = a.handleRunsError(RouteRuns, "runs-refresh", "refresh failed: "+err.Error(), err)
+		a.pollInterval = nextPollIntervalForRuns(nil, a.pollInterval, a.config)
 		a.refreshCount++
 		return a, true
 	}
@@ -799,6 +802,7 @@ func (a App) refreshRuns() (App, bool) {
 	a.runs.Context.PerPage = perPage
 	a.runs.Context.HasMore = len(resolved) >= perPage || a.runs.Context.HasMore
 	a.runs.Selected = indexOfRun(a.runs.Context.Runs, selectedID)
+	a.pollInterval = nextPollIntervalForRuns(resolved, a.pollInterval, a.config)
 	return a, true
 }
 
@@ -815,7 +819,40 @@ func (a App) refreshWatch() (App, bool) {
 	a.clearRouteError(RouteWatch)
 	a.refreshCount++
 	a.watch = resolved
+	a.pollInterval = nextPollIntervalForRuns([]model.Run{resolved.State.Run}, a.pollInterval, a.config)
 	return a, true
+}
+
+func initialPollInterval(cfg config.Config) time.Duration {
+	if cfg.PollMin > 0 {
+		return cfg.PollMin
+	}
+	return config.Default().PollMin
+}
+
+func maxPollInterval(cfg config.Config) time.Duration {
+	if cfg.PollMax > 0 {
+		return cfg.PollMax
+	}
+	return config.Default().PollMax
+}
+
+func nextPollIntervalForRuns(runs []model.Run, previous time.Duration, cfg config.Config) time.Duration {
+	minPoll := initialPollInterval(cfg)
+	maxPoll := max(maxPollInterval(cfg), minPoll)
+	for _, run := range runs {
+		if run.Status == model.StatusInProgress || run.Status == model.StatusQueued || run.Status == model.StatusPending || run.Status == model.StatusRequested || run.Status == model.StatusWaiting {
+			return minPoll
+		}
+	}
+	if previous < minPoll {
+		previous = minPoll
+	}
+	next := previous * 2
+	if next > maxPoll {
+		return maxPoll
+	}
+	return next
 }
 
 func indexOfRun(runs []model.Run, id int64) int {

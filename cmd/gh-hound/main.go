@@ -314,6 +314,7 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 			var handled bool
 			app, handled = app.Update(tui.KeyMsg{Key: event.key})
 			if handled {
+				ticker.Reset(app.PollInterval())
 				if err := render(); err != nil {
 					return err
 				}
@@ -321,6 +322,7 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 		case <-ticker.C:
 			var changed bool
 			app, changed = app.Refresh()
+			ticker.Reset(app.PollInterval())
 			if changed {
 				if err := render(); err != nil {
 					return err
