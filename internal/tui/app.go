@@ -808,9 +808,9 @@ func (a App) chromeParts() (string, string, string) {
 		return "hound", "full log", logRight(a.log)
 	case RouteWatch:
 		run := a.watch.State.Run
-		return "hound", fmt.Sprintf("%s #%d", firstNonEmpty(run.Name, "workflow"), run.RunNumber), "streaming · follow ●"
+		return "hound", runChromeTitle(run), "streaming · follow ●"
 	case RouteDispatch:
-		return "hound", "workflow_dispatch", firstNonEmpty(a.dispatch.Workflow.Name, "workflow")
+		return "hound", "workflow_dispatch", firstNonEmpty(a.dispatch.Workflow.Name, a.dispatch.Workflow.ID)
 	default:
 		if a.runs.AllGreen() {
 			return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), runsRight(a.runs)
@@ -824,17 +824,30 @@ func hasLaunchContext(ctx usecase.LaunchContext) bool {
 }
 
 func branchContext(scope usecase.LaunchScope, branch, actor string) string {
-	if branch == "" {
-		branch = "all branches"
+	label := "repo all branches"
+	if scope == usecase.LaunchScopeBranch && strings.TrimSpace(branch) != "" {
+		label = "branch " + strings.TrimSpace(branch)
 	}
-	if actor == "" {
-		actor = "unknown"
+	if strings.TrimSpace(actor) == "" {
+		return "⌥ " + label
 	}
-	label := "branch " + branch
-	if scope == usecase.LaunchScopeRepo {
-		label = "repo all branches"
+	return "⌥ " + label + " · @" + strings.TrimSpace(actor)
+}
+
+func runChromeTitle(run model.Run) string {
+	name := firstNonEmpty(run.Name, run.DisplayTitle, run.Path)
+	switch {
+	case name != "" && run.RunNumber > 0:
+		return fmt.Sprintf("%s #%d", name, run.RunNumber)
+	case name != "":
+		return name
+	case run.RunNumber > 0:
+		return fmt.Sprintf("#%d", run.RunNumber)
+	case run.ID > 0:
+		return fmt.Sprintf("run %d", run.ID)
+	default:
+		return ""
 	}
-	return "⌥ " + label + " · @" + actor
 }
 
 func runsRight(m runs.Model) string {
@@ -862,18 +875,23 @@ func failureRight(m failure.Model) string {
 	if m.TotalLines > 0 {
 		return fmt.Sprintf("%d log lines", m.TotalLines)
 	}
-	return "failure"
+	return ""
 }
 
 func detailContext(run model.Run) string {
-	name := firstNonEmpty(run.Name, run.DisplayTitle, run.Path, "workflow")
-	branch := firstNonEmpty(run.HeadBranch, "branch")
-	return fmt.Sprintf("%s #%d › %s", name, run.RunNumber, branch)
+	title := runChromeTitle(run)
+	if strings.TrimSpace(run.HeadBranch) == "" {
+		return title
+	}
+	if title == "" {
+		return strings.TrimSpace(run.HeadBranch)
+	}
+	return title + " › " + strings.TrimSpace(run.HeadBranch)
 }
 
 func shortSHA(sha string) string {
 	if sha == "" {
-		return "sha"
+		return ""
 	}
 	if len(sha) > 7 {
 		return sha[:7]

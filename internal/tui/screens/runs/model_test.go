@@ -111,6 +111,26 @@ func TestSummaryCountsQueuedWaitingPendingAndRequestedAsRunning(t *testing.T) {
 	}
 }
 
+func TestViewUsesRealRunIdentifiersWhenWorkflowNameIsMissing(t *testing.T) {
+	m := NewModel(usecase.LaunchContext{
+		Repo:  "openclaw/openclaw",
+		State: usecase.LaunchStateRuns,
+		Runs: []model.Run{{
+			ID:         9001,
+			RunNumber:  44,
+			Status:     model.StatusCompleted,
+			Conclusion: model.ConclusionSuccess,
+		}},
+	})
+	view := ansi.Strip(ViewSize(m, 100, 12, time.Date(2026, 6, 8, 21, 42, 0, 0, time.UTC)))
+	if strings.Contains(view, "workflow") || strings.Contains(view, "unknown") {
+		t.Fatalf("runs view invented fallback metadata:\n%s", view)
+	}
+	if !strings.Contains(view, "#44") {
+		t.Fatalf("runs view did not render real run number:\n%s", view)
+	}
+}
+
 func TestViewMatchesRunsAndAllGreenMocks(t *testing.T) {
 	m := NewModel(usecase.LaunchContext{
 		Repo:   "indrasvat/gh-hound",

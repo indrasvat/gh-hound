@@ -77,6 +77,26 @@ func TestViewMatchesMockErrorWindowChromeAndColors(t *testing.T) {
 	}
 }
 
+func TestViewDoesNotInventMissingStepOrExitCode(t *testing.T) {
+	report := usecase.FailureReport{
+		Job: model.Job{
+			ID:         7001,
+			Status:     model.StatusCompleted,
+			Conclusion: model.ConclusionFailure,
+		},
+		Log: logs.Parse("build failed without a parsed exit code"),
+	}
+	view := ansi.Strip(View(NewModel("openclaw/openclaw", 99, report), 100))
+	for _, banned := range []string{"unknown", "step 0", "exit 1"} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("failure view invented fallback %q\n%s", banned, view)
+		}
+	}
+	if !strings.Contains(view, "job 7001") || !strings.Contains(view, "failed step unavailable") {
+		t.Fatalf("failure view did not surface real/missing state clearly:\n%s", view)
+	}
+}
+
 func assertWidth(t *testing.T, view string, width int) {
 	t.Helper()
 	for line := range strings.SplitSeq(view, "\n") {

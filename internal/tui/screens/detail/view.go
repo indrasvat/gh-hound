@@ -49,6 +49,9 @@ func renderJobsPane(m Model, width int) []string {
 		paneHeader("Jobs", "", width, m.Focus == FocusJobs),
 		divider(width),
 	}
+	if len(m.Jobs) == 0 {
+		return append(lines, fitANSI(colorize(sgrDim, "No jobs returned by GitHub"), width))
+	}
 	for i, job := range m.Jobs {
 		lines = append(lines, jobRow(job, i == m.SelectedJob, width))
 	}
@@ -57,6 +60,13 @@ func renderJobsPane(m Model, width int) []string {
 
 func renderStepsPane(m Model, width int) []string {
 	job := m.selectedJob()
+	if len(m.Jobs) == 0 {
+		return []string{
+			paneHeader("Steps", "", width, m.Focus == FocusSteps),
+			divider(width),
+			fitANSI(colorize(sgrDim, "Select a job after GitHub returns job data"), width),
+		}
+	}
 	header := stepHeader(job)
 	lines := []string{
 		paneHeader(header, duration(job.StartedAt, job.CompletedAt), width, m.Focus == FocusSteps),
@@ -86,16 +96,23 @@ func paneHeader(left, right string, width int, focused bool) string {
 }
 
 func stepHeader(job model.Job) string {
-	name := first(job.Name, "job")
+	name := jobTitle(job)
 	status := first(string(job.Conclusion), string(job.Status))
-	return colorize(sgrFGSoft, name) + " " + pill(status, job.Conclusion) + " " + chip(firstLabel(job))
+	parts := []string{}
+	if name != "" {
+		parts = append(parts, colorize(sgrFGSoft, name))
+	}
+	if status != "" {
+		parts = append(parts, pill(status, job.Conclusion))
+	}
+	if label := firstLabel(job); label != "" {
+		parts = append(parts, chip(label))
+	}
+	return strings.Join(parts, " ")
 }
 
 func pill(label string, conclusion model.Conclusion) string {
 	color := statusSGR(model.StatusCompleted, conclusion)
-	if label == "" {
-		label = "status"
-	}
 	return colorize(color, "["+label+"]")
 }
 
@@ -109,7 +126,7 @@ func jobRow(job model.Job, selected bool, width int) string {
 		bar = colorize(sgrOK, icons.Cursor)
 	}
 	leftWidth := max(width-12, 1)
-	left := fitANSI(bar+" "+colorize(statusSGR(job.Status, job.Conclusion), jobGlyph(job))+" "+colorize(sgrFGSoft, job.Name), leftWidth)
+	left := fitANSI(bar+" "+colorize(statusSGR(job.Status, job.Conclusion), jobGlyph(job))+" "+colorize(sgrFGSoft, jobTitle(job)), leftWidth)
 	right := colorize(sgrDim, duration(job.StartedAt, job.CompletedAt))
 	row := joinRightANSI(left, right, width)
 	if selected {
@@ -154,11 +171,58 @@ func divider(width int) string {
 }
 
 func breadcrumb(m Model) string {
-	sha := m.Run.HeadSHA
-	if len(sha) > 7 {
-		sha = sha[:7]
+	parts := []string{}
+	if repo := strings.TrimSpace(m.Repo); repo != "" {
+		parts = append(parts, repo)
 	}
-	return fmt.Sprintf("%s %s %s #%d %s %s · @%s", first(m.Repo, "repository"), icons.Breadcrumb, m.Run.Name, m.Run.RunNumber, icons.Breadcrumb, first(m.Run.HeadBranch, "branch"), first(sha, "sha"))
+	if title := runTitle(m.Run); title != "" {
+		parts = append(parts, title)
+	}
+	if branch := strings.TrimSpace(m.Run.HeadBranch); branch != "" {
+		parts = append(parts, branch)
+	}
+	line := strings.Join(parts, " "+icons.Breadcrumb+" ")
+	if sha := shortSHA(m.Run.HeadSHA); sha != "" {
+		if line != "" {
+			line += " · "
+		}
+		line += "@" + sha
+	}
+	return line
+}
+
+func runTitle(run model.Run) string {
+	name := first(strings.TrimSpace(run.Name), strings.TrimSpace(run.DisplayTitle), strings.TrimSpace(run.Path))
+	switch {
+	case name != "" && run.RunNumber > 0:
+		return fmt.Sprintf("%s #%d", name, run.RunNumber)
+	case name != "":
+		return name
+	case run.RunNumber > 0:
+		return fmt.Sprintf("#%d", run.RunNumber)
+	case run.ID > 0:
+		return fmt.Sprintf("run %d", run.ID)
+	default:
+		return ""
+	}
+}
+
+func jobTitle(job model.Job) string {
+	if name := strings.TrimSpace(job.Name); name != "" {
+		return name
+	}
+	if job.ID > 0 {
+		return fmt.Sprintf("job %d", job.ID)
+	}
+	return ""
+}
+
+func shortSHA(sha string) string {
+	sha = strings.TrimSpace(sha)
+	if len(sha) > 7 {
+		return sha[:7]
+	}
+	return sha
 }
 
 func jobGlyph(job model.Job) string {
@@ -230,7 +294,7 @@ func durationSGR(step model.Step) string {
 
 func firstLabel(job model.Job) string {
 	if len(job.Labels) == 0 {
-		return "runner"
+		return ""
 	}
 	return job.Labels[0]
 }

@@ -66,7 +66,7 @@ func renderAllGreen(m Model, width, height int, now time.Time) string {
 	latestMeta := ""
 	if len(runs) > 0 {
 		run := runs[0]
-		latestTitle = fmt.Sprintf("%s #%d", run.Name, run.RunNumber)
+		latestTitle = plainRunTitle(run)
 		latestMeta = fmt.Sprintf("%s · success", duration(run))
 	}
 	branch := scopeTitle(m.Context.Scope, m.Context.Branch)
@@ -170,7 +170,7 @@ func runsHeader(width int) string {
 }
 
 func runLabel(run model.Run, width int) string {
-	name := first(strings.TrimSpace(run.Name), strings.TrimSpace(run.Path), "workflow")
+	name := runName(run)
 	detail := runDetail(run)
 	if detail == "" {
 		return colorize(sgrFGSoft, truncate(name, width))
@@ -182,6 +182,21 @@ func runLabel(run model.Run, width int) string {
 	detailWidth := max(width-nameWidth-3, 1)
 	return colorize(sgrFGSoft, truncate(name, nameWidth)) +
 		colorize(sgrSubtle, " · "+truncate(detail, detailWidth))
+}
+
+func runName(run model.Run) string {
+	name := first(strings.TrimSpace(run.Name), strings.TrimSpace(run.Path), strings.TrimSpace(run.DisplayTitle))
+	if name != "" {
+		return name
+	}
+	switch {
+	case run.RunNumber > 0:
+		return fmt.Sprintf("#%d", run.RunNumber)
+	case run.ID > 0:
+		return fmt.Sprintf("run %d", run.ID)
+	default:
+		return ""
+	}
 }
 
 func runDetail(run model.Run) string {
@@ -316,10 +331,26 @@ func allGreenRow(run model.Run, selected bool, width int, now time.Time) string 
 }
 
 func scopeTitle(scope usecase.LaunchScope, branch string) string {
-	if scope == usecase.LaunchScopeRepo {
+	if scope == usecase.LaunchScopeRepo || strings.TrimSpace(branch) == "" {
 		return "repo all branches"
 	}
-	return "branch " + first(branch, "all branches")
+	return "branch " + strings.TrimSpace(branch)
+}
+
+func plainRunTitle(run model.Run) string {
+	name := first(strings.TrimSpace(run.Name), strings.TrimSpace(run.Path), strings.TrimSpace(run.DisplayTitle))
+	switch {
+	case name != "" && run.RunNumber > 0:
+		return fmt.Sprintf("%s #%d", name, run.RunNumber)
+	case name != "":
+		return name
+	case run.RunNumber > 0:
+		return fmt.Sprintf("#%d", run.RunNumber)
+	case run.ID > 0:
+		return fmt.Sprintf("run %d", run.ID)
+	default:
+		return ""
+	}
 }
 
 func visibleNotice(m Model) string {

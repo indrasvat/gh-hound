@@ -244,6 +244,9 @@ func printVersion(w io.Writer, info buildInfo) error {
 }
 
 func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options cliOptions) error {
+	if options.Fake != "" {
+		return fmt.Errorf("--fake-scenario is not available for the interactive TUI; use --no-tui for fixture output")
+	}
 	build := tui.BuildInfo{
 		Version: info.Version,
 		Commit:  info.Commit,
@@ -252,9 +255,6 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 	cfg, err := defaultTUIApp(ctx, runtime, build, options)
 	if err != nil {
 		return err
-	}
-	if options.Fake != "" {
-		cfg = tui.NewScenarioApp(options.Fake, build)
 	}
 	width, height := terminalSize(runtime.Stdout)
 	restore, err := rawInput(runtime.Stdin, runtime.IsTTY)
@@ -429,13 +429,18 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			if err != nil {
 				return dispatch.Model{}, err
 			}
+			workflowName := workflowDisplayName(workflow)
+			workflowID := workflowIdentifier(workflow)
+			if workflowName == "" || workflowID == "" {
+				return dispatch.Model{}, fmt.Errorf("workflow metadata is incomplete")
+			}
 			ref, err := dispatchRef(launch)
 			if err != nil {
 				return dispatch.Model{}, err
 			}
 			return dispatch.NewModel(dispatch.Workflow{
-				Name: firstNonEmptyString(workflow.Name, workflow.Path, "workflow"),
-				ID:   workflowIdentifier(workflow),
+				Name: workflowName,
+				ID:   workflowID,
 				Ref:  ref,
 			}), nil
 		},
@@ -504,7 +509,20 @@ func workflowIdentifier(workflow model.Workflow) string {
 	if workflow.ID != 0 {
 		return strconv.FormatInt(workflow.ID, 10)
 	}
-	return workflow.Name
+	return ""
+}
+
+func workflowDisplayName(workflow model.Workflow) string {
+	if strings.TrimSpace(workflow.Name) != "" {
+		return strings.TrimSpace(workflow.Name)
+	}
+	if strings.TrimSpace(workflow.Path) != "" {
+		return strings.TrimSpace(workflow.Path)
+	}
+	if workflow.ID != 0 {
+		return strconv.FormatInt(workflow.ID, 10)
+	}
+	return ""
 }
 
 func dispatchRef(launch usecase.LaunchContext) (string, error) {

@@ -54,6 +54,29 @@ func TestDispatchRefRequiresLaunchBranch(t *testing.T) {
 	}
 }
 
+func TestWorkflowDispatchMetadataUsesGitHubPathOrID(t *testing.T) {
+	pathWorkflow := model.Workflow{Name: "Release", Path: ".github/workflows/release.yml"}
+	if got := workflowDisplayName(pathWorkflow); got != "Release" {
+		t.Fatalf("workflowDisplayName(path) = %q", got)
+	}
+	if got := workflowIdentifier(pathWorkflow); got != ".github/workflows/release.yml" {
+		t.Fatalf("workflowIdentifier(path) = %q", got)
+	}
+
+	idWorkflow := model.Workflow{ID: 123456}
+	if got := workflowDisplayName(idWorkflow); got != "123456" {
+		t.Fatalf("workflowDisplayName(id) = %q", got)
+	}
+	if got := workflowIdentifier(idWorkflow); got != "123456" {
+		t.Fatalf("workflowIdentifier(id) = %q", got)
+	}
+
+	nameOnly := model.Workflow{Name: "Release"}
+	if got := workflowIdentifier(nameOnly); got != "" {
+		t.Fatalf("workflowIdentifier(name only) = %q, want empty so dispatch fails instead of guessing", got)
+	}
+}
+
 func TestRunsNoTUIJSONUsesEnvOverrides(t *testing.T) {
 	var out bytes.Buffer
 	cmd := newRootCommandWithRuntime(commandRuntime{
@@ -69,7 +92,7 @@ func TestRunsNoTUIJSONUsesEnvOverrides(t *testing.T) {
 		}),
 		IsTTY: true,
 	}, testBuildInfo())
-	cmd.SetArgs([]string{"runs"})
+	cmd.SetArgs([]string{})
 
 	code, err := executeCommand(cmd)
 	if err == nil {
@@ -237,6 +260,31 @@ func TestKeyDecoderDoesNotDropBatchedInput(t *testing.T) {
 		if got != want {
 			t.Fatalf("Next = %q, want %q", got, want)
 		}
+	}
+}
+
+func TestInteractiveTUIRejectsFakeScenario(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: &bytes.Buffer{},
+		Env: mapEnv(map[string]string{
+			"HOUND_FAKE_SCENARIO": "failure",
+		}),
+		IsTTY: true,
+		Repo:  &cliRepo{context: usecase.RepositoryContext{Repo: "openclaw/openclaw", Branch: "main"}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{})
+
+	code, err := executeCommand(cmd)
+	if err == nil {
+		t.Fatal("interactive TUI accepted --fake-scenario")
+	}
+	if code == 0 {
+		t.Fatalf("interactive fake exit = %d, want non-zero", code)
+	}
+	if !strings.Contains(err.Error(), "--fake-scenario is not available for the interactive TUI") {
+		t.Fatalf("interactive fake error = %v", err)
 	}
 }
 

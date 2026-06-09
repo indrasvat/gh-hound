@@ -128,6 +128,47 @@ func TestProductionDeepRoutesDoNotRenderUnloadedSamples(t *testing.T) {
 	}
 }
 
+func TestProductionChromeDoesNotInventMissingGitHubMetadata(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{
+			Repo:  "openclaw/openclaw",
+			State: usecase.LaunchStateRuns,
+			Runs: []model.Run{{
+				ID:         9001,
+				RunNumber:  44,
+				Status:     model.StatusCompleted,
+				Conclusion: model.ConclusionFailure,
+			}},
+		},
+		DetailResolver: func(run model.Run) (detail.Model, error) {
+			return detail.NewModel(run, []model.Job{{
+				ID:         7001,
+				RunID:      run.ID,
+				Status:     model.StatusCompleted,
+				Conclusion: model.ConclusionFailure,
+			}}).WithRepo("openclaw/openclaw"), nil
+		},
+	})
+	app, handled := app.Update(KeyMsg{Key: "enter"})
+	if !handled || app.Route() != RouteDetail {
+		t.Fatalf("enter did not open detail: handled=%v route=%s", handled, app.Route())
+	}
+	view := ansi.Strip(app.ViewSize(120, 32))
+	for _, banned := range []string{"branch", "@sha", "unknown", "workflow"} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("production chrome/detail invented fallback %q\n%s", banned, view)
+		}
+	}
+	for _, want := range []string{"openclaw/openclaw", "#44", "job 7001"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("production chrome/detail missing real identifier %q\n%s", want, view)
+		}
+	}
+}
+
 func TestProductionRunsLogShortcutDoesNotReuseSampleLog(t *testing.T) {
 	cfg := config.Default()
 	cfg.Welcome = false

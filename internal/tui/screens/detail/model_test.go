@@ -93,6 +93,30 @@ func TestViewMatchesMockPaneRowsAndFailHighlight(t *testing.T) {
 	}
 }
 
+func TestViewDoesNotInventMissingGitHubMetadata(t *testing.T) {
+	m := NewModel(model.Run{
+		ID:         9001,
+		RunNumber:  44,
+		Status:     model.StatusCompleted,
+		Conclusion: model.ConclusionFailure,
+	}, []model.Job{{
+		ID:         7001,
+		Status:     model.StatusCompleted,
+		Conclusion: model.ConclusionFailure,
+	}})
+	view := ansi.Strip(View(m, 100))
+	for _, banned := range []string{"repository", "branch", "@sha", "unknown", "runner"} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("detail view invented fallback %q\n%s", banned, view)
+		}
+	}
+	for _, want := range []string{"#44", "job 7001"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("detail view missing real identifier %q\n%s", want, view)
+		}
+	}
+}
+
 func assertWidth(t *testing.T, view string, width int) {
 	t.Helper()
 	for line := range strings.SplitSeq(view, "\n") {

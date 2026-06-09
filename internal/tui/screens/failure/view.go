@@ -33,16 +33,27 @@ func View(m Model, width int) string {
 }
 
 func header(m Model) string {
-	step := failedStep(m)
-	return fmt.Sprintf("… %s %s %s %s %s · step %d · exit %s",
-		icons.Breadcrumb,
-		m.Report.Job.Name,
-		icons.Breadcrumb,
-		icons.Failure,
-		step.Name,
-		step.Number,
-		exitCode(m),
-	)
+	parts := []string{"…", icons.Breadcrumb}
+	if name := strings.TrimSpace(m.Report.Job.Name); name != "" {
+		parts = append(parts, name, icons.Breadcrumb)
+	} else if m.Report.Job.ID > 0 {
+		parts = append(parts, fmt.Sprintf("job %d", m.Report.Job.ID), icons.Breadcrumb)
+	}
+	parts = append(parts, icons.Failure)
+	if step, ok := failedStep(m); ok {
+		if strings.TrimSpace(step.Name) != "" {
+			parts = append(parts, step.Name)
+		}
+		if step.Number > 0 {
+			parts = append(parts, "·", fmt.Sprintf("step %d", step.Number))
+		}
+	} else {
+		parts = append(parts, "failed step unavailable")
+	}
+	if code := exitCode(m); code != "" {
+		parts = append(parts, "·", "exit "+code)
+	}
+	return strings.Join(parts, " ")
 }
 
 func annotationHeader(width int) string {
@@ -107,16 +118,16 @@ func isHitLine(text string) bool {
 	return strings.Contains(text, " got ") && strings.Contains(text, " want ")
 }
 
-func failedStep(m Model) model.Step {
+func failedStep(m Model) (model.Step, bool) {
 	for _, step := range m.Report.Job.Steps {
 		if step.Conclusion == model.ConclusionFailure || step.Conclusion == model.ConclusionActionRequired || step.Conclusion == model.ConclusionTimedOut {
-			return step
+			return step, true
 		}
 	}
 	if len(m.Report.Job.Steps) > 0 {
-		return m.Report.Job.Steps[0]
+		return m.Report.Job.Steps[0], true
 	}
-	return model.Step{Name: "unknown", Number: 0}
+	return model.Step{}, false
 }
 
 func exitCode(m Model) string {
@@ -125,7 +136,7 @@ func exitCode(m Model) string {
 			return match[1]
 		}
 	}
-	return "1"
+	return ""
 }
 
 func totalLines(m Model) int {
