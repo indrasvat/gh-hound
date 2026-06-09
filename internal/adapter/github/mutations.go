@@ -79,15 +79,19 @@ func (c *Client) postJSON(ctx context.Context, resource string, body any) error 
 			return nil
 		}
 		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return mapActionHTTPError(resp.StatusCode, bytes.TrimSpace(payload))
+		return mapActionHTTPError(resp.StatusCode, resp.Header, bytes.TrimSpace(payload))
 	})
 }
 
-func mapActionHTTPError(status int, payload []byte) error {
+func mapActionHTTPError(status int, header http.Header, payload []byte) error {
 	kind := usecase.ActionErrorUnknown
 	switch status {
 	case http.StatusForbidden:
-		kind = usecase.ActionErrorPermission
+		if header.Get("X-RateLimit-Remaining") == "0" {
+			kind = usecase.ActionErrorRateLimit
+		} else {
+			kind = usecase.ActionErrorPermission
+		}
 	case http.StatusConflict:
 		kind = usecase.ActionErrorConflict
 	case http.StatusTooManyRequests:
@@ -97,5 +101,6 @@ func mapActionHTTPError(status int, payload []byte) error {
 	if message == "" {
 		message = fmt.Sprintf("github api returned status %d", status)
 	}
-	return usecase.ActionError{Kind: kind, Status: status, Message: message}
+	retryAfter, resetAt := parseRateLimitHeaders(header)
+	return usecase.ActionError{Kind: kind, Status: status, Message: message, RetryAfter: retryAfter, ResetAt: resetAt}
 }

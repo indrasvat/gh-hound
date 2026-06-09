@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
@@ -95,5 +97,26 @@ func TestMutationErrorsAreTyped(t *testing.T) {
 		if !ok || actionErr.Kind != tt.want {
 			t.Fatalf("status %d error = %#v, want kind %s", tt.status, err, tt.want)
 		}
+	}
+}
+
+func TestMutationRateLimitErrorCarriesRetryMetadata(t *testing.T) {
+	resetAt := time.Unix(1781033060, 0).UTC()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "17")
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetAt.Unix(), 10))
+		http.Error(w, "rate limited", http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client())
+	_, err := client.CancelRun(context.Background(), "indrasvat/gh-hound", 571)
+	actionErr, ok := usecase.AsActionError(err)
+	if !ok {
+		t.Fatalf("CancelRun err = %#v, want action error", err)
+	}
+	if actionErr.Kind != usecase.ActionErrorRateLimit || actionErr.RetryAfter != 17*time.Second || !actionErr.ResetAt.Equal(resetAt) {
+		t.Fatalf("rate limit action error = %#v", actionErr)
 	}
 }

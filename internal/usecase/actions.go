@@ -45,9 +45,11 @@ const (
 )
 
 type ActionError struct {
-	Kind    ActionErrorKind
-	Message string
-	Status  int
+	Kind       ActionErrorKind
+	Message    string
+	Status     int
+	RetryAfter time.Duration
+	ResetAt    time.Time
 }
 
 func (e ActionError) Error() string {

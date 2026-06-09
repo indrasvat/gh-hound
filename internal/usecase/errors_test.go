@@ -83,6 +83,28 @@ func TestSuccessToastForActionResult(t *testing.T) {
 	}
 }
 
+func TestRateLimitResilienceIncludesRetryAfterAndReset(t *testing.T) {
+	resetAt := time.Date(2026, 6, 9, 20, 4, 0, 0, time.UTC)
+	got := ResilienceFor(APIError{
+		Kind:       APIErrorRateLimit,
+		Status:     403,
+		Message:    "API rate limit exceeded",
+		RetryAfter: 42 * time.Second,
+		ResetAt:    resetAt,
+	}, ErrorContext{})
+	if got.Class != ErrorClassRateLimit || got.RetryAction != "auto_resume" {
+		t.Fatalf("rate limit resilience = %#v", got)
+	}
+	for _, want := range []string{"API rate limit exceeded", "auto-resume in 42s", "reset"} {
+		if !strings.Contains(got.Message, want) {
+			t.Fatalf("rate limit message missing %q: %#v", want, got)
+		}
+	}
+	if got.RetryAfter != 42*time.Second || !got.ResetAt.Equal(resetAt) {
+		t.Fatalf("rate limit retry metadata = %#v", got)
+	}
+}
+
 func TestUnknownErrorFallsBackToNetworkWarn(t *testing.T) {
 	got := ResilienceFor(errors.New("dial tcp: i/o timeout"), ErrorContext{})
 	if got.Class != ErrorClassNetwork || got.Severity != SeverityWarn {

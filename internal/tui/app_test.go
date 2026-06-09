@@ -1129,6 +1129,49 @@ func TestRefreshErrorKeepsCachedRunsAndShowsToast(t *testing.T) {
 	}
 }
 
+func TestRefreshRateLimitToastShowsAutoResumeMetadata(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{
+			Repo:   "openclaw/openclaw",
+			Branch: "integration",
+			Scope:  usecase.LaunchScopeBranch,
+			State:  usecase.LaunchStateRuns,
+			Runs: []model.Run{{
+				ID:           8120,
+				Name:         "CI",
+				DisplayTitle: "cached integration run",
+				RunNumber:    8120,
+				Status:       model.StatusCompleted,
+				Conclusion:   model.ConclusionSuccess,
+				HeadBranch:   "integration",
+			}},
+		},
+		RunsResolver: func(usecase.RunFilter) ([]model.Run, error) {
+			return nil, usecase.APIError{
+				Kind:       usecase.APIErrorRateLimit,
+				Status:     403,
+				Message:    "API rate limit exceeded",
+				RetryAfter: 42 * time.Second,
+				ResetAt:    time.Date(2026, 6, 9, 20, 4, 0, 0, time.UTC),
+			}
+		},
+	})
+
+	app, changed := app.Refresh()
+	if !changed {
+		t.Fatal("rate-limit refresh should repaint cached rows with toast")
+	}
+	view := ansi.Strip(app.ViewSize(140, 24))
+	for _, want := range []string{"cached integration run", "GitHub API · 403", "API rate limit exceeded", "auto-resume in 42s", "reset 20:04 UTC"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("rate-limit view missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestActionPermissionErrorKeepsCurrentScreenAndShowsToast(t *testing.T) {
 	cfg := config.Default()
 	cfg.Welcome = false

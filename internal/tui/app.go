@@ -345,6 +345,17 @@ func RenderFixtureSize(screen string, width, height int) string {
 		return frameViewSize(app.theme, "hound", "⎇ branch main · @indrasvat", "◔ 4,981/5k live", runs.View(sampleAllGreenModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenAllGreen), width, height, true)
 	case "runs":
 		return frameViewSize(app.theme, "hound", "⎇ branch fix/parser · @indrasvat", "◔ 4,981/5k live 304", runs.View(sampleRunsModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
+	case "rate_limit_toast":
+		app.runs = sampleRunsModel()
+		app.routes = []Route{RouteRuns}
+		app.pushToast("rate-limit", usecase.ResilienceFor(usecase.APIError{
+			Kind:       usecase.APIErrorRateLimit,
+			Status:     403,
+			Message:    "API rate limit exceeded",
+			RetryAfter: 42 * time.Second,
+			ResetAt:    time.Date(2026, 6, 9, 20, 4, 0, 0, time.UTC),
+		}, usecase.ErrorContext{}))
+		return app.ViewSize(width, height)
 	case "detail":
 		return frameViewSize(app.theme, "hound", "CI #571 › fix/parser", "a1b2c3d", detail.View(sampleDetailModel(), bodyWidth), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
 	case "failure":
@@ -1946,6 +1957,12 @@ func toastText(th theme.Theme, item toast.Toast, width int) string {
 	value := toast.Glyph(item.Severity) + " " + item.Title
 	if message != "" {
 		value += " · " + message
+	}
+	if visibleLen(value) > width && item.SourceClass == usecase.ErrorClassRateLimit {
+		value = toast.Glyph(item.Severity) + " Rate limit"
+		if message != "" {
+			value += " · " + message
+		}
 	}
 	value = fitPlain(value, width)
 	color := th.Info

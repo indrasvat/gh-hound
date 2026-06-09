@@ -367,13 +367,32 @@ func mapReadHTTPError(method, resource string, status int, header http.Header, p
 	if message == "" {
 		message = fmt.Sprintf("github api returned status %d", status)
 	}
+	retryAfter, resetAt := parseRateLimitHeaders(header)
 	return usecase.APIError{
-		Kind:     kind,
-		Method:   method,
-		Resource: resource,
-		Status:   status,
-		Message:  message,
+		Kind:       kind,
+		Method:     method,
+		Resource:   resource,
+		Status:     status,
+		Message:    message,
+		RetryAfter: retryAfter,
+		ResetAt:    resetAt,
 	}
+}
+
+func parseRateLimitHeaders(header http.Header) (time.Duration, time.Time) {
+	var retryAfter time.Duration
+	if raw := strings.TrimSpace(header.Get("Retry-After")); raw != "" {
+		if seconds, err := strconv.ParseInt(raw, 10, 64); err == nil && seconds > 0 {
+			retryAfter = time.Duration(seconds) * time.Second
+		}
+	}
+	var resetAt time.Time
+	if raw := strings.TrimSpace(header.Get("X-RateLimit-Reset")); raw != "" {
+		if seconds, err := strconv.ParseInt(raw, 10, 64); err == nil && seconds > 0 {
+			resetAt = time.Unix(seconds, 0).UTC()
+		}
+	}
+	return retryAfter, resetAt
 }
 
 func decodeErrorMessage(payload []byte) string {

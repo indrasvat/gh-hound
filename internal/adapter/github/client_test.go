@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -102,6 +103,28 @@ func TestReadEndpointErrorsAreTyped(t *testing.T) {
 	}
 	if apiErr.Kind != usecase.APIErrorPermission || apiErr.Status != http.StatusForbidden {
 		t.Fatalf("api error = %#v", apiErr)
+	}
+}
+
+func TestReadRateLimitErrorCarriesRetryMetadata(t *testing.T) {
+	resetAt := time.Unix(1781033000, 0).UTC()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "42")
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetAt.Unix(), 10))
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message":"API rate limit exceeded"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client())
+	_, err := client.ListRuns(context.Background(), usecase.RunFilter{Repo: "openclaw/openclaw"})
+	var apiErr usecase.APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("ListRuns err = %T %v, want usecase.APIError", err, err)
+	}
+	if apiErr.Kind != usecase.APIErrorRateLimit || apiErr.RetryAfter != 42*time.Second || !apiErr.ResetAt.Equal(resetAt) {
+		t.Fatalf("rate limit metadata = %#v", apiErr)
 	}
 }
 

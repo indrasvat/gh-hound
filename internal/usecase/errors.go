@@ -40,11 +40,13 @@ const (
 )
 
 type APIError struct {
-	Kind     APIErrorKind
-	Method   string
-	Resource string
-	Status   int
-	Message  string
+	Kind       APIErrorKind
+	Method     string
+	Resource   string
+	Status     int
+	Message    string
+	RetryAfter time.Duration
+	ResetAt    time.Time
 }
 
 func (e APIError) Error() string {
@@ -67,6 +69,8 @@ type Resilience struct {
 	Title          string
 	Message        string
 	RetryAction    string
+	RetryAfter     time.Duration
+	ResetAt        time.Time
 	KeepCachedView bool
 }
 
@@ -89,8 +93,10 @@ func ResilienceFor(err error, context ErrorContext) Resilience {
 				Class:          ErrorClassRateLimit,
 				Severity:       SeverityError,
 				Title:          fmt.Sprintf("GitHub API · %d", actionErr.Status),
-				Message:        actionErr.Message,
+				Message:        rateLimitMessage(actionErr.Message, actionErr.RetryAfter, actionErr.ResetAt),
 				RetryAction:    "auto_resume",
+				RetryAfter:     actionErr.RetryAfter,
+				ResetAt:        actionErr.ResetAt,
 				KeepCachedView: true,
 			}
 		}
@@ -140,8 +146,10 @@ func resilienceForAPIError(err APIError, context ErrorContext) Resilience {
 			Class:          ErrorClassRateLimit,
 			Severity:       SeverityError,
 			Title:          fmt.Sprintf("GitHub API · %d", err.Status),
-			Message:        firstNonEmpty(err.Message, "GitHub rate limit reached."),
+			Message:        rateLimitMessage(firstNonEmpty(err.Message, "GitHub rate limit reached."), err.RetryAfter, err.ResetAt),
 			RetryAction:    "auto_resume",
+			RetryAfter:     err.RetryAfter,
+			ResetAt:        err.ResetAt,
 			KeepCachedView: true,
 		}
 	case APIErrorAuth, APIErrorPermission:
@@ -176,6 +184,17 @@ func resilienceForAPIError(err APIError, context ErrorContext) Resilience {
 			KeepCachedView: true,
 		}
 	}
+}
+
+func rateLimitMessage(base string, retryAfter time.Duration, resetAt time.Time) string {
+	parts := []string{strings.TrimSpace(firstNonEmpty(base, "GitHub rate limit reached."))}
+	if retryAfter > 0 {
+		parts = append(parts, fmt.Sprintf("auto-resume in %s", retryAfter.Round(time.Second)))
+	}
+	if !resetAt.IsZero() {
+		parts = append(parts, fmt.Sprintf("reset %s", resetAt.UTC().Format("15:04 UTC")))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func ResilienceForSuccess(result ActionResult) Resilience {

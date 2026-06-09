@@ -55,9 +55,14 @@ func TestToastFromResilienceKeepsRetryData(t *testing.T) {
 		Title:       "GitHub API · 429",
 		Message:     "Backing off",
 		RetryAction: "auto_resume",
+		RetryAfter:  42 * time.Second,
+		ResetAt:     time.Date(2026, 6, 9, 20, 4, 0, 0, time.UTC),
 	}
 	got := FromResilience("rate", resilience, 5*time.Second)
 	if got.SourceClass != usecase.ErrorClassRateLimit || got.RetryAction != "auto_resume" || got.Timeout != 5*time.Second {
 		t.Fatalf("toast = %#v", got)
+	}
+	if got.RetryAfter != 42*time.Second || !got.ResetAt.Equal(resilience.ResetAt) {
+		t.Fatalf("toast retry metadata = %#v", got)
 	}
 }

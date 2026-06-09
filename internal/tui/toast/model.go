@@ -12,6 +12,8 @@ type Toast struct {
 	Title       string
 	Message     string
 	RetryAction string
+	RetryAfter  time.Duration
+	ResetAt     time.Time
 	Timeout     time.Duration
 	SourceClass usecase.ErrorClass
 
@@ -41,6 +43,8 @@ func FromResilience(id string, resilience usecase.Resilience, timeout time.Durat
 		Title:       resilience.Title,
 		Message:     resilience.Message,
 		RetryAction: resilience.RetryAction,
+		RetryAfter:  resilience.RetryAfter,
+		ResetAt:     resilience.ResetAt,
 		Timeout:     timeout,
 		SourceClass: resilience.Class,
 	}

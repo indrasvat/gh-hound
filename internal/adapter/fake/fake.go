@@ -50,7 +50,13 @@ func (a *Adapter) ListRuns(context.Context, usecase.RunFilter) ([]model.Run, err
 	case ScenarioEmpty:
 		return []model.Run{}, nil
 	case ScenarioRateLimited:
-		return nil, errors.New("github api rate limited")
+		return nil, usecase.APIError{
+			Kind:       usecase.APIErrorRateLimit,
+			Status:     http.StatusForbidden,
+			Message:    "API rate limit exceeded",
+			RetryAfter: 42 * time.Second,
+			ResetAt:    fakeRateLimitReset(),
+		}
 	case ScenarioNetworkError:
 		return nil, errors.New("network unavailable")
 	case ScenarioPermission:
@@ -178,7 +184,13 @@ func (a *Adapter) DispatchWorkflow(ctx context.Context, repo, workflowID string,
 func (a *Adapter) actionResult(action usecase.Action, repo string, runID, jobID int64, workflowID string) (usecase.ActionResult, error) {
 	switch a.scenario {
 	case ScenarioRateLimited:
-		return usecase.ActionResult{}, usecase.ActionError{Kind: usecase.ActionErrorRateLimit, Message: "rate limited", Status: http.StatusTooManyRequests}
+		return usecase.ActionResult{}, usecase.ActionError{
+			Kind:       usecase.ActionErrorRateLimit,
+			Message:    "rate limited",
+			Status:     http.StatusTooManyRequests,
+			RetryAfter: 42 * time.Second,
+			ResetAt:    fakeRateLimitReset(),
+		}
 	case ScenarioNetworkError:
 		return usecase.ActionResult{}, usecase.ActionError{Kind: usecase.ActionErrorNetwork, Message: "network unavailable"}
 	case ScenarioPermission:
@@ -195,6 +207,10 @@ func (a *Adapter) actionResult(action usecase.Action, repo string, runID, jobID 
 			Message:    "accepted",
 		}, nil
 	}
+}
+
+func fakeRateLimitReset() time.Time {
+	return time.Date(2026, 6, 9, 20, 4, 0, 0, time.UTC)
 }
 
 func greenRun(number int) model.Run {
