@@ -97,6 +97,7 @@ func Parse(raw string) Document {
 	var commands []Command
 	var annotations []Annotation
 	var masks []string
+	var maskReplacer *strings.Replacer
 	var stoppedCommandToken string
 
 	for scanner.Scan() {
@@ -108,7 +109,7 @@ func Parse(raw string) Document {
 			if commandText == "::"+stoppedCommandToken+"::" {
 				stoppedCommandToken = ""
 			}
-			visibleText := redact(text, masks)
+			visibleText := redactWith(text, maskReplacer)
 			lines = append(lines, Line{
 				Number: lineNumber,
 				Text:   visibleText,
@@ -131,16 +132,17 @@ func Parse(raw string) Document {
 
 			if command.Name == "add-mask" {
 				masks = addMasks(masks, command.Message)
+				maskReplacer = newMaskReplacer(masks)
 				command.Message = "***"
 			} else {
-				command.Message = redact(command.Message, masks)
+				command.Message = redactWith(command.Message, maskReplacer)
 			}
 			for key, value := range command.Properties {
-				command.Properties[key] = redact(value, masks)
+				command.Properties[key] = redactWith(value, maskReplacer)
 			}
 			commands = append(commands, command)
 
-			visibleText := redactCommandLine(text, commandText, command, masks)
+			visibleText := redactCommandLine(text, commandText, command, maskReplacer)
 			line := Line{
 				Number: lineNumber,
 				Text:   visibleText,
@@ -174,7 +176,7 @@ func Parse(raw string) Document {
 			continue
 		}
 
-		visibleText := redact(text, masks)
+		visibleText := redactWith(text, maskReplacer)
 		line := Line{
 			Number: lineNumber,
 			Text:   visibleText,
@@ -212,10 +214,37 @@ func Parse(raw string) Document {
 }
 
 func commandSegment(text string) string {
-	if loc := timestampRE.FindStringIndex(text); loc != nil && loc[0] == 0 && loc[1] < len(text) {
-		return strings.TrimLeft(text[loc[1]:], " \t")
+	if end, ok := timestampPrefixEnd(text); ok && end < len(text) {
+		return strings.TrimLeft(text[end:], " \t")
 	}
 	return text
+}
+
+func timestampPrefixEnd(text string) (int, bool) {
+	if len(text) < len("00:00:00Z") {
+		return 0, false
+	}
+	switch {
+	case len(text) >= len("0000-00-00T00:00:00Z") &&
+		isDigit(text[0]) && isDigit(text[1]) && isDigit(text[2]) && isDigit(text[3]) &&
+		text[4] == '-' && isDigit(text[5]) && isDigit(text[6]) &&
+		text[7] == '-' && isDigit(text[8]) && isDigit(text[9]) &&
+		text[10] == 'T':
+		if z := strings.IndexByte(text[:min(len(text), 40)], 'Z'); z >= len("0000-00-00T00:00:00Z")-1 {
+			return z + 1, true
+		}
+	case isDigit(text[0]) && isDigit(text[1]) &&
+		text[2] == ':' && isDigit(text[3]) && isDigit(text[4]) &&
+		text[5] == ':' && isDigit(text[6]) && isDigit(text[7]):
+		if z := strings.IndexByte(text[:min(len(text), 24)], 'Z'); z >= len("00:00:00Z")-1 {
+			return z + 1, true
+		}
+	}
+	return 0, false
+}
+
+func isDigit(value byte) bool {
+	return value >= '0' && value <= '9'
 }
 
 func parseCommand(text string, lineNumber int) (Command, bool) {
@@ -356,20 +385,32 @@ func addMasks(masks []string, value string) []string {
 	return masks
 }
 
-func redactCommandLine(text, _ string, _ Command, masks []string) string {
-	return redact(text, masks)
+func redactCommandLine(text, _ string, _ Command, replacer *strings.Replacer) string {
+	return redactWith(text, replacer)
 }
 
-func redact(text string, masks []string) string {
-	if text == "" || len(masks) == 0 {
+func newMaskReplacer(masks []string) *strings.Replacer {
+	if len(masks) == 0 {
+		return nil
+	}
+	pairs := make([]string, 0, len(masks)*2)
+	for _, mask := range masks {
+		if mask == "" {
+			continue
+		}
+		pairs = append(pairs, mask, "***")
+	}
+	if len(pairs) == 0 {
+		return nil
+	}
+	return strings.NewReplacer(pairs...)
+}
+
+func redactWith(text string, replacer *strings.Replacer) string {
+	if text == "" || replacer == nil {
 		return text
 	}
-	for _, mask := range masks {
-		if mask != "" {
-			text = strings.ReplaceAll(text, mask, "***")
-		}
-	}
-	return text
+	return replacer.Replace(text)
 }
 
 func annotationFromCommand(command Command) Annotation {

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/indrasvat/gh-hound/internal/adapter/fake"
 	"github.com/indrasvat/gh-hound/internal/adapter/github"
 	"github.com/indrasvat/gh-hound/internal/adapter/repository"
 	"github.com/indrasvat/gh-hound/internal/config"
@@ -60,6 +61,7 @@ func newRootCommand(stdout, stderr io.Writer, info buildInfo) *cobra.Command {
 	return newRootCommandWithRuntime(commandRuntime{
 		Stdout: stdout,
 		Stderr: stderr,
+		Stdin:  os.Stdin,
 		Env:    os.LookupEnv,
 		IsTTY:  defaultIsTTY(stdout),
 	}, info)
@@ -149,6 +151,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.AddCommand(newVersionCommand(runtime.Stdout, info))
 	cmd.AddCommand(newScreenCommand(runtime.Stdout))
 	cmd.AddCommand(newInteractCommand(runtime.Stdout))
+	cmd.AddCommand(newVQATUICommand(runtime, info))
 	cmd.AddCommand(newRunsCommand(runtime, &options))
 	cmd.AddCommand(newWatchCommand(runtime, &options))
 	cmd.AddCommand(newDispatchCommand(runtime, &options))
@@ -189,6 +192,38 @@ func newInteractCommand(stdout io.Writer) *cobra.Command {
 	cmd.Flags().IntVar(&width, "width", 80, "fixture width")
 	cmd.Flags().IntVar(&height, "height", 24, "fixture height")
 	return cmd
+}
+
+func newVQATUICommand(runtime commandRuntime, info buildInfo) *cobra.Command {
+	var scenario string
+	cmd := &cobra.Command{
+		Use:    "__vqa-tui",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if runtime.Stdin == nil {
+				runtime.Stdin = os.Stdin
+			}
+			runtime.GitHub = fake.New(fake.Scenario(scenario))
+			runtime.Repo = staticRepositoryContext{
+				context: usecase.RepositoryContext{
+					Repo:   "indrasvat/gh-hound",
+					Branch: "main",
+					Actor:  "indrasvat",
+				},
+			}
+			return runTUI(cmd.Context(), runtime, info, cliOptions{Repo: "indrasvat/gh-hound", Branch: "main"})
+		},
+	}
+	cmd.Flags().StringVar(&scenario, "scenario", string(fake.ScenarioFailing), "fake adapter scenario for PTY VQA")
+	return cmd
+}
+
+type staticRepositoryContext struct {
+	context usecase.RepositoryContext
+}
+
+func (s staticRepositoryContext) Current(context.Context) (usecase.RepositoryContext, error) {
+	return s.context, nil
 }
 
 func newVersionCommand(stdout io.Writer, info buildInfo) *cobra.Command {
@@ -477,33 +512,21 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			}), nil
 		},
 		DispatchResolver: func() (dispatch.Model, error) {
-			workflows := launch.Workflows
-			var err error
+			workflows, err := dispatchWorkflowModels(ctx, githubClient, launch)
+			if err != nil {
+				return dispatch.Model{}, err
+			}
 			if len(workflows) == 0 {
-				workflows, err = githubClient.ListWorkflows(ctx, launch.Repo)
-				if err != nil {
-					return dispatch.Model{}, err
-				}
+				return dispatch.Model{}, fmt.Errorf("no workflow_dispatch workflows found")
 			}
-			workflow, err := chooseDispatchWorkflow(ctx, githubClient, launch.Repo, workflows)
+			return dispatch.NewModel(workflows[0]), nil
+		},
+		DispatchWorkflowsResolver: func() ([]dispatch.Workflow, error) {
+			workflows, err := dispatchWorkflowModels(ctx, githubClient, launch)
 			if err != nil {
-				return dispatch.Model{}, err
+				return nil, err
 			}
-			workflowName := workflowDisplayName(workflow)
-			workflowID := workflowIdentifier(workflow)
-			if workflowName == "" || workflowID == "" {
-				return dispatch.Model{}, fmt.Errorf("workflow metadata is incomplete")
-			}
-			ref, err := dispatchRef(launch)
-			if err != nil {
-				return dispatch.Model{}, err
-			}
-			return dispatch.NewModel(dispatch.Workflow{
-				Name:   workflowName,
-				ID:     workflowID,
-				Ref:    ref,
-				Inputs: dispatchInputs(workflow.Inputs),
-			}), nil
+			return workflows, nil
 		},
 		ActionHandler: func(request tui.ActionRequest) (usecase.ActionResult, error) {
 			switch request.Action {
@@ -627,7 +650,8 @@ func resolveJobForRun(ctx context.Context, githubClient usecase.GitHub, repo str
 	return jobs[0], nil
 }
 
-func chooseDispatchWorkflow(ctx context.Context, githubClient usecase.GitHub, repo string, workflows []model.Workflow) (model.Workflow, error) {
+func chooseDispatchWorkflows(ctx context.Context, githubClient usecase.GitHub, repo string, workflows []model.Workflow) ([]model.Workflow, error) {
+	dispatchable := []model.Workflow{}
 	for _, workflow := range workflows {
 		if workflow.State != "" && workflow.State != "active" {
 			continue
@@ -641,19 +665,56 @@ func chooseDispatchWorkflow(ctx context.Context, githubClient usecase.GitHub, re
 			if errors.As(err, &apiErr) && apiErr.Kind == usecase.APIErrorNotFound {
 				continue
 			}
-			return model.Workflow{}, err
+			return nil, err
 		}
 		inputs, ok, err := usecase.ParseWorkflowDispatchInputs(raw)
 		if err != nil {
-			return model.Workflow{}, err
+			return nil, err
 		}
 		if !ok {
 			continue
 		}
 		workflow.Inputs = inputs
-		return workflow, nil
+		dispatchable = append(dispatchable, workflow)
 	}
-	return model.Workflow{}, fmt.Errorf("no workflow_dispatch workflows found")
+	if len(dispatchable) == 0 {
+		return nil, fmt.Errorf("no workflow_dispatch workflows found")
+	}
+	return dispatchable, nil
+}
+
+func dispatchWorkflowModels(ctx context.Context, githubClient usecase.GitHub, launch usecase.LaunchContext) ([]dispatch.Workflow, error) {
+	workflows := launch.Workflows
+	var err error
+	if len(workflows) == 0 {
+		workflows, err = githubClient.ListWorkflows(ctx, launch.Repo)
+		if err != nil {
+			return nil, err
+		}
+	}
+	dispatchable, err := chooseDispatchWorkflows(ctx, githubClient, launch.Repo, workflows)
+	if err != nil {
+		return nil, err
+	}
+	ref, err := dispatchRef(launch)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]dispatch.Workflow, 0, len(dispatchable))
+	for _, workflow := range dispatchable {
+		workflowName := workflowDisplayName(workflow)
+		workflowID := workflowIdentifier(workflow)
+		if workflowName == "" || workflowID == "" {
+			return nil, fmt.Errorf("workflow metadata is incomplete")
+		}
+		out = append(out, dispatch.Workflow{
+			Name:   workflowName,
+			ID:     workflowID,
+			Ref:    ref,
+			Inputs: dispatchInputs(workflow.Inputs),
+		})
+	}
+	return out, nil
 }
 
 func dispatchInputs(inputs []model.WorkflowInput) []dispatch.Input {

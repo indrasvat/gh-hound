@@ -1,7 +1,8 @@
 {
   "contains": [
     "log · /trail · match 1/2",
-    "004 ▸ test output 5 lines",
+    "› search-hit 005",
+    "› search-hit 007",
     "z/Z fold"
   ]
 }

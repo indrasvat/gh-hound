@@ -140,6 +140,19 @@ func TestParseTimestampPrefixedWorkflowCommands(t *testing.T) {
 	}
 }
 
+func TestCommandSegmentStripsTimestampPrefixes(t *testing.T) {
+	tests := map[string]string{
+		"2026-06-09T00:02:27.3782201Z ::group::Run checks": "::group::Run checks",
+		"17:42:53.114Z ::error::broken":                    "::error::broken",
+		"::warning::plain":                                 "::warning::plain",
+	}
+	for input, want := range tests {
+		if got := commandSegment(input); got != want {
+			t.Fatalf("commandSegment(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestParseGenericWorkflowCommandMatrix(t *testing.T) {
 	raw := strings.Join([]string{
 		"::debug::trace",

@@ -55,19 +55,20 @@ type KeyMsg struct {
 }
 
 type Options struct {
-	Config           config.Config
-	Build            BuildInfo
-	Launch           usecase.LaunchContext
-	DetailResolver   func(model.Run) (detail.Model, error)
-	RunsResolver     func(usecase.RunFilter) ([]model.Run, error)
-	FailureResolver  func(model.Run, model.Job) (failure.Model, logscreen.Model, error)
-	LogResolver      func(model.Run, model.Job) (logscreen.Model, error)
-	WatchResolver    func(model.Run) (watch.Model, error)
-	DispatchResolver func() (dispatch.Model, error)
-	RunsMetadata     func() (usecase.RequestMeta, bool)
-	ActionHandler    func(ActionRequest) (usecase.ActionResult, error)
-	OpenURL          func(string) error
-	CopyText         func(string) error
+	Config                    config.Config
+	Build                     BuildInfo
+	Launch                    usecase.LaunchContext
+	DetailResolver            func(model.Run) (detail.Model, error)
+	RunsResolver              func(usecase.RunFilter) ([]model.Run, error)
+	FailureResolver           func(model.Run, model.Job) (failure.Model, logscreen.Model, error)
+	LogResolver               func(model.Run, model.Job) (logscreen.Model, error)
+	WatchResolver             func(model.Run) (watch.Model, error)
+	DispatchResolver          func() (dispatch.Model, error)
+	DispatchWorkflowsResolver func() ([]dispatch.Workflow, error)
+	RunsMetadata              func() (usecase.RequestMeta, bool)
+	ActionHandler             func(ActionRequest) (usecase.ActionResult, error)
+	OpenURL                   func(string) error
+	CopyText                  func(string) error
 }
 
 type ActionRequest struct {
@@ -80,38 +81,41 @@ type ActionRequest struct {
 }
 
 type App struct {
-	config           config.Config
-	build            BuildInfo
-	theme            theme.Theme
-	routes           []Route
-	overlays         []Overlay
-	inputMode        bool
-	quit             bool
-	welcomeDismissed bool
-	refreshCount     int
-	pollInterval     time.Duration
-	launchRoute      Route
-	runs             runs.Model
-	detail           detail.Model
-	failure          failure.Model
-	log              logscreen.Model
-	watch            watch.Model
-	dispatch         dispatch.Model
-	confirm          confirm.Model
-	toasts           toast.Model
-	runsMeta         usecase.RequestMeta
-	pendingAction    *pendingAction
-	routeErrors      map[Route]string
-	detailResolver   func(model.Run) (detail.Model, error)
-	runsResolver     func(usecase.RunFilter) ([]model.Run, error)
-	failureResolver  func(model.Run, model.Job) (failure.Model, logscreen.Model, error)
-	logResolver      func(model.Run, model.Job) (logscreen.Model, error)
-	watchResolver    func(model.Run) (watch.Model, error)
-	dispatchResolver func() (dispatch.Model, error)
-	runsMetadata     func() (usecase.RequestMeta, bool)
-	actionHandler    func(ActionRequest) (usecase.ActionResult, error)
-	openURL          func(string) error
-	copyText         func(string) error
+	config                    config.Config
+	build                     BuildInfo
+	theme                     theme.Theme
+	routes                    []Route
+	overlays                  []Overlay
+	inputMode                 bool
+	quit                      bool
+	welcomeDismissed          bool
+	refreshCount              int
+	pollInterval              time.Duration
+	launchRoute               Route
+	runs                      runs.Model
+	detail                    detail.Model
+	failure                   failure.Model
+	log                       logscreen.Model
+	watch                     watch.Model
+	dispatch                  dispatch.Model
+	palette                   palette.Model
+	confirm                   confirm.Model
+	toasts                    toast.Model
+	runsMeta                  usecase.RequestMeta
+	dispatchWorkflows         []dispatch.Workflow
+	pendingAction             *pendingAction
+	routeErrors               map[Route]string
+	detailResolver            func(model.Run) (detail.Model, error)
+	runsResolver              func(usecase.RunFilter) ([]model.Run, error)
+	failureResolver           func(model.Run, model.Job) (failure.Model, logscreen.Model, error)
+	logResolver               func(model.Run, model.Job) (logscreen.Model, error)
+	watchResolver             func(model.Run) (watch.Model, error)
+	dispatchResolver          func() (dispatch.Model, error)
+	dispatchWorkflowsResolver func() ([]dispatch.Workflow, error)
+	runsMetadata              func() (usecase.RequestMeta, bool)
+	actionHandler             func(ActionRequest) (usecase.ActionResult, error)
+	openURL                   func(string) error
+	copyText                  func(string) error
 }
 
 type pendingAction struct {
@@ -159,28 +163,30 @@ func NewApp(options Options) App {
 		}
 	}
 	return App{
-		config:           cfg,
-		build:            options.Build,
-		theme:            theme.ForMode(theme.Mode(cfg.Theme)),
-		routes:           []Route{route},
-		pollInterval:     initialPollInterval(cfg),
-		launchRoute:      launchRoute,
-		runs:             runsModel,
-		detail:           initialDetail,
-		routeErrors:      routeErrors,
-		watch:            watchModel,
-		toasts:           toast.New(),
-		runsMeta:         runsMeta,
-		detailResolver:   options.DetailResolver,
-		runsResolver:     options.RunsResolver,
-		failureResolver:  options.FailureResolver,
-		logResolver:      options.LogResolver,
-		watchResolver:    options.WatchResolver,
-		dispatchResolver: options.DispatchResolver,
-		runsMetadata:     options.RunsMetadata,
-		actionHandler:    options.ActionHandler,
-		openURL:          options.OpenURL,
-		copyText:         options.CopyText,
+		config:                    cfg,
+		build:                     options.Build,
+		theme:                     theme.ForMode(theme.Mode(cfg.Theme)),
+		routes:                    []Route{route},
+		pollInterval:              initialPollInterval(cfg),
+		launchRoute:               launchRoute,
+		runs:                      runsModel,
+		detail:                    initialDetail,
+		routeErrors:               routeErrors,
+		watch:                     watchModel,
+		palette:                   palette.New(paletteItems(nil)),
+		toasts:                    toast.New(),
+		runsMeta:                  runsMeta,
+		detailResolver:            options.DetailResolver,
+		runsResolver:              options.RunsResolver,
+		failureResolver:           options.FailureResolver,
+		logResolver:               options.LogResolver,
+		watchResolver:             options.WatchResolver,
+		dispatchResolver:          options.DispatchResolver,
+		dispatchWorkflowsResolver: options.DispatchWorkflowsResolver,
+		runsMetadata:              options.RunsMetadata,
+		actionHandler:             options.ActionHandler,
+		openURL:                   options.OpenURL,
+		copyText:                  options.CopyText,
 	}
 }
 
@@ -213,6 +219,9 @@ func NewScenarioApp(scenario string, build BuildInfo) App {
 	app.dispatchResolver = func() (dispatch.Model, error) {
 		return sampleDispatchModel(), nil
 	}
+	app.dispatchWorkflowsResolver = func() ([]dispatch.Workflow, error) {
+		return []dispatch.Workflow{sampleDispatchModel().Workflow}, nil
+	}
 	app.actionHandler = func(ActionRequest) (usecase.ActionResult, error) {
 		return usecase.ActionResult{Message: "accepted"}, nil
 	}
@@ -232,13 +241,12 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 		return a, false
 	}
 
-	if a.routeInputMode() {
-		return a.updateRoute(msg)
-	}
-
 	if len(a.overlays) > 0 {
 		if a.TopOverlay() == OverlayConfirm {
 			return a.updateConfirm(msg)
+		}
+		if a.TopOverlay() == OverlayPalette {
+			return a.updatePalette(msg)
 		}
 		switch msg.Key {
 		case "esc":
@@ -248,7 +256,7 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 			a.overlays = append(a.overlays, OverlayHelp)
 			return a, true
 		case ":":
-			a.overlays = append(a.overlays, OverlayPalette)
+			a = a.openPalette()
 			return a, true
 		case "q", "ctrl+c":
 			a.quit = true
@@ -256,6 +264,10 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 		default:
 			return a, false
 		}
+	}
+
+	if a.routeInputMode() {
+		return a.updateRoute(msg)
 	}
 
 	var toastHandled bool
@@ -272,7 +284,7 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 		a.overlays = append(a.overlays, OverlayHelp)
 		return a, true
 	case ":":
-		a.overlays = append(a.overlays, OverlayPalette)
+		a = a.openPalette()
 		return a, true
 	case "q", "ctrl+c":
 		a.quit = true
@@ -327,9 +339,9 @@ func RenderFixtureSize(screen string, width, height int) string {
 	case "welcome":
 		return NewApp(Options{Config: config.Default(), Build: BuildInfo{Version: "v0.1.0"}}).ViewSize(width, height)
 	case "all_green":
-		return frameViewSize(app.theme, "hound", "⌥ branch main · @indrasvat", "◔ 4,981/5k live", runs.View(sampleAllGreenModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenAllGreen), width, height, true)
+		return frameViewSize(app.theme, "hound", "⎇ branch main · @indrasvat", "◔ 4,981/5k live", runs.View(sampleAllGreenModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenAllGreen), width, height, true)
 	case "runs":
-		return frameViewSize(app.theme, "hound", "⌥ branch fix/parser · @indrasvat", "◔ 4,981/5k live 304", runs.View(sampleRunsModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
+		return frameViewSize(app.theme, "hound", "⎇ branch fix/parser · @indrasvat", "◔ 4,981/5k live 304", runs.View(sampleRunsModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
 	case "detail":
 		return frameViewSize(app.theme, "hound", "CI #571 › fix/parser", "a1b2c3d", detail.View(sampleDetailModel(), bodyWidth), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
 	case "failure":
@@ -511,10 +523,16 @@ func (a *App) toggleTheme() {
 }
 
 func (a App) routeInputMode() bool {
-	if a.Route() == RouteRuns && a.runs.InputMode {
+	switch a.Route() {
+	case RouteRuns:
+		return a.runs.InputMode
+	case RouteLog:
+		return a.log.InputMode
+	case RouteDispatch:
 		return true
+	default:
+		return false
 	}
-	return false
 }
 
 func (a App) updateRoute(msg KeyMsg) (App, bool) {
@@ -556,8 +574,7 @@ func (a App) updateRuns(msg KeyMsg) (App, bool) {
 		}
 		a.PushRoute(RouteWatch)
 	case runs.IntentDispatch:
-		a = a.loadDispatch()
-		a.PushRoute(RouteDispatch)
+		a = a.openDispatch()
 	case runs.IntentBrowser:
 		if run, ok := a.runs.SelectedRun(); ok {
 			a = a.openExternal(selectedRunURL(a.runs.Context.Repo, run))
@@ -697,6 +714,85 @@ func (a App) updateConfirm(msg KeyMsg) (App, bool) {
 		return a, true
 	default:
 		return a, false
+	}
+}
+
+func (a App) updatePalette(msg KeyMsg) (App, bool) {
+	switch msg.Key {
+	case "esc":
+		a.PopOverlay()
+		return a, true
+	case "?":
+		a.overlays = append(a.overlays, OverlayHelp)
+		return a, true
+	case "q", "ctrl+c":
+		a.quit = true
+		return a, true
+	}
+	before := a.palette
+	a.palette = a.palette.Update(palette.KeyMsg{Key: msg.Key})
+	if a.palette.Intent.Route != "" {
+		a = a.handlePaletteIntent(a.palette.Intent)
+		return a, true
+	}
+	return a, before.Query != a.palette.Query || before.Selected != a.palette.Selected || paletteHandled(msg.Key)
+}
+
+func (a App) handlePaletteIntent(intent palette.Intent) App {
+	switch intent.Route {
+	case "runs":
+		a.PopOverlay()
+		a.routes = []Route{RouteRuns}
+	case "runs --all":
+		a.PopOverlay()
+		a.routes = []Route{RouteRuns}
+		a.runs.Context.Scope = usecase.LaunchScopeRepo
+		if len(a.runs.Context.RepoRuns) > 0 {
+			a.runs.Context.Runs = a.runs.Context.RepoRuns
+		} else {
+			a = a.reloadRuns("")
+		}
+	case "run:failed":
+		a.PopOverlay()
+		a.routes = []Route{RouteRuns}
+		a.runs.Filter = "failure"
+		a = a.reloadRuns("failure")
+	case string(RouteDispatch):
+		a = a.openDispatchFromPalette(intent.Value)
+	}
+	return a
+}
+
+func (a App) openPalette() App {
+	workflows, err := a.dispatchWorkflowChoices()
+	if err != nil {
+		a.pushErrorToast("dispatch-workflows", usecase.ResilienceFor(err, usecase.ErrorContext{}))
+	}
+	a.palette = palette.New(paletteItems(workflows))
+	if a.TopOverlay() != OverlayPalette {
+		a.overlays = append(a.overlays, OverlayPalette)
+	}
+	return a
+}
+
+func (a App) openDispatchFromPalette(value string) App {
+	if strings.TrimSpace(value) != "" {
+		if workflow, ok := a.dispatchWorkflowByValue(value); ok {
+			a.PopOverlay()
+			a.dispatch = dispatch.NewModel(workflow)
+			a.PushRoute(RouteDispatch)
+			return a
+		}
+		a.pushErrorToast("dispatch-workflow-missing", usecase.ResilienceFor(fmt.Errorf("dispatch workflow %q is no longer available", value), usecase.ErrorContext{}))
+		return a
+	}
+	a.PopOverlay()
+	return a.openDispatch()
+}
+
+func (a *App) PopOverlay() {
+	if len(a.overlays) > 0 {
+		a.overlays = a.overlays[:len(a.overlays)-1]
 	}
 }
 
@@ -1063,8 +1159,35 @@ func (a App) loadWatch(run model.Run) App {
 	return a
 }
 
+func (a App) openDispatch() App {
+	workflows, err := a.dispatchWorkflowChoices()
+	if err != nil {
+		a.setRouteError(RouteDispatch, "dispatch unavailable: "+err.Error())
+		a.PushRoute(RouteDispatch)
+		return a
+	}
+	switch len(workflows) {
+	case 0:
+		a = a.loadDispatch()
+		a.PushRoute(RouteDispatch)
+	case 1:
+		a.dispatch = dispatch.NewModel(workflows[0])
+		a.PushRoute(RouteDispatch)
+	default:
+		a.palette = palette.New(dispatchPaletteItems(workflows))
+		if a.TopOverlay() != OverlayPalette {
+			a.overlays = append(a.overlays, OverlayPalette)
+		}
+	}
+	return a
+}
+
 func (a App) loadDispatch() App {
 	a.clearRouteError(RouteDispatch)
+	if workflows, err := a.dispatchWorkflowChoices(); err == nil && len(workflows) > 0 {
+		a.dispatch = dispatch.NewModel(workflows[0])
+		return a
+	}
 	if a.dispatchResolver == nil {
 		a.setRouteError(RouteDispatch, "dispatch unavailable: live workflow loader is not configured")
 		return a
@@ -1076,6 +1199,38 @@ func (a App) loadDispatch() App {
 	}
 	a.dispatch = resolved
 	return a
+}
+
+func (a *App) dispatchWorkflowChoices() ([]dispatch.Workflow, error) {
+	if len(a.dispatchWorkflows) > 0 {
+		return append([]dispatch.Workflow(nil), a.dispatchWorkflows...), nil
+	}
+	if a.dispatchWorkflowsResolver == nil {
+		return nil, nil
+	}
+	workflows, err := a.dispatchWorkflowsResolver()
+	if err != nil {
+		return nil, err
+	}
+	a.dispatchWorkflows = append([]dispatch.Workflow(nil), workflows...)
+	return workflows, nil
+}
+
+func (a *App) dispatchWorkflowByValue(value string) (dispatch.Workflow, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return dispatch.Workflow{}, false
+	}
+	workflows, err := a.dispatchWorkflowChoices()
+	if err != nil {
+		return dispatch.Workflow{}, false
+	}
+	for _, workflow := range workflows {
+		if workflowValue(workflow) == value {
+			return workflow, true
+		}
+	}
+	return dispatch.Workflow{}, false
 }
 
 func (a App) handleAction(route Route, request ActionRequest) App {
@@ -1369,6 +1524,15 @@ func dispatchHandled(key string) bool {
 	}
 }
 
+func paletteHandled(key string) bool {
+	switch key {
+	case "j", "k", "down", "up", "enter", "backspace", "esc":
+		return true
+	default:
+		return len([]rune(key)) == 1
+	}
+}
+
 func (a App) footerScreen() keys.Screen {
 	switch a.Route() {
 	case RouteWelcome:
@@ -1409,7 +1573,7 @@ func (a App) overlayView(width int) string {
 	case OverlayHelp:
 		return help.View(a.footerScreen(), width-20)
 	case OverlayPalette:
-		return palette.View(palette.New(palette.DefaultItems()), width-20)
+		return palette.View(a.palette, width-20)
 	case OverlayConfirm:
 		return confirm.View(a.confirm, width-20)
 	default:
@@ -1450,9 +1614,9 @@ func branchContext(scope usecase.LaunchScope, branch, actor string) string {
 		label = "branch " + strings.TrimSpace(branch)
 	}
 	if strings.TrimSpace(actor) == "" {
-		return "⌥ " + label
+		return "⎇ " + label
 	}
-	return "⌥ " + label + " · @" + strings.TrimSpace(actor)
+	return "⎇ " + label + " · @" + strings.TrimSpace(actor)
 }
 
 func runChromeTitle(run model.Run) string {
@@ -1537,6 +1701,49 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func paletteItems(workflows []dispatch.Workflow) []palette.Item {
+	items := []palette.Item{
+		{Name: "runs", Description: "workflow runs · this branch", Tag: "default", Route: "runs"},
+		{Name: "runs --all", Description: "runs across all branches", Route: "runs --all"},
+		{Name: "run:failed", Description: "filtered to failures", Route: "run:failed"},
+	}
+	if len(workflows) == 0 {
+		items = append(items, palette.Item{Name: "dispatch", Description: "trigger workflow_dispatch", Route: string(RouteDispatch)})
+		return items
+	}
+	return append(items, dispatchPaletteItems(workflows)...)
+}
+
+func dispatchPaletteItems(workflows []dispatch.Workflow) []palette.Item {
+	items := make([]palette.Item, 0, len(workflows))
+	for _, workflow := range workflows {
+		name := strings.TrimSpace(workflow.Name)
+		if name == "" {
+			name = workflow.ID
+		}
+		if name == "" {
+			continue
+		}
+		items = append(items, palette.Item{
+			Name:        "dispatch: " + name,
+			Description: "workflow_dispatch · " + workflowValue(workflow),
+			Route:       string(RouteDispatch),
+			Value:       workflowValue(workflow),
+		})
+	}
+	if len(items) == 0 {
+		return []palette.Item{{Name: "dispatch", Description: "trigger workflow_dispatch", Route: string(RouteDispatch)}}
+	}
+	return items
+}
+
+func workflowValue(workflow dispatch.Workflow) string {
+	if strings.TrimSpace(workflow.ID) != "" {
+		return strings.TrimSpace(workflow.ID)
+	}
+	return strings.TrimSpace(workflow.Name)
 }
 
 func (a App) screenBody(width, height int) string {

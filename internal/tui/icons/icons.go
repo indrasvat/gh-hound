@@ -13,7 +13,7 @@ const (
 	TimedOut       = "⧗"
 	Neutral        = "◇"
 	Cursor         = "▌"
-	Branch         = "⌥"
+	Branch         = "⎇"
 	Breadcrumb     = "›"
 	FoldOpen       = "▾"
 	FoldClosed     = "▸"

@@ -24,3 +24,13 @@ func TestPaletteFiltersMovesAndSelectsRoute(t *testing.T) {
 		}
 	}
 }
+
+func TestPaletteSelectionCarriesStableRouteValue(t *testing.T) {
+	m := New([]Item{
+		{Name: "dispatch: Release", Description: "workflow_dispatch", Route: "dispatch", Value: "release.yml"},
+	})
+	m = m.Update(KeyMsg{Key: "enter"})
+	if m.Intent.Route != "dispatch" || m.Intent.Value != "release.yml" {
+		t.Fatalf("intent = %#v", m.Intent)
+	}
+}

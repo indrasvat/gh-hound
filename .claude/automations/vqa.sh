@@ -13,7 +13,7 @@ MSG
 fi
 
 bin="${BIN:-./bin/gh-hound}"
-if [ ! -x "$bin" ]; then
+if [ "${SKIP_BUILD:-}" != "1" ]; then
   make build
 fi
 case "$bin" in
@@ -59,7 +59,7 @@ printf '\\033[?25h'
 RUNNER
     chmod +x "$runner"
     shux session kill "$session" >/dev/null 2>&1 || true
-    shux session create "$session" -d --cwd "$root" --title "hound ${screen} ${bp}" --cmd "$runner" >/dev/null
+    shux session create "$session" -d --cwd "$root" --title "hound ${screen} ${bp}" -- "$runner" >/dev/null
     cleanup() {
       shux session kill "$session" >/dev/null 2>&1 || true
       rm -f "$runner"

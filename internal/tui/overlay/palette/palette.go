@@ -10,6 +10,8 @@ type Item struct {
 	Name        string
 	Description string
 	Tag         string
+	Route       string
+	Value       string
 }
 
 type KeyMsg struct {
@@ -18,6 +20,7 @@ type KeyMsg struct {
 
 type Intent struct {
 	Route string
+	Value string
 }
 
 type Model struct {
@@ -54,7 +57,12 @@ func (m Model) Update(msg KeyMsg) Model {
 	case "enter":
 		visible := m.Visible()
 		if len(visible) > 0 {
-			m.Intent = Intent{Route: visible[m.Selected].Name}
+			item := visible[m.Selected]
+			route := item.Route
+			if route == "" {
+				route = item.Name
+			}
+			m.Intent = Intent{Route: route, Value: item.Value}
 		}
 	case "backspace":
 		if len(m.Query) > 0 {

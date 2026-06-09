@@ -11,6 +11,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/dispatch"
 	failurescreen "github.com/indrasvat/gh-hound/internal/tui/screens/failure"
 	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
 	watchscreen "github.com/indrasvat/gh-hound/internal/tui/screens/watch"
@@ -309,7 +310,7 @@ func TestSizedViewDoesNotScrollOrWrapAtTerminalGeometry(t *testing.T) {
 
 func TestRootViewRendersRunsRoutePlaceholderContract(t *testing.T) {
 	view := RenderFixtureSize("runs", 80, 0)
-	for _, want := range []string{"hound", "⌥ branch fix/parser · @indrasvat", "⏎ open · ↻ rerun · ✗ cancel"} {
+	for _, want := range []string{"hound", "⎇ branch fix/parser · @indrasvat", "⏎ open · ↻ rerun · ✗ cancel"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("runs route view missing %q\n%s", want, view)
 		}
@@ -376,6 +377,125 @@ func TestRootViewRendersHelpAndPaletteOverlays(t *testing.T) {
 	app, _ = app.Update(KeyMsg{Key: "esc"})
 	if app.TopOverlay() != OverlayHelp {
 		t.Fatalf("esc should pop only palette, top=%s", app.TopOverlay())
+	}
+}
+
+func TestDispatchPickerSelectsExactWorkflow(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	var called []ActionRequest
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{
+			Repo:   "openclaw/openclaw",
+			Branch: "main",
+			Actor:  "indrasvat",
+			Scope:  usecase.LaunchScopeBranch,
+			State:  usecase.LaunchStateRuns,
+			Runs: []model.Run{{
+				ID:         1001,
+				Name:       "CI",
+				RunNumber:  1001,
+				Status:     model.StatusCompleted,
+				Conclusion: model.ConclusionSuccess,
+				HeadBranch: "main",
+			}},
+		},
+		DispatchWorkflowsResolver: func() ([]dispatch.Workflow, error) {
+			return []dispatch.Workflow{
+				{Name: "Release", ID: "release.yml", Ref: "main"},
+				{Name: "Blacksmith Build Artifacts Testbox", ID: "blacksmith.yml", Ref: "main", Inputs: []dispatch.Input{{
+					Name:     "testbox_id",
+					Required: true,
+					Type:     dispatch.InputText,
+				}}},
+			}, nil
+		},
+		ActionHandler: func(request ActionRequest) (usecase.ActionResult, error) {
+			called = append(called, request)
+			return usecase.ActionResult{Action: request.Action, WorkflowID: request.Workflow.ID, Message: "queued"}, nil
+		},
+	})
+
+	app, handled := app.Update(KeyMsg{Key: "D"})
+	if !handled || app.TopOverlay() != OverlayPalette || app.Route() != RouteRuns {
+		t.Fatalf("D should open dispatch workflow picker: handled=%v route=%s overlay=%s\n%s", handled, app.Route(), app.TopOverlay(), app.View())
+	}
+	picker := ansi.Strip(app.ViewSize(140, 36))
+	for _, want := range []string{"dispatch: Release", "dispatch: Blacksmith Build Artifacts Testbox", "workflow_dispatch"} {
+		if !strings.Contains(picker, want) {
+			t.Fatalf("dispatch picker missing %q\n%s", want, picker)
+		}
+	}
+
+	app, handled = app.Update(KeyMsg{Key: "j"})
+	if !handled {
+		t.Fatalf("j should move workflow picker selection")
+	}
+	app, handled = app.Update(KeyMsg{Key: "enter"})
+	if !handled || app.TopOverlay() != OverlayNone || app.Route() != RouteDispatch {
+		t.Fatalf("enter should open selected workflow form: handled=%v route=%s overlay=%s\n%s", handled, app.Route(), app.TopOverlay(), app.View())
+	}
+	form := ansi.Strip(app.ViewSize(140, 36))
+	for _, want := range []string{"dispatch · Blacksmith Build Artifacts Testbox", "testbox_id", "POST …/workflows/blacksmith.yml/dispatches"} {
+		if !strings.Contains(form, want) {
+			t.Fatalf("selected workflow form missing %q\n%s", want, form)
+		}
+	}
+
+	for _, key := range []string{"t", "b", "x", "-", "1", "2", "3", "enter"} {
+		var stepHandled bool
+		app, stepHandled = app.Update(KeyMsg{Key: key})
+		if !stepHandled {
+			t.Fatalf("dispatch form key %q was not handled", key)
+		}
+	}
+	if len(called) != 1 || called[0].Workflow.ID != "blacksmith.yml" || called[0].Dispatch.Inputs["testbox_id"] != "tbx-123" {
+		t.Fatalf("dispatch call = %#v", called)
+	}
+}
+
+func TestDispatchTextInputConsumesGlobalShortcutLetters(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{
+			Repo:   "indrasvat/gh-hound",
+			Branch: "main",
+			State:  usecase.LaunchStateRuns,
+			Runs: []model.Run{{
+				ID:         1,
+				Name:       "CI",
+				Status:     model.StatusCompleted,
+				Conclusion: model.ConclusionSuccess,
+			}},
+		},
+		DispatchWorkflowsResolver: func() ([]dispatch.Workflow, error) {
+			return []dispatch.Workflow{{
+				Name: "CI",
+				ID:   "ci.yml",
+				Ref:  "main",
+				Inputs: []dispatch.Input{{
+					Name: "version",
+					Type: dispatch.InputText,
+				}},
+			}}, nil
+		},
+	})
+	app, handled := app.Update(KeyMsg{Key: "D"})
+	if !handled || app.Route() != RouteDispatch {
+		t.Fatalf("D did not open dispatch form: handled=%v route=%s\n%s", handled, app.Route(), app.View())
+	}
+	app, handled = app.Update(KeyMsg{Key: "T"})
+	if !handled {
+		t.Fatal("dispatch text input did not handle uppercase T")
+	}
+	if app.Theme().Mode != theme.ModeBramble {
+		t.Fatalf("uppercase T toggled global theme while editing dispatch input")
+	}
+	if len(app.dispatch.Fields) == 0 || app.dispatch.Fields[0].Value != "T" {
+		t.Fatalf("dispatch field value = %#v", app.dispatch.Fields)
 	}
 }
 

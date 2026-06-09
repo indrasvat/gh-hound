@@ -54,7 +54,7 @@ Semantic mapping: success uses `ok`; failure uses `fail`; in-progress uses `run`
 
 ## Glyphs
 
-All glyphs are text presentation only. Do not append emoji variation selectors. The HTML mock uses `⎇` for branch, but shux's bundled snapshot font renders U+2387 as tofu; the implementation uses the render-safe `⌥` variant until the screenshot font chain supports U+2387.
+All glyphs are text presentation only. Do not append emoji variation selectors. The HTML mock uses `⎇` for branch and the shux snapshot font chain must render it without tofu before visual QA passes.
 
 | Name | Glyph |
 |---|---|
@@ -68,7 +68,7 @@ All glyphs are text presentation only. Do not append emoji variation selectors. 
 | timed_out | ⧗ |
 | neutral | ◇ |
 | selection_bar | ▌ |
-| branch | ⌥ |
+| branch | ⎇ |
 | breadcrumb | › |
 | fold_open | ▾ |
 | fold_closed | ▸ |

@@ -23,7 +23,7 @@ func TestStatusAndConclusionGlyphsMatchHTMLMock(t *testing.T) {
 		{"timed out", ForConclusion(model.ConclusionTimedOut), "⧗"},
 		{"neutral", ForConclusion(model.ConclusionNeutral), "◇"},
 		{"cursor", Cursor, "▌"},
-		{"branch", Branch, "⌥"},
+		{"branch", Branch, "⎇"},
 		{"breadcrumb", Breadcrumb, "›"},
 		{"fold open", FoldOpen, "▾"},
 		{"fold closed", FoldClosed, "▸"},
