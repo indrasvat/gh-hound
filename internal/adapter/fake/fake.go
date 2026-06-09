@@ -23,6 +23,7 @@ const (
 	ScenarioPermission   Scenario = "permission"
 	ScenarioConflict     Scenario = "conflict"
 	ScenarioLogRender    Scenario = "log_render"
+	ScenarioLogRefetch   Scenario = "log_refetch"
 )
 
 type Adapter struct {
@@ -37,7 +38,7 @@ func (a *Adapter) ListRuns(context.Context, usecase.RunFilter) ([]model.Run, err
 	switch a.scenario {
 	case ScenarioGreen:
 		return []model.Run{greenRun(571), greenRun(570), greenRun(569)}, nil
-	case ScenarioFailing:
+	case ScenarioFailing, ScenarioLogRefetch:
 		run := greenRun(571)
 		run.Conclusion = model.ConclusionFailure
 		return []model.Run{run}, nil
@@ -136,6 +137,18 @@ func (a *Adapter) FetchJobLog(context.Context, string, int64) (string, error) {
 		"##[endgroup]",
 		"##[endgroup]",
 	}, "\n"), nil
+}
+
+func (a *Adapter) LastLogRefetch(jobID int64) (usecase.LogRefetchNotice, bool) {
+	if a.scenario != ScenarioLogRefetch || jobID == 0 {
+		return usecase.LogRefetchNotice{}, false
+	}
+	return usecase.LogRefetchNotice{
+		JobID:         jobID,
+		Attempts:      2,
+		ExpiredStatus: http.StatusGone,
+		Message:       "link had expired; re-requested job log",
+	}, true
 }
 
 func (a *Adapter) RerunRun(ctx context.Context, repo string, runID int64, debug bool) (usecase.ActionResult, error) {

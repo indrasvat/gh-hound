@@ -31,6 +31,7 @@ scenarios=(
   runs-select
   runs-filter
   detail-nav
+  failure-log-refetch
   failure-actions
   log-search-fold
   watch-toggle
@@ -41,6 +42,7 @@ adapter_for() {
   case "$1" in
     runs-select) printf 'green' ;;
     watch-toggle) printf 'running' ;;
+    failure-log-refetch) printf 'log_refetch' ;;
     *) printf 'failing' ;;
   esac
 }
@@ -62,6 +64,7 @@ keys_for() {
     runs-filter) printf '/ f a i l enter' ;;
     detail-nav) printf 'enter tab n' ;;
     failure-actions) printf 'enter enter' ;;
+    failure-log-refetch) printf 'enter enter' ;;
     log-search-fold) printf 'enter enter l / t r a i l enter z' ;;
     watch-toggle) printf 'w f d' ;;
     dispatch-fill) printf 'D T v 0 . 1 2 . 0 tab right' ;;

@@ -24,6 +24,13 @@ type RequestMeta struct {
 	RateRemaining string
 }
 
+type LogRefetchNotice struct {
+	JobID         int64
+	Attempts      int
+	ExpiredStatus int
+	Message       string
+}
+
 type GitHub interface {
 	ListRuns(context.Context, RunFilter) ([]model.Run, error)
 	GetRun(context.Context, string, int64) (model.Run, error)
@@ -43,4 +50,8 @@ type GitHub interface {
 
 type GitHubDiagnostics interface {
 	LastRequestMeta(resource string) (RequestMeta, bool)
+}
+
+type GitHubLogDiagnostics interface {
+	LastLogRefetch(jobID int64) (LogRefetchNotice, bool)
 }

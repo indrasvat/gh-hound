@@ -1389,6 +1389,103 @@ func TestLogRouteUsesAvailableFrameHeight(t *testing.T) {
 	}
 }
 
+func TestLogRefetchNoticeShowsToastWhileKeepingRecoveredLog(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	run := model.Run{ID: 9100, Name: "CI", RunNumber: 91}
+	job := model.Job{ID: 9101, RunID: 9100, Name: "build", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure}
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{
+			Repo:       "openclaw/openclaw",
+			Branch:     "main",
+			State:      usecase.LaunchStateRuns,
+			Runs:       []model.Run{run},
+			BranchRuns: []model.Run{run},
+		},
+		DetailResolver: func(model.Run) (detail.Model, error) {
+			return detail.NewModel(run, []model.Job{job}).WithRepo("openclaw/openclaw"), nil
+		},
+		LogResolver: func(model.Run, model.Job) (logscreen.Model, error) {
+			return logscreen.NewModel(logs.Parse("001 recovered log line\n##[error]still visible"), 1, 6), nil
+		},
+		LogRefetchNotice: func(jobID int64) (usecase.LogRefetchNotice, bool) {
+			if jobID != job.ID {
+				return usecase.LogRefetchNotice{}, false
+			}
+			return usecase.LogRefetchNotice{
+				JobID:         job.ID,
+				Attempts:      2,
+				ExpiredStatus: 404,
+				Message:       "link had expired; re-requested job log",
+			}, true
+		},
+	})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, handled := app.Update(KeyMsg{Key: "l"})
+	if !handled || app.Route() != RouteLog {
+		t.Fatalf("log open handled=%v route=%s", handled, app.Route())
+	}
+	view := ansi.Strip(app.ViewSize(120, 28))
+	for _, want := range []string{"recovered log line", "Log render failed", "link had expired"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("log refetch view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+func TestFailureRouteShowsLogRefetchToastAfterRecoveredFailureLoad(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	run := model.Run{ID: 9200, Name: "CI", RunNumber: 92}
+	job := model.Job{ID: 9201, RunID: 9200, Name: "build", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure}
+	report := usecase.FailureReport{
+		Job: job,
+		Log: logs.Parse(strings.Join([]string{
+			"001 setup",
+			"002 ##[error]Process completed with exit code 1",
+		}, "\n")),
+	}
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{
+			Repo:       "openclaw/openclaw",
+			Branch:     "main",
+			State:      usecase.LaunchStateRuns,
+			Runs:       []model.Run{run},
+			BranchRuns: []model.Run{run},
+		},
+		DetailResolver: func(model.Run) (detail.Model, error) {
+			return detail.NewModel(run, []model.Job{job}).WithRepo("openclaw/openclaw"), nil
+		},
+		FailureResolver: func(model.Run, model.Job) (failurescreen.Model, logscreen.Model, error) {
+			return failurescreen.NewModel("openclaw/openclaw", run.ID, report), logscreen.NewModel(report.Log, 1, 6), nil
+		},
+		LogRefetchNotice: func(jobID int64) (usecase.LogRefetchNotice, bool) {
+			if jobID != job.ID {
+				return usecase.LogRefetchNotice{}, false
+			}
+			return usecase.LogRefetchNotice{
+				JobID:         job.ID,
+				Attempts:      2,
+				ExpiredStatus: 410,
+				Message:       "link had expired; re-requested job log",
+			}, true
+		},
+	})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, handled := app.Update(KeyMsg{Key: "enter"})
+	if !handled || app.Route() != RouteFailure {
+		t.Fatalf("failure open handled=%v route=%s", handled, app.Route())
+	}
+	view := ansi.Strip(app.ViewSize(120, 28))
+	for _, want := range []string{"Process completed with exit code 1", "Log render failed", "HTTP 410"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("failure refetch view missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func failurescreenModelForTest(run model.Run, job model.Job) failurescreen.Model {
 	raw := strings.Join([]string{
 		"##[group] build",

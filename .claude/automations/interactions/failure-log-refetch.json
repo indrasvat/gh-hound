@@ -1,0 +1,8 @@
+{
+  "contains": [
+    "Log render failed",
+    "link had expired",
+    "HTTP 410",
+    "Process completed with exit code 1"
+  ]
+}

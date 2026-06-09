@@ -42,6 +42,16 @@ func TestFetchJobLogRefetchesWhenRedirectExpired(t *testing.T) {
 	if got := logEndpointCalls.Load(); got != 2 {
 		t.Fatalf("log endpoint calls = %s, want 2", strconv.FormatInt(got, 10))
 	}
+	notice, ok := client.LastLogRefetch(399444496)
+	if !ok {
+		t.Fatal("missing log refetch notice")
+	}
+	if notice.JobID != 399444496 || notice.Attempts != 2 || notice.ExpiredStatus != http.StatusNotFound {
+		t.Fatalf("notice = %#v", notice)
+	}
+	if !strings.Contains(notice.Message, "expired") {
+		t.Fatalf("notice message = %q, want expired context", notice.Message)
+	}
 }
 
 func TestFetchJobLogReturnsErrorForLogEndpointFailure(t *testing.T) {

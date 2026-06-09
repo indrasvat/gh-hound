@@ -29,6 +29,8 @@ type Client struct {
 	trace   traceOptions
 	metaMu  sync.RWMutex
 	meta    map[string]usecase.RequestMeta
+	logMu   sync.RWMutex
+	logMeta map[int64]usecase.LogRefetchNotice
 }
 
 func NewClient(baseURL string, httpClient *http.Client) *Client {
@@ -60,6 +62,7 @@ func NewClientWithOptions(baseURL string, httpClient *http.Client, options Clien
 		queue:   NewQueue(),
 		trace:   traceOptions{enabled: options.TraceHTTP, logger: logger},
 		meta:    map[string]usecase.RequestMeta{},
+		logMeta: map[int64]usecase.LogRefetchNotice{},
 	}
 }
 

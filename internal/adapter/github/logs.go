@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
 func (c *Client) FetchJobLog(ctx context.Context, repo string, jobID int64) (string, error) {
@@ -19,15 +21,40 @@ func (c *Client) FetchJobLog(ctx context.Context, repo string, jobID int64) (str
 		return "", err
 	}
 	if status == http.StatusNotFound || status == http.StatusGone {
+		expiredStatus := status
 		body, status, err = c.fetchLogURL(ctx, endpoint, resource)
 		if err != nil {
 			return "", err
+		}
+		if status >= 200 && status < 300 {
+			c.storeLogRefetch(usecase.LogRefetchNotice{
+				JobID:         jobID,
+				Attempts:      2,
+				ExpiredStatus: expiredStatus,
+				Message:       "link had expired; re-requested job log",
+			})
 		}
 	}
 	if status < 200 || status >= 300 {
 		return "", fmt.Errorf("github log download failed for job %d: status %d", jobID, status)
 	}
 	return string(body), nil
+}
+
+func (c *Client) storeLogRefetch(notice usecase.LogRefetchNotice) {
+	c.logMu.Lock()
+	defer c.logMu.Unlock()
+	if c.logMeta == nil {
+		c.logMeta = map[int64]usecase.LogRefetchNotice{}
+	}
+	c.logMeta[notice.JobID] = notice
+}
+
+func (c *Client) LastLogRefetch(jobID int64) (usecase.LogRefetchNotice, bool) {
+	c.logMu.RLock()
+	defer c.logMu.RUnlock()
+	notice, ok := c.logMeta[jobID]
+	return notice, ok
 }
 
 func (c *Client) fetchLogURL(ctx context.Context, rawURL, resource string) ([]byte, int, error) {

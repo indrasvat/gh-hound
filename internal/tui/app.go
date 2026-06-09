@@ -66,6 +66,7 @@ type Options struct {
 	DispatchResolver          func() (dispatch.Model, error)
 	DispatchWorkflowsResolver func() ([]dispatch.Workflow, error)
 	RunsMetadata              func() (usecase.RequestMeta, bool)
+	LogRefetchNotice          func(int64) (usecase.LogRefetchNotice, bool)
 	ActionHandler             func(ActionRequest) (usecase.ActionResult, error)
 	OpenURL                   func(string) error
 	CopyText                  func(string) error
@@ -113,6 +114,7 @@ type App struct {
 	dispatchResolver          func() (dispatch.Model, error)
 	dispatchWorkflowsResolver func() ([]dispatch.Workflow, error)
 	runsMetadata              func() (usecase.RequestMeta, bool)
+	logRefetchNotice          func(int64) (usecase.LogRefetchNotice, bool)
 	actionHandler             func(ActionRequest) (usecase.ActionResult, error)
 	openURL                   func(string) error
 	copyText                  func(string) error
@@ -184,6 +186,7 @@ func NewApp(options Options) App {
 		dispatchResolver:          options.DispatchResolver,
 		dispatchWorkflowsResolver: options.DispatchWorkflowsResolver,
 		runsMetadata:              options.RunsMetadata,
+		logRefetchNotice:          options.LogRefetchNotice,
 		actionHandler:             options.ActionHandler,
 		openURL:                   options.OpenURL,
 		copyText:                  options.CopyText,
@@ -1126,6 +1129,7 @@ func (a App) loadFailure(run model.Run, job model.Job) App {
 	a.failure = resolved
 	a.log = fullLog
 	a.clearRouteError(RouteLog)
+	a.pushLogRefetchToast(job.ID)
 	return a
 }
 
@@ -1141,7 +1145,33 @@ func (a App) loadLog(run model.Run, job model.Job) App {
 		return a
 	}
 	a.log = resolved
+	a.pushLogRefetchToast(job.ID)
 	return a
+}
+
+func (a *App) pushLogRefetchToast(jobID int64) {
+	if a.logRefetchNotice == nil || jobID == 0 {
+		return
+	}
+	notice, ok := a.logRefetchNotice(jobID)
+	if !ok {
+		return
+	}
+	message := strings.TrimSpace(notice.Message)
+	if message == "" {
+		message = "link had expired; re-requested job log"
+	}
+	if notice.ExpiredStatus != 0 {
+		message = fmt.Sprintf("%s · HTTP %d", message, notice.ExpiredStatus)
+	}
+	a.pushToast("log-refetch", usecase.Resilience{
+		Class:          usecase.ErrorClassLogRender,
+		Severity:       usecase.SeverityWarn,
+		Title:          "Log render failed",
+		Message:        message,
+		RetryAction:    "refetch_log",
+		KeepCachedView: true,
+	})
 }
 
 func (a App) loadWatch(run model.Run) App {

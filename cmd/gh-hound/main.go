@@ -466,6 +466,13 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			}
 			return diagnostics.LastRequestMeta(githubRunsResource(launch.Repo))
 		},
+		LogRefetchNotice: func(jobID int64) (usecase.LogRefetchNotice, bool) {
+			diagnostics, ok := githubClient.(usecase.GitHubLogDiagnostics)
+			if !ok {
+				return usecase.LogRefetchNotice{}, false
+			}
+			return diagnostics.LastLogRefetch(jobID)
+		},
 		DetailResolver: func(run model.Run) (detail.Model, error) {
 			jobs, err := githubClient.ListJobs(ctx, launch.Repo, run.ID)
 			if err != nil {

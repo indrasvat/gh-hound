@@ -19,6 +19,7 @@ func TestScenariosReturnDeterministicRuns(t *testing.T) {
 		{ScenarioGreen, 3, false, model.ConclusionSuccess, model.StatusCompleted},
 		{ScenarioFailing, 1, false, model.ConclusionFailure, model.StatusCompleted},
 		{ScenarioRunning, 1, false, model.ConclusionNone, model.StatusInProgress},
+		{ScenarioLogRefetch, 1, false, model.ConclusionFailure, model.StatusCompleted},
 		{ScenarioEmpty, 0, false, model.ConclusionNone, ""},
 		{ScenarioRateLimited, 0, true, model.ConclusionNone, ""},
 		{ScenarioNetworkError, 0, true, model.ConclusionNone, ""},
@@ -36,6 +37,24 @@ func TestScenariosReturnDeterministicRuns(t *testing.T) {
 		if tt.wantRuns > 0 && (runs[0].Conclusion != tt.want || runs[0].Status != tt.status) {
 			t.Fatalf("%s first run = %#v", tt.scenario, runs[0])
 		}
+	}
+}
+
+func TestLogRefetchScenarioExposesRecoveredLogNotice(t *testing.T) {
+	adapter := New(ScenarioLogRefetch)
+	raw, err := adapter.FetchJobLog(context.Background(), "indrasvat/gh-hound", 399444496)
+	if err != nil {
+		t.Fatalf("FetchJobLog error = %v", err)
+	}
+	if raw == "" {
+		t.Fatal("FetchJobLog returned empty recovered log")
+	}
+	notice, ok := adapter.LastLogRefetch(399444496)
+	if !ok {
+		t.Fatal("missing log refetch notice")
+	}
+	if notice.ExpiredStatus != 410 || notice.Attempts != 2 {
+		t.Fatalf("notice = %#v", notice)
 	}
 }
 
