@@ -931,6 +931,122 @@ func TestActionPermissionErrorKeepsCurrentScreenAndShowsToast(t *testing.T) {
 	}
 }
 
+func TestRunsOpenBrowserAndCopyUseSelectedRunURL(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	var opened, copied string
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{
+			Repo:   "openclaw/openclaw",
+			Branch: "main",
+			Scope:  usecase.LaunchScopeBranch,
+			State:  usecase.LaunchStateRuns,
+			Runs: []model.Run{{
+				ID:         8300,
+				Name:       "CI",
+				RunNumber:  8300,
+				HTMLURL:    "https://github.com/openclaw/openclaw/actions/runs/8300",
+				Status:     model.StatusCompleted,
+				Conclusion: model.ConclusionFailure,
+			}},
+		},
+		OpenURL:  func(value string) error { opened = value; return nil },
+		CopyText: func(value string) error { copied = value; return nil },
+	})
+
+	app, handled := app.Update(KeyMsg{Key: "o"})
+	if !handled || opened != "https://github.com/openclaw/openclaw/actions/runs/8300" {
+		t.Fatalf("open handled=%v opened=%q", handled, opened)
+	}
+	app, handled = app.Update(KeyMsg{Key: "y"})
+	if !handled || copied != opened {
+		t.Fatalf("copy handled=%v copied=%q want %q", handled, copied, opened)
+	}
+	view := ansi.Strip(app.ViewSize(120, 24))
+	if !strings.Contains(view, "Copied") {
+		t.Fatalf("copy toast missing:\n%s", view)
+	}
+}
+
+func TestDetailOpenBrowserAndCopyUseSelectedJobAndRun(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	var opened, copied string
+	run := model.Run{
+		ID:         8400,
+		Name:       "CI",
+		RunNumber:  8400,
+		HeadSHA:    "abcdef1234567890",
+		HTMLURL:    "https://github.com/openclaw/openclaw/actions/runs/8400",
+		Status:     model.StatusCompleted,
+		Conclusion: model.ConclusionFailure,
+	}
+	job := model.Job{
+		ID:         8401,
+		RunID:      8400,
+		Name:       "build",
+		HTMLURL:    "https://github.com/openclaw/openclaw/actions/runs/8400/job/8401",
+		Status:     model.StatusCompleted,
+		Conclusion: model.ConclusionFailure,
+	}
+	app := NewApp(Options{
+		Config:   cfg,
+		Launch:   usecase.LaunchContext{Repo: "openclaw/openclaw", Branch: "main", Scope: usecase.LaunchScopeBranch, State: usecase.LaunchStateRuns, Runs: []model.Run{run}},
+		OpenURL:  func(value string) error { opened = value; return nil },
+		CopyText: func(value string) error { copied = value; return nil },
+		DetailResolver: func(model.Run) (detail.Model, error) {
+			return detail.NewModel(run, []model.Job{job}).WithRepo("openclaw/openclaw"), nil
+		},
+	})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+
+	app, handled := app.Update(KeyMsg{Key: "o"})
+	if !handled || opened != job.HTMLURL {
+		t.Fatalf("detail open handled=%v opened=%q", handled, opened)
+	}
+	app, handled = app.Update(KeyMsg{Key: "y"})
+	if !handled || copied != run.HTMLURL {
+		t.Fatalf("detail copy url handled=%v copied=%q", handled, copied)
+	}
+	_, handled = app.Update(KeyMsg{Key: "Y"})
+	if !handled || copied != run.HeadSHA {
+		t.Fatalf("detail copy sha handled=%v copied=%q", handled, copied)
+	}
+}
+
+func TestFailureOpenBrowserAndCopyExcerpt(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	var opened, copied string
+	run := model.Run{ID: 8500, Name: "CI", RunNumber: 8500, HTMLURL: "https://github.com/openclaw/openclaw/actions/runs/8500"}
+	report := externalFailureReport()
+	report.Job.HTMLURL = "https://github.com/openclaw/openclaw/actions/runs/8500/job/8501"
+	app := NewApp(Options{
+		Config:   cfg,
+		Launch:   usecase.LaunchContext{Repo: "openclaw/openclaw", Branch: "main", Scope: usecase.LaunchScopeBranch, State: usecase.LaunchStateRuns, Runs: []model.Run{run}},
+		OpenURL:  func(value string) error { opened = value; return nil },
+		CopyText: func(value string) error { copied = value; return nil },
+		DetailResolver: func(model.Run) (detail.Model, error) {
+			return detail.NewModel(run, []model.Job{report.Job}).WithRepo("openclaw/openclaw"), nil
+		},
+		FailureResolver: func(model.Run, model.Job) (failurescreen.Model, logscreen.Model, error) {
+			return failurescreen.NewModel("openclaw/openclaw", run.ID, report), logscreen.NewModel(report.Log, 1, 6), nil
+		},
+	})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+
+	app, handled := app.Update(KeyMsg{Key: "o"})
+	if !handled || opened != report.Job.HTMLURL {
+		t.Fatalf("failure open handled=%v opened=%q", handled, opened)
+	}
+	_, handled = app.Update(KeyMsg{Key: "y"})
+	if !handled || !strings.Contains(copied, "trailing_underscore") || !strings.Contains(copied, "Process completed") {
+		t.Fatalf("failure copy handled=%v copied=%q", handled, copied)
+	}
+}
+
 func TestNestedMutationShortcutsRequireConfirmation(t *testing.T) {
 	cfg := config.Default()
 	cfg.Welcome = false
@@ -1043,6 +1159,31 @@ func failurescreenModelForTest(run model.Run, job model.Job) failurescreen.Model
 		Log: logs.Parse(raw),
 	}
 	return failurescreen.NewModel("openclaw/openclaw", run.ID, report)
+}
+
+func externalFailureReport() usecase.FailureReport {
+	raw := strings.Join([]string{
+		"##[group] test output",
+		"RUN TestLexIdent/trailing_underscore",
+		"lexer_test.go:88: got \"foo\" want \"foo_\"",
+		"--- FAIL: TestLexIdent/trailing_underscore (0.00s)",
+		"##[error]Process completed with exit code 1",
+	}, "\n")
+	return usecase.FailureReport{
+		Job: model.Job{
+			ID:         8501,
+			RunID:      8500,
+			Name:       "build",
+			Status:     model.StatusCompleted,
+			Conclusion: model.ConclusionFailure,
+			Steps: []model.Step{{
+				Name:       "go test ./...",
+				Number:     6,
+				Conclusion: model.ConclusionFailure,
+			}},
+		},
+		Log: logs.Parse(raw),
+	}
 }
 
 func watchModelForTest(run model.Run) watchscreen.Model {

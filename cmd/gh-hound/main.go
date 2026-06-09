@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	goruntime "runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -73,6 +74,8 @@ type commandRuntime struct {
 	GHToken   func() string
 	GitHub    usecase.GitHub
 	Repo      usecase.RepositoryContextProvider
+	OpenURL   func(string) error
+	CopyText  func(string) error
 }
 
 type cliOptions struct {
@@ -508,7 +511,83 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 				return usecase.ActionResult{}, fmt.Errorf("unsupported action %q", request.Action)
 			}
 		},
+		OpenURL:  openURLForRuntime(runtime),
+		CopyText: copyTextForRuntime(runtime),
 	}), nil
+}
+
+func openURLForRuntime(runtime commandRuntime) func(string) error {
+	if runtime.OpenURL != nil {
+		return runtime.OpenURL
+	}
+	return openBrowser
+}
+
+func copyTextForRuntime(runtime commandRuntime) func(string) error {
+	if runtime.CopyText != nil {
+		return runtime.CopyText
+	}
+	return copyToClipboard
+}
+
+func openBrowser(rawURL string) error {
+	name, args, err := browserCommand(goruntime.GOOS, rawURL)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(name, args...)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return cmd.Process.Release()
+}
+
+func copyToClipboard(value string) error {
+	name, args, err := clipboardCommand(goruntime.GOOS)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(name, args...)
+	cmd.Stdin = strings.NewReader(value)
+	return cmd.Run()
+}
+
+func browserCommand(goos, rawURL string) (string, []string, error) {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return "", nil, fmt.Errorf("url is empty")
+	}
+	switch goos {
+	case "darwin":
+		return "open", []string{rawURL}, nil
+	case "windows":
+		return "rundll32", []string{"url.dll,FileProtocolHandler", rawURL}, nil
+	default:
+		return "xdg-open", []string{rawURL}, nil
+	}
+}
+
+func clipboardCommand(goos string) (string, []string, error) {
+	switch goos {
+	case "darwin":
+		return "pbcopy", nil, nil
+	case "windows":
+		return "clip", nil, nil
+	default:
+		for _, candidate := range []struct {
+			name string
+			args []string
+		}{
+			{name: "wl-copy"},
+			{name: "xclip", args: []string{"-selection", "clipboard"}},
+			{name: "xsel", args: []string{"--clipboard", "--input"}},
+		} {
+			if _, err := exec.LookPath(candidate.name); err == nil {
+				return candidate.name, candidate.args, nil
+			}
+		}
+		return "", nil, fmt.Errorf("no clipboard command found; install wl-copy, xclip, or xsel")
+	}
 }
 
 func resolveJobForRun(ctx context.Context, githubClient usecase.GitHub, repo string, run model.Run, selected model.Job) (model.Job, error) {

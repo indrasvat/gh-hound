@@ -270,6 +270,28 @@ func TestDefaultTUIAppDeepRoutesUseGitHubPortData(t *testing.T) {
 	}
 }
 
+func TestExternalCommandSelection(t *testing.T) {
+	name, args, err := browserCommand("darwin", "https://github.com/openclaw/openclaw/actions/runs/1")
+	if err != nil || name != "open" || len(args) != 1 {
+		t.Fatalf("darwin browser command = %s %#v %v", name, args, err)
+	}
+	name, args, err = browserCommand("linux", "https://github.com/openclaw/openclaw/actions/runs/1")
+	if err != nil || name != "xdg-open" || len(args) != 1 {
+		t.Fatalf("linux browser command = %s %#v %v", name, args, err)
+	}
+	if _, _, err = browserCommand("linux", " "); err == nil {
+		t.Fatal("empty browser URL should fail")
+	}
+	name, args, err = clipboardCommand("darwin")
+	if err != nil || name != "pbcopy" || len(args) != 0 {
+		t.Fatalf("darwin clipboard command = %s %#v %v", name, args, err)
+	}
+	name, args, err = clipboardCommand("windows")
+	if err != nil || name != "clip" || len(args) != 0 {
+		t.Fatalf("windows clipboard command = %s %#v %v", name, args, err)
+	}
+}
+
 func TestKeyNameDecodesANSIArrowsAndShiftTab(t *testing.T) {
 	tests := map[string]string{
 		"\x1b[A": "up",

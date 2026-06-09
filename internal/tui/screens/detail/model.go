@@ -25,6 +25,8 @@ const (
 	IntentCancel      IntentKind = "cancel"
 	IntentForceCancel IntentKind = "force_cancel"
 	IntentBrowser     IntentKind = "browser"
+	IntentCopyURL     IntentKind = "copy_url"
+	IntentCopySHA     IntentKind = "copy_sha"
 	IntentPreviousRun IntentKind = "previous_run"
 	IntentNextRun     IntentKind = "next_run"
 	IntentBack        IntentKind = "back"
@@ -89,6 +91,10 @@ func (m Model) Update(msg KeyMsg) Model {
 		m.Intent = m.intentFor(IntentForceCancel)
 	case "o":
 		m.Intent = m.intentFor(IntentBrowser)
+	case "y":
+		m.Intent = m.intentFor(IntentCopyURL)
+	case "Y":
+		m.Intent = m.intentFor(IntentCopySHA)
 	case "J":
 		m.Intent = Intent{Kind: IntentNextRun, RunID: m.Run.ID}
 	case "K":

@@ -65,6 +65,8 @@ type Options struct {
 	WatchResolver    func(model.Run) (watch.Model, error)
 	DispatchResolver func() (dispatch.Model, error)
 	ActionHandler    func(ActionRequest) (usecase.ActionResult, error)
+	OpenURL          func(string) error
+	CopyText         func(string) error
 }
 
 type ActionRequest struct {
@@ -104,6 +106,8 @@ type App struct {
 	watchResolver    func(model.Run) (watch.Model, error)
 	dispatchResolver func() (dispatch.Model, error)
 	actionHandler    func(ActionRequest) (usecase.ActionResult, error)
+	openURL          func(string) error
+	copyText         func(string) error
 }
 
 type pendingAction struct {
@@ -162,6 +166,8 @@ func NewApp(options Options) App {
 		watchResolver:    options.WatchResolver,
 		dispatchResolver: options.DispatchResolver,
 		actionHandler:    options.ActionHandler,
+		openURL:          options.OpenURL,
+		copyText:         options.CopyText,
 	}
 }
 
@@ -539,6 +545,14 @@ func (a App) updateRuns(msg KeyMsg) (App, bool) {
 	case runs.IntentDispatch:
 		a = a.loadDispatch()
 		a.PushRoute(RouteDispatch)
+	case runs.IntentBrowser:
+		if run, ok := a.runs.SelectedRun(); ok {
+			a = a.openExternal(selectedRunURL(a.runs.Context.Repo, run))
+		}
+	case runs.IntentCopy:
+		if run, ok := a.runs.SelectedRun(); ok {
+			a = a.copyExternal("run-url", selectedRunURL(a.runs.Context.Repo, run))
+		}
 	case runs.IntentRerun:
 		if run, ok := a.runs.SelectedRun(); ok {
 			a = a.handleAction(RouteRuns, ActionRequest{Action: usecase.ActionRerunRun, Run: run})
@@ -586,6 +600,12 @@ func (a App) updateDetail(msg KeyMsg) (App, bool) {
 		a = a.handleAction(RouteDetail, ActionRequest{Action: usecase.ActionCancelRun, Run: a.detail.Run})
 	case detail.IntentForceCancel:
 		a = a.handleAction(RouteDetail, ActionRequest{Action: usecase.ActionForceCancelRun, Run: a.detail.Run})
+	case detail.IntentBrowser:
+		a = a.openExternal(detailBrowserURL(a.detail))
+	case detail.IntentCopyURL:
+		a = a.copyExternal("detail-url", selectedRunURL(a.detail.Repo, a.detail.Run))
+	case detail.IntentCopySHA:
+		a = a.copyExternal("detail-sha", a.detail.Run.HeadSHA)
 	case detail.IntentBack:
 		a.PopRoute()
 	}
@@ -603,6 +623,10 @@ func (a App) updateFailure(msg KeyMsg) (App, bool) {
 		a = a.handleAction(RouteFailure, ActionRequest{Action: usecase.ActionRerunJob, Run: a.detail.Run, Job: a.failure.Report.Job})
 	case failure.IntentRerunFailed:
 		a = a.handleAction(RouteFailure, ActionRequest{Action: usecase.ActionRerunFailedJobs, Run: a.detail.Run})
+	case failure.IntentBrowser:
+		a = a.openExternal(failureBrowserURL(a.failure))
+	case failure.IntentCopyExcerpt:
+		a = a.copyExternal("failure-excerpt", failureExcerptText(a.failure))
 	case failure.IntentBack:
 		a.PopRoute()
 	}
@@ -1132,6 +1156,106 @@ func (a *App) pushToast(id string, resilience usecase.Resilience) {
 		a.toasts = toast.New()
 	}
 	a.toasts = a.toasts.Push(toast.FromResilience(id, resilience, 8*time.Second))
+}
+
+func (a App) openExternal(url string) App {
+	url = strings.TrimSpace(url)
+	if url == "" {
+		a.pushErrorToast("open-url-missing", usecase.ResilienceFor(fmt.Errorf("browser URL is not available for this selection"), usecase.ErrorContext{}))
+		return a
+	}
+	if a.openURL == nil {
+		a.pushErrorToast("open-url-unavailable", usecase.ResilienceFor(fmt.Errorf("browser opener is not configured"), usecase.ErrorContext{}))
+		return a
+	}
+	if err := a.openURL(url); err != nil {
+		a.pushErrorToast("open-url-failed", usecase.ResilienceFor(err, usecase.ErrorContext{}))
+		return a
+	}
+	a.pushToast("open-url-ok", usecase.Resilience{
+		Class:          usecase.ErrorClassSuccess,
+		Severity:       usecase.SeverityOK,
+		Title:          "Opened in browser",
+		Message:        url,
+		RetryAction:    "open",
+		KeepCachedView: true,
+	})
+	return a
+}
+
+func (a App) copyExternal(id, value string) App {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		a.pushErrorToast(id+"-missing", usecase.ResilienceFor(fmt.Errorf("copy value is not available for this selection"), usecase.ErrorContext{}))
+		return a
+	}
+	if a.copyText == nil {
+		a.pushErrorToast(id+"-unavailable", usecase.ResilienceFor(fmt.Errorf("clipboard copier is not configured"), usecase.ErrorContext{}))
+		return a
+	}
+	if err := a.copyText(value); err != nil {
+		a.pushErrorToast(id+"-failed", usecase.ResilienceFor(err, usecase.ErrorContext{}))
+		return a
+	}
+	a.pushToast(id+"-ok", usecase.Resilience{
+		Class:          usecase.ErrorClassSuccess,
+		Severity:       usecase.SeverityOK,
+		Title:          "Copied",
+		Message:        copySummary(value),
+		RetryAction:    "copy",
+		KeepCachedView: true,
+	})
+	return a
+}
+
+func selectedRunURL(repo string, run model.Run) string {
+	if strings.TrimSpace(run.HTMLURL) != "" {
+		return strings.TrimSpace(run.HTMLURL)
+	}
+	if strings.TrimSpace(repo) != "" && run.ID > 0 {
+		return fmt.Sprintf("https://github.com/%s/actions/runs/%d", strings.TrimSpace(repo), run.ID)
+	}
+	return ""
+}
+
+func detailBrowserURL(m detail.Model) string {
+	if job, ok := m.SelectedJobModel(); ok && strings.TrimSpace(job.HTMLURL) != "" {
+		return strings.TrimSpace(job.HTMLURL)
+	}
+	return selectedRunURL(m.Repo, m.Run)
+}
+
+func failureBrowserURL(m failure.Model) string {
+	if strings.TrimSpace(m.Report.Job.HTMLURL) != "" {
+		return strings.TrimSpace(m.Report.Job.HTMLURL)
+	}
+	if strings.TrimSpace(m.Repo) != "" && m.RunID > 0 && m.Report.Job.ID > 0 {
+		return fmt.Sprintf("https://github.com/%s/actions/runs/%d/job/%d", strings.TrimSpace(m.Repo), m.RunID, m.Report.Job.ID)
+	}
+	if strings.TrimSpace(m.Repo) != "" && m.RunID > 0 {
+		return fmt.Sprintf("https://github.com/%s/actions/runs/%d", strings.TrimSpace(m.Repo), m.RunID)
+	}
+	return ""
+}
+
+func failureExcerptText(m failure.Model) string {
+	lines := m.Excerpt
+	if len(lines) == 0 {
+		lines = m.Report.Log.Failure.Lines
+	}
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		out = append(out, fmt.Sprintf("%03d %s", line.Number, strings.TrimSpace(line.Text)))
+	}
+	return strings.Join(out, "\n")
+}
+
+func copySummary(value string) string {
+	value = strings.ReplaceAll(value, "\n", " ")
+	if len([]rune(value)) > 72 {
+		value = string([]rune(value)[:71]) + "…"
+	}
+	return value
 }
 
 func runsHandled(key string) bool {
