@@ -11,6 +11,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/banner"
 	"github.com/indrasvat/gh-hound/internal/tui/keys"
+	"github.com/indrasvat/gh-hound/internal/tui/overlay/confirm"
 	"github.com/indrasvat/gh-hound/internal/tui/overlay/help"
 	"github.com/indrasvat/gh-hound/internal/tui/overlay/palette"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
@@ -44,6 +45,7 @@ const (
 	OverlayNone    Overlay = ""
 	OverlayHelp    Overlay = "help"
 	OverlayPalette Overlay = "palette"
+	OverlayConfirm Overlay = "confirm"
 )
 
 type KeyMsg struct {
@@ -87,6 +89,8 @@ type App struct {
 	log              logscreen.Model
 	watch            watch.Model
 	dispatch         dispatch.Model
+	confirm          confirm.Model
+	pendingAction    *pendingAction
 	routeErrors      map[Route]string
 	detailResolver   func(model.Run) (detail.Model, error)
 	failureResolver  func(model.Run, model.Job) (failure.Model, logscreen.Model, error)
@@ -94,6 +98,11 @@ type App struct {
 	watchResolver    func(model.Run) (watch.Model, error)
 	dispatchResolver func() (dispatch.Model, error)
 	actionHandler    func(ActionRequest) (usecase.ActionResult, error)
+}
+
+type pendingAction struct {
+	route   Route
+	request ActionRequest
 }
 
 func NewApp(options Options) App {
@@ -198,6 +207,9 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 	}
 
 	if len(a.overlays) > 0 {
+		if a.TopOverlay() == OverlayConfirm {
+			return a.updateConfirm(msg)
+		}
 		switch msg.Key {
 		case "esc":
 			a.overlays = a.overlays[:len(a.overlays)-1]
@@ -256,6 +268,9 @@ func (a App) ViewSize(width, height int) string {
 		footer = keys.FooterForScreen(keys.ScreenHelp)
 		if a.TopOverlay() == OverlayPalette {
 			footer = keys.FooterForScreen(keys.ScreenPalette)
+		}
+		if a.TopOverlay() == OverlayConfirm {
+			footer = "y confirm · enter/n/esc cancel"
 		}
 	}
 	return frameViewSize(a.theme, title, context, right, body, footer, width, height, true)
@@ -586,6 +601,24 @@ func (a App) updateDispatch(msg KeyMsg) (App, bool) {
 	return a, dispatchHandled(msg.Key) || beforeFocused != a.dispatch.Focused || a.dispatch.Intent.Kind != dispatch.IntentNone
 }
 
+func (a App) updateConfirm(msg KeyMsg) (App, bool) {
+	a.confirm = a.confirm.Update(confirm.KeyMsg{Key: msg.Key})
+	switch a.confirm.Intent.Kind {
+	case confirm.IntentConfirm:
+		pending := a.pendingAction
+		a = a.closeConfirm()
+		if pending != nil {
+			a = a.executeAction(pending.route, pending.request)
+		}
+		return a, true
+	case confirm.IntentCancel:
+		a = a.closeConfirm()
+		return a, true
+	default:
+		return a, false
+	}
+}
+
 func (a App) loadDetail(run model.Run) App {
 	a.clearRouteError(RouteDetail)
 	if a.detailResolver == nil {
@@ -665,6 +698,13 @@ func (a App) loadDispatch() App {
 }
 
 func (a App) handleAction(route Route, request ActionRequest) App {
+	if actionRequiresConfirmation(request.Action) {
+		return a.openConfirm(route, request)
+	}
+	return a.executeAction(route, request)
+}
+
+func (a App) executeAction(route Route, request ActionRequest) App {
 	a.clearRouteError(route)
 	if a.actionHandler == nil {
 		a.setRouteError(route, "action unavailable: live GitHub mutation handler is not configured")
@@ -674,6 +714,75 @@ func (a App) handleAction(route Route, request ActionRequest) App {
 		a.setRouteError(route, "action failed: "+err.Error())
 	}
 	return a
+}
+
+func (a App) openConfirm(route Route, request ActionRequest) App {
+	a.clearRouteError(route)
+	a.pendingAction = &pendingAction{route: route, request: request}
+	a.confirm = confirm.New(confirmMessage(request))
+	if a.TopOverlay() != OverlayConfirm {
+		a.overlays = append(a.overlays, OverlayConfirm)
+	}
+	return a
+}
+
+func (a App) closeConfirm() App {
+	if a.TopOverlay() == OverlayConfirm {
+		a.overlays = a.overlays[:len(a.overlays)-1]
+	}
+	a.pendingAction = nil
+	a.confirm = confirm.Model{}
+	return a
+}
+
+func actionRequiresConfirmation(action usecase.Action) bool {
+	switch action {
+	case usecase.ActionRerunRun,
+		usecase.ActionRerunFailedJobs,
+		usecase.ActionRerunJob,
+		usecase.ActionCancelRun,
+		usecase.ActionForceCancelRun:
+		return true
+	default:
+		return false
+	}
+}
+
+func confirmMessage(request ActionRequest) string {
+	switch request.Action {
+	case usecase.ActionRerunRun:
+		return "rerun " + runTarget(request.Run)
+	case usecase.ActionRerunFailedJobs:
+		return "rerun failed jobs for " + runTarget(request.Run)
+	case usecase.ActionRerunJob:
+		return "rerun " + jobTarget(request.Job)
+	case usecase.ActionCancelRun:
+		return "cancel " + runTarget(request.Run)
+	case usecase.ActionForceCancelRun:
+		return "force-cancel " + runTarget(request.Run)
+	default:
+		return string(request.Action)
+	}
+}
+
+func runTarget(run model.Run) string {
+	if run.RunNumber > 0 {
+		return fmt.Sprintf("run #%d", run.RunNumber)
+	}
+	if run.ID > 0 {
+		return fmt.Sprintf("run %d", run.ID)
+	}
+	return "selected run"
+}
+
+func jobTarget(job model.Job) string {
+	if strings.TrimSpace(job.Name) != "" {
+		return "job " + strings.TrimSpace(job.Name)
+	}
+	if job.ID > 0 {
+		return fmt.Sprintf("job %d", job.ID)
+	}
+	return "selected job"
 }
 
 func (a App) selectedDetailJob() model.Job {
@@ -780,6 +889,8 @@ func (a App) overlayTitle() string {
 		return "help · gh hound"
 	case OverlayPalette:
 		return ": jump to…"
+	case OverlayConfirm:
+		return "Confirm action"
 	default:
 		return ""
 	}
@@ -791,6 +902,8 @@ func (a App) overlayView(width int) string {
 		return help.View(a.footerScreen(), width-20)
 	case OverlayPalette:
 		return palette.View(palette.New(palette.DefaultItems()), width-20)
+	case OverlayConfirm:
+		return confirm.View(a.confirm, width-20)
 	default:
 		return ""
 	}

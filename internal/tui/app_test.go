@@ -10,7 +10,9 @@ import (
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
+	failurescreen "github.com/indrasvat/gh-hound/internal/tui/screens/failure"
 	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
+	watchscreen "github.com/indrasvat/gh-hound/internal/tui/screens/watch"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -552,6 +554,198 @@ func TestRunsArrowKeysNavigateAndSelectedRunOpensDistinctDetail(t *testing.T) {
 	}
 }
 
+func TestDestructiveActionsRequireExplicitConfirmation(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	calls := []ActionRequest{}
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{
+			Repo:   "openclaw/openclaw",
+			Branch: "main",
+			State:  usecase.LaunchStateRuns,
+			Runs: []model.Run{{
+				ID:         9001,
+				Name:       "CI",
+				RunNumber:  44,
+				Status:     model.StatusInProgress,
+				Conclusion: model.ConclusionNone,
+				HeadBranch: "main",
+			}},
+		},
+		ActionHandler: func(request ActionRequest) (usecase.ActionResult, error) {
+			calls = append(calls, request)
+			return usecase.ActionResult{Action: request.Action, RunID: request.Run.ID, Message: "accepted"}, nil
+		},
+	})
+
+	app, handled := app.Update(KeyMsg{Key: "x"})
+	if !handled || app.TopOverlay() != OverlayConfirm {
+		t.Fatalf("cancel should open confirm overlay before mutation: handled=%v top=%s\n%s", handled, app.TopOverlay(), app.View())
+	}
+	if len(calls) != 0 {
+		t.Fatalf("action handler called before confirmation: %#v", calls)
+	}
+	if view := ansi.Strip(app.ViewSize(120, 32)); !strings.Contains(view, "Confirm action") || !strings.Contains(view, "cancel run #44") {
+		t.Fatalf("confirm modal missing action context:\n%s", view)
+	}
+
+	app, handled = app.Update(KeyMsg{Key: "enter"})
+	if !handled || app.TopOverlay() != OverlayNone || len(calls) != 0 {
+		t.Fatalf("enter should keep default no: handled=%v top=%s calls=%d", handled, app.TopOverlay(), len(calls))
+	}
+
+	app, _ = app.Update(KeyMsg{Key: "x"})
+	app, handled = app.Update(KeyMsg{Key: "y"})
+	if !handled || app.TopOverlay() != OverlayNone {
+		t.Fatalf("y should confirm and close overlay: handled=%v top=%s", handled, app.TopOverlay())
+	}
+	if len(calls) != 1 || calls[0].Action != usecase.ActionCancelRun || calls[0].Run.ID != 9001 {
+		t.Fatalf("confirmed cancel call = %#v", calls)
+	}
+
+	app, _ = app.Update(KeyMsg{Key: "X"})
+	app, handled = app.Update(KeyMsg{Key: "enter"})
+	if !handled || app.TopOverlay() != OverlayNone || len(calls) != 1 {
+		t.Fatalf("force-cancel enter should abort, not confirm: handled=%v top=%s calls=%d", handled, app.TopOverlay(), len(calls))
+	}
+}
+
+func TestRunsMutationShortcutsRequireConfirmation(t *testing.T) {
+	tests := []struct {
+		key    string
+		action usecase.Action
+		label  string
+	}{
+		{key: "r", action: usecase.ActionRerunRun, label: "rerun run #44"},
+		{key: "R", action: usecase.ActionRerunFailedJobs, label: "rerun failed jobs for run #44"},
+		{key: "x", action: usecase.ActionCancelRun, label: "cancel run #44"},
+		{key: "X", action: usecase.ActionForceCancelRun, label: "force-cancel run #44"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			cfg := config.Default()
+			cfg.Welcome = false
+			calls := []ActionRequest{}
+			app := NewApp(Options{
+				Config: cfg,
+				Launch: usecase.LaunchContext{
+					Repo:   "openclaw/openclaw",
+					Branch: "main",
+					State:  usecase.LaunchStateRuns,
+					Runs: []model.Run{{
+						ID:         9001,
+						Name:       "CI",
+						RunNumber:  44,
+						Status:     model.StatusInProgress,
+						Conclusion: model.ConclusionNone,
+						HeadBranch: "main",
+					}},
+				},
+				ActionHandler: func(request ActionRequest) (usecase.ActionResult, error) {
+					calls = append(calls, request)
+					return usecase.ActionResult{Action: request.Action, RunID: request.Run.ID, Message: "accepted"}, nil
+				},
+			})
+
+			app, handled := app.Update(KeyMsg{Key: tt.key})
+			if !handled || app.TopOverlay() != OverlayConfirm || len(calls) != 0 {
+				t.Fatalf("%s should open confirm before mutation: handled=%v top=%s calls=%d", tt.key, handled, app.TopOverlay(), len(calls))
+			}
+			if view := ansi.Strip(app.ViewSize(120, 32)); !strings.Contains(view, tt.label) {
+				t.Fatalf("confirm modal missing %q:\n%s", tt.label, view)
+			}
+			app, handled = app.Update(KeyMsg{Key: "y"})
+			if !handled || app.TopOverlay() != OverlayNone {
+				t.Fatalf("%s y should confirm and close overlay: handled=%v top=%s", tt.key, handled, app.TopOverlay())
+			}
+			if len(calls) != 1 || calls[0].Action != tt.action || calls[0].Run.ID != 9001 {
+				t.Fatalf("%s confirmed call = %#v", tt.key, calls)
+			}
+		})
+	}
+}
+
+func TestNestedMutationShortcutsRequireConfirmation(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	run := model.Run{ID: 9001, Name: "CI", RunNumber: 44, Status: model.StatusCompleted, Conclusion: model.ConclusionFailure, HeadBranch: "main"}
+	job := model.Job{ID: 7001, RunID: run.ID, Name: "build", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure}
+	tests := []struct {
+		name   string
+		key    string
+		action usecase.Action
+		setup  func(App) App
+		label  string
+	}{
+		{
+			name:   "detail rerun job",
+			key:    "r",
+			action: usecase.ActionRerunJob,
+			setup: func(app App) App {
+				app.detail = detail.NewModel(run, []model.Job{job})
+				app.PushRoute(RouteDetail)
+				return app
+			},
+			label: "rerun job build",
+		},
+		{
+			name:   "failure rerun failed",
+			key:    "R",
+			action: usecase.ActionRerunFailedJobs,
+			setup: func(app App) App {
+				app.detail = detail.NewModel(run, []model.Job{job})
+				app.failure = failurescreenModelForTest(run, job)
+				app.PushRoute(RouteFailure)
+				return app
+			},
+			label: "rerun failed jobs for run #44",
+		},
+		{
+			name:   "watch cancel",
+			key:    "x",
+			action: usecase.ActionCancelRun,
+			setup: func(app App) App {
+				app.watch = watchModelForTest(run)
+				app.PushRoute(RouteWatch)
+				return app
+			},
+			label: "cancel run #44",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := []ActionRequest{}
+			app := NewApp(Options{
+				Config: cfg,
+				Launch: usecase.LaunchContext{
+					Repo:       "openclaw/openclaw",
+					Branch:     "main",
+					State:      usecase.LaunchStateRuns,
+					Runs:       []model.Run{run},
+					BranchRuns: []model.Run{run},
+				},
+				ActionHandler: func(request ActionRequest) (usecase.ActionResult, error) {
+					calls = append(calls, request)
+					return usecase.ActionResult{Action: request.Action, RunID: request.Run.ID, JobID: request.Job.ID, Message: "accepted"}, nil
+				},
+			})
+			app = tt.setup(app)
+			app, handled := app.Update(KeyMsg{Key: tt.key})
+			if !handled || app.TopOverlay() != OverlayConfirm || len(calls) != 0 {
+				t.Fatalf("%s should confirm before mutation: handled=%v top=%s calls=%d", tt.name, handled, app.TopOverlay(), len(calls))
+			}
+			if view := ansi.Strip(app.ViewSize(120, 32)); !strings.Contains(view, tt.label) {
+				t.Fatalf("confirm modal missing %q:\n%s", tt.label, view)
+			}
+			app, handled = app.Update(KeyMsg{Key: "y"})
+			if !handled || app.TopOverlay() != OverlayNone || len(calls) != 1 || calls[0].Action != tt.action {
+				t.Fatalf("%s confirmed state: handled=%v top=%s calls=%#v", tt.name, handled, app.TopOverlay(), calls)
+			}
+		})
+	}
+}
+
 func TestLogRouteUsesAvailableFrameHeight(t *testing.T) {
 	cfg := config.Default()
 	cfg.Welcome = false
@@ -570,4 +764,27 @@ func TestLogRouteUsesAvailableFrameHeight(t *testing.T) {
 	if strings.Contains(view, "006 line content") && !strings.Contains(view, "020 line content") {
 		t.Fatalf("log view appears fixed to the model default height:\n%s", view)
 	}
+}
+
+func failurescreenModelForTest(run model.Run, job model.Job) failurescreen.Model {
+	raw := strings.Join([]string{
+		"##[group] build",
+		"FAIL package/test",
+		"##[error]Process completed with exit code 1",
+		"##[endgroup]",
+	}, "\n")
+	report := usecase.FailureReport{
+		Job: job,
+		Log: logs.Parse(raw),
+	}
+	return failurescreen.NewModel("openclaw/openclaw", run.ID, report)
+}
+
+func watchModelForTest(run model.Run) watchscreen.Model {
+	return watchscreen.NewModel(watchscreen.State{
+		Repo:    "openclaw/openclaw",
+		Branch:  "main",
+		Run:     run,
+		Elapsed: "1m02s",
+	})
 }
