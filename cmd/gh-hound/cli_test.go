@@ -36,6 +36,24 @@ func TestHelpListsEnvVarsForFlags(t *testing.T) {
 	}
 }
 
+func TestDispatchRefRequiresLaunchBranch(t *testing.T) {
+	ref, err := dispatchRef(usecase.LaunchContext{Branch: "release/v1"})
+	if err != nil {
+		t.Fatalf("dispatchRef returned error for launch branch: %v", err)
+	}
+	if ref != "release/v1" {
+		t.Fatalf("dispatchRef = %q, want release/v1", ref)
+	}
+
+	_, err = dispatchRef(usecase.LaunchContext{Repo: "openclaw/openclaw"})
+	if err == nil {
+		t.Fatal("dispatchRef without a branch should fail instead of guessing a ref")
+	}
+	if !strings.Contains(err.Error(), "dispatch ref is unavailable") {
+		t.Fatalf("dispatchRef error = %v", err)
+	}
+}
+
 func TestRunsNoTUIJSONUsesEnvOverrides(t *testing.T) {
 	var out bytes.Buffer
 	cmd := newRootCommandWithRuntime(commandRuntime{

@@ -429,10 +429,14 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			if err != nil {
 				return dispatch.Model{}, err
 			}
+			ref, err := dispatchRef(launch)
+			if err != nil {
+				return dispatch.Model{}, err
+			}
 			return dispatch.NewModel(dispatch.Workflow{
 				Name: firstNonEmptyString(workflow.Name, workflow.Path, "workflow"),
 				ID:   workflowIdentifier(workflow),
-				Ref:  firstNonEmptyString(launch.Branch, "main"),
+				Ref:  ref,
 			}), nil
 		},
 		ActionHandler: func(request tui.ActionRequest) (usecase.ActionResult, error) {
@@ -501,6 +505,13 @@ func workflowIdentifier(workflow model.Workflow) string {
 		return strconv.FormatInt(workflow.ID, 10)
 	}
 	return workflow.Name
+}
+
+func dispatchRef(launch usecase.LaunchContext) (string, error) {
+	if ref := strings.TrimSpace(launch.Branch); ref != "" {
+		return ref, nil
+	}
+	return "", fmt.Errorf("dispatch ref is unavailable; pass --branch or run from a branch checkout")
 }
 
 func firstNonEmptyString(values ...string) string {
