@@ -75,6 +75,12 @@ func (m Model) Update(msg KeyMsg) Model {
 	m.Intent = Intent{}
 	m.Error = ""
 	if len(m.Fields) == 0 {
+		switch msg.Key {
+		case "enter":
+			m.submit()
+		case "esc":
+			m.Intent = Intent{Kind: IntentCancel}
+		}
 		return m
 	}
 	field := &m.Fields[m.Focused]

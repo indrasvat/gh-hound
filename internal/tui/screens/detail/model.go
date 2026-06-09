@@ -38,6 +38,7 @@ type Intent struct {
 }
 
 type Model struct {
+	Repo         string
 	Run          model.Run
 	Jobs         []model.Job
 	SelectedJob  int
@@ -49,6 +50,11 @@ type Model struct {
 func NewModel(run model.Run, jobs []model.Job) Model {
 	m := Model{Run: run, Jobs: append([]model.Job(nil), jobs...), Focus: FocusJobs}
 	m.jumpFailure()
+	return m
+}
+
+func (m Model) WithRepo(repo string) Model {
+	m.Repo = repo
 	return m
 }
 
@@ -130,12 +136,27 @@ func (m Model) selectedJob() model.Job {
 	return m.Jobs[m.SelectedJob]
 }
 
+func (m Model) SelectedJobModel() (model.Job, bool) {
+	if len(m.Jobs) == 0 || m.SelectedJob < 0 || m.SelectedJob >= len(m.Jobs) {
+		return model.Job{}, false
+	}
+	return m.Jobs[m.SelectedJob], true
+}
+
 func (m Model) selectedStep() model.Step {
 	job := m.selectedJob()
 	if len(job.Steps) == 0 || m.SelectedStep < 0 || m.SelectedStep >= len(job.Steps) {
 		return model.Step{}
 	}
 	return job.Steps[m.SelectedStep]
+}
+
+func (m Model) SelectedStepModel() (model.Step, bool) {
+	job, ok := m.SelectedJobModel()
+	if !ok || len(job.Steps) == 0 || m.SelectedStep < 0 || m.SelectedStep >= len(job.Steps) {
+		return model.Step{}, false
+	}
+	return job.Steps[m.SelectedStep], true
 }
 
 func (m Model) intentFor(kind IntentKind) Intent {

@@ -83,6 +83,83 @@ func TestWelcomeCanBeDisabled(t *testing.T) {
 	}
 }
 
+func TestProductionAppWithoutLaunchDoesNotRenderSampleRuns(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{Config: cfg})
+	view := ansi.Strip(app.ViewSize(120, 32))
+	assertNoProductionSampleData(t, view)
+	for _, want := range []string{"Repository needed", "gh hound -R owner/repo"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing repository guidance %q\n%s", want, view)
+		}
+	}
+}
+
+func TestProductionDeepRoutesDoNotRenderUnloadedSamples(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{
+			Repo:   "openclaw/openclaw",
+			Branch: "main",
+			Actor:  "indrasvat",
+			State:  usecase.LaunchStateRuns,
+			Runs: []model.Run{{
+				ID:         9001,
+				Name:       "Nightly",
+				Status:     model.StatusCompleted,
+				Conclusion: model.ConclusionFailure,
+				RunNumber:  77,
+				HeadBranch: "main",
+				HeadSHA:    "deadbee",
+			}},
+		},
+	})
+	for _, route := range []Route{RouteFailure, RouteLog, RouteWatch, RouteDispatch} {
+		app := app
+		app.PushRoute(route)
+		view := ansi.Strip(app.ViewSize(120, 32))
+		assertNoProductionSampleData(t, view)
+		if !strings.Contains(view, "unavailable") && !strings.Contains(view, "No workflow") {
+			t.Fatalf("%s should render an explicit unavailable/empty state, not blank or sample data:\n%s", route, view)
+		}
+	}
+}
+
+func TestProductionRunsLogShortcutDoesNotReuseSampleLog(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{
+			Repo:   "openclaw/openclaw",
+			Branch: "main",
+			Actor:  "indrasvat",
+			State:  usecase.LaunchStateRuns,
+			Runs: []model.Run{{
+				ID:         9002,
+				Name:       "CI",
+				Status:     model.StatusCompleted,
+				Conclusion: model.ConclusionFailure,
+				RunNumber:  78,
+				HeadBranch: "main",
+				HeadSHA:    "cafebabe",
+			}},
+		},
+	})
+	app, handled := app.Update(KeyMsg{Key: "l"})
+	if !handled || app.Route() != RouteLog {
+		t.Fatalf("l should open the log route through live loading: handled=%v route=%s", handled, app.Route())
+	}
+	view := ansi.Strip(app.ViewSize(120, 32))
+	assertNoProductionSampleData(t, view)
+	if !strings.Contains(view, "log unavailable") {
+		t.Fatalf("missing explicit log unavailable state:\n%s", view)
+	}
+}
+
 func TestWelcomeDismissesToResolvedLaunchState(t *testing.T) {
 	cfg := config.Default()
 	launch := usecase.LaunchContext{
@@ -116,6 +193,26 @@ func TestWelcomeDismissesToResolvedLaunchState(t *testing.T) {
 	}
 	if strings.Contains(view, "CI #570") {
 		t.Fatalf("watch view used sample run after welcome:\n%s", view)
+	}
+}
+
+func assertNoProductionSampleData(t *testing.T, view string) {
+	t.Helper()
+	for _, banned := range []string{
+		"fix/parser",
+		"parser fix validation",
+		"TestLexIdent",
+		"internal/parser/lexer.go",
+		"a1b2c3d",
+		"CI #571",
+		"Release #42",
+		"dispatch · Release",
+		"release.yml",
+		"Run go test ./...",
+	} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("production TUI rendered sample sentinel %q:\n%s", banned, view)
+		}
 	}
 }
 
@@ -167,10 +264,7 @@ func TestSizedViewDoesNotScrollOrWrapAtTerminalGeometry(t *testing.T) {
 }
 
 func TestRootViewRendersRunsRoutePlaceholderContract(t *testing.T) {
-	cfg := config.Default()
-	cfg.Welcome = false
-	app := NewApp(Options{Config: cfg, Build: BuildInfo{Version: "v0.1.0"}})
-	view := app.View()
+	view := RenderFixtureSize("runs", 80, 0)
 	for _, want := range []string{"hound", "⌥ branch fix/parser · @indrasvat", "⏎ open · ↻ rerun · ✗ cancel"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("runs route view missing %q\n%s", want, view)
@@ -179,11 +273,7 @@ func TestRootViewRendersRunsRoutePlaceholderContract(t *testing.T) {
 }
 
 func TestRootViewRendersDetailRouteContract(t *testing.T) {
-	cfg := config.Default()
-	cfg.Welcome = false
-	app := NewApp(Options{Config: cfg})
-	app.PushRoute(RouteDetail)
-	view := ansi.Strip(app.View())
+	view := ansi.Strip(RenderFixtureSize("detail", 80, 0))
 	for _, want := range []string{"CI #571", "build [failure]", "go test ./...", "⏎ expand · ↻ rerun job"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("detail route view missing %q\n%s", want, view)
@@ -192,11 +282,7 @@ func TestRootViewRendersDetailRouteContract(t *testing.T) {
 }
 
 func TestRootViewRendersFailureRouteContract(t *testing.T) {
-	cfg := config.Default()
-	cfg.Welcome = false
-	app := NewApp(Options{Config: cfg})
-	app.PushRoute(RouteFailure)
-	view := app.View()
+	view := RenderFixtureSize("failure", 80, 0)
 	for _, want := range []string{"Annotations", "error window", "copy excerpt"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("failure route view missing %q\n%s", want, view)
@@ -205,11 +291,7 @@ func TestRootViewRendersFailureRouteContract(t *testing.T) {
 }
 
 func TestRootViewRendersLogRouteContract(t *testing.T) {
-	cfg := config.Default()
-	cfg.Welcome = false
-	app := NewApp(Options{Config: cfg})
-	app.PushRoute(RouteLog)
-	view := app.View()
+	view := RenderFixtureSize("log", 80, 0)
 	for _, want := range []string{"log", "001", "go test", "j/k scroll"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("log route view missing %q\n%s", want, view)
@@ -218,11 +300,7 @@ func TestRootViewRendersLogRouteContract(t *testing.T) {
 }
 
 func TestRootViewRendersWatchRouteContract(t *testing.T) {
-	cfg := config.Default()
-	cfg.Welcome = false
-	app := NewApp(Options{Config: cfg})
-	app.PushRoute(RouteWatch)
-	view := app.View()
+	view := RenderFixtureSize("watch", 80, 0)
 	for _, want := range []string{"watch · CI #570", "streaming", "follow", "✗ cancel"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("watch route view missing %q\n%s", want, view)
@@ -231,11 +309,7 @@ func TestRootViewRendersWatchRouteContract(t *testing.T) {
 }
 
 func TestRootViewRendersDispatchRouteContract(t *testing.T) {
-	cfg := config.Default()
-	cfg.Welcome = false
-	app := NewApp(Options{Config: cfg})
-	app.PushRoute(RouteDispatch)
-	view := app.View()
+	view := RenderFixtureSize("dispatch", 80, 0)
 	for _, want := range []string{"dispatch · Release", "POST …/workflows/release.yml/dispatches", "⏎ run"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("dispatch route view missing %q\n%s", want, view)
@@ -356,9 +430,7 @@ func TestScreenBodiesDoNotRenderFrameFooters(t *testing.T) {
 }
 
 func TestRootShellDelegatesScreenKeysAndRoutes(t *testing.T) {
-	cfg := config.Default()
-	cfg.Welcome = false
-	app := NewApp(Options{Config: cfg})
+	app := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
 
 	app, handled := app.Update(KeyMsg{Key: "j"})
 	if view := ansi.Strip(app.View()); !handled || !strings.Contains(view, "▌#570") || !strings.Contains(view, "CI · push smoke") {
@@ -410,9 +482,9 @@ func TestRunsArrowKeysNavigateAndSelectedRunOpensDistinctDetail(t *testing.T) {
 			State:  usecase.LaunchStateRuns,
 			Runs:   []model.Run{release, codeQL},
 		},
-		DetailResolver: func(run model.Run) detail.Model {
+		DetailResolver: func(run model.Run) (detail.Model, error) {
 			job := model.Job{ID: run.ID + 10, RunID: run.ID, Name: run.Name + " job", Status: run.Status, Conclusion: run.Conclusion}
-			return detail.NewModel(run, []model.Job{job})
+			return detail.NewModel(run, []model.Job{job}), nil
 		},
 	})
 

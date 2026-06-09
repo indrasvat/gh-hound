@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -125,6 +124,65 @@ func TestTTYRootLaunchesInteractiveTUI(t *testing.T) {
 	for _, want := range []string{"\x1b[?25l", "\x1b[?25h", "██╗  ██╗ ██████╗", "Hunt down your GitHub Actions CI", "⏎ continue · ? help · q quit", "Release"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("tty root missing %q\n%s", want, got)
+		}
+	}
+}
+
+func TestDefaultTUIAppDeepRoutesUseGitHubPortData(t *testing.T) {
+	run := cliRun(777, "Real CI", model.StatusCompleted, model.ConclusionFailure)
+	job := model.Job{
+		ID:         444,
+		RunID:      run.ID,
+		Name:       "real build",
+		Status:     model.StatusCompleted,
+		Conclusion: model.ConclusionFailure,
+		Steps: []model.Step{{
+			Number:     3,
+			Name:       "real integration test",
+			Status:     model.StatusCompleted,
+			Conclusion: model.ConclusionFailure,
+		}},
+	}
+	github := &cliGitHub{
+		runs:   []model.Run{run},
+		jobs:   []model.Job{job},
+		jobLog: "17:42:53Z real production log\n##[error]real failure from GitHub",
+	}
+	app, err := defaultTUIApp(context.Background(), commandRuntime{
+		Env: mapEnv(map[string]string{
+			"HOUND_WELCOME": "false",
+		}),
+		IsTTY:  true,
+		GitHub: github,
+		Repo: &cliRepo{context: usecase.RepositoryContext{
+			Repo:   "openclaw/openclaw",
+			Branch: "main",
+			Actor:  "indrasvat",
+		}},
+	}, tui.BuildInfo{Version: "v0.1.0"}, cliOptions{})
+	if err != nil {
+		t.Fatalf("defaultTUIApp returned error: %v", err)
+	}
+	if github.listJobs == 0 {
+		t.Fatal("initial detail did not load jobs through the GitHub port")
+	}
+
+	app, handled := app.Update(tui.KeyMsg{Key: "l"})
+	if !handled || app.Route() != tui.RouteLog {
+		t.Fatalf("l did not open live log route: handled=%v route=%s", handled, app.Route())
+	}
+	view := app.ViewSize(120, 32)
+	if github.fetchJobLog != 1 {
+		t.Fatalf("FetchJobLog calls = %d, want 1", github.fetchJobLog)
+	}
+	for _, want := range []string{"real production log", "real failure from GitHub"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("live log view missing %q\n%s", want, view)
+		}
+	}
+	for _, banned := range []string{"TestLexIdent", "parser fix validation", "internal/parser/lexer.go"} {
+		if strings.Contains(view, banned) {
+			t.Fatalf("live TUI route rendered sample data %q\n%s", banned, view)
 		}
 	}
 }
@@ -392,49 +450,77 @@ func TestAgentSurfaceAPIErrorExitsTwo(t *testing.T) {
 }
 
 func TestAuthenticatedHTTPClientFallsBackToGhKeyring(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("Authorization"); got != "Bearer gh-keyring-token" {
-			t.Fatalf("Authorization = %q, want gh keyring bearer token", got)
-		}
-		_, _ = w.Write([]byte("{}"))
-	}))
-	defer server.Close()
-
 	client := authenticatedHTTPClient(emptyEnv, func() string {
 		return "gh-keyring-token"
 	})
-	resp, err := client.Get(server.URL)
-	if err != nil {
-		t.Fatalf("GET with gh keyring auth failed: %v", err)
+	transport, ok := client.Transport.(authTransport)
+	if !ok {
+		t.Fatalf("transport = %T, want authTransport", client.Transport)
 	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			t.Fatalf("close response body: %v", err)
-		}
-	}()
+	req := requestThroughAuthTransport(t, transport, "https://api.github.com/repos/openclaw/openclaw/actions/runs")
+	if got := req.Header.Get("Authorization"); got != "Bearer gh-keyring-token" {
+		t.Fatalf("Authorization = %q, want gh keyring bearer token", got)
+	}
 }
 
 func TestAuthenticatedHTTPClientEnvTokenWinsOverGhKeyring(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("Authorization"); got != "Bearer env-token" {
-			t.Fatalf("Authorization = %q, want env bearer token", got)
-		}
-		_, _ = w.Write([]byte("{}"))
-	}))
-	defer server.Close()
-
 	client := authenticatedHTTPClient(mapEnv(map[string]string{"GH_TOKEN": "env-token"}), func() string {
 		return "gh-keyring-token"
 	})
-	resp, err := client.Get(server.URL)
-	if err != nil {
-		t.Fatalf("GET with env auth failed: %v", err)
+	transport, ok := client.Transport.(authTransport)
+	if !ok {
+		t.Fatalf("transport = %T, want authTransport", client.Transport)
 	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			t.Fatalf("close response body: %v", err)
-		}
-	}()
+	req := requestThroughAuthTransport(t, transport, "https://api.github.com/repos/openclaw/openclaw/actions/runs")
+	if got := req.Header.Get("Authorization"); got != "Bearer env-token" {
+		t.Fatalf("Authorization = %q, want env bearer token", got)
+	}
+}
+
+func TestAuthenticatedHTTPClientDoesNotAttachTokenToRedirectedLogHosts(t *testing.T) {
+	transport := authTransport{token: "github-token"}
+	githubReq := requestThroughAuthTransport(t, transport, "https://api.github.com/repos/openclaw/openclaw/actions/jobs/1/logs")
+	if got := githubReq.Header.Get("Authorization"); got != "Bearer github-token" {
+		t.Fatalf("github Authorization = %q", got)
+	}
+
+	blobReq := requestThroughAuthTransport(t, transport, "https://productionresultssa18.blob.core.windows.net/actions-results/log.txt")
+	if got := blobReq.Header.Get("Authorization"); got != "" {
+		t.Fatalf("redirected log Authorization leaked to blob host: %q", got)
+	}
+}
+
+func requestThroughAuthTransport(t *testing.T, transport authTransport, rawURL string) *http.Request {
+	t.Helper()
+	var seen *http.Request
+	transport.base = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		seen = req
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader("ok")),
+			Header:     http.Header{},
+			Request:    req,
+		}, nil
+	})
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := transport.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if seen == nil {
+		t.Fatal("base transport was not called")
+	}
+	return seen
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 func TestDefaultTUIAppHonorsWelcomeEnvOverride(t *testing.T) {
@@ -550,9 +636,13 @@ func (r *cliRepo) Current(context.Context) (usecase.RepositoryContext, error) {
 }
 
 type cliGitHub struct {
-	runs    []model.Run
-	filters []usecase.RunFilter
-	err     error
+	runs        []model.Run
+	jobs        []model.Job
+	jobLog      string
+	filters     []usecase.RunFilter
+	listJobs    int
+	fetchJobLog int
+	err         error
 }
 
 func (g *cliGitHub) ListRuns(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
@@ -565,7 +655,8 @@ func (g *cliGitHub) GetRun(context.Context, string, int64) (model.Run, error) {
 }
 
 func (g *cliGitHub) ListJobs(context.Context, string, int64) ([]model.Job, error) {
-	return nil, nil
+	g.listJobs++
+	return g.jobs, nil
 }
 
 func (g *cliGitHub) GetJob(context.Context, string, int64) (model.Job, error) {
@@ -581,7 +672,8 @@ func (g *cliGitHub) ListAnnotations(context.Context, string, model.Job) ([]model
 }
 
 func (g *cliGitHub) FetchJobLog(context.Context, string, int64) (string, error) {
-	return "", nil
+	g.fetchJobLog++
+	return g.jobLog, nil
 }
 
 func (g *cliGitHub) RerunRun(context.Context, string, int64, bool) (usecase.ActionResult, error) {

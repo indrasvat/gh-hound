@@ -158,7 +158,7 @@ func breadcrumb(m Model) string {
 	if len(sha) > 7 {
 		sha = sha[:7]
 	}
-	return fmt.Sprintf("indrasvat/gh-hound %s %s #%d %s %s · @%s", icons.Breadcrumb, m.Run.Name, m.Run.RunNumber, icons.Breadcrumb, first(m.Run.HeadBranch, "branch"), first(sha, "sha"))
+	return fmt.Sprintf("%s %s %s #%d %s %s · @%s", first(m.Repo, "repository"), icons.Breadcrumb, m.Run.Name, m.Run.RunNumber, icons.Breadcrumb, first(m.Run.HeadBranch, "branch"), first(sha, "sha"))
 }
 
 func jobGlyph(job model.Job) string {

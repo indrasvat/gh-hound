@@ -14,6 +14,10 @@ func View(m Model, width int) string {
 		width = 80
 	}
 	lines := []string{fit(header(m), width)}
+	if len(m.State.Lines) == 0 {
+		lines = append(lines, fitANSI(colorize(sgrDim, "waiting for completed job logs from GitHub Actions"), width))
+		return strings.Join(lines, "\n")
+	}
 	lines = append(lines, foldLine(width))
 	start := 0
 	if m.Follow && len(m.State.Lines) > 6 {
@@ -51,13 +55,12 @@ func header(m Model) string {
 }
 
 func foldLine(width int) string {
-	value := colorize(sgrOK, "▾") + " " + colorize(sgrFGSoft, "Run go test ./...")
+	value := colorize(sgrOK, "▾") + " " + colorize(sgrFGSoft, "completed job logs")
 	return backgroundSafe(value, width, sgrFG, sgrSurfaceBG)
 }
 
 func logLine(line logs.Line, width int, active bool) string {
-	number := line.Number + 40
-	gutter := colorize(sgrLine2, fmt.Sprintf("%03d", number))
+	gutter := colorize(sgrLine2, fmt.Sprintf("%03d", line.Number))
 	return fitANSI(gutter+" "+renderLogText(line.Text, active), width)
 }
 

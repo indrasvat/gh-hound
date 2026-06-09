@@ -15,11 +15,16 @@ import (
 	"github.com/indrasvat/gh-hound/internal/adapter/github"
 	"github.com/indrasvat/gh-hound/internal/adapter/repository"
 	"github.com/indrasvat/gh-hound/internal/config"
+	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/render"
 	"github.com/indrasvat/gh-hound/internal/tui"
 	tuibanner "github.com/indrasvat/gh-hound/internal/tui/banner"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/dispatch"
+	failurescreen "github.com/indrasvat/gh-hound/internal/tui/screens/failure"
+	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/watch"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -346,6 +351,12 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 	}
 	githubClient := githubClientForRuntime(runtime)
 	repoProvider := repoProviderForRuntime(runtime)
+	actionService := usecase.ActionService{
+		GitHub:  githubClient,
+		Limiter: &usecase.MutationLimiter{MinSpacing: time.Second},
+	}
+	failureService := usecase.FailureService{GitHub: githubClient}
+	watchService := usecase.WatchService{GitHub: githubClient, MinPoll: cfg.PollMin, MaxPoll: cfg.PollMax}
 	launch := usecase.LaunchService{
 		Config:     cfg,
 		GitHub:     githubClient,
@@ -360,14 +371,164 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 		Config: cfg,
 		Build:  build,
 		Launch: launch,
-		DetailResolver: func(run model.Run) detail.Model {
+		DetailResolver: func(run model.Run) (detail.Model, error) {
 			jobs, err := githubClient.ListJobs(ctx, launch.Repo, run.ID)
-			if err != nil || len(jobs) == 0 {
-				return tui.DetailModelForRun(run)
+			if err != nil {
+				return detail.Model{}, err
 			}
-			return detail.NewModel(run, jobs)
+			return detail.NewModel(run, jobs).WithRepo(launch.Repo), nil
+		},
+		FailureResolver: func(run model.Run, selected model.Job) (failurescreen.Model, logscreen.Model, error) {
+			job, err := resolveJobForRun(ctx, githubClient, launch.Repo, run, selected)
+			if err != nil {
+				return failurescreen.Model{}, logscreen.Model{}, err
+			}
+			report, err := failureService.LoadFailure(ctx, launch.Repo, job)
+			if err != nil {
+				return failurescreen.Model{}, logscreen.Model{}, err
+			}
+			return failurescreen.NewModel(launch.Repo, run.ID, report), logscreen.NewModel(report.Log, report.Log.Failure.AnchorLine, 6), nil
+		},
+		LogResolver: func(run model.Run, selected model.Job) (logscreen.Model, error) {
+			job, err := resolveJobForRun(ctx, githubClient, launch.Repo, run, selected)
+			if err != nil {
+				return logscreen.Model{}, err
+			}
+			raw, err := githubClient.FetchJobLog(ctx, launch.Repo, job.ID)
+			if err != nil {
+				return logscreen.Model{}, err
+			}
+			return logscreen.NewModel(logs.Parse(raw), 1, 6), nil
+		},
+		WatchResolver: func(run model.Run) (watch.Model, error) {
+			state, err := watchService.Tick(ctx, usecase.WatchState{Repo: launch.Repo, RunID: run.ID, Run: run})
+			if err != nil {
+				return watch.Model{}, err
+			}
+			if state.Run.ID == 0 {
+				state.Run = run
+			}
+			return watch.NewModel(watch.State{
+				Repo:    launch.Repo,
+				Branch:  firstNonEmptyString(launch.Branch, run.HeadBranch),
+				Run:     state.Run,
+				Lines:   state.Appended,
+				Elapsed: elapsedRun(state.Run),
+			}), nil
+		},
+		DispatchResolver: func() (dispatch.Model, error) {
+			workflows := launch.Workflows
+			var err error
+			if len(workflows) == 0 {
+				workflows, err = githubClient.ListWorkflows(ctx, launch.Repo)
+				if err != nil {
+					return dispatch.Model{}, err
+				}
+			}
+			workflow, err := chooseWorkflow(workflows)
+			if err != nil {
+				return dispatch.Model{}, err
+			}
+			return dispatch.NewModel(dispatch.Workflow{
+				Name: firstNonEmptyString(workflow.Name, workflow.Path, "workflow"),
+				ID:   workflowIdentifier(workflow),
+				Ref:  firstNonEmptyString(launch.Branch, "main"),
+			}), nil
+		},
+		ActionHandler: func(request tui.ActionRequest) (usecase.ActionResult, error) {
+			switch request.Action {
+			case usecase.ActionRerunRun:
+				return actionService.RerunRun(ctx, launch.Repo, request.Run.ID, request.Debug)
+			case usecase.ActionRerunFailedJobs:
+				return actionService.RerunFailedJobs(ctx, launch.Repo, request.Run.ID)
+			case usecase.ActionRerunJob:
+				if request.Job.ID == 0 {
+					return usecase.ActionResult{}, fmt.Errorf("job is not loaded")
+				}
+				return actionService.RerunJob(ctx, launch.Repo, request.Job.ID)
+			case usecase.ActionCancelRun:
+				return actionService.CancelRun(ctx, launch.Repo, request.Run.ID)
+			case usecase.ActionForceCancelRun:
+				return actionService.ForceCancelRun(ctx, launch.Repo, request.Run.ID)
+			case usecase.ActionDispatch:
+				if request.Workflow.ID == "" {
+					return usecase.ActionResult{}, fmt.Errorf("workflow is not loaded")
+				}
+				return actionService.DispatchWorkflow(ctx, launch.Repo, request.Workflow.ID, request.Dispatch)
+			default:
+				return usecase.ActionResult{}, fmt.Errorf("unsupported action %q", request.Action)
+			}
 		},
 	}), nil
+}
+
+func resolveJobForRun(ctx context.Context, githubClient usecase.GitHub, repo string, run model.Run, selected model.Job) (model.Job, error) {
+	if selected.ID != 0 {
+		return selected, nil
+	}
+	jobs, err := githubClient.ListJobs(ctx, repo, run.ID)
+	if err != nil {
+		return model.Job{}, err
+	}
+	if len(jobs) == 0 {
+		return model.Job{}, fmt.Errorf("no jobs found for run #%d", run.RunNumber)
+	}
+	for _, job := range jobs {
+		if job.Conclusion == model.ConclusionFailure || job.Conclusion == model.ConclusionActionRequired || job.Conclusion == model.ConclusionTimedOut {
+			return job, nil
+		}
+	}
+	return jobs[0], nil
+}
+
+func chooseWorkflow(workflows []model.Workflow) (model.Workflow, error) {
+	for _, workflow := range workflows {
+		if workflow.State == "active" {
+			return workflow, nil
+		}
+	}
+	if len(workflows) > 0 {
+		return workflows[0], nil
+	}
+	return model.Workflow{}, fmt.Errorf("no GitHub Actions workflows found")
+}
+
+func workflowIdentifier(workflow model.Workflow) string {
+	if workflow.Path != "" {
+		return workflow.Path
+	}
+	if workflow.ID != 0 {
+		return strconv.FormatInt(workflow.ID, 10)
+	}
+	return workflow.Name
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func elapsedRun(run model.Run) string {
+	start := run.RunStartedAt
+	if start.IsZero() {
+		start = run.CreatedAt
+	}
+	end := run.UpdatedAt
+	if run.Status != model.StatusCompleted || end.IsZero() || end.Before(start) {
+		end = time.Now()
+	}
+	if start.IsZero() || end.Before(start) {
+		return ""
+	}
+	elapsed := end.Sub(start).Round(time.Second)
+	if elapsed < time.Minute {
+		return fmt.Sprintf("%ds", int(elapsed.Seconds()))
+	}
+	return fmt.Sprintf("%dm%02ds", int(elapsed.Minutes()), int(elapsed.Seconds())%60)
 }
 
 func githubClientForRuntime(runtime commandRuntime) usecase.GitHub {
@@ -646,11 +807,18 @@ type authTransport struct {
 
 func (t authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	clone := req.Clone(req.Context())
-	clone.Header.Set("Authorization", "Bearer "+t.token)
+	if isGitHubHost(clone.URL.Hostname()) {
+		clone.Header.Set("Authorization", "Bearer "+t.token)
+	}
 	if t.base == nil {
 		t.base = http.DefaultTransport
 	}
 	return t.base.RoundTrip(clone)
+}
+
+func isGitHubHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	return host == "api.github.com" || host == "github.com" || strings.HasSuffix(host, ".github.com")
 }
 
 func firstLookup(lookup func(string) (string, bool), keys ...string) string {

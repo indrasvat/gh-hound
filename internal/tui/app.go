@@ -51,10 +51,24 @@ type KeyMsg struct {
 }
 
 type Options struct {
-	Config         config.Config
-	Build          BuildInfo
-	Launch         usecase.LaunchContext
-	DetailResolver func(model.Run) detail.Model
+	Config           config.Config
+	Build            BuildInfo
+	Launch           usecase.LaunchContext
+	DetailResolver   func(model.Run) (detail.Model, error)
+	FailureResolver  func(model.Run, model.Job) (failure.Model, logscreen.Model, error)
+	LogResolver      func(model.Run, model.Job) (logscreen.Model, error)
+	WatchResolver    func(model.Run) (watch.Model, error)
+	DispatchResolver func() (dispatch.Model, error)
+	ActionHandler    func(ActionRequest) (usecase.ActionResult, error)
+}
+
+type ActionRequest struct {
+	Action   usecase.Action
+	Run      model.Run
+	Job      model.Job
+	Workflow dispatch.Workflow
+	Dispatch usecase.DispatchRequest
+	Debug    bool
 }
 
 type App struct {
@@ -73,7 +87,13 @@ type App struct {
 	log              logscreen.Model
 	watch            watch.Model
 	dispatch         dispatch.Model
-	detailResolver   func(model.Run) detail.Model
+	routeErrors      map[Route]string
+	detailResolver   func(model.Run) (detail.Model, error)
+	failureResolver  func(model.Run, model.Job) (failure.Model, logscreen.Model, error)
+	logResolver      func(model.Run, model.Job) (logscreen.Model, error)
+	watchResolver    func(model.Run) (watch.Model, error)
+	dispatchResolver func() (dispatch.Model, error)
+	actionHandler    func(ActionRequest) (usecase.ActionResult, error)
 }
 
 func NewApp(options Options) App {
@@ -81,37 +101,50 @@ func NewApp(options Options) App {
 	if cfg.Theme == "" {
 		cfg = config.Default()
 	}
+	launch := options.Launch
+	if !hasLaunchContext(launch) {
+		launch = usecase.LaunchContext{
+			State:        usecase.LaunchStateError,
+			ErrorMessage: "repository context is not loaded; run gh hound -R owner/repo",
+		}
+	}
 	launchRoute := routeForLaunch(options.Launch)
 	route := launchRoute
 	if cfg.Welcome {
 		route = RouteWelcome
 	}
-	runsModel := sampleRunsModel()
-	if hasLaunchContext(options.Launch) {
-		runsModel = runs.NewModel(options.Launch)
-	}
-	detailResolver := options.DetailResolver
-	if detailResolver == nil {
-		detailResolver = DetailModelForRun
-	}
-	initialDetail := sampleDetailModel()
+	runsModel := runs.NewModel(launch)
+	routeErrors := map[Route]string{}
+	initialDetail := detail.Model{}
 	if run, ok := runsModel.SelectedRun(); ok {
-		initialDetail = detailResolver(run)
+		if options.DetailResolver != nil {
+			resolved, err := options.DetailResolver(run)
+			if err != nil {
+				routeErrors[RouteDetail] = "detail unavailable: " + err.Error()
+			} else {
+				initialDetail = resolved
+			}
+		} else {
+			initialDetail = DetailModelForRun(run)
+		}
 	}
-	watchModel := watchModelForLaunch(options.Launch, runsModel)
+	watchModel := watchModelForLaunch(launch, runsModel)
 	return App{
-		config:         cfg,
-		build:          options.Build,
-		theme:          theme.ForMode(theme.Mode(cfg.Theme)),
-		routes:         []Route{route},
-		launchRoute:    launchRoute,
-		runs:           runsModel,
-		detail:         initialDetail,
-		failure:        sampleFailureModel(),
-		log:            sampleLogModel(),
-		watch:          watchModel,
-		dispatch:       sampleDispatchModel(),
-		detailResolver: detailResolver,
+		config:           cfg,
+		build:            options.Build,
+		theme:            theme.ForMode(theme.Mode(cfg.Theme)),
+		routes:           []Route{route},
+		launchRoute:      launchRoute,
+		runs:             runsModel,
+		detail:           initialDetail,
+		routeErrors:      routeErrors,
+		watch:            watchModel,
+		detailResolver:   options.DetailResolver,
+		failureResolver:  options.FailureResolver,
+		logResolver:      options.LogResolver,
+		watchResolver:    options.WatchResolver,
+		dispatchResolver: options.DispatchResolver,
+		actionHandler:    options.ActionHandler,
 	}
 }
 
@@ -119,6 +152,31 @@ func NewScenarioApp(scenario string, build BuildInfo) App {
 	cfg := config.Default()
 	cfg.Welcome = false
 	app := NewApp(Options{Config: cfg, Build: build})
+	app.runs = sampleRunsModel()
+	app.detail = sampleDetailModel()
+	app.failure = sampleFailureModel()
+	app.log = sampleLogModel()
+	app.watch = sampleWatchModel()
+	app.dispatch = sampleDispatchModel()
+	app.routeErrors = map[Route]string{}
+	app.detailResolver = func(model.Run) (detail.Model, error) {
+		return sampleDetailModel(), nil
+	}
+	app.failureResolver = func(model.Run, model.Job) (failure.Model, logscreen.Model, error) {
+		return sampleFailureModel(), sampleLogModel(), nil
+	}
+	app.logResolver = func(model.Run, model.Job) (logscreen.Model, error) {
+		return sampleLogModel(), nil
+	}
+	app.watchResolver = func(model.Run) (watch.Model, error) {
+		return sampleWatchModel(), nil
+	}
+	app.dispatchResolver = func() (dispatch.Model, error) {
+		return sampleDispatchModel(), nil
+	}
+	app.actionHandler = func(ActionRequest) (usecase.ActionResult, error) {
+		return usecase.ActionResult{Message: "accepted"}, nil
+	}
 	switch strings.ToLower(scenario) {
 	case "green", "ok", "success":
 		app.runs = sampleAllGreenModel()
@@ -251,11 +309,14 @@ func RenderInteractionFixture(scenario string, width int) string {
 func RenderInteractionFixtureSize(scenario string, width, height int) string {
 	cfg := config.Default()
 	cfg.Welcome = false
-	app := NewApp(Options{Config: cfg, Build: BuildInfo{Version: "v0.1.0"}})
+	app := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
 	bodyWidth := contentWidth(width)
 	switch scenario {
 	case "welcome-enter":
-		app = NewApp(Options{Config: config.Default(), Build: BuildInfo{Version: "v0.1.0"}})
+		app = NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		app.config.Welcome = true
+		app.routes = []Route{RouteWelcome}
+		app.launchRoute = RouteRuns
 		app, _ = app.Update(KeyMsg{Key: "enter"})
 		return app.ViewSize(width, height)
 	case "global-help":
@@ -407,15 +468,38 @@ func (a App) updateRuns(msg KeyMsg) (App, bool) {
 	switch a.runs.Intent.Kind {
 	case runs.IntentOpenDetail:
 		if run, ok := a.runs.SelectedRun(); ok {
-			a.detail = a.detailResolver(run)
+			a = a.loadDetail(run)
 		}
 		a.PushRoute(RouteDetail)
 	case runs.IntentOpenLogs:
+		if run, ok := a.runs.SelectedRun(); ok {
+			a = a.loadLog(run, model.Job{})
+		}
 		a.PushRoute(RouteLog)
 	case runs.IntentWatch:
+		if run, ok := a.runs.SelectedRun(); ok {
+			a = a.loadWatch(run)
+		}
 		a.PushRoute(RouteWatch)
 	case runs.IntentDispatch:
+		a = a.loadDispatch()
 		a.PushRoute(RouteDispatch)
+	case runs.IntentRerun:
+		if run, ok := a.runs.SelectedRun(); ok {
+			a = a.handleAction(RouteRuns, ActionRequest{Action: usecase.ActionRerunRun, Run: run})
+		}
+	case runs.IntentRerunFailed:
+		if run, ok := a.runs.SelectedRun(); ok {
+			a = a.handleAction(RouteRuns, ActionRequest{Action: usecase.ActionRerunFailedJobs, Run: run})
+		}
+	case runs.IntentCancel:
+		if run, ok := a.runs.SelectedRun(); ok {
+			a = a.handleAction(RouteRuns, ActionRequest{Action: usecase.ActionCancelRun, Run: run})
+		}
+	case runs.IntentForceCancel:
+		if run, ok := a.runs.SelectedRun(); ok {
+			a = a.handleAction(RouteRuns, ActionRequest{Action: usecase.ActionForceCancelRun, Run: run})
+		}
 	}
 	return a, runsHandled(msg.Key) || before.Selected != a.runs.Selected || before.Filter != a.runs.Filter || before.InputMode != a.runs.InputMode || a.runs.Intent.Kind != runs.IntentNone
 }
@@ -427,11 +511,22 @@ func (a App) updateDetail(msg KeyMsg) (App, bool) {
 	a.detail = a.detail.Update(detail.KeyMsg{Key: msg.Key})
 	switch a.detail.Intent.Kind {
 	case detail.IntentFailure:
+		a = a.loadFailure(a.detail.Run, a.selectedDetailJob())
 		a.PushRoute(RouteFailure)
 	case detail.IntentLog:
+		a = a.loadLog(a.detail.Run, a.selectedDetailJob())
 		a.PushRoute(RouteLog)
 	case detail.IntentWatch:
+		a = a.loadWatch(a.detail.Run)
 		a.PushRoute(RouteWatch)
+	case detail.IntentRerunJob:
+		a = a.handleAction(RouteDetail, ActionRequest{Action: usecase.ActionRerunJob, Run: a.detail.Run, Job: a.selectedDetailJob()})
+	case detail.IntentRerunFailed:
+		a = a.handleAction(RouteDetail, ActionRequest{Action: usecase.ActionRerunFailedJobs, Run: a.detail.Run})
+	case detail.IntentCancel:
+		a = a.handleAction(RouteDetail, ActionRequest{Action: usecase.ActionCancelRun, Run: a.detail.Run})
+	case detail.IntentForceCancel:
+		a = a.handleAction(RouteDetail, ActionRequest{Action: usecase.ActionForceCancelRun, Run: a.detail.Run})
 	case detail.IntentBack:
 		a.PopRoute()
 	}
@@ -442,7 +537,13 @@ func (a App) updateFailure(msg KeyMsg) (App, bool) {
 	a.failure = a.failure.Update(failure.KeyMsg{Key: msg.Key})
 	switch a.failure.Intent.Kind {
 	case failure.IntentFullLog:
+		a.clearRouteError(RouteLog)
+		a.log = logscreen.NewModel(a.failure.Report.Log, a.failure.Offset, 6)
 		a.PushRoute(RouteLog)
+	case failure.IntentRerunJob:
+		a = a.handleAction(RouteFailure, ActionRequest{Action: usecase.ActionRerunJob, Run: a.detail.Run, Job: a.failure.Report.Job})
+	case failure.IntentRerunFailed:
+		a = a.handleAction(RouteFailure, ActionRequest{Action: usecase.ActionRerunFailedJobs, Run: a.detail.Run})
 	case failure.IntentBack:
 		a.PopRoute()
 	}
@@ -464,6 +565,8 @@ func (a App) updateWatch(msg KeyMsg) (App, bool) {
 	before := a.watch
 	a.watch = a.watch.Update(watch.KeyMsg{Key: msg.Key})
 	switch a.watch.Intent.Kind {
+	case watch.IntentCancel:
+		a = a.handleAction(RouteWatch, ActionRequest{Action: usecase.ActionCancelRun, Run: a.watch.State.Run})
 	case watch.IntentDetach:
 		a.PopRoute()
 	}
@@ -473,11 +576,122 @@ func (a App) updateWatch(msg KeyMsg) (App, bool) {
 func (a App) updateDispatch(msg KeyMsg) (App, bool) {
 	beforeFocused := a.dispatch.Focused
 	a.dispatch = a.dispatch.Update(dispatch.KeyMsg{Key: msg.Key})
-	if a.dispatch.Intent.Kind == dispatch.IntentCancel {
+	switch a.dispatch.Intent.Kind {
+	case dispatch.IntentSubmit:
+		a = a.handleAction(RouteDispatch, ActionRequest{Action: usecase.ActionDispatch, Workflow: a.dispatch.Workflow, Dispatch: a.dispatch.Intent.Request})
+	case dispatch.IntentCancel:
 		a.PopRoute()
 		return a, true
 	}
 	return a, dispatchHandled(msg.Key) || beforeFocused != a.dispatch.Focused || a.dispatch.Intent.Kind != dispatch.IntentNone
+}
+
+func (a App) loadDetail(run model.Run) App {
+	a.clearRouteError(RouteDetail)
+	if a.detailResolver == nil {
+		a.detail = DetailModelForRun(run)
+		return a
+	}
+	resolved, err := a.detailResolver(run)
+	if err != nil {
+		a.detail = DetailModelForRun(run)
+		a.setRouteError(RouteDetail, "detail unavailable: "+err.Error())
+		return a
+	}
+	a.detail = resolved
+	return a
+}
+
+func (a App) loadFailure(run model.Run, job model.Job) App {
+	a.clearRouteError(RouteFailure)
+	if a.failureResolver == nil {
+		a.setRouteError(RouteFailure, "failure unavailable: live failure loader is not configured")
+		return a
+	}
+	resolved, fullLog, err := a.failureResolver(run, job)
+	if err != nil {
+		a.setRouteError(RouteFailure, "failure unavailable: "+err.Error())
+		return a
+	}
+	a.failure = resolved
+	a.log = fullLog
+	a.clearRouteError(RouteLog)
+	return a
+}
+
+func (a App) loadLog(run model.Run, job model.Job) App {
+	a.clearRouteError(RouteLog)
+	if a.logResolver == nil {
+		a.setRouteError(RouteLog, "log unavailable: live log loader is not configured")
+		return a
+	}
+	resolved, err := a.logResolver(run, job)
+	if err != nil {
+		a.setRouteError(RouteLog, "log unavailable: "+err.Error())
+		return a
+	}
+	a.log = resolved
+	return a
+}
+
+func (a App) loadWatch(run model.Run) App {
+	a.clearRouteError(RouteWatch)
+	if a.watchResolver == nil {
+		a.setRouteError(RouteWatch, "watch unavailable: live watch loader is not configured")
+		return a
+	}
+	resolved, err := a.watchResolver(run)
+	if err != nil {
+		a.setRouteError(RouteWatch, "watch unavailable: "+err.Error())
+		return a
+	}
+	a.watch = resolved
+	return a
+}
+
+func (a App) loadDispatch() App {
+	a.clearRouteError(RouteDispatch)
+	if a.dispatchResolver == nil {
+		a.setRouteError(RouteDispatch, "dispatch unavailable: live workflow loader is not configured")
+		return a
+	}
+	resolved, err := a.dispatchResolver()
+	if err != nil {
+		a.setRouteError(RouteDispatch, "dispatch unavailable: "+err.Error())
+		return a
+	}
+	a.dispatch = resolved
+	return a
+}
+
+func (a App) handleAction(route Route, request ActionRequest) App {
+	a.clearRouteError(route)
+	if a.actionHandler == nil {
+		a.setRouteError(route, "action unavailable: live GitHub mutation handler is not configured")
+		return a
+	}
+	if _, err := a.actionHandler(request); err != nil {
+		a.setRouteError(route, "action failed: "+err.Error())
+	}
+	return a
+}
+
+func (a App) selectedDetailJob() model.Job {
+	job, _ := a.detail.SelectedJobModel()
+	return job
+}
+
+func (a *App) clearRouteError(route Route) {
+	if a.routeErrors != nil {
+		delete(a.routeErrors, route)
+	}
+}
+
+func (a *App) setRouteError(route Route, message string) {
+	if a.routeErrors == nil {
+		a.routeErrors = map[Route]string{}
+	}
+	a.routeErrors[route] = message
 }
 
 func runsHandled(key string) bool {
@@ -589,19 +803,19 @@ func (a App) chromeParts() (string, string, string) {
 	case RouteDetail:
 		return "hound", detailContext(a.detail.Run), shortSHA(a.detail.Run.HeadSHA)
 	case RouteFailure:
-		return "hound", "build › failed step", "exit 1"
+		return "hound", "failed step", failureRight(a.failure)
 	case RouteLog:
-		return "hound", "full log", "match 1/1"
+		return "hound", "full log", logRight(a.log)
 	case RouteWatch:
 		run := a.watch.State.Run
 		return "hound", fmt.Sprintf("%s #%d", firstNonEmpty(run.Name, "workflow"), run.RunNumber), "streaming · follow ●"
 	case RouteDispatch:
-		return "hound", "workflow_dispatch", "Release"
+		return "hound", "workflow_dispatch", firstNonEmpty(a.dispatch.Workflow.Name, "workflow")
 	default:
 		if a.runs.AllGreen() {
-			return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), "◔ 4,981/5k live"
+			return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), runsRight(a.runs)
 		}
-		return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), "◔ 4,981/5k live 304"
+		return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), runsRight(a.runs)
 	}
 }
 
@@ -614,13 +828,41 @@ func branchContext(scope usecase.LaunchScope, branch, actor string) string {
 		branch = "all branches"
 	}
 	if actor == "" {
-		actor = "indrasvat"
+		actor = "unknown"
 	}
 	label := "branch " + branch
 	if scope == usecase.LaunchScopeRepo {
 		label = "repo all branches"
 	}
 	return "⌥ " + label + " · @" + actor
+}
+
+func runsRight(m runs.Model) string {
+	count := len(m.Context.Runs)
+	if m.Context.Scope == usecase.LaunchScopeRepo && len(m.Context.RepoRuns) > 0 {
+		count = len(m.Context.RepoRuns)
+	}
+	if m.Context.Scope == usecase.LaunchScopeBranch && len(m.Context.BranchRuns) > 0 {
+		count = len(m.Context.BranchRuns)
+	}
+	if count == 0 {
+		return "no runs loaded"
+	}
+	return fmt.Sprintf("%d runs loaded", count)
+}
+
+func logRight(m logscreen.Model) string {
+	if m.Search.Total > 0 {
+		return fmt.Sprintf("match %d/%d", m.Search.Current, m.Search.Total)
+	}
+	return fmt.Sprintf("%d lines", len(m.Document.Lines))
+}
+
+func failureRight(m failure.Model) string {
+	if m.TotalLines > 0 {
+		return fmt.Sprintf("%d log lines", m.TotalLines)
+	}
+	return "failure"
 }
 
 func detailContext(run model.Run) string {
@@ -650,6 +892,12 @@ func firstNonEmpty(values ...string) string {
 
 func (a App) screenBody(width, height int) string {
 	bodyWidth := contentWidth(width)
+	if body, ok := a.routeErrorBody(a.Route(), bodyWidth); ok {
+		return body
+	}
+	if body, ok := a.unloadedRouteBody(a.Route(), bodyWidth); ok {
+		return body
+	}
 	switch a.Route() {
 	case RouteWelcome:
 		return welcome.View(welcome.Model{Build: a.build}, bodyWidth, max(height-6, 0))
@@ -677,6 +925,53 @@ func (a App) screenBody(width, height int) string {
 	}
 }
 
+func (a App) routeErrorBody(route Route, width int) (string, bool) {
+	if a.routeErrors == nil {
+		return "", false
+	}
+	message := strings.TrimSpace(a.routeErrors[route])
+	if message == "" {
+		return "", false
+	}
+	return empty.View(empty.Model{
+		Kind:    empty.KindError,
+		Repo:    a.runs.Context.Repo,
+		Branch:  a.runs.Context.Branch,
+		Message: message,
+	}, width), true
+}
+
+func (a App) unloadedRouteBody(route Route, width int) (string, bool) {
+	message := ""
+	switch route {
+	case RouteFailure:
+		if a.failure.RunID == 0 && len(a.failure.Report.Log.Lines) == 0 {
+			message = "failure unavailable: select a failed job with live GitHub data loaded"
+		}
+	case RouteLog:
+		if len(a.log.Document.Lines) == 0 {
+			message = "log unavailable: select a job with live GitHub logs loaded"
+		}
+	case RouteWatch:
+		if a.watch.State.Run.ID == 0 {
+			message = "watch unavailable: select a live run first"
+		}
+	case RouteDispatch:
+		if a.dispatch.Workflow.ID == "" && a.dispatch.Workflow.Name == "" {
+			message = "dispatch unavailable: no workflow has been loaded"
+		}
+	}
+	if message == "" {
+		return "", false
+	}
+	return empty.View(empty.Model{
+		Kind:    empty.KindError,
+		Repo:    a.runs.Context.Repo,
+		Branch:  a.runs.Context.Branch,
+		Message: message,
+	}, width), true
+}
+
 func routeForLaunch(ctx usecase.LaunchContext) Route {
 	switch ctx.State {
 	case usecase.LaunchStateWatch:
@@ -690,19 +985,16 @@ func routeForLaunch(ctx usecase.LaunchContext) Route {
 
 func watchModelForLaunch(ctx usecase.LaunchContext, runsModel runs.Model) watch.Model {
 	if ctx.State != usecase.LaunchStateWatch {
-		return sampleWatchModel()
+		return watch.Model{}
 	}
 	run, ok := runsModel.SelectedRun()
 	if !ok {
-		return sampleWatchModel()
+		return watch.Model{}
 	}
-	sample := sampleWatchModel()
 	return watch.NewModel(watch.State{
-		Repo:    ctx.Repo,
-		Branch:  firstNonEmpty(ctx.Branch, run.HeadBranch),
-		Run:     run,
-		Lines:   sample.State.Lines,
-		Elapsed: sample.State.Elapsed,
+		Repo:   ctx.Repo,
+		Branch: firstNonEmpty(ctx.Branch, run.HeadBranch),
+		Run:    run,
 	})
 }
 
@@ -710,8 +1002,12 @@ func (a App) launchStateBody(width int) (string, bool) {
 	ctx := a.runs.Context
 	switch ctx.State {
 	case usecase.LaunchStateError:
+		kind := empty.KindError
+		if ctx.Repo == "" {
+			kind = empty.KindNoRepository
+		}
 		return empty.View(empty.Model{
-			Kind:    empty.KindError,
+			Kind:    kind,
 			Repo:    ctx.Repo,
 			Branch:  ctx.Branch,
 			Message: ctx.ErrorMessage,
@@ -783,71 +1079,11 @@ func sampleDetailModel() detail.Model {
 		job(103, "test (1.26)", model.ConclusionSuccess, start.Add(9*time.Second), 112*time.Second),
 		{ID: 104, Name: "deploy", Status: model.StatusQueued, Conclusion: model.ConclusionNone, Labels: []string{"ubuntu-latest"}},
 	}
-	return detail.NewModel(run, jobs)
+	return detail.NewModel(run, jobs).WithRepo("indrasvat/gh-hound")
 }
 
 func DetailModelForRun(run model.Run) detail.Model {
-	if run.ID == 571 && run.Name == "CI" && run.RunNumber == 571 {
-		return sampleDetailModel()
-	}
-	now := time.Now().UTC().Truncate(time.Second)
-	started := run.RunStartedAt
-	if started.IsZero() {
-		started = run.UpdatedAt.Add(-90 * time.Second)
-	}
-	if started.IsZero() {
-		started = now.Add(-90 * time.Second)
-	}
-	completed := run.UpdatedAt
-	if completed.IsZero() {
-		completed = started.Add(90 * time.Second)
-	}
-	jobStatus := run.Status
-	jobConclusion := run.Conclusion
-	if jobStatus == "" {
-		jobStatus = model.StatusCompleted
-	}
-	job := model.Job{
-		ID:          run.ID*100 + 1,
-		RunID:       run.ID,
-		Name:        firstNonEmpty(run.Name, run.DisplayTitle, "workflow"),
-		Status:      jobStatus,
-		Conclusion:  jobConclusion,
-		Labels:      []string{"ubuntu-latest"},
-		StartedAt:   started,
-		CompletedAt: completed,
-		Steps: []model.Step{
-			stepForRun(1, "Set up job", model.StatusCompleted, model.ConclusionSuccess, started, 500*time.Millisecond),
-			stepForRun(2, "Run "+firstNonEmpty(run.Name, "workflow"), jobStatus, jobConclusion, started.Add(time.Second), completed.Sub(started)-time.Second),
-		},
-	}
-	if jobStatus != model.StatusCompleted {
-		job.CompletedAt = time.Time{}
-		job.Steps[1].CompletedAt = time.Time{}
-	}
-	return detail.NewModel(run, []model.Job{job})
-}
-
-func stepForRun(number int, name string, status model.Status, conclusion model.Conclusion, started time.Time, elapsed time.Duration) model.Step {
-	completed := started.Add(maxDuration(elapsed, time.Second))
-	if status != model.StatusCompleted {
-		completed = time.Time{}
-	}
-	return model.Step{
-		Number:      number,
-		Name:        name,
-		Status:      status,
-		Conclusion:  conclusion,
-		StartedAt:   started,
-		CompletedAt: completed,
-	}
-}
-
-func maxDuration(value, fallback time.Duration) time.Duration {
-	if value <= 0 {
-		return fallback
-	}
-	return value
+	return detail.NewModel(run, nil)
 }
 
 func job(id int64, name string, conclusion model.Conclusion, started time.Time, elapsed time.Duration) model.Job {

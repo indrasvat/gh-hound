@@ -10,7 +10,7 @@ import (
 )
 
 func TestModelPreselectsFailureFocusAndIntents(t *testing.T) {
-	m := NewModel(run(), jobs())
+	m := NewModel(run(), jobs()).WithRepo("indrasvat/gh-hound")
 	if m.SelectedJob != 0 || m.SelectedStep != 5 || m.Focus != FocusSteps {
 		t.Fatalf("initial model = %#v", m)
 	}
@@ -42,7 +42,7 @@ func TestModelPreselectsFailureFocusAndIntents(t *testing.T) {
 }
 
 func TestViewMatchesMasterDetailAndNarrowCollapse(t *testing.T) {
-	m := NewModel(run(), jobs())
+	m := NewModel(run(), jobs()).WithRepo("indrasvat/gh-hound")
 	view := View(m, 120)
 	plain := ansi.Strip(view)
 	for _, want := range []string{
@@ -72,7 +72,7 @@ func TestViewMatchesMasterDetailAndNarrowCollapse(t *testing.T) {
 }
 
 func TestViewMatchesMockPaneRowsAndFailHighlight(t *testing.T) {
-	view := View(NewModel(run(), jobs()), 120)
+	view := View(NewModel(run(), jobs()).WithRepo("indrasvat/gh-hound"), 120)
 	plain := ansi.Strip(view)
 	for _, banned := range []string{"╭", "╮", "╰", "╯"} {
 		if strings.Contains(plain, banned) {
