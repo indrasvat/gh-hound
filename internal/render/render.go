@@ -37,6 +37,7 @@ type Run struct {
 	HeadBranch string     `json:"head_branch" xml:"head_branch,attr"`
 	HeadSHA    string     `json:"head_sha" xml:"head_sha,attr"`
 	Status     string     `json:"status" xml:"status,attr"`
+	Attempt    int        `json:"attempt,omitempty" xml:"attempt,attr,omitempty"`
 	Conclusion string     `json:"conclusion" xml:"conclusion,attr"`
 	CreatedAt  time.Time  `json:"created_at" xml:"created_at,attr"`
 	HTMLURL    string     `json:"html_url" xml:"html_url,attr"`

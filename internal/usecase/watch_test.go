@@ -132,3 +132,11 @@ func (g *watchGitHub) ListArtifacts(context.Context, string, int64) ([]model.Art
 func (g *watchGitHub) DownloadArtifact(context.Context, string, int64) (io.ReadCloser, error) {
 	return nil, errors.New("not implemented")
 }
+
+func (g *watchGitHub) GetRunAttempt(ctx context.Context, repo string, runID int64, _ int) (model.Run, error) {
+	return g.GetRun(ctx, repo, runID)
+}
+
+func (g *watchGitHub) ListJobsForAttempt(ctx context.Context, repo string, runID int64, _ int) ([]model.Job, error) {
+	return g.ListJobs(ctx, repo, runID)
+}

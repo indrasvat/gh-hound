@@ -1,1 +1,1 @@
-{"contains":["log","001","go test ./... -race","scrollbar ▌","j/k scroll · g/G ends · / search · n/N match · z/Z fold · w wrap · ⎋ back"]}
+{"contains": ["log", "001", "go test ./... -race", "/ search \u00b7 t time \u00b7 n/N match"]}

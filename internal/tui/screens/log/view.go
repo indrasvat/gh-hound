@@ -13,7 +13,7 @@ func View(m Model, width int) string {
 	if width <= 0 {
 		width = 80
 	}
-	lines := []string{fit(header(m)+"  scrollbar ▌", width)}
+	lines := []string{fit(header(m)+"  "+scrollIndicator(m), width)}
 	for _, row := range m.visibleRows() {
 		if row.IsFold {
 			lines = append(lines, renderFold(row.Line.Number, row.Fold.Title, row.Fold.CollapsedCount, row.Collapsed, width))
@@ -25,10 +25,35 @@ func View(m Model, width int) string {
 }
 
 func header(m Model) string {
+	if m.InputMode {
+		return fmt.Sprintf("log · /%s▌", m.input)
+	}
+	if m.RangeLabel != "" {
+		return fmt.Sprintf("log · [%s] · ⎋ clear", m.RangeLabel)
+	}
+	if m.LastJump != "" && m.Search.Query == "" {
+		return fmt.Sprintf("log · t→%s", m.LastJump)
+	}
 	if m.Search.Query != "" {
 		return fmt.Sprintf("log · /%s · match %d/%d", m.Search.Query, m.Search.Current, m.Search.Total)
 	}
 	return "log"
+}
+
+// scrollIndicator is a compact viewport-position gauge for the header.
+func scrollIndicator(m Model) string {
+	total := len(m.Document.Lines)
+	if total <= 0 || m.Height <= 0 || total <= m.Height {
+		return ""
+	}
+	cells := 8
+	pos := (m.Offset - 1) * (cells - 1) / max(total-m.Height, 1)
+	if pos >= cells {
+		pos = cells - 1
+	}
+	bar := []rune(strings.Repeat("─", cells))
+	bar[pos] = '▮'
+	return colorize(sgrLineNo, string(bar))
 }
 
 func fit(value string, width int) string {

@@ -39,10 +39,22 @@ var exitCodeRE = regexp.MustCompile(`exit code ([0-9]+)`)
 // run. Log and annotation lookups degrade per job: an expired log or a
 // failed annotation listing never drops the job from the payload.
 func (s TriageService) LoadRunFailures(ctx context.Context, repo string, run model.Run) ([]RunFailure, error) {
+	return s.LoadRunFailuresAttempt(ctx, repo, run, 0)
+}
+
+// LoadRunFailuresAttempt targets a specific run attempt; attempt 0
+// means the latest.
+func (s TriageService) LoadRunFailuresAttempt(ctx context.Context, repo string, run model.Run, attempt int) ([]RunFailure, error) {
 	if !actionableConclusion(run.Conclusion) {
 		return nil, nil
 	}
-	jobs, err := s.GitHub.ListJobs(ctx, repo, run.ID)
+	var jobs []model.Job
+	var err error
+	if attempt > 0 {
+		jobs, err = s.GitHub.ListJobsForAttempt(ctx, repo, run.ID, attempt)
+	} else {
+		jobs, err = s.GitHub.ListJobs(ctx, repo, run.ID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +109,7 @@ func excerptFor(document logs.Document) string {
 	}
 	parts := make([]string, 0, len(lines))
 	for _, line := range lines {
-		parts = append(parts, line.Text)
+		parts = append(parts, logs.StripTimestamp(line.Text))
 	}
 	return strings.TrimSpace(strings.Join(parts, "\n"))
 }

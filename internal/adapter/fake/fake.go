@@ -37,7 +37,32 @@ func New(scenario Scenario) *Adapter {
 	return &Adapter{scenario: scenario}
 }
 
-func (a *Adapter) ListRuns(context.Context, usecase.RunFilter) ([]model.Run, error) {
+func (a *Adapter) ListRuns(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
+	runs, err := a.listScenarioRuns()
+	if err != nil {
+		return nil, err
+	}
+	return filterFixtureRuns(runs, filter), nil
+}
+
+// filterFixtureRuns applies server-side status semantics to fixture
+// data so the deterministic lens cannot claim matches the real API
+// would not return.
+func filterFixtureRuns(runs []model.Run, filter usecase.RunFilter) []model.Run {
+	status := strings.TrimSpace(filter.Status)
+	if status == "" {
+		return runs
+	}
+	out := make([]model.Run, 0, len(runs))
+	for _, run := range runs {
+		if string(run.Status) == status || string(run.Conclusion) == status {
+			out = append(out, run)
+		}
+	}
+	return out
+}
+
+func (a *Adapter) listScenarioRuns() ([]model.Run, error) {
 	switch a.scenario {
 	case ScenarioGreen:
 		return []model.Run{greenRun(571), greenRun(570), greenRun(569)}, nil
@@ -86,6 +111,14 @@ func (a *Adapter) GetRun(ctx context.Context, repo string, runID int64) (model.R
 
 func (a *Adapter) ListJobs(context.Context, string, int64) ([]model.Job, error) {
 	return []model.Job{job()}, nil
+}
+
+func (a *Adapter) GetRunAttempt(ctx context.Context, repo string, runID int64, attempt int) (model.Run, error) {
+	return a.GetRun(ctx, repo, runID)
+}
+
+func (a *Adapter) ListJobsForAttempt(ctx context.Context, repo string, runID int64, _ int) ([]model.Job, error) {
+	return a.ListJobs(ctx, repo, runID)
 }
 
 func (a *Adapter) GetJob(context.Context, string, int64) (model.Job, error) {
@@ -185,17 +218,20 @@ func (a *Adapter) FetchJobLog(context.Context, string, int64) (string, error) {
 	if a.scenario == ScenarioLogRender {
 		return "", usecase.LogRenderError{Message: "link expired"}
 	}
+	// Timestamped like real runner logs (with a 51s gap before the
+	// failing test) so the time-jump picker's clocks and gap entries
+	// are exercisable in the deterministic lens.
 	return strings.Join([]string{
 		"17:42:53.114Z go test ./... -race",
-		"##[group] Run go test ./...",
-		"ok    internal/api 0.214s",
-		"##[group] test output",
-		"=== RUN   TestLexIdent/trailing_underscore",
-		"    internal/parser/lexer.go:142: got \"foo\" want \"foo_\"",
-		"--- FAIL: TestLexIdent/trailing_underscore (0.00s)",
-		"FAIL  github.com/indrasvat/gh-hound/internal/parser  0.412s",
-		"##[error]Process completed with exit code 1",
-		"##[endgroup]",
+		"17:42:53.500Z ##[group] Run go test ./...",
+		"17:42:54.100Z ok    internal/api 0.214s",
+		"17:43:45.000Z ##[group] test output",
+		"17:43:45.200Z === RUN   TestLexIdent/trailing_underscore",
+		"17:43:45.300Z     internal/parser/lexer.go:142: got \"foo\" want \"foo_\"",
+		"17:43:46.000Z --- FAIL: TestLexIdent/trailing_underscore (0.00s)",
+		"17:43:46.100Z FAIL  github.com/indrasvat/gh-hound/internal/parser  0.412s",
+		"17:43:46.200Z ##[error]Process completed with exit code 1",
+		"17:43:46.300Z ##[endgroup]",
 		"##[endgroup]",
 	}, "\n"), nil
 }

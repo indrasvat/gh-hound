@@ -11,7 +11,8 @@ type runsResponse struct {
 }
 
 type jobsResponse struct {
-	Jobs []jobDTO `json:"jobs"`
+	TotalCount int      `json:"total_count"`
+	Jobs       []jobDTO `json:"jobs"`
 }
 
 type workflowsResponse struct {

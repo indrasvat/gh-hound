@@ -19,14 +19,18 @@ type SearchState struct {
 }
 
 type Model struct {
-	Document  logs.Document
-	Offset    int
-	Height    int
-	Wrap      bool
-	InputMode bool
-	input     string
-	collapsed map[int]bool
-	Search    SearchState
+	Document   logs.Document
+	Offset     int
+	Height     int
+	Wrap       bool
+	InputMode  bool
+	LastJump   string
+	RangeStart int
+	RangeEnd   int
+	RangeLabel string
+	input      string
+	collapsed  map[int]bool
+	Search     SearchState
 }
 
 func NewModel(doc logs.Document, offset, height int) Model {
@@ -49,18 +53,22 @@ func (m Model) Update(msg KeyMsg) Model {
 		return m.updateInput(msg)
 	}
 	switch msg.Key {
+	case "esc":
+		if m.RangeLabel != "" {
+			m = m.ClearRange()
+		}
 	case "j", "down":
-		m.Offset = min(m.Offset+1, max(1, len(m.Document.Lines)))
+		m.Offset = min(m.Offset+1, m.maxTop())
 	case "k", "up":
-		m.Offset = max(1, m.Offset-1)
+		m.Offset = max(m.minTop(), m.Offset-1)
 	case "g":
-		m.Offset = 1
+		m.Offset = m.minTop()
 	case "G":
-		m.Offset = max(1, len(m.Document.Lines)-m.Height+1)
+		m.Offset = m.maxTop()
 	case "ctrl+d":
-		m.Offset = min(m.Offset+m.Height/2, max(1, len(m.Document.Lines)))
+		m.Offset = min(m.Offset+m.Height/2, m.maxTop())
 	case "ctrl+u":
-		m.Offset = max(1, m.Offset-m.Height/2)
+		m.Offset = max(m.minTop(), m.Offset-m.Height/2)
 	case "/":
 		m.InputMode = true
 		m.input = ""
@@ -96,6 +104,178 @@ func (m Model) updateInput(msg KeyMsg) Model {
 		}
 	}
 	return m
+}
+
+// jumpToTime moves the viewport to the first line whose runner clock
+// is at or after the query ("15:53:14" or a prefix like "15:53").
+// Clocks can wrap past midnight: lines are bucketed into days by
+// rollover detection and days are searched in order, so a 00:01 query
+// against a log starting at 23:59 lands after the wrap.
+// JumpTo is the modal's commit: it returns the model scrolled to the
+// queried wall-clock moment.
+func (m Model) JumpTo(query string) Model {
+	m.jumpToTime(query)
+	return m
+}
+
+// JumpToLine scrolls to an exact line (picker entries).
+func (m Model) JumpToLine(line int) Model {
+	if line >= 1 && line <= len(m.Document.Lines) {
+		m.Offset = line
+	}
+	return m
+}
+
+// JumpRelative moves by a signed number of seconds from the line at
+// the top of the viewport, clamping to the log's stamped span.
+func (m Model) JumpRelative(deltaSeconds float64) Model {
+	timeline := logs.Timeline(m.Document)
+	if len(timeline) == 0 {
+		return m
+	}
+	current := timeline[0]
+	for _, stamp := range timeline {
+		if stamp.LineNumber <= m.Offset {
+			current = stamp
+		}
+	}
+	target := current.Seconds + deltaSeconds
+	if target <= timeline[0].Seconds {
+		m.Offset = timeline[0].LineNumber
+		return m
+	}
+	for _, stamp := range timeline {
+		if stamp.Seconds >= target {
+			m.Offset = stamp.LineNumber
+			return m
+		}
+	}
+	m.Offset = timeline[len(timeline)-1].LineNumber
+	return m
+}
+
+// SetRange restricts the visible rows to [start, end] line numbers;
+// label is the human form shown in the header. Esc clears it.
+func (m Model) SetRange(start, end int, label string) Model {
+	if start < 1 || end < start {
+		return m
+	}
+	m.RangeStart = start
+	m.RangeEnd = end
+	m.RangeLabel = label
+	m.Offset = start
+	return m
+}
+
+func (m Model) ClearRange() Model {
+	m.RangeStart = 0
+	m.RangeEnd = 0
+	m.RangeLabel = ""
+	return m
+}
+
+// VisibleRowNumbers exposes the rendered line numbers (tests, header).
+func (m Model) VisibleRowNumbers() []int {
+	numbers := []int{}
+	for _, row := range m.visibleRows() {
+		numbers = append(numbers, row.Line.Number)
+	}
+	return numbers
+}
+
+func (m *Model) jumpToTime(query string) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return
+	}
+	// Zero-pad single-digit hours: runner clocks are zero-padded and
+	// every comparison below is lexical.
+	if idx := strings.IndexByte(query, ':'); idx == 1 {
+		query = "0" + query
+	}
+	type stamped struct {
+		number int
+		day    int
+		clock  string
+	}
+	var lines []stamped
+	day := 0
+	prev := ""
+	for _, line := range m.Document.Lines {
+		clock, ok := logs.ClockTime(line.Text)
+		if !ok {
+			continue
+		}
+		if prev != "" && clock < prev {
+			day++
+		}
+		prev = clock
+		lines = append(lines, stamped{number: line.Number, day: day, clock: clock})
+	}
+	if len(lines) == 0 {
+		return
+	}
+	// The query names a wall-clock moment; resolve which day bucket it
+	// falls in. Day 0 starts mid-stream at the log's first clock, later
+	// days start at midnight, so a day matches only when the query is
+	// within its span -- otherwise 00:01 would lexically match 23:59.
+	for d := 0; d <= day; d++ {
+		first := ""
+		for _, line := range lines {
+			if line.day == d {
+				first = line.clock
+				break
+			}
+		}
+		if d == 0 && clockBefore(query, first) {
+			continue
+		}
+		for _, line := range lines {
+			if line.day == d && line.clock >= query {
+				m.Offset = line.number
+				m.LastJump = query
+				return
+			}
+		}
+	}
+	// Single-day log with a query before its first clock: the moment
+	// predates the log, so land on the first stamped line. Multi-day
+	// logs reaching here mean the query is past every span -- no jump
+	// (a lexically-small query there is post-midnight, not earlier).
+	if day == 0 && clockBefore(query, lines[0].clock) {
+		m.Offset = lines[0].number
+		m.LastJump = query
+	}
+}
+
+// clockBefore reports query < clock with prefix semantics: a query
+// that is a prefix of the clock ("10:00" vs "10:00:00.000") is not
+// before it.
+func clockBefore(query, clock string) bool {
+	if len(clock) > len(query) {
+		clock = clock[:len(query)]
+	}
+	return query < clock
+}
+
+// maxTop is the highest top-of-viewport line that still fills the
+// screen (Height counts body rows; the header is budgeted by the
+// caller). An active range bounds scrolling to its window.
+func (m Model) maxTop() int {
+	last := len(m.Document.Lines)
+	if m.RangeLabel != "" {
+		last = min(last, m.RangeEnd)
+	}
+	top := max(m.minTop(), last-max(m.Height, 1)+1)
+	return top
+}
+
+// minTop is the lowest top-of-viewport line: 1, or the range start.
+func (m Model) minTop() int {
+	if m.RangeLabel != "" {
+		return max(1, m.RangeStart)
+	}
+	return 1
 }
 
 func (m Model) Collapsed(line int) bool {
@@ -163,8 +343,14 @@ func (m Model) visibleRows() []row {
 	for _, fold := range m.Document.Folds {
 		folds[fold.StartLine] = fold
 	}
-	for i := max(0, m.Offset-1); i < len(m.Document.Lines) && len(rows) < m.Height; i++ {
+	for i := max(0, m.Offset-1); i < len(m.Document.Lines) && len(rows) < max(m.Height, 1); i++ {
 		line := m.Document.Lines[i]
+		if m.RangeLabel != "" && (line.Number < m.RangeStart || line.Number > m.RangeEnd) {
+			if line.Number > m.RangeEnd {
+				break
+			}
+			continue
+		}
 		if fold, ok := folds[line.Number]; ok {
 			rows = append(rows, row{Line: line, Fold: fold, IsFold: true, Collapsed: m.Collapsed(line.Number)})
 			if m.Collapsed(line.Number) {

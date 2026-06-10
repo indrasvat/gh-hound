@@ -91,6 +91,11 @@ func (m Model) Update(msg KeyMsg) Model {
 		}
 	case "s":
 		m = m.toggleScope()
+	case "f":
+		m.Filter = nextStatusCycle(m.Filter)
+		m.ServerFiltered = false
+		m.Selected = 0
+		m.Intent = Intent{Kind: IntentFilter, Filter: m.Filter}
 	case "esc":
 		if m.Filter != "" {
 			m.Filter = ""
@@ -164,6 +169,21 @@ func (m Model) Summary() Summary {
 }
 
 // FilteredRuns exposes the rows the list will render after filtering.
+// nextStatusCycle advances the f-key status filter: all -> failing ->
+// running -> passed -> all. Any other filter text restarts the cycle.
+func nextStatusCycle(current string) string {
+	switch current {
+	case "failing":
+		return "running"
+	case "running":
+		return "passed"
+	case "passed":
+		return ""
+	default:
+		return "failing"
+	}
+}
+
 func (m Model) FilteredRuns() []model.Run {
 	return m.filteredRuns()
 }

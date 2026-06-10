@@ -108,3 +108,36 @@ func TestAllGreenAgeHeaderAlignsWithValues(t *testing.T) {
 		t.Fatalf("Age header at %d misaligned with values at %d:\n%s", headerAge, valueAge, view)
 	}
 }
+
+// Issue #19: f cycles the status filter all -> failing -> running ->
+// passed -> all, emitting server-filter intents.
+func TestStatusCycleKey(t *testing.T) {
+	m := NewModel(usecase.LaunchContext{
+		Repo: "x/y", State: usecase.LaunchStateRuns,
+		Runs: []model.Run{successRun(1, 1, "CI")},
+	})
+	want := []string{"failing", "running", "passed", ""}
+	for _, expect := range want {
+		m = m.Update(KeyMsg{Key: "f"})
+		if m.Filter != expect {
+			t.Fatalf("cycle expected %q, got %q", expect, m.Filter)
+		}
+		if m.Intent.Kind != IntentFilter || m.Intent.Filter != expect {
+			t.Fatalf("cycle must emit a filter intent for %q: %#v", expect, m.Intent)
+		}
+	}
+}
+
+func TestStatusCycleResetsFromTextFilter(t *testing.T) {
+	m := NewModel(usecase.LaunchContext{
+		Repo: "x/y", State: usecase.LaunchStateRuns,
+		Runs: []model.Run{successRun(1, 1, "CI")},
+	})
+	for _, key := range []string{"/", "z", "z", "enter"} {
+		m = m.Update(KeyMsg{Key: key})
+	}
+	m = m.Update(KeyMsg{Key: "f"})
+	if m.Filter != "failing" {
+		t.Fatalf("f after a text filter starts the cycle: %q", m.Filter)
+	}
+}

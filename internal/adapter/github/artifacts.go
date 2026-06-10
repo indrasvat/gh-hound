@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -151,4 +152,42 @@ func (c *Client) fetchArtifactStream(ctx context.Context, rawURL string) (io.Rea
 		return nil, mapReadHTTPError(http.MethodGet, "github-actions-artifact-download", resp.StatusCode, resp.Header, limited)
 	}
 	return resp.Body, nil
+}
+
+func (c *Client) GetRunAttempt(ctx context.Context, repo string, runID int64, attempt int) (model.Run, error) {
+	var dto runDTO
+	resource := resourcePath(repo, "actions/runs/"+strconv.FormatInt(runID, 10)+"/attempts/"+strconv.Itoa(attempt))
+	if err := c.getJSON(ctx, resource, nil, &dto); err != nil {
+		return model.Run{}, err
+	}
+	return mapRun(dto)
+}
+
+func (c *Client) ListJobsForAttempt(ctx context.Context, repo string, runID int64, attempt int) ([]model.Job, error) {
+	resource := resourcePath(repo, "actions/runs/"+strconv.FormatInt(runID, 10)+"/attempts/"+strconv.Itoa(attempt)+"/jobs")
+	return c.listJobsPaginated(ctx, resource, nil)
+}
+
+// listJobsPaginated walks every page so large matrix runs cannot hide
+// failing jobs past page one.
+func (c *Client) listJobsPaginated(ctx context.Context, resource string, base url.Values) ([]model.Job, error) {
+	var jobs []model.Job
+	for page := 1; ; page++ {
+		values := url.Values{}
+		maps.Copy(values, base)
+		values.Set("per_page", "100")
+		values.Set("page", strconv.Itoa(page))
+		var decoded jobsResponse
+		if err := c.getJSON(ctx, resource, values, &decoded); err != nil {
+			return nil, err
+		}
+		mapped, err := mapJobs(decoded.Jobs)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, mapped...)
+		if len(decoded.Jobs) == 0 || (decoded.TotalCount > 0 && len(jobs) >= decoded.TotalCount) {
+			return jobs, nil
+		}
+	}
 }

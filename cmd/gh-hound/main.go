@@ -96,6 +96,7 @@ type cliOptions struct {
 	Fake          string
 	WithArtifacts bool
 	RunID         int64
+	Attempt       int
 	Download      string
 	Dir           string
 	Force         bool
@@ -254,6 +255,8 @@ func newRunsCommand(runtime commandRuntime, options *cliOptions) *cobra.Command 
 	}
 	cmd.Flags().StringVar(&options.Status, "status", "", "filter runs by status or conclusion (env HOUND_STATUS)")
 	cmd.Flags().BoolVar(&options.WithArtifacts, "artifacts", false, "include artifact metadata per run (paginated artifact-list calls per run)")
+	cmd.Flags().Int64Var(&options.RunID, "run", 0, "inspect a single run by ID (any branch)")
+	cmd.Flags().IntVar(&options.Attempt, "attempt", 0, "target a specific run attempt for failure triage (requires --run)")
 	return cmd
 }
 
@@ -328,6 +331,7 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 		return err
 	}
 	width, height := terminalSize(runtime.Stdout)
+	app = app.WithViewport(width, height)
 	restore, err := rawInput(runtime.Stdin, runtime.IsTTY)
 	if err != nil {
 		return err
@@ -368,6 +372,7 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 			return ctx.Err()
 		case <-resizeEvents:
 			width, height = terminalSize(runtime.Stdout)
+			app = app.WithViewport(width, height)
 			if err := render(); err != nil {
 				return err
 			}
@@ -1059,6 +1064,31 @@ func liveResult(ctx context.Context, options cliOptions, runtime commandRuntime)
 	githubClient := target.github
 	repo, branch := target.repo, target.branch
 
+	if options.Attempt > 0 && options.RunID == 0 {
+		return render.Result{}, errors.New("--attempt requires --run <run-id>")
+	}
+	if options.RunID != 0 {
+		var run model.Run
+		if options.Attempt > 0 {
+			run, err = githubClient.GetRunAttempt(ctx, repo, options.RunID, options.Attempt)
+		} else {
+			run, err = githubClient.GetRun(ctx, repo, options.RunID)
+		}
+		if err != nil {
+			return render.Result{}, err
+		}
+		singleRuns := []model.Run{run}
+		renderSingle := mapRenderRuns(singleRuns)
+		triage := usecase.TriageService{GitHub: githubClient}
+		if failures, triageErr := triage.LoadRunFailuresAttempt(ctx, repo, run, options.Attempt); triageErr == nil && len(failures) > 0 {
+			renderSingle[0].Failed = mapRenderFailures(failures)
+		}
+		if options.WithArtifacts {
+			attachArtifacts(ctx, usecase.ArtifactsService{GitHub: githubClient}, repo, singleRuns, renderSingle)
+		}
+		return render.Result{Repo: repo, Branch: branch, Runs: renderSingle}, nil
+	}
+
 	filter := usecase.RunFilter{Repo: repo, Branch: branch, PerPage: 30}
 	if options.Status != "" {
 		status, err := parseStatusFilter(options.Status)
@@ -1281,6 +1311,7 @@ func mapRenderRuns(runs []model.Run) []render.Run {
 			HeadBranch: run.HeadBranch,
 			HeadSHA:    run.HeadSHA,
 			Status:     string(run.Status),
+			Attempt:    run.RunAttempt,
 			Conclusion: string(run.Conclusion),
 			CreatedAt:  run.CreatedAt,
 			HTMLURL:    run.HTMLURL,

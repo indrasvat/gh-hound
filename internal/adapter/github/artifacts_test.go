@@ -136,3 +136,39 @@ func TestDownloadArtifactNeverForwardsAuthToBlobHost(t *testing.T) {
 		t.Fatalf("blob host received Authorization header: %q", blobAuth)
 	}
 }
+
+func TestListJobsForAttemptPaginates(t *testing.T) {
+	pages := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "/attempts/2/jobs") {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		pages++
+		var jobs strings.Builder
+		jobs.WriteString(`[`)
+		count := 100
+		start := 0
+		if r.URL.Query().Get("page") == "2" {
+			count = 1
+			start = 100
+		}
+		for i := 0; i < count; i++ {
+			if i > 0 {
+				jobs.WriteString(",")
+			}
+			jobs.WriteString(fmt.Sprintf(`{"id":%d,"name":"job-%d","status":"completed","conclusion":"success"}`, start+i+1, start+i+1))
+		}
+		jobs.WriteString(`]`)
+		_, _ = fmt.Fprintf(w, `{"total_count":101,"jobs":%s}`, jobs.String())
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client())
+	jobs, err := client.ListJobsForAttempt(context.Background(), "x/y", 42, 2)
+	if err != nil {
+		t.Fatalf("ListJobsForAttempt error: %v", err)
+	}
+	if pages != 2 || len(jobs) != 101 {
+		t.Fatalf("must paginate: pages=%d jobs=%d", pages, len(jobs))
+	}
+}

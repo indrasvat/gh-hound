@@ -920,6 +920,9 @@ type cliGitHub struct {
 	annotations      []model.Annotation
 	artifactList     []model.Artifact
 	artifactZip      string
+	attemptRun       model.Run
+	attemptJobs      []model.Job
+	attemptJobCalls  int
 	listArtifacts    int
 	downloadArtifact int
 	filters          []usecase.RunFilter
@@ -1245,4 +1248,77 @@ func TestRunsArtifactsFlagIsOptIn(t *testing.T) {
 	if len(decoded.Runs) != 1 || len(decoded.Runs[0].Artifacts) != 1 || decoded.Runs[0].Artifacts[0].Name != "coverage" {
 		t.Fatalf("runs --artifacts metadata missing:\n%s", out.String())
 	}
+}
+
+func TestRunsRunFlagNarrowsAndAttemptEnriches(t *testing.T) {
+	var out bytes.Buffer
+	attemptRun := cliRun(950, "Release", model.StatusCompleted, model.ConclusionFailure)
+	github := &cliGitHub{
+		attemptRun: attemptRun,
+		attemptJobs: []model.Job{{
+			ID: 88, Name: "gh extension precompile", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure,
+			Steps: []model.Step{{Name: "Run cli/gh-extension-precompile", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure, Number: 2}},
+		}},
+		jobLog: "non-200 OK status code: 401 Unauthorized\n##[error]Process completed with exit code 1.",
+	}
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out, Stderr: &bytes.Buffer{}, Env: emptyEnv, IsTTY: false,
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--run", "950", "--attempt", "2", "--no-tui", "--json"})
+
+	code, _ := executeCommand(cmd)
+	if code != 1 {
+		t.Fatalf("failed attempt should exit 1, got %d\n%s", code, out.String())
+	}
+	var decoded struct {
+		Runs []struct {
+			ID     int64 `json:"id"`
+			Failed []struct {
+				Job        string `json:"job"`
+				LogExcerpt string `json:"log_excerpt"`
+			} `json:"failed"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
+	}
+	if len(decoded.Runs) != 1 || decoded.Runs[0].ID != 950 {
+		t.Fatalf("--run must narrow to the requested run:\n%s", out.String())
+	}
+	if len(decoded.Runs[0].Failed) != 1 || decoded.Runs[0].Failed[0].Job != "gh extension precompile" {
+		t.Fatalf("attempt jobs must drive failed[]:\n%s", out.String())
+	}
+	if !strings.Contains(decoded.Runs[0].Failed[0].LogExcerpt, "401 Unauthorized") {
+		t.Fatalf("attempt log must drive the excerpt:\n%s", out.String())
+	}
+	if github.attemptJobCalls != 1 {
+		t.Fatalf("attempt-scoped job listing must be used, got %d calls", github.attemptJobCalls)
+	}
+}
+
+func TestAttemptWithoutRunIsUsageError(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out, Stderr: &bytes.Buffer{}, Env: emptyEnv, IsTTY: false,
+		GitHub: &cliGitHub{},
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "x/y", Branch: "main"}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--attempt", "2", "--no-tui", "--json"})
+	code, _ := executeCommand(cmd)
+	if code != 2 {
+		t.Fatalf("--attempt without --run must exit 2, got %d", code)
+	}
+}
+
+func (g *cliGitHub) GetRunAttempt(context.Context, string, int64, int) (model.Run, error) {
+	return g.attemptRun, nil
+}
+
+func (g *cliGitHub) ListJobsForAttempt(context.Context, string, int64, int) ([]model.Job, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.attemptJobCalls++
+	return g.attemptJobs, nil
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/tui/overlay/confirm"
 	"github.com/indrasvat/gh-hound/internal/tui/overlay/help"
 	"github.com/indrasvat/gh-hound/internal/tui/overlay/palette"
+	"github.com/indrasvat/gh-hound/internal/tui/overlay/timejump"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/dispatch"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/empty"
@@ -46,10 +47,11 @@ const (
 type Overlay string
 
 const (
-	OverlayNone    Overlay = ""
-	OverlayHelp    Overlay = "help"
-	OverlayPalette Overlay = "palette"
-	OverlayConfirm Overlay = "confirm"
+	OverlayNone     Overlay = ""
+	OverlayHelp     Overlay = "help"
+	OverlayPalette  Overlay = "palette"
+	OverlayConfirm  Overlay = "confirm"
+	OverlayTimeJump Overlay = "time_jump"
 )
 
 type KeyMsg struct {
@@ -90,6 +92,7 @@ type App struct {
 	build                     BuildInfo
 	theme                     theme.Theme
 	routes                    []Route
+	viewportHeight            int
 	overlays                  []Overlay
 	inputMode                 bool
 	quit                      bool
@@ -125,6 +128,7 @@ type App struct {
 	artifactsFetch            *artifactsFetchState
 	artifactDownload          *artifactDownloadState
 	pendingDownload           *model.Artifact
+	timeJump                  timejump.Model
 	lastToastTick             time.Time
 	openURL                   func(string) error
 	copyText                  func(string) error
@@ -287,6 +291,9 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 		if a.TopOverlay() == OverlayPalette {
 			return a.updatePalette(msg)
 		}
+		if a.TopOverlay() == OverlayTimeJump {
+			return a.updateTimeJump(msg)
+		}
 		switch msg.Key {
 		case "esc":
 			a.overlays = a.overlays[:len(a.overlays)-1]
@@ -358,6 +365,9 @@ func (a App) ViewSize(width, height int) string {
 		}
 		if a.TopOverlay() == OverlayConfirm {
 			footer = "y confirm · enter/n/esc cancel"
+		}
+		if a.TopOverlay() == OverlayTimeJump {
+			footer = "j/k pick · type time · ⏎ go · ⎋ cancel"
 		}
 	} else {
 		body = toastLayer(a.theme, body, a.toasts, contentWidth(width))
@@ -921,10 +931,32 @@ func (a App) updateFailure(msg KeyMsg) (App, bool) {
 	return a, failureHandled(msg.Key) || a.failure.Intent.Kind != failure.IntentNone
 }
 
+// WithViewport records the terminal size so key handling (G, ctrl+d)
+// scrolls against the real viewport, not the resolver's default.
+func (a App) WithViewport(width, height int) App {
+	a.viewportHeight = height
+	return a
+}
+
 func (a App) updateLog(msg KeyMsg) (App, bool) {
+	if a.viewportHeight > 0 {
+		if rows := bodyHeight(a.viewportHeight) - 1; rows > 0 {
+			a.log.Height = rows
+		}
+	}
+	if msg.Key == "t" && !a.log.InputMode {
+		a.timeJump = timejump.New(a.log.Document)
+		a.overlays = append(a.overlays, OverlayTimeJump)
+		return a, true
+	}
 	before := a.log
 	a.log = a.log.Update(logscreen.KeyMsg{Key: msg.Key})
 	if msg.Key == "esc" {
+		if before.InputMode || before.RangeLabel != "" {
+			// Esc only cancelled the input layer or range filter;
+			// stay on the log.
+			return a, true
+		}
 		a.PopRoute()
 		return a, true
 	}
@@ -977,6 +1009,55 @@ func (a App) updateConfirm(msg KeyMsg) (App, bool) {
 	default:
 		return a, false
 	}
+}
+
+func (a App) updateTimeJump(msg KeyMsg) (App, bool) {
+	switch msg.Key {
+	case "esc":
+		a.PopOverlay()
+		a.timeJump = timejump.Model{}
+		return a, true
+	case "enter":
+		next, action := a.timeJump.Commit()
+		a.timeJump = next
+		switch action.Kind {
+		case timejump.ActionJump:
+			a.PopOverlay()
+			a.log = a.log.JumpToLine(action.Line)
+			a.log.LastJump = a.timeJumpBreadcrumb()
+			a.timeJump = timejump.Model{}
+		case timejump.ActionRelative:
+			a.PopOverlay()
+			a.log = a.log.JumpRelative(action.DeltaSeconds)
+			a.log.LastJump = a.timeJumpBreadcrumb()
+			a.timeJump = timejump.Model{}
+		case timejump.ActionRange:
+			a.PopOverlay()
+			a.log = a.log.SetRange(action.Line, action.EndLine, strings.TrimSpace(a.timeJump.Input))
+			a.timeJump = timejump.Model{}
+		case timejump.ActionInvalid:
+			// Feedback is set on the model; the modal stays open.
+		}
+		return a, true
+	default:
+		a.timeJump = a.timeJump.Update(msg.Key)
+		return a, true
+	}
+}
+
+// timeJumpBreadcrumb names what was jumped to for the log header.
+func (a App) timeJumpBreadcrumb() string {
+	if input := strings.TrimSpace(a.timeJump.Input); input != "" {
+		return input
+	}
+	if len(a.timeJump.Entries) > a.timeJump.Selected {
+		entry := a.timeJump.Entries[a.timeJump.Selected]
+		if entry.Clock != "" {
+			return entry.Clock
+		}
+		return entry.Label
+	}
+	return ""
 }
 
 func (a App) updatePalette(msg KeyMsg) (App, bool) {
@@ -1873,6 +1954,8 @@ func (a App) overlayTitle() string {
 		return ": jump to…"
 	case OverlayConfirm:
 		return "Confirm action"
+	case OverlayTimeJump:
+		return "Jump to time"
 	default:
 		return ""
 	}
@@ -1886,6 +1969,8 @@ func (a App) overlayView(width int) string {
 		return palette.View(a.palette, width-20)
 	case OverlayConfirm:
 		return confirm.View(a.confirm, width-20)
+	case OverlayTimeJump:
+		return timejump.View(a.timeJump, width-20)
 	default:
 		return ""
 	}

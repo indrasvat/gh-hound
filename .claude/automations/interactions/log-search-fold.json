@@ -1,8 +1,1 @@
-{
-  "contains": [
-    "log · /trail · match 1/2",
-    "› search-hit 005",
-    "› search-hit 007",
-    "z/Z fold"
-  ]
-}
+{"contains": ["log \u00b7 /trail \u00b7 match 1/2", "\u203a search-hit 005", "\u203a search-hit 007", "z/Z fold"]}
