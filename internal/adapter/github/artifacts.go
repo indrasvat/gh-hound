@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
 type artifactDTO struct {
@@ -111,13 +112,13 @@ func (c *Client) DownloadArtifact(ctx context.Context, repo string, artifactID i
 		return resp.Body, nil
 	case resp.StatusCode == http.StatusGone:
 		_ = resp.Body.Close()
-		return nil, fmt.Errorf("artifact %d has expired and can no longer be downloaded (HTTP 410)", artifactID)
+		return nil, usecase.ArtifactExpiredError{Name: strconv.FormatInt(artifactID, 10)}
 	default:
 		defer func() {
 			_ = resp.Body.Close()
 		}()
 		limited, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return nil, fmt.Errorf("artifact download for %d returned %d: %s", artifactID, resp.StatusCode, string(limited))
+		return nil, mapReadHTTPError(http.MethodGet, resource, resp.StatusCode, resp.Header, limited)
 	}
 }
 
@@ -129,11 +130,9 @@ func (c *Client) fetchArtifactStream(ctx context.Context, rawURL string) (io.Rea
 	}
 	// The signed blob URL is self-authorizing. Use a bare client so an
 	// injected auth transport can never leak the GitHub token to the
-	// storage host, whatever its host-matching rules are.
+	// storage host. No client timeout: a wall-clock cap would abort
+	// large streaming transfers; cancellation flows through ctx.
 	bare := &http.Client{Transport: http.DefaultTransport}
-	if c.http != nil {
-		bare.Timeout = c.http.Timeout
-	}
 	resp, err := bare.Do(req)
 	if err != nil {
 		c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: "github-actions-artifact-download", Duration: time.Since(start), Err: err.Error()})

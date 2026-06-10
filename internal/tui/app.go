@@ -599,9 +599,14 @@ func (a App) drainArtifactsFetch() (App, bool) {
 	}
 	a.artifactsFetch = nil
 	if fetch.err != nil {
-		// Artifacts are auxiliary detail data: a listing error keeps the
-		// section hidden rather than blocking the screen.
-		return a, false
+		// Artifacts are auxiliary: the screen stays usable, but the
+		// failure is surfaced so it cannot masquerade as "no artifacts".
+		a.pushToast("artifacts-unavailable", usecase.Resilience{
+			Severity: usecase.SeverityWarn,
+			Title:    "artifacts unavailable",
+			Message:  "could not list this run's artifacts; retry by reopening the run",
+		})
+		return a, true
 	}
 	if a.detail.Run.ID != fetch.runID || len(fetch.artifacts) == 0 {
 		return a, false
@@ -642,6 +647,9 @@ func (a App) startArtifactsFetch(run model.Run) App {
 	if a.artifactsResolver == nil {
 		return a
 	}
+	if pending := a.artifactsFetch; pending != nil && pending.runID == run.ID {
+		return a
+	}
 	state := &artifactsFetchState{runID: run.ID}
 	a.artifactsFetch = state
 	resolver := a.artifactsResolver
@@ -659,6 +667,16 @@ func (a App) startArtifactsFetch(run model.Run) App {
 func (a App) startArtifactDownload(artifact model.Artifact) App {
 	if a.artifactDownloader == nil {
 		a.pushErrorToast("artifact-download-unavailable", usecase.ResilienceFor(errors.New("artifact download is not configured"), usecase.ErrorContext{}))
+		return a
+	}
+	// One download at a time: overwriting the pending state would
+	// orphan the first goroutine's completion and let the UI lie.
+	if a.artifactDownload != nil {
+		a.pushToast("artifact-download-busy", usecase.Resilience{
+			Severity: usecase.SeverityWarn,
+			Title:    "download in progress",
+			Message:  "wait for the current artifact download to finish",
+		})
 		return a
 	}
 	state := &artifactDownloadState{name: artifact.Name}

@@ -140,3 +140,41 @@ func TestExpiredArtifactDownloadRefusedUpFront(t *testing.T) {
 		t.Fatalf("expired refusal should surface a toast\n%s", view)
 	}
 }
+
+func TestSecondDownloadRefusedWhileOneIsActive(t *testing.T) {
+	block := make(chan struct{})
+	var calls atomic.Int32
+	app := artifactsTestApp(t, func(model.Artifact, string) (usecase.DownloadResult, error) {
+		calls.Add(1)
+		<-block
+		return usecase.DownloadResult{Path: "./coverage", FileCount: 1}, nil
+	})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = waitForArtifacts(t, app)
+	app, _ = app.Update(KeyMsg{Key: "a"})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.Update(KeyMsg{Key: "y"})
+
+	// Second download attempt while the first is still in flight.
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	if app.TopOverlay() == OverlayConfirm {
+		app, _ = app.Update(KeyMsg{Key: "y"})
+	}
+	view := ansi.Strip(app.ViewSize(120, 40))
+	if !strings.Contains(view, "download in progress") {
+		t.Fatalf("second download must be refused with a busy toast\n%s", view)
+	}
+	close(block)
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		var changed bool
+		app, changed = app.Refresh()
+		if changed && calls.Load() == 1 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("downloader calls = %d, want exactly 1", calls.Load())
+	}
+}

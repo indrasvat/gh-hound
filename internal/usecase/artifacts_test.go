@@ -131,3 +131,38 @@ func (g *countingArtifactGitHub) DownloadArtifact(ctx context.Context, repo stri
 	}
 	return g.Adapter.DownloadArtifact(ctx, repo, artifactID)
 }
+
+func TestArtifactsDownloadRejectsHostileName(t *testing.T) {
+	github := &countingArtifactGitHub{Adapter: fake.New(fake.ScenarioFailing)}
+	service := usecase.ArtifactsService{GitHub: github}
+	for _, name := range []string{"../evil", "a/b", "..", ""} {
+		_, err := service.Download(context.Background(), "indrasvat/gh-hound", model.Artifact{ID: 1, Name: name}, t.TempDir(), false)
+		if err == nil {
+			t.Fatalf("hostile artifact name %q must be rejected", name)
+		}
+	}
+	if github.downloads != 0 {
+		t.Fatalf("hostile names must not trigger downloads, got %d", github.downloads)
+	}
+}
+
+func TestArtifactsDownloadCleansPartialExtractionOnFailure(t *testing.T) {
+	var buf bytes.Buffer
+	writer := zip.NewWriter(&buf)
+	good, _ := writer.Create("good.txt")
+	_, _ = good.Write([]byte("ok"))
+	bad, _ := writer.Create("../escape.txt")
+	_, _ = bad.Write([]byte("nope"))
+	_ = writer.Close()
+	github := &countingArtifactGitHub{Adapter: fake.New(fake.ScenarioFailing), zipBytes: buf.Bytes()}
+	service := usecase.ArtifactsService{GitHub: github}
+	dest := t.TempDir()
+
+	_, err := service.Download(context.Background(), "indrasvat/gh-hound", model.Artifact{ID: 9, Name: "partial"}, dest, false)
+	if err == nil {
+		t.Fatal("extraction must fail on the zip-slip entry")
+	}
+	if _, statErr := os.Stat(filepath.Join(dest, "partial")); !os.IsNotExist(statErr) {
+		t.Fatal("failed extraction must not leave a partial destination behind")
+	}
+}

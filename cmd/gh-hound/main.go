@@ -253,7 +253,7 @@ func newRunsCommand(runtime commandRuntime, options *cliOptions) *cobra.Command 
 		},
 	}
 	cmd.Flags().StringVar(&options.Status, "status", "", "filter runs by status or conclusion (env HOUND_STATUS)")
-	cmd.Flags().BoolVar(&options.WithArtifacts, "artifacts", false, "include artifact metadata per run (one extra API call per run)")
+	cmd.Flags().BoolVar(&options.WithArtifacts, "artifacts", false, "include artifact metadata per run (paginated artifact-list calls per run)")
 	return cmd
 }
 
