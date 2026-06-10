@@ -26,6 +26,12 @@ const (
 	Artifact       = "▣"
 )
 
+// SpinnerFrames is the one loading-spinner glyph cycle for the whole
+// app (braille, the in-progress glyph family). Every loading indicator
+// renders from this set; a bespoke per-screen spinner is a
+// review-blocking defect per docs/visual-contract.md.
+var SpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
 func ForStatus(status model.Status) string {
 	switch status {
 	case model.StatusInProgress:

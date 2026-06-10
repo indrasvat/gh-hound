@@ -132,6 +132,60 @@ type App struct {
 	lastToastTick             time.Time
 	openURL                   func(string) error
 	copyText                  func(string) error
+	load                      *pendingLoad
+}
+
+// startLoad runs work off the paint path and records the app's single
+// in-flight fetch. Starting a new load supersedes the old one by
+// pointer replacement; the orphaned goroutine's result can never
+// apply. work returns the apply closure that folds the result (or its
+// error handling) into the App at drain time.
+func (a App) startLoad(kind loadKind, label string, work func() func(App) App) App {
+	state := &pendingLoad{kind: kind, label: label, started: time.Now()}
+	a.load = state
+	go func() {
+		state.finish(work())
+	}()
+	return a
+}
+
+// drainLoad applies a completed load, or reports an animation frame is
+// due while the spinner is visible. Inside the grace window it stays
+// quiet so sub-100ms fetches never flash.
+func (a App) drainLoad() (App, bool) {
+	load := a.load
+	if load == nil {
+		return a, false
+	}
+	done, apply, _, _ := load.snapshot()
+	if !done {
+		return a, time.Since(load.started) >= loadGraceDelay
+	}
+	a.load = nil
+	if apply != nil {
+		a = apply(a)
+	}
+	return a, true
+}
+
+// SettleLoads blocks until the pending load (and any load it chains
+// into) has applied, or the timeout passes. It exists for tests and
+// deterministic fixtures only — the interactive loop drains on poll
+// ticks and must never call it.
+func (a App) SettleLoads(timeout time.Duration) (App, bool) {
+	deadline := time.Now().Add(timeout)
+	for a.load != nil {
+		done, _, _, _ := a.load.snapshot()
+		if done {
+			a, _ = a.drainLoad()
+			continue
+		}
+		if time.Now().After(deadline) {
+			return a, false
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return a, true
 }
 
 // artifactsFetchState carries an async artifacts listing for the
@@ -275,6 +329,18 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 	// on poll ticks, so the section appears as soon as it is ready.
 	if next, ok := a.drainArtifactsFetch(); ok {
 		a = next
+	}
+	if load := a.load; load != nil {
+		if done, _, _, _ := load.snapshot(); done {
+			a, _ = a.drainLoad()
+		} else if msg.Key == "esc" {
+			// Cancel interest: the orphaned result can never apply.
+			// Re-enter (load is nil now) so normal esc routing still
+			// restores the prior view; handled regardless.
+			a.load = nil
+			next, _ := a.Update(msg)
+			return next, true
+		}
 	}
 	if a.inputMode {
 		if msg.Key == "esc" {
@@ -543,6 +609,10 @@ func (a App) PollInterval() time.Duration {
 	if base <= 0 {
 		base = initialPollInterval(a.config)
 	}
+	// A pending load animates the shared spinner: tick at frame rate.
+	if a.load != nil {
+		return loadFrameInterval
+	}
 	// Tighten the loop while async artifact work or timed toasts are
 	// pending so completions and TTL expiry surface promptly.
 	if a.artifactsFetch != nil || a.artifactDownload != nil || len(a.toasts.Toasts) > 0 {
@@ -563,6 +633,10 @@ func (a App) Refresh() (App, bool) {
 		changed = true
 	}
 	if next, ok := a.drainArtifactDownload(); ok {
+		a = next
+		changed = true
+	}
+	if next, ok := a.drainLoad(); ok {
 		a = next
 		changed = true
 	}
