@@ -44,7 +44,7 @@ There is exactly **one** loading indicator in gh-hound, and every screen uses it
 - **`enter` → detail**: jobs fetch goes async; skeleton detail (run header from cached data) paints immediately with spinner in the jobs pane.
 - **Failure screen open**: log + annotations fetch async; header paints first.
 - **`l` → full log**: byte-progress spinner (`◔ fetching log… 2.1 MB`) — content-length is known after redirect; parse runs off the paint path too (multi-MB logs must not freeze on parse).
-- **Dispatch form open**: workflows/default-branch fetches (coordinates with Task 230) — form paints with placeholders.
+- **Dispatch form open**: the existing workflows fetch — form paints with placeholders. (Task 230's default-branch fetch is NOT built here; 230 adds it later, consuming this task's shared component.)
 - Common machinery: a single loading-state component + generation counter (stale responses dropped) + `esc` cancels interest and restores the prior view instantly.
 - All loading/error states join the visual contract.
 

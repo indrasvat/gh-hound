@@ -22,7 +22,7 @@ PLANNED
 The JSON surface can see everything and do nothing. Close the loop for agents: `gh hound rerun --run <id> [--failed-only] [--debug]`, `gh hound cancel --run <id> [--force]`, machine-readable results, documented exit codes.
 
 ## Scope
-- `rerun` subcommand: `--run <id>` (required), `--failed-only`, `--debug` (debug+failed-only is rejected — the API only supports debug on full reruns... verify live; if supported on rerun-failed-jobs, allow it and document), `--job <id>` for single-job rerun.
+- `rerun` subcommand: `--run <id>` (required), `--failed-only`, `--debug`, `--job <id>` for single-job rerun. `--debug` combines with ALL rerun forms — the API documents `enable_debug_logging` on full rerun, rerun-failed-jobs, and job rerun alike; pin each request body in adapter tests and confirm during live verification.
 - `cancel` subcommand: `--run <id>`, `--force`.
 - JSON result: `{repo, run_id, action, accepted: true, html_url}` where `action` enumerates **every** mutation path: `"rerun" | "rerun_failed" | "rerun_job" | "cancel" | "force_cancel"` (single-job rerun carries `job_id` too); typed error object on failure (existing `ActionErrorKind` taxonomy). `html_url` is **reconstructed** (`https://github.com/{repo}/actions/runs/{id}`), never fetched — the mutation endpoints return no body and the one-call budget holds.
 - Exit codes follow the global contract (1 is reserved for actionable CI state, never command-local): `0` mutation accepted, `2` anything else (validation, conflict such as cancelling a completed run, permission, API) — agents branch on `error.kind` in the JSON, which the schema enumerates.

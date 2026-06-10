@@ -25,7 +25,7 @@ PLANNED
 - Model: `Workflow.State` (already present) treated as an open string (unknown future states render verbatim with a neutral badge, never rejected); fake fixtures for **all five** documented states: `active`, `disabled_manually`, `disabled_inactivity`, `disabled_fork`, `deleted`.
 - TUI: wherever workflows are listed (dispatch picker, palette workflows entry), non-active workflows get a themed badge (`◌ asleep` for disabled_inactivity, `⊘ muzzled` for disabled_manually, `⊘ fork-disabled` for disabled_fork, `✗ deleted` for deleted — final glyphs per theme contract); `e` toggles enable/disable, confirm-gated, with toast — offered **only** for toggleable states (`active` ↔ `disabled_manually`/`disabled_inactivity`); `disabled_fork` and `deleted` show the badge with a why-line instead of the toggle.
 - Launch context: if the branch's relevant workflow is disabled, the empty/all-green screens say so (this is the "why are there no runs" answer).
-- Pipe: `gh hound workflows --no-tui --json` (new verb: id, name, path, state) and `--enable|--disable <name|id>`; exit `0` ok, `2` API error.
+- Pipe: `gh hound workflows --no-tui --json` (new verb: id, name, path, state) and `--enable|--disable <id|path>` — id or workflow file path ONLY (what the API accepts; keeps the one-call budget). Display names resolve only in the TUI, from the workflows list already in hand. Exit `0` ok, `2` API/validation error.
 
 ## Out of Scope
 - Editing workflow YAML, schedule introspection, org-wide listings.

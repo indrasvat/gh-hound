@@ -66,7 +66,7 @@ This is the marquee hound feature — naming and copy must land the metaphor: th
 - [ ] Pipe verdict + exit codes shipped and documented; schema.json updated.
 - [ ] TUI diff screen wired from palette; enter→detail and o→browser work; loading is async.
 - [ ] Real-repo boundary located and cross-checked against `git log` ground truth (evidence in PR).
-- [ ] openclaw/openclaw deep-history run within page cap and < 3s warm (timings in PR).
+- [ ] openclaw/openclaw deep-history run stops at `diff_max_pages` and meets the < 1.5s-per-additional-page envelope (timings in PR); the < 3s gate applies only to first-two-page boundaries.
 - [ ] tui-qa cold-context `VERDICT: PASS` at all breakpoints; dootsabha (codex + gemini) converged.
 - [ ] Landing row + gallery tab + docs live on preview in hound voice; production on merge.
 

@@ -24,7 +24,7 @@ A push typically triggers several workflows. gh-hound watches one run; the human
 ## Scope
 - Group model: runs sharing `head_sha` + event from the current scope; board shows one row per run (workflow name, status glyph, conclusion, elapsed), aggregate header (`3 running · 1 passed · 0 failing`). Job/step detail appears only for the drilled-in run — the runs-list API carries no job data, and the poll budget (below) forbids per-run job fetches on the board.
 - Watch board keys: `j/k` select run, `enter` drill into single-run watch (existing screen), `esc` back to board, `x` cancel selected (confirm-gated), `f` follow worst-status run automatically.
-- Entry points: `w` on a runs-list selection watches that run's event group (single-run group degrades to today's behavior — zero regression); post-dispatch handoff (config `auto_watch` honored) — NOTE: the dispatches endpoint returns `204 No Content` with no run id, so the handoff is a bounded discovery poll (runs list filtered by workflow + ref + `event=workflow_dispatch`, `created_at` after the dispatch timestamp; max 10 polls / 30s, then a `couldn't pick up the scent` toast and graceful return to runs); `rerun` in TUI offers the same handoff (rerun mutations also return no new-run payload — same discovery).
+- Entry points: `w` on a runs-list selection watches that run's event group (single-run group degrades to today's behavior — zero regression); post-dispatch handoff (config `auto_watch` honored) — **live-verified 2026-06-10**: on API version 2026-03-10 (which the adapter pins) the dispatches endpoint returns `200` with `{workflow_run_id, run_url, html_url}` — attach watch directly to that run id. Fallback ONLY for `204 No Content` responses (older GHES/API versions): bounded discovery poll (runs list filtered by workflow + ref + `event=workflow_dispatch`, `created_at` after the dispatch timestamp; max 10 polls / 30s, then a `couldn't pick up the scent` toast and graceful return to runs). Rerun handoff is DIFFERENT — no discovery: rerun reuses the existing `run_id`; attach to it and poll until `run_attempt` advances or status leaves `completed`.
 - Pipe: `gh hound watch --group --no-tui` emits NDJSON state transitions per run until the group settles (documented for agents); exit code = worst outcome (existing exit-code semantics).
 - Polling: ONE serial queue, group polling budget ≤ existing single-watch budget × 1.5 via shared run-list poll (one list call covers all group members) — NOT per-run polling. Cap group size (config `watch_group_max`, default 10).
 
@@ -32,7 +32,7 @@ A push typically triggers several workflows. gh-hound watches one run; the human
 - Cross-repo groups, log multiplexing on the board (logs remain in single-run watch), desktop notifications.
 
 ## Public Contracts
-- NDJSON event schema documented in agent-surface.md: `{ts, run_id, workflow, status, conclusion, job, step}` per transition + terminal summary object.
+- NDJSON event schema documented in agent-surface.md — **group events are run-level only** (`{ts, run_id, workflow, status, conclusion}`), consistent with the board's no-job-fetch budget; `job`/`step` fields appear ONLY in single-run drill-in watch events. Terminal summary object closes the stream.
 
 ## Red / Green / Refactor Plan
 - **Red:** grouping tests (same sha different events; single-run group; cap overflow), board state-machine tests (selection, drill-in/out, follow-worst), poll-budget call-count test (N runs, one list call per tick), dispatch→watch handoff test, NDJSON shape tests.
