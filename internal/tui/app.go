@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/indrasvat/gh-hound/internal/config"
@@ -68,6 +70,8 @@ type Options struct {
 	RunsMetadata              func() (usecase.RequestMeta, bool)
 	LogRefetchNotice          func(int64) (usecase.LogRefetchNotice, bool)
 	ActionHandler             func(ActionRequest) (usecase.ActionResult, error)
+	ArtifactsResolver         func(model.Run) ([]model.Artifact, error)
+	ArtifactDownloader        func(model.Artifact, string) (usecase.DownloadResult, error)
 	OpenURL                   func(string) error
 	CopyText                  func(string) error
 }
@@ -116,8 +120,32 @@ type App struct {
 	runsMetadata              func() (usecase.RequestMeta, bool)
 	logRefetchNotice          func(int64) (usecase.LogRefetchNotice, bool)
 	actionHandler             func(ActionRequest) (usecase.ActionResult, error)
+	artifactsResolver         func(model.Run) ([]model.Artifact, error)
+	artifactDownloader        func(model.Artifact, string) (usecase.DownloadResult, error)
+	artifactsFetch            *artifactsFetchState
+	artifactDownload          *artifactDownloadState
+	pendingDownload           *model.Artifact
 	openURL                   func(string) error
 	copyText                  func(string) error
+}
+
+// artifactsFetchState carries an async artifacts listing for the
+// detail screen. Pointer-held so goroutine completion survives App
+// value copies; drained on Refresh ticks.
+type artifactsFetchState struct {
+	mu        sync.Mutex
+	runID     int64
+	artifacts []model.Artifact
+	err       error
+	done      bool
+}
+
+type artifactDownloadState struct {
+	mu     sync.Mutex
+	name   string
+	result usecase.DownloadResult
+	err    error
+	done   bool
 }
 
 type pendingAction struct {
@@ -188,6 +216,8 @@ func NewApp(options Options) App {
 		runsMetadata:              options.RunsMetadata,
 		logRefetchNotice:          options.LogRefetchNotice,
 		actionHandler:             options.ActionHandler,
+		artifactsResolver:         options.ArtifactsResolver,
+		artifactDownloader:        options.ArtifactDownloader,
 		openURL:                   options.OpenURL,
 		copyText:                  options.CopyText,
 	}
@@ -236,6 +266,11 @@ func NewScenarioApp(scenario string, build BuildInfo) App {
 }
 
 func (a App) Update(msg KeyMsg) (App, bool) {
+	// Async artifact results apply on the next keypress too, not only
+	// on poll ticks, so the section appears as soon as it is ready.
+	if next, ok := a.drainArtifactsFetch(); ok {
+		a = next
+	}
 	if a.inputMode {
 		if msg.Key == "esc" {
 			a.inputMode = false
@@ -429,6 +464,12 @@ func RenderInteractionFixtureSize(scenario string, width, height int) string {
 			m = m.Update(detail.KeyMsg{Key: key})
 		}
 		return frameViewSize(app.theme, "hound", "CI #571 › fix/parser", "a1b2c3d", detail.View(m, bodyWidth), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
+	case "detail-artifacts":
+		m := sampleDetailModel()
+		for _, key := range []string{"a", "j"} {
+			m = m.Update(detail.KeyMsg{Key: key})
+		}
+		return frameViewSize(app.theme, "hound", "CI #571 › fix/parser", "artifacts", detail.View(m, bodyWidth), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
 	case "failure-actions":
 		m := sampleFailureModel()
 		for _, key := range []string{"l", "y", "o", "r", "R"} {
@@ -491,21 +532,137 @@ func (a App) PollInterval() time.Duration {
 }
 
 func (a App) Refresh() (App, bool) {
+	changed := false
+	if next, ok := a.drainArtifactDownload(); ok {
+		a = next
+		changed = true
+	}
 	if a.TopOverlay() != OverlayNone || a.routeInputMode() {
-		return a, false
+		return a, changed
+	}
+	if next, ok := a.drainArtifactsFetch(); ok {
+		a = next
+		changed = true
 	}
 	switch a.Route() {
 	case RouteRuns:
-		return a.refreshRuns()
+		next, refreshed := a.refreshRuns()
+		return next, refreshed || changed
 	case RouteWatch:
-		return a.refreshWatch()
+		next, refreshed := a.refreshWatch()
+		return next, refreshed || changed
 	default:
+		return a, changed
+	}
+}
+
+func (a App) drainArtifactsFetch() (App, bool) {
+	fetch := a.artifactsFetch
+	if fetch == nil {
 		return a, false
 	}
+	fetch.mu.Lock()
+	defer fetch.mu.Unlock()
+	if !fetch.done {
+		return a, false
+	}
+	a.artifactsFetch = nil
+	if fetch.err != nil {
+		// Artifacts are auxiliary detail data: a listing error keeps the
+		// section hidden rather than blocking the screen.
+		return a, false
+	}
+	if a.detail.Run.ID != fetch.runID || len(fetch.artifacts) == 0 {
+		return a, false
+	}
+	a.detail = a.detail.WithArtifacts(fetch.artifacts)
+	return a, a.Route() == RouteDetail
+}
+
+func (a App) drainArtifactDownload() (App, bool) {
+	download := a.artifactDownload
+	if download == nil {
+		return a, false
+	}
+	download.mu.Lock()
+	defer download.mu.Unlock()
+	if !download.done {
+		return a, false
+	}
+	a.artifactDownload = nil
+	if download.err != nil {
+		a.pushErrorToast("artifact-download-failed", usecase.ResilienceFor(download.err, usecase.ErrorContext{}))
+		return a, true
+	}
+	a.pushToast("artifact-downloaded", usecase.Resilience{
+		Severity: usecase.SeverityOK,
+		Title:    "artifact downloaded",
+		Message:  fmt.Sprintf("%s extracted to %s (%d files)", download.name, download.result.Path, download.result.FileCount),
+	})
+	return a, true
+}
+
+func (a App) startArtifactsFetch(run model.Run) App {
+	if a.artifactsResolver == nil {
+		return a
+	}
+	state := &artifactsFetchState{runID: run.ID}
+	a.artifactsFetch = state
+	resolver := a.artifactsResolver
+	go func() {
+		artifacts, err := resolver(run)
+		state.mu.Lock()
+		state.artifacts = artifacts
+		state.err = err
+		state.done = true
+		state.mu.Unlock()
+	}()
+	return a
+}
+
+func (a App) startArtifactDownload(artifact model.Artifact) App {
+	if a.artifactDownloader == nil {
+		a.pushErrorToast("artifact-download-unavailable", usecase.ResilienceFor(errors.New("artifact download is not configured"), usecase.ErrorContext{}))
+		return a
+	}
+	state := &artifactDownloadState{name: artifact.Name}
+	a.artifactDownload = state
+	downloader := a.artifactDownloader
+	go func() {
+		result, err := downloader(artifact, ".")
+		state.mu.Lock()
+		state.result = result
+		state.err = err
+		state.done = true
+		state.mu.Unlock()
+	}()
+	a.pushToast("artifact-downloading", usecase.Resilience{
+		Severity: usecase.SeverityInfo,
+		Title:    "downloading artifact",
+		Message:  fmt.Sprintf("%s (%s)", artifact.Name, humanArtifactSize(artifact.SizeInBytes)),
+	})
+	return a
+}
+
+func humanArtifactSize(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
 func (a App) WelcomeDismissed() bool {
 	return a.welcomeDismissed
+}
+
+func (a App) DetailModel() detail.Model {
+	return a.detail
 }
 
 func (a App) InputMode() bool {
@@ -625,6 +782,7 @@ func (a App) updateDetail(msg KeyMsg) (App, bool) {
 	beforeFocus := a.detail.Focus
 	beforeJob := a.detail.SelectedJob
 	beforeStep := a.detail.SelectedStep
+	beforeArtifact := a.detail.SelectedArtifact
 	a.detail = a.detail.Update(detail.KeyMsg{Key: msg.Key})
 	switch a.detail.Intent.Kind {
 	case detail.IntentFailure:
@@ -650,10 +808,37 @@ func (a App) updateDetail(msg KeyMsg) (App, bool) {
 		a = a.copyExternal("detail-url", selectedRunURL(a.detail.Repo, a.detail.Run))
 	case detail.IntentCopySHA:
 		a = a.copyExternal("detail-sha", a.detail.Run.HeadSHA)
+	case detail.IntentDownloadArtifact:
+		a = a.requestArtifactDownload(a.detail.Intent.ArtifactID)
 	case detail.IntentBack:
 		a.PopRoute()
 	}
-	return a, detailHandled(msg.Key) || beforeFocus != a.detail.Focus || beforeJob != a.detail.SelectedJob || beforeStep != a.detail.SelectedStep || a.detail.Intent.Kind != detail.IntentNone
+	return a, detailHandled(msg.Key) || beforeFocus != a.detail.Focus || beforeJob != a.detail.SelectedJob || beforeStep != a.detail.SelectedStep || beforeArtifact != a.detail.SelectedArtifact || a.detail.Intent.Kind != detail.IntentNone
+}
+
+func (a App) requestArtifactDownload(artifactID int64) App {
+	for _, artifact := range a.detail.Artifacts {
+		if artifact.ID != artifactID {
+			continue
+		}
+		if artifact.Expired {
+			a.pushErrorToast("artifact-expired", usecase.ResilienceFor(usecase.ArtifactExpiredError{Name: artifact.Name}, usecase.ErrorContext{}))
+			return a
+		}
+		return a.openDownloadConfirm(artifact)
+	}
+	return a
+}
+
+func (a App) openDownloadConfirm(artifact model.Artifact) App {
+	a.clearRouteError(RouteDetail)
+	selected := artifact
+	a.pendingDownload = &selected
+	a.confirm = confirm.New(fmt.Sprintf("Download artifact %q (%s) to ./%s/?", artifact.Name, humanArtifactSize(artifact.SizeInBytes), artifact.Name))
+	if a.TopOverlay() != OverlayConfirm {
+		a.overlays = append(a.overlays, OverlayConfirm)
+	}
+	return a
 }
 
 func (a App) updateFailure(msg KeyMsg) (App, bool) {
@@ -718,7 +903,11 @@ func (a App) updateConfirm(msg KeyMsg) (App, bool) {
 	switch a.confirm.Intent.Kind {
 	case confirm.IntentConfirm:
 		pending := a.pendingAction
+		pendingDownload := a.pendingDownload
 		a = a.closeConfirm()
+		if pendingDownload != nil {
+			return a.startArtifactDownload(*pendingDownload), true
+		}
 		if pending != nil {
 			a = a.executeAction(pending.route, pending.request)
 		}
@@ -814,7 +1003,7 @@ func (a App) loadDetail(run model.Run) App {
 	a.clearRouteError(RouteDetail)
 	if a.detailResolver == nil {
 		a.detail = DetailModelForRun(run)
-		return a
+		return a.startArtifactsFetch(run)
 	}
 	resolved, err := a.detailResolver(run)
 	if err != nil {
@@ -823,7 +1012,7 @@ func (a App) loadDetail(run model.Run) App {
 		return a
 	}
 	a.detail = resolved
-	return a
+	return a.startArtifactsFetch(run)
 }
 
 func (a App) reloadRuns(query string) App {
@@ -1310,6 +1499,7 @@ func (a App) closeConfirm() App {
 		a.overlays = a.overlays[:len(a.overlays)-1]
 	}
 	a.pendingAction = nil
+	a.pendingDownload = nil
 	a.confirm = confirm.Model{}
 	return a
 }
@@ -2031,7 +2221,12 @@ func sampleDetailModel() detail.Model {
 		job(103, "test (1.26)", model.ConclusionSuccess, start.Add(9*time.Second), 112*time.Second),
 		{ID: 104, Name: "deploy", Status: model.StatusQueued, Conclusion: model.ConclusionNone, Labels: []string{"ubuntu-latest"}},
 	}
-	return detail.NewModel(run, jobs).WithRepo("indrasvat/gh-hound")
+	artifacts := []model.Artifact{
+		{ID: 901, Name: "coverage", SizeInBytes: 1262848, CreatedAt: start.Add(135 * time.Second), ExpiresAt: start.AddDate(0, 0, 7)},
+		{ID: 902, Name: "test-results", SizeInBytes: 348160, CreatedAt: start.Add(136 * time.Second), ExpiresAt: start.AddDate(0, 0, 7)},
+		{ID: 903, Name: "old-report", SizeInBytes: 52480, Expired: true, CreatedAt: start.AddDate(0, -3, 0), ExpiresAt: start.AddDate(0, -3, 7)},
+	}
+	return detail.NewModel(run, jobs).WithRepo("indrasvat/gh-hound").WithArtifacts(artifacts)
 }
 
 func DetailModelForRun(run model.Run) detail.Model {

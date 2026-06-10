@@ -1,1 +1,1 @@
-{"contains":["CI #571","indrasvat/gh-hound › CI #571 › fix/parser","build [failure] [ubuntu-latest]","▌ ✗ 6  go test ./...","⏎ expand · ↻ rerun job"]}
+{"contains": ["CI #571", "indrasvat/gh-hound \u203a CI #571 \u203a fix/parser", "build [failure] [ubuntu-latest]", "\u258c \u2717 6  go test ./...", "\u23ce expand \u00b7 \u21bb rerun job", "Artifacts (3)", "coverage", "[expired]"]}

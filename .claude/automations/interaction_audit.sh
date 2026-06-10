@@ -31,6 +31,8 @@ scenarios=(
   runs-select
   runs-filter
   detail-nav
+  detail-artifacts
+  detail-artifact-confirm
   failure-log-refetch
   failure-actions
   log-search-fold
@@ -63,6 +65,8 @@ keys_for() {
     runs-select) printf 'j' ;;
     runs-filter) printf '/ f a i l enter' ;;
     detail-nav) printf 'enter tab n' ;;
+    detail-artifacts) printf 'enter a j k' ;;
+    detail-artifact-confirm) printf 'enter a enter' ;;
     failure-actions) printf 'enter enter' ;;
     failure-log-refetch) printf 'enter enter' ;;
     log-search-fold) printf 'enter enter l / t r a i l enter z' ;;

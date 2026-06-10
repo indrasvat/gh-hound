@@ -75,9 +75,71 @@ func renderStepsPane(m Model, width int) []string {
 	for i, step := range job.Steps {
 		lines = append(lines, stepRow(step, i == m.SelectedStep, width))
 	}
+	lines = append(lines, renderArtifactsBlock(m, width)...)
 	lines = append(lines, divider(width))
-	lines = append(lines, hintLine(width))
+	lines = append(lines, hintLine(m, width))
 	return lines
+}
+
+const artifactsWindow = 5
+
+func renderArtifactsBlock(m Model, width int) []string {
+	if len(m.Artifacts) == 0 {
+		return nil
+	}
+	lines := []string{
+		divider(width),
+		paneHeader(fmt.Sprintf("Artifacts (%d)", len(m.Artifacts)), "", width, m.Focus == FocusArtifacts),
+	}
+	start := 0
+	if m.SelectedArtifact >= artifactsWindow {
+		start = m.SelectedArtifact - artifactsWindow + 1
+	}
+	end := min(start+artifactsWindow, len(m.Artifacts))
+	for i := start; i < end; i++ {
+		lines = append(lines, artifactRow(m.Artifacts[i], i == m.SelectedArtifact && m.Focus == FocusArtifacts, width))
+	}
+	if remaining := len(m.Artifacts) - end; remaining > 0 {
+		lines = append(lines, fitANSI("    "+colorize(sgrDim, fmt.Sprintf("+%d more", remaining)), width))
+	}
+	return lines
+}
+
+func artifactRow(artifact model.Artifact, selected bool, width int) string {
+	bar := " "
+	if selected {
+		bar = colorize(sgrOK, icons.Cursor)
+	}
+	nameColor := sgrFGSoft
+	iconColor := sgrInfo
+	if artifact.Expired {
+		nameColor = sgrDim
+		iconColor = sgrDim
+	}
+	leftWidth := max(width-22, 1)
+	left := fitANSI(bar+" "+colorize(iconColor, icons.Artifact)+" "+colorize(nameColor, artifact.Name), leftWidth)
+	right := colorize(sgrDim, humanSize(artifact.SizeInBytes))
+	if artifact.Expired {
+		right = colorize(sgrWarn, "[expired]") + " " + right
+	}
+	row := joinRightANSI(left, right, width)
+	if selected {
+		return backgroundSafe(row, width, sgrFG, sgrSurface2BG)
+	}
+	return row
+}
+
+func humanSize(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
 func paneHeader(left, right string, width int, focused bool) string {
@@ -162,8 +224,14 @@ func stepRow(step model.Step, selected bool, width int) string {
 	}
 }
 
-func hintLine(width int) string {
-	return fitANSI("  "+colorize(sgrInfo, "n")+" jump to failure · "+colorize(sgrInfo, "l")+" full log · "+colorize(sgrInfo, "y")+" copy", width)
+func hintLine(m Model, width int) string {
+	hint := "  " + colorize(sgrInfo, "n") + " jump to failure · " + colorize(sgrInfo, "l") + " full log"
+	if len(m.Artifacts) > 0 {
+		hint += " · " + colorize(sgrInfo, "a") + " artifacts · " + colorize(sgrInfo, "d") + " download"
+	} else {
+		hint += " · " + colorize(sgrInfo, "y") + " copy"
+	}
+	return fitANSI(hint, width)
 }
 
 func divider(width int) string {

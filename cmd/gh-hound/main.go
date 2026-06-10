@@ -584,6 +584,12 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 				return usecase.ActionResult{}, fmt.Errorf("unsupported action %q", request.Action)
 			}
 		},
+		ArtifactsResolver: func(run model.Run) ([]model.Artifact, error) {
+			return usecase.ArtifactsService{GitHub: githubClient}.List(ctx, launch.Repo, run.ID)
+		},
+		ArtifactDownloader: func(artifact model.Artifact, destDir string) (usecase.DownloadResult, error) {
+			return usecase.ArtifactsService{GitHub: githubClient}.Download(ctx, launch.Repo, artifact, destDir, false)
+		},
 		OpenURL:  openURLForRuntime(runtime),
 		CopyText: copyTextForRuntime(runtime),
 	}), nil

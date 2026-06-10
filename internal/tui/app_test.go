@@ -612,8 +612,13 @@ func TestRootShellDelegatesScreenKeysAndRoutes(t *testing.T) {
 	}
 
 	app, handled = app.Update(KeyMsg{Key: "tab"})
+	if !handled || app.detail.Focus != detail.FocusArtifacts {
+		t.Fatalf("detail tab from steps should focus artifacts when present: handled=%v focus=%s route=%s\n%s", handled, app.detail.Focus, app.Route(), app.View())
+	}
+
+	app, handled = app.Update(KeyMsg{Key: "tab"})
 	if !handled || app.detail.Focus != detail.FocusJobs {
-		t.Fatalf("detail tab should update focused pane: handled=%v focus=%s route=%s\n%s", handled, app.detail.Focus, app.Route(), app.View())
+		t.Fatalf("detail tab should cycle back to jobs: handled=%v focus=%s route=%s\n%s", handled, app.detail.Focus, app.Route(), app.View())
 	}
 
 	app, handled = app.Update(KeyMsg{Key: "enter"})
