@@ -54,7 +54,7 @@ func (s ArtifactsService) Download(ctx context.Context, repo string, artifact mo
 	// The artifact name is API-provided input and becomes the extraction
 	// root (and a RemoveAll target under --force): require a single
 	// local path element so a hostile name can never escape destDir.
-	if artifact.Name == "" || filepath.Base(artifact.Name) != artifact.Name || !filepath.IsLocal(artifact.Name) {
+	if artifact.Name == "" || artifact.Name == "." || filepath.Base(artifact.Name) != artifact.Name || !filepath.IsLocal(artifact.Name) {
 		return DownloadResult{}, fmt.Errorf("artifact name %q is not a safe directory name", artifact.Name)
 	}
 	target := filepath.Join(destDir, artifact.Name)

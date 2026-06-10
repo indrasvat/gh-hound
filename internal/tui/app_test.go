@@ -14,6 +14,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/tui/screens/dispatch"
 	failurescreen "github.com/indrasvat/gh-hound/internal/tui/screens/failure"
 	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/runs"
 	watchscreen "github.com/indrasvat/gh-hound/internal/tui/screens/watch"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
@@ -1580,4 +1581,55 @@ func watchModelForTest(run model.Run) watchscreen.Model {
 		Run:     run,
 		Elapsed: "1m02s",
 	})
+}
+
+func TestPaletteArtifactsEntryReachesDetail(t *testing.T) {
+	app := artifactsTestApp(t, nil)
+	app, _ = app.Update(KeyMsg{Key: ":"})
+	for _, key := range []string{"a", "r", "t", "i"} {
+		app, _ = app.Update(KeyMsg{Key: key})
+	}
+	app, handled := app.Update(KeyMsg{Key: "enter"})
+	if !handled || app.Route() != RouteDetail {
+		t.Fatalf("palette artifacts should open detail: handled=%v route=%s", handled, app.Route())
+	}
+	if app.detail.Focus != detail.FocusArtifacts && len(app.detail.Artifacts) == 0 {
+		// artifacts may still be loading; focus request happens after load
+		app = waitForArtifacts(t, app)
+	}
+}
+
+func TestServerTaggedFilterSkipsLocalSubstringMatch(t *testing.T) {
+	m := runs.NewModel(usecase.LaunchContext{
+		Repo:  "openclaw/openclaw",
+		State: usecase.LaunchStateRuns,
+		Runs:  []model.Run{cliTestRun(1, "CI", "fix/parser")},
+	})
+	m.Filter = "branch:fix/parser"
+	m.ServerFiltered = true
+	if len(m.FilteredRuns()) != 1 {
+		t.Fatalf("server-filtered results must not be re-filtered locally: %d visible", len(m.FilteredRuns()))
+	}
+}
+
+func TestEscClearsAppliedFilter(t *testing.T) {
+	m := runs.NewModel(usecase.LaunchContext{
+		Repo:  "indrasvat/gh-hound",
+		State: usecase.LaunchStateRuns,
+		Runs:  []model.Run{cliTestRun(1, "CI", "main")},
+	})
+	for _, key := range []string{"/", "z", "z", "enter"} {
+		m = m.Update(runs.KeyMsg{Key: key})
+	}
+	m = m.Update(runs.KeyMsg{Key: "esc"})
+	if m.Filter != "" {
+		t.Fatalf("esc must clear the applied filter, got %q", m.Filter)
+	}
+	if m.Intent.Kind != runs.IntentFilter || m.Intent.Filter != "" {
+		t.Fatalf("esc must emit an empty filter intent to reload: %#v", m.Intent)
+	}
+}
+
+func cliTestRun(id int64, workflow, branch string) model.Run {
+	return model.Run{ID: id, Name: workflow, HeadBranch: branch, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: int(id)}
 }

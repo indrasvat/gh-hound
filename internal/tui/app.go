@@ -545,8 +545,11 @@ func (a App) PollInterval() time.Duration {
 
 func (a App) Refresh() (App, bool) {
 	changed := false
-	if next, ok := a.tickToasts(); ok {
-		a = next
+	// Always keep the ticked app: discarding it when no toast expired
+	// would reset the elapsed clock and make TTLs unreachable.
+	var expired bool
+	a, expired = a.tickToasts()
+	if expired {
 		changed = true
 	}
 	if next, ok := a.drainArtifactDownload(); ok {
@@ -826,6 +829,8 @@ func (a App) updateRuns(msg KeyMsg) (App, bool) {
 		}
 	case runs.IntentFilter:
 		a = a.reloadRuns(a.runs.Intent.Filter)
+		_, serverSide := serverRunFilter(a.runs.Context, a.config.PerPage, a.runs.Intent.Filter)
+		a.runs.ServerFiltered = serverSide
 	case runs.IntentLoadMore:
 		a = a.loadMoreRuns()
 	}
@@ -1131,8 +1136,11 @@ func (a App) loadMoreRuns() App {
 	}
 	a.runs.Context.Page = nextPage
 	a.runs.Context.PerPage = perPage
-	appended := a.appendActiveRuns(resolved)
-	a.runs.Context.HasMore = len(resolved) >= perPage && appended > 0
+	_ = a.appendActiveRuns(resolved)
+	// A full page that deduped to nothing still means deeper pages
+	// exist (high-velocity repos shift runs between pages); latching
+	// HasMore=false there froze pagination on openclaw-sized repos.
+	a.runs.Context.HasMore = len(resolved) >= perPage
 	return a
 }
 
@@ -2000,6 +2008,7 @@ func paletteItems(workflows []dispatch.Workflow) []palette.Item {
 		{Name: "runs", Description: "workflow runs · this branch", Tag: "default", Route: "runs"},
 		{Name: "runs --all", Description: "runs across all branches", Route: "runs --all"},
 		{Name: "run:failed", Description: "filtered to failures", Route: "run:failed"},
+		{Name: "artifacts", Description: "selected run's artifacts", Route: "artifacts"},
 	}
 	if len(workflows) == 0 {
 		items = append(items, palette.Item{Name: "dispatch", Description: "trigger workflow_dispatch", Route: string(RouteDispatch)})

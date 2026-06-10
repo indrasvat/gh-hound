@@ -2,7 +2,6 @@ package github
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -143,8 +142,13 @@ func (c *Client) fetchArtifactStream(ctx context.Context, rawURL string) (io.Rea
 		defer func() {
 			_ = resp.Body.Close()
 		}()
+		if resp.StatusCode == http.StatusGone {
+			return nil, usecase.ArtifactExpiredError{Name: "artifact download link"}
+		}
 		limited, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return nil, fmt.Errorf("artifact blob download returned %d: %s", resp.StatusCode, string(limited))
+		// Synthetic resource name: the signed URL itself must never
+		// appear in errors or traces.
+		return nil, mapReadHTTPError(http.MethodGet, "github-actions-artifact-download", resp.StatusCode, resp.Header, limited)
 	}
 	return resp.Body, nil
 }

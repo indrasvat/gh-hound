@@ -178,3 +178,14 @@ func TestSecondDownloadRefusedWhileOneIsActive(t *testing.T) {
 		t.Fatalf("downloader calls = %d, want exactly 1", calls.Load())
 	}
 }
+
+func TestToastTTLActuallyExpires(t *testing.T) {
+	app := artifactsTestApp(t, nil)
+	app.pushToast("ttl-check", usecase.Resilience{Severity: usecase.SeverityInfo, Title: "ttl", Message: "check"})
+	// Backdate the tick clock instead of sleeping 8s.
+	app.lastToastTick = time.Now().Add(-10 * time.Second)
+	app, changed := app.Refresh()
+	if !changed || len(app.toasts.Toasts) != 0 {
+		t.Fatalf("toast must expire after its TTL: changed=%v remaining=%d", changed, len(app.toasts.Toasts))
+	}
+}
