@@ -101,3 +101,26 @@ func TestGReachesTheLastLine(t *testing.T) {
 		t.Fatalf("j past end must not overscroll, got rows %v", got)
 	}
 }
+
+func TestScrollClampsInsideActiveRange(t *testing.T) {
+	doc := logs.Parse("00:01:00Z l1\n00:02:00Z l2\n00:03:00Z l3\n00:04:00Z l4\n00:05:00Z l5")
+	m := NewModel(doc, 1, 2)
+	m = m.SetRange(2, 4, "00:02-00:04")
+	m = m.Update(KeyMsg{Key: "G"})
+	rows := m.VisibleRowNumbers()
+	if len(rows) == 0 || rows[len(rows)-1] != 4 || rows[0] < 2 {
+		t.Fatalf("G inside a range must land on the range end, got %v", rows)
+	}
+	m = m.Update(KeyMsg{Key: "j"})
+	if rows := m.VisibleRowNumbers(); len(rows) == 0 || rows[len(rows)-1] != 4 {
+		t.Fatalf("j past the range end must not blank the pane, got %v", rows)
+	}
+	m = m.Update(KeyMsg{Key: "g"})
+	if rows := m.VisibleRowNumbers(); rows[0] != 2 {
+		t.Fatalf("g inside a range must land on the range start, got %v", rows)
+	}
+	m = m.Update(KeyMsg{Key: "k"})
+	if rows := m.VisibleRowNumbers(); rows[0] != 2 {
+		t.Fatalf("k above the range start must clamp, got %v", rows)
+	}
+}

@@ -60,15 +60,15 @@ func (m Model) Update(msg KeyMsg) Model {
 	case "j", "down":
 		m.Offset = min(m.Offset+1, m.maxTop())
 	case "k", "up":
-		m.Offset = max(1, m.Offset-1)
+		m.Offset = max(m.minTop(), m.Offset-1)
 	case "g":
-		m.Offset = 1
+		m.Offset = m.minTop()
 	case "G":
 		m.Offset = m.maxTop()
 	case "ctrl+d":
 		m.Offset = min(m.Offset+m.Height/2, m.maxTop())
 	case "ctrl+u":
-		m.Offset = max(1, m.Offset-m.Height/2)
+		m.Offset = max(m.minTop(), m.Offset-m.Height/2)
 	case "/":
 		m.InputMode = true
 		m.input = ""
@@ -260,9 +260,22 @@ func clockBefore(query, clock string) bool {
 
 // maxTop is the highest top-of-viewport line that still fills the
 // screen (Height counts body rows; the header is budgeted by the
-// caller).
+// caller). An active range bounds scrolling to its window.
 func (m Model) maxTop() int {
-	return max(1, len(m.Document.Lines)-max(m.Height, 1)+1)
+	last := len(m.Document.Lines)
+	if m.RangeLabel != "" {
+		last = min(last, m.RangeEnd)
+	}
+	top := max(m.minTop(), last-max(m.Height, 1)+1)
+	return top
+}
+
+// minTop is the lowest top-of-viewport line: 1, or the range start.
+func (m Model) minTop() int {
+	if m.RangeLabel != "" {
+		return max(1, m.RangeStart)
+	}
+	return 1
 }
 
 func (m Model) Collapsed(line int) bool {
