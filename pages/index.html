@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0E0F0C">
+<title>gh-hound · GitHub Actions, without the browser side quest</title>
+<meta name="description" content="gh-hound is a fast terminal cockpit for GitHub Actions: what broke, where, whether to rerun. A gh extension with a real TUI for humans and schema-stable JSON for agents.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/styles/site.css">
+
+<link rel="icon" type="image/png" href="/assets/logo.png">
+<link rel="apple-touch-icon" href="/assets/logo.png">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="gh-hound">
+<meta property="og:title" content="gh-hound · GitHub Actions, without the browser side quest">
+<meta property="og:description" content="A fast terminal cockpit for CI triage. TUI for humans, schema-stable JSON for agents.">
+<meta property="og:url" content="https://gh-hound.pages.dev/">
+<meta property="og:image" content="https://gh-hound.pages.dev/og-card.png?v=2026-06-10">
+<meta property="og:image:secure_url" content="https://gh-hound.pages.dev/og-card.png?v=2026-06-10">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="gh-hound · GitHub Actions, without the browser side quest">
+<meta name="twitter:description" content="A fast terminal cockpit for CI triage. TUI for humans, schema-stable JSON for agents.">
+<meta name="twitter:image" content="https://gh-hound.pages.dev/og-card.png?v=2026-06-10">
+<link rel="canonical" href="https://gh-hound.pages.dev/">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="atmosphere" aria-hidden="true"></div>
+
+<nav class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="/">
+      <img src="/assets/logo.png" alt="gh-hound logo" width="34" height="34">
+      <span>gh-hound</span>
+    </a>
+    <div class="nav-links">
+      <a href="#why">why</a>
+      <a href="#screens">screens</a>
+      <a href="#agents">agents</a>
+      <a href="#install">install</a>
+      <a class="gh" href="https://github.com/indrasvat/gh-hound">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </div>
+</nav>
+
+<main id="main">
+
+  <header class="hero wrap">
+    <h1 class="rise">GitHub Actions, without the <span class="accent">browser side quest</span>.</h1>
+    <p class="sub rise d1">One terminal cockpit for what broke, where, and whether to rerun. For humans in the TUI, for agents on <span class="mono">stdout</span>.</p>
+    <div class="cta-row rise d2">
+      <span class="install-pill">
+        <span class="ps1">$</span>
+        <code id="hero-cmd">gh extension install indrasvat/gh-hound</code>
+        <button class="copy-btn" data-copy="gh extension install indrasvat/gh-hound" aria-label="Copy install command">copy</button>
+      </span>
+      <a class="btn-ghost" href="https://github.com/indrasvat/gh-hound">View source</a>
+    </div>
+    <figure class="hero-term rise d4">
+      <div class="term">
+        <img src="/assets/shots/runs.png" alt="gh-hound runs screen: a branch-scoped list of workflow runs with status glyphs, events, duration sparklines and rate budget" width="2242" height="712" fetchpriority="high">
+      </div>
+      <figcaption>the runs home: status, event, duration sparkline, age, rate budget</figcaption>
+    </figure>
+  </header>
+
+  <section id="why" class="wrap">
+    <div class="section-head reveal">
+      <h2>Five questions. Zero browser tabs.</h2>
+      <p class="lede">CI triage is the same loop every time. gh-hound binds each step of it to a keystroke and keeps the answer in your terminal, next to the code.</p>
+    </div>
+    <div class="trail">
+      <div class="trail-row reveal">
+        <p class="trail-q">Is my branch green?</p>
+        <div class="keys"><span class="key">gh hound</span></div>
+        <p class="trail-a">Scoped run list with <b>status, age, event</b> and live rate budget.</p>
+      </div>
+      <div class="trail-row reveal">
+        <p class="trail-q">What failed?</p>
+        <div class="keys"><span class="key">⏎</span><span class="key">n</span></div>
+        <p class="trail-a">Drill into jobs and steps, then <b>jump to the next failure</b>.</p>
+      </div>
+      <div class="trail-row reveal">
+        <p class="trail-q">Where is the useful log line?</p>
+        <div class="keys"><span class="key">l</span><span class="key">/</span></div>
+        <p class="trail-a">Full log with <b>folds, search, line numbers</b> and highlights.</p>
+      </div>
+      <div class="trail-row reveal">
+        <p class="trail-q">Can I retry safely?</p>
+        <div class="keys"><span class="key">r</span><span class="key">R</span><span class="key">x</span></div>
+        <p class="trail-a">Rerun, rerun failed, cancel: local, visible, <b>confirmation-gated</b>.</p>
+      </div>
+      <div class="trail-row reveal">
+        <p class="trail-q">Can my agent consume this?</p>
+        <div class="keys"><span class="key">--json</span></div>
+        <p class="trail-a">Schema-stable runs, failures, annotations, excerpts, <b>exit codes</b>.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="screens" class="wrap">
+    <div class="section-head reveal">
+      <h2>Real screens, rendered by the real binary.</h2>
+      <p class="lede">No mockups. Fixture screens are deterministic renders from <span class="mono">gh-hound</span> itself; the full log is a live capture from this repository's CI.</p>
+    </div>
+    <div class="tabs reveal" role="tablist" aria-label="gh-hound screens">
+      <button class="tab" role="tab" aria-selected="true" data-shot="shot-detail">run detail</button>
+      <button class="tab" role="tab" aria-selected="false" data-shot="shot-failure">failure</button>
+      <button class="tab" role="tab" aria-selected="false" data-shot="shot-log">full log</button>
+      <button class="tab" role="tab" aria-selected="false" data-shot="shot-watch">watch</button>
+      <button class="tab" role="tab" aria-selected="false" data-shot="shot-palette">palette</button>
+      <button class="tab" role="tab" aria-selected="false" data-shot="shot-green">all green</button>
+    </div>
+    <div class="shot-stage reveal">
+      <figure class="shot active" id="shot-detail" role="tabpanel">
+        <div class="term"><img src="/assets/shots/detail.png" alt="Run detail screen: master-detail view of jobs and step timeline with durations" loading="lazy" width="2242" height="798"></div>
+        <figcaption class="shot-caption">jobs and step timeline · n jumps to the failure</figcaption>
+      </figure>
+      <figure class="shot" id="shot-failure" role="tabpanel" hidden>
+        <div class="term"><img src="/assets/shots/failure.png" alt="Failure screen: annotations, failing step, exit code and a de-noised log excerpt" loading="lazy" width="2242" height="670"></div>
+        <figcaption class="shot-caption">annotations, failing step, exit code, de-noised excerpt</figcaption>
+      </figure>
+      <figure class="shot" id="shot-log" role="tabpanel" hidden>
+        <div class="term"><img src="/assets/shots/log.png" alt="Full log viewer on live CI data: line numbers, folds, search with 78 matches highlighted" loading="lazy" width="2218" height="1136"></div>
+        <figcaption class="shot-caption">live capture · folds, line numbers, search with match count</figcaption>
+      </figure>
+      <figure class="shot" id="shot-watch" role="tabpanel" hidden>
+        <div class="term"><img src="/assets/shots/watch.png" alt="Watch screen streaming a running job's log with follow mode" loading="lazy" width="2242" height="498"></div>
+        <figcaption class="shot-caption">watch mode · streams the active run, f follows</figcaption>
+      </figure>
+      <figure class="shot" id="shot-palette" role="tabpanel" hidden>
+        <div class="term"><img src="/assets/shots/palette.png" alt="Command palette overlay listing jump targets like runs, failures and dispatch" loading="lazy" width="2242" height="754"></div>
+        <figcaption class="shot-caption">command palette · : jumps anywhere</figcaption>
+      </figure>
+      <figure class="shot" id="shot-green" role="tabpanel" hidden>
+        <div class="term"><img src="/assets/shots/all_green.png" alt="All checks passing banner above the recent runs list" loading="lazy" width="2242" height="628"></div>
+        <figcaption class="shot-caption">the good ending · all checks passing on branch main</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="engineering" class="wrap">
+    <div class="section-head reveal">
+      <h2>Fast because it respects the API.</h2>
+      <p class="lede">gh-hound is built around the parts of the GitHub Actions API that make triage quick, and away from the parts that burn your rate limit.</p>
+    </div>
+    <div class="eng-grid">
+      <div class="eng reveal">
+        <h3>server-side filtering</h3>
+        <p>Branch, status, event and repo-wide scope are filtered by the API, not in your terminal.</p>
+      </div>
+      <div class="eng reveal">
+        <h3>etag polling</h3>
+        <p>Unchanged resources answer from conditional requests. Idle views spend no primary rate budget.</p>
+      </div>
+      <div class="eng reveal">
+        <h3>serial request queue</h3>
+        <p>Calls and mutations are paced to stay clear of secondary rate-limit spikes.</p>
+      </div>
+      <div class="eng reveal">
+        <h3>cache-first paint</h3>
+        <p>The TUI renders from local state. Network work returns through messages, never blocking a keystroke.</p>
+      </div>
+      <div class="eng reveal">
+        <h3>viewport-only logs</h3>
+        <p>Large logs parse once and render by visible window, with folding and search state kept local.</p>
+      </div>
+      <div class="eng reveal">
+        <h3>virtualized lists</h3>
+        <p>Long run lists stay smooth, with explicit page-load affordances when GitHub has more.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="agents" class="wrap">
+    <div class="section-head reveal">
+      <h2>The TUI is for humans.<br>The JSON is for agents.</h2>
+      <p class="lede">Both surfaces share one usecase core, so CI state, failures, annotations and exit codes stay consistent whether a person or a coding agent is on the leash.</p>
+    </div>
+    <div class="agents-split">
+      <div class="reveal">
+        <p style="color:var(--muted);font-size:0.97rem">Point your agent at <span class="mono" style="color:var(--fg-soft)">gh hound runs --no-tui --json</span> and branch on the exit code. Deterministic fake scenarios make harnesses reproducible without touching the network.</p>
+        <table class="exit-table">
+          <caption>exit codes</caption>
+          <tbody>
+            <tr><td class="code">0</td><td>all good, branch is green</td></tr>
+            <tr><td class="code">1</td><td>CI failure, action needed</td></tr>
+            <tr><td class="code">2</td><td>API, network or config error</td></tr>
+            <tr><td class="code">3</td><td>runs still pending</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="codeblock reveal">
+        <div class="codeblock-bar">
+          <span class="cmd"><span class="ps1">$</span> gh hound runs --status failure --no-tui --json</span>
+          <button class="copy-btn" data-copy="gh hound runs --status failure --no-tui --json" aria-label="Copy agent command">copy</button>
+        </div>
+        <pre><code>{
+  <span class="j-key">"repo"</span>: <span class="j-str">"indrasvat/gh-hound"</span>,
+  <span class="j-key">"branch"</span>: <span class="j-str">"main"</span>,
+  <span class="j-key">"runs"</span>: [{
+    <span class="j-key">"workflow"</span>: <span class="j-str">"CI"</span>,
+    <span class="j-key">"run_number"</span>: <span class="j-num">571</span>,
+    <span class="j-key">"event"</span>: <span class="j-str">"pull_request"</span>,
+    <span class="j-key">"status"</span>: <span class="j-str">"completed"</span>,
+    <span class="j-key">"conclusion"</span>: <span class="j-red">"failure"</span>,
+    <span class="j-key">"failed"</span>: [{
+      <span class="j-key">"job"</span>: <span class="j-str">"build"</span>,
+      <span class="j-key">"step"</span>: <span class="j-str">"go test ./..."</span>,
+      <span class="j-key">"exit_code"</span>: <span class="j-num">1</span>,
+      <span class="j-key">"annotations"</span>: [{
+        <span class="j-key">"path"</span>: <span class="j-str">"internal/parser/lexer.go"</span>,
+        <span class="j-key">"line"</span>: <span class="j-num">142</span>,
+        <span class="j-key">"message"</span>: <span class="j-str">"identifier mismatch"</span>
+      }],
+      <span class="j-key">"log_excerpt"</span>: <span class="j-str">"--- FAIL: TestLexIdent/..."</span>
+    }]
+  }]
+}<span class="j-dim">  // exit code 1</span></code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="install" class="wrap">
+    <div class="section-head reveal">
+      <h2>In your terminal in under a minute.</h2>
+      <p class="version-chip" id="version-chip" hidden>
+        <span>latest</span><a id="version-link" href="https://github.com/indrasvat/gh-hound/releases/latest">v0.1.0</a>
+      </p>
+    </div>
+    <div class="install-grid">
+      <div class="method primary reveal">
+        <div>
+          <h3>gh extension</h3>
+          <p class="note">the recommended path, updates with gh</p>
+        </div>
+        <div class="method-cmd">
+          <code><span class="ps1">$</span> gh extension install indrasvat/gh-hound</code>
+          <button class="copy-btn" data-copy="gh extension install indrasvat/gh-hound" aria-label="Copy gh extension install command">copy</button>
+        </div>
+      </div>
+      <div class="method reveal">
+        <div>
+          <h3>installer script</h3>
+          <p class="note">standalone binary into ~/.local/bin</p>
+        </div>
+        <div class="method-cmd">
+          <code><span class="ps1">$</span> curl -sSfL https://gh-hound.pages.dev/install.sh | bash</code>
+          <button class="copy-btn" data-copy="curl -sSfL https://gh-hound.pages.dev/install.sh | bash" aria-label="Copy installer command">copy</button>
+        </div>
+      </div>
+      <div class="method reveal">
+        <div>
+          <h3>from source</h3>
+          <p class="note">Go 1.25+, builds in seconds</p>
+        </div>
+        <div class="method-cmd">
+          <code><span class="ps1">$</span> git clone https://github.com/indrasvat/gh-hound &amp;&amp; cd gh-hound &amp;&amp; make install</code>
+          <button class="copy-btn" data-copy="git clone https://github.com/indrasvat/gh-hound && cd gh-hound && make install" aria-label="Copy build from source command">copy</button>
+        </div>
+      </div>
+      <div class="method reveal">
+        <div>
+          <h3>agent skill</h3>
+          <p class="note">teaches your coding agent the JSON surface</p>
+        </div>
+        <div class="method-cmd">
+          <code><span class="ps1">$</span> npx skills add indrasvat/gh-hound --global --yes</code>
+          <button class="copy-btn" data-copy="npx skills add indrasvat/gh-hound --global --yes" aria-label="Copy skill install command">copy</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-brand">
+        <a class="brand" href="/">
+          <img src="/assets/logo.png" alt="" width="34" height="34">
+          <span>gh-hound</span>
+        </a>
+        <p>A fast, focused terminal cockpit for GitHub Actions. Hunt down your CI.</p>
+      </div>
+      <div class="foot-col">
+        <h4>Project</h4>
+        <a href="https://github.com/indrasvat/gh-hound">GitHub</a>
+        <a href="https://github.com/indrasvat/gh-hound/releases">Releases</a>
+        <a href="https://github.com/indrasvat/gh-hound/issues">Issues</a>
+        <a href="/changelog">Changelog</a>
+      </div>
+      <div class="foot-col">
+        <h4>Docs</h4>
+        <a href="https://github.com/indrasvat/gh-hound/blob/main/docs/agent-surface.md">Agent surface</a>
+        <a href="https://github.com/indrasvat/gh-hound/blob/main/docs/configuration.md">Configuration</a>
+        <a href="https://github.com/indrasvat/gh-hound/blob/main/docs/development.md">Development</a>
+        <a href="https://github.com/indrasvat/gh-hound/blob/main/skill/SKILL.md">Agent skill</a>
+      </div>
+    </div>
+    <div class="foot-meta">
+      <span>MIT licensed. Built with Go, Bubble Tea and a good nose.</span>
+      <a href="https://github.com/indrasvat/gh-hound">github.com/indrasvat/gh-hound</a>
+    </div>
+    <p class="foot-made">made with <svg class="heart" viewBox="0 0 24 24" role="img" aria-label="love"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg> by <a href="https://github.com/indrasvat">indrasvat</a></p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  /* copy buttons */
+  document.querySelectorAll(".copy-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      navigator.clipboard.writeText(btn.dataset.copy).then(function () {
+        var old = btn.textContent;
+        btn.textContent = "copied";
+        btn.classList.add("copied");
+        setTimeout(function () {
+          btn.textContent = old;
+          btn.classList.remove("copied");
+        }, 1400);
+      });
+    });
+  });
+
+  /* screens gallery tabs */
+  var tabs = document.querySelectorAll(".tab");
+  tabs.forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      tabs.forEach(function (t) { t.setAttribute("aria-selected", "false"); });
+      tab.setAttribute("aria-selected", "true");
+      document.querySelectorAll(".shot").forEach(function (s) {
+        var active = s.id === tab.dataset.shot;
+        s.classList.toggle("active", active);
+        if (active) { s.removeAttribute("hidden"); } else { s.setAttribute("hidden", ""); }
+      });
+    });
+  });
+
+  /* reveal on scroll */
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduce || !("IntersectionObserver" in window)) {
+    document.querySelectorAll(".reveal").forEach(function (el) { el.classList.add("in"); });
+  } else {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          e.target.classList.add("in");
+          io.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.12, rootMargin: "0px 0px -40px 0px" });
+    document.querySelectorAll(".reveal").forEach(function (el) { io.observe(el); });
+  }
+
+  /* version chip from version.json (stamped by the deploy workflow) */
+  fetch("/version.json").then(function (r) {
+    if (!r.ok) { throw new Error("no version.json"); }
+    return r.json();
+  }).then(function (v) {
+    if (!v.version) { return; }
+    var chip = document.getElementById("version-chip");
+    var link = document.getElementById("version-link");
+    link.textContent = v.version;
+    if (v.release_url) { link.href = v.release_url; }
+    chip.hidden = false;
+  }).catch(function () { /* chip stays hidden */ });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+# Cloudflare Pages headers for gh-hound.pages.dev.
+# CSP: self everywhere, plus Google Fonts for webfonts and data: for
+# the inline SVG grain overlay.
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), camera=(), microphone=(), payment=()
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'
+
+# Asset URLs are not fingerprinted, so no immutable/year-long cache:
+# a changed site.css or screenshot must reach returning visitors.
+# One hour is plenty behind Cloudflare's edge cache.
+/assets/*
+  Cache-Control: public, max-age=3600
+
+/styles/*
+  Cache-Control: public, max-age=3600
