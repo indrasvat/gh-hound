@@ -110,12 +110,8 @@ func (c *Client) GetRun(ctx context.Context, repo string, runID int64) (model.Ru
 }
 
 func (c *Client) ListJobs(ctx context.Context, repo string, runID int64) ([]model.Job, error) {
-	values := url.Values{"filter": []string{"latest"}}
-	var decoded jobsResponse
-	if err := c.getJSON(ctx, resourcePath(repo, "actions/runs/"+strconv.FormatInt(runID, 10)+"/jobs"), values, &decoded); err != nil {
-		return nil, err
-	}
-	return mapJobs(decoded.Jobs)
+	resource := resourcePath(repo, "actions/runs/"+strconv.FormatInt(runID, 10)+"/jobs")
+	return c.listJobsPaginated(ctx, resource, url.Values{"filter": []string{"latest"}})
 }
 
 func (c *Client) GetJob(ctx context.Context, repo string, jobID int64) (model.Job, error) {

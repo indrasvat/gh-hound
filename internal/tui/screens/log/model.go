@@ -113,18 +113,63 @@ func (m Model) updateInput(msg KeyMsg) Model {
 
 // jumpToTime moves the viewport to the first line whose runner clock
 // is at or after the query ("15:53:14" or a prefix like "15:53").
+// Clocks can wrap past midnight: lines are bucketed into days by
+// rollover detection and days are searched in order, so a 00:01 query
+// against a log starting at 23:59 lands after the wrap.
 func (m *Model) jumpToTime(query string) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return
 	}
+	type stamped struct {
+		number int
+		day    int
+		clock  string
+	}
+	var lines []stamped
+	day := 0
+	prev := ""
 	for _, line := range m.Document.Lines {
 		clock, ok := logs.ClockTime(line.Text)
-		if ok && clock >= query {
-			m.Offset = line.Number
-			m.LastJump = query
-			return
+		if !ok {
+			continue
 		}
+		if prev != "" && clock < prev {
+			day++
+		}
+		prev = clock
+		lines = append(lines, stamped{number: line.Number, day: day, clock: clock})
+	}
+	if len(lines) == 0 {
+		return
+	}
+	// The query names a wall-clock moment; resolve which day bucket it
+	// falls in. Day 0 starts mid-stream at the log's first clock, later
+	// days start at midnight, so a day matches only when the query is
+	// within its span -- otherwise 00:01 would lexically match 23:59.
+	for d := 0; d <= day; d++ {
+		first := ""
+		for _, line := range lines {
+			if line.day == d {
+				first = line.clock
+				break
+			}
+		}
+		if d == 0 && query < first {
+			continue
+		}
+		for _, line := range lines {
+			if line.day == d && line.clock >= query {
+				m.Offset = line.number
+				m.LastJump = query
+				return
+			}
+		}
+	}
+	// Query predates the whole log: land on the first stamped line.
+	if query < lines[0].clock {
+		m.Offset = lines[0].number
+		m.LastJump = query
 	}
 }
 

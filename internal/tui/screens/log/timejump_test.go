@@ -58,3 +58,16 @@ func TestTimestampJumpEscCancels(t *testing.T) {
 		t.Fatalf("search must still work after a cancelled time jump: %d matches", m.Search.Total)
 	}
 }
+
+func TestTimestampJumpHandlesMidnightWrap(t *testing.T) {
+	doc := logs.Parse("23:59:50.000Z winding down\n23:59:58.000Z almost\n00:01:00.000Z next day work\n00:02:00.000Z more")
+	m := NewModel(doc, 1, 6)
+	m = m.Update(KeyMsg{Key: "t"})
+	for _, key := range []string{"0", "0", ":", "0", "1"} {
+		m = m.Update(KeyMsg{Key: key})
+	}
+	m = m.Update(KeyMsg{Key: "enter"})
+	if m.Offset != 3 {
+		t.Fatalf("00:01 must land on the post-midnight line, got offset %d", m.Offset)
+	}
+}
