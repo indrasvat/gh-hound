@@ -149,7 +149,7 @@ func TestViewMatchesRunsAndAllGreenMocks(t *testing.T) {
 		"Workflow / detail",
 		"Event",
 		"Dur.",
-		"▌#571   ✗ CI",
+		"▌#571     ✗ CI",
 		"CI · fix/parser",
 		"1 failing · 1 running · 1 passed",
 	} {

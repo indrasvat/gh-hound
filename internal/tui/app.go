@@ -1033,10 +1033,11 @@ func (a App) handlePaletteIntent(intent palette.Intent) App {
 }
 
 func (a App) openPalette() App {
-	workflows, err := a.dispatchWorkflowChoices()
-	if err != nil {
-		a.pushErrorToast("dispatch-workflows", usecase.ResilienceFor(err, usecase.ErrorContext{}))
-	}
+	// Dispatch resolution can fail in repo-wide sessions (no branch
+	// ref); that is not the palette's problem. The generic dispatch
+	// item stays available and openDispatch surfaces the error when
+	// the user actually selects it.
+	workflows, _ := a.dispatchWorkflowChoices()
 	a.palette = palette.New(paletteItems(workflows))
 	if a.TopOverlay() != OverlayPalette {
 		a.overlays = append(a.overlays, OverlayPalette)

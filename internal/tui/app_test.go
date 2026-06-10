@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -1687,5 +1688,34 @@ func TestEscClearingServerFilterRestoresUnfilteredRuns(t *testing.T) {
 	app, _ = app.Update(KeyMsg{Key: "esc"})
 	if got := len(app.runs.FilteredRuns()); got != len(full) {
 		t.Fatalf("esc must restore the unfiltered listing immediately: %d rows, want %d", got, len(full))
+	}
+}
+
+func TestPaletteOpenDoesNotToastDispatchResolutionErrors(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{Repo: "x/y", State: usecase.LaunchStateRuns, Runs: []model.Run{cliTestRun(1, "CI", "main")}},
+		DispatchWorkflowsResolver: func() ([]dispatch.Workflow, error) {
+			return nil, errors.New("dispatch ref is unavailable; pass --branch or run from a checkout")
+		},
+	})
+	app, handled := app.Update(KeyMsg{Key: ":"})
+	if !handled || app.TopOverlay() != OverlayPalette {
+		t.Fatalf("palette should open: %s", app.TopOverlay())
+	}
+	if len(app.toasts.Toasts) != 0 {
+		t.Fatalf("palette open must not push dispatch resolution toasts: %#v", app.toasts.Toasts)
+	}
+
+	// Selecting dispatch is when the failure becomes the user's problem.
+	for _, key := range []string{"d", "i", "s", "p"} {
+		app, _ = app.Update(KeyMsg{Key: key})
+	}
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	view := ansi.Strip(app.ViewSize(120, 40))
+	if !strings.Contains(view, "dispatch unavailable") {
+		t.Fatalf("selecting dispatch must surface the resolution error:\n%s", view)
 	}
 }

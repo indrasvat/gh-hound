@@ -358,12 +358,19 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 	}
 
 	events := readKeys(runtime.Stdin)
+	resizeEvents, stopResize := resizeSignals()
+	defer stopResize()
 	ticker := time.NewTicker(app.PollInterval())
 	defer ticker.Stop()
 	for !app.ShouldQuit() {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-resizeEvents:
+			width, height = terminalSize(runtime.Stdout)
+			if err := render(); err != nil {
+				return err
+			}
 		case event := <-events:
 			if event.err != nil {
 				if errors.Is(event.err, io.EOF) {
