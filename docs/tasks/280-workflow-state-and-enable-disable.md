@@ -1,0 +1,75 @@
+# Task 280: workflow state — surface and toggle disabled workflows
+
+## Status
+PLANNED
+
+## Ownership Boundary
+- **Primary area:** show workflow `state` (`active`, `disabled_manually`, `disabled_inactivity`) and enable/disable workflows.
+- **Allowed files:** `internal/usecase/workflow.go`, `internal/adapter/github/`, `internal/adapter/fake/`, `internal/model/`, `internal/render/`, `cmd/gh-hound/`, `internal/tui/` (workflows surface in palette/dispatch picker, badge), `docs/`, `skill/SKILL.md`, `README.md`, vqa harness.
+- **Avoid touching:** scheduling logic, runner admin.
+
+## Depends On
+- 140 (workflow listing exists for dispatch), 240 (mutation conventions).
+
+## Parallelizable With
+- 270, 290.
+
+## PRD / Design References
+- API: list-workflows payload already includes `state` (the adapter fetches it today and drops it); `PUT /repos/{o}/{r}/actions/workflows/{id}/enable` and `/disable`.
+- The classic mystery this solves: scheduled workflows silently stop after 60 days of repo inactivity (`disabled_inactivity`) and the answer is buried in the web UI.
+
+## Problem
+"My cron workflow stopped running" has a one-field answer gh-hound already downloads and discards. Surface it, badge it, and let the user flip it back on without a browser.
+
+## Scope
+- Model: `Workflow.State` plumbed through; fake fixtures for all three states.
+- TUI: wherever workflows are listed (dispatch picker, palette workflows entry), non-active workflows get a themed badge (`◌ asleep` for disabled_inactivity, `⊘ muzzled` for disabled_manually — final glyphs per theme contract); `e` toggles enable/disable, confirm-gated, with toast.
+- Launch context: if the branch's relevant workflow is disabled, the empty/all-green screens say so (this is the "why are there no runs" answer).
+- Pipe: `gh hound workflows --no-tui --json` (new verb: id, name, path, state) and `--enable|--disable <name|id>`; exit `0` ok, `2` API error.
+
+## Out of Scope
+- Editing workflow YAML, schedule introspection, org-wide listings.
+
+## Public Contracts
+- `workflows` JSON schema + agent-surface.md entry; mutation result shape follows Task 240 conventions.
+
+## Red / Green / Refactor Plan
+- **Red:** model/usecase tests (state plumbed; toggle calls right endpoint), CLI tests (verb + flags + exit codes), TUI tests (badges, toggle confirm, empty-screen explanation), launch-context test (disabled workflow surfaces notice).
+- **Green:** smallest wiring per layer.
+- **Refactor:** none expected; keep diff small.
+
+## Test Pyramid
+- L0–L1: lint + race suite.
+- L2: adapter httptest (enable/disable PUT, state parsing); schema validation.
+- L3: `make e2e` with new fake states.
+- L4: `make vqa` — dispatch-picker-with-badges fixture at three breakpoints; cold-context tui-qa `VERDICT: PASS` (pixel: badge color vs theme, alignment in picker rows).
+- L5: shux against **real repo**: disable a low-stakes workflow on indrasvat/gh-hound via the TUI, verify on GitHub, re-enable via pipe verb, verify state round-trip. Screenshots in PR.
+
+## Performance Budget (hard gates)
+- Zero additional API calls on default paths (state rides the existing workflows fetch — call-count test).
+- Toggle = exactly one API call.
+
+## Voice (MUST)
+Hound voice on badges and toasts: disabled_inactivity = `asleep` (fell asleep after 60 quiet days), enable toast = `back on duty.` Docs same register. No emoji.
+
+## Website & Docs Updates
+- README: workflows verb + badge meanings (hound voice).
+- `docs/agent-surface.md`, `skill/SKILL.md`. Landing only if a screens recapture happens to include badges — no dedicated section.
+
+## Definition of Done
+- [ ] Red-first; race suite green; `make ci && make e2e && make vqa && make docs-check` pass.
+- [ ] State visible in TUI pickers + empty-screen notice; toggle confirm-gated with toasts.
+- [ ] `workflows` verb + enable/disable shipped, schema documented.
+- [ ] Live round-trip verified on a real workflow (evidence in PR).
+- [ ] tui-qa cold-context `VERDICT: PASS`; dootsabha (codex + gemini) converged.
+
+## Verification Commands
+```bash
+make ci && make e2e && make vqa
+./bin/gh-hound workflows --no-tui --json
+./bin/gh-hound workflows --disable docs-check --no-tui --json && ./bin/gh-hound workflows --enable docs-check --no-tui --json
+```
+
+## Session Protocol
+1. Confirm `state` values present in the live list-workflows payload; pin in adapter testdata.
+2. Red → green; shux + tui-qa; dootsabha; push; PR; gh-ghent loop.
