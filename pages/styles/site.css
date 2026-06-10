@@ -102,6 +102,32 @@ h1, h2, h3 {
 
 .mono { font-family: var(--font-mono); }
 
+/* an inline shell command, worn like a tiny prompt */
+.sh {
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  color: var(--fg-soft);
+  background: var(--surface);
+  border: 1px solid var(--line2);
+  border-radius: var(--r-chip);
+  padding: 0.1em 0.5em 0.16em;
+  white-space: nowrap;
+}
+.sh .ps1 { color: var(--ok); margin-right: 0.3em; user-select: none; }
+
+/* the product name, worn as a chip wherever prose says it */
+.hound {
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  font-weight: 500;
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ok) 26%, transparent);
+  border-radius: var(--r-chip);
+  padding: 0.05em 0.42em 0.12em;
+  white-space: nowrap;
+}
+
 /* ---------- nav ---------- */
 
 .nav {
