@@ -24,7 +24,7 @@ The JSON surface can see everything and do nothing. Close the loop for agents: `
 ## Scope
 - `rerun` subcommand: `--run <id>` (required), `--failed-only`, `--debug` (debug+failed-only is rejected — the API only supports debug on full reruns... verify live; if supported on rerun-failed-jobs, allow it and document), `--job <id>` for single-job rerun.
 - `cancel` subcommand: `--run <id>`, `--force`.
-- JSON result: `{repo, run_id, action: "rerun"|"rerun_failed"|"cancel", accepted: true, html_url}`; typed error object on failure (existing `ActionErrorKind` taxonomy).
+- JSON result: `{repo, run_id, action, accepted: true, html_url}` where `action` enumerates **every** mutation path: `"rerun" | "rerun_failed" | "rerun_job" | "cancel" | "force_cancel"` (single-job rerun carries `job_id` too); typed error object on failure (existing `ActionErrorKind` taxonomy).
 - Exit codes: `0` accepted, `1` refused by state (conflict, e.g., cancel a completed run), `2` API/auth/validation error.
 - Mutation pacing: the existing 1s serial spacing applies; document it.
 - TUI gains nothing new except: rerun confirm overlay gets a `d` toggle for debug logging (currently only watch has `d`); footer/help updated.

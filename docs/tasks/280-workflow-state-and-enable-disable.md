@@ -4,7 +4,7 @@
 PLANNED
 
 ## Ownership Boundary
-- **Primary area:** show workflow `state` (`active`, `disabled_manually`, `disabled_inactivity`) and enable/disable workflows.
+- **Primary area:** show workflow `state` — **all** API values: `active`, `disabled_manually`, `disabled_inactivity`, `disabled_fork`, `deleted` — and enable/disable workflows where toggling is valid.
 - **Allowed files:** `internal/usecase/workflow.go`, `internal/adapter/github/`, `internal/adapter/fake/`, `internal/model/`, `internal/render/`, `cmd/gh-hound/`, `internal/tui/` (workflows surface in palette/dispatch picker, badge), `docs/`, `skill/SKILL.md`, `README.md`, vqa harness.
 - **Avoid touching:** scheduling logic, runner admin.
 
@@ -22,8 +22,8 @@ PLANNED
 "My cron workflow stopped running" has a one-field answer gh-hound already downloads and discards. Surface it, badge it, and let the user flip it back on without a browser.
 
 ## Scope
-- Model: `Workflow.State` plumbed through; fake fixtures for all three states.
-- TUI: wherever workflows are listed (dispatch picker, palette workflows entry), non-active workflows get a themed badge (`◌ asleep` for disabled_inactivity, `⊘ muzzled` for disabled_manually — final glyphs per theme contract); `e` toggles enable/disable, confirm-gated, with toast.
+- Model: `Workflow.State` plumbed through as an open string (unknown future states render verbatim with a neutral badge, never rejected); fake fixtures for **all five** documented states: `active`, `disabled_manually`, `disabled_inactivity`, `disabled_fork`, `deleted`.
+- TUI: wherever workflows are listed (dispatch picker, palette workflows entry), non-active workflows get a themed badge (`◌ asleep` for disabled_inactivity, `⊘ muzzled` for disabled_manually, `⊘ fork-disabled` for disabled_fork, `✗ deleted` for deleted — final glyphs per theme contract); `e` toggles enable/disable, confirm-gated, with toast — offered **only** for toggleable states (`active` ↔ `disabled_manually`/`disabled_inactivity`); `disabled_fork` and `deleted` show the badge with a why-line instead of the toggle.
 - Launch context: if the branch's relevant workflow is disabled, the empty/all-green screens say so (this is the "why are there no runs" answer).
 - Pipe: `gh hound workflows --no-tui --json` (new verb: id, name, path, state) and `--enable|--disable <name|id>`; exit `0` ok, `2` API error.
 
