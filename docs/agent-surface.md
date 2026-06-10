@@ -8,6 +8,9 @@
 gh hound runs --no-tui --json
 gh hound runs --status failure --no-tui --json
 gh hound watch --json
+gh hound artifacts --run <run-id> --no-tui --json
+gh hound artifacts --run <run-id> --download <name> --dir <path> --no-tui --json
+gh hound runs --artifacts --no-tui --json
 gh hound runs --no-tui --format md
 gh hound runs --no-tui --format xml
 ```
@@ -34,6 +37,8 @@ Each run includes:
 - `id`, `workflow`, `run_number`, `event`, `head_branch`, `head_sha`.
 - `status`, `conclusion`, `created_at`, `html_url`.
 - `failed[]` entries with `job`, `step`, `exit_code`, `annotations[]`, and `log_excerpt`.
+
+Runs include `artifacts[]` (`id`, `name`, `size_in_bytes`, `expired`, `expires_at`, `created_at`, `digest`) only when `--artifacts` is passed; the default runs path makes zero artifact API calls. The `artifacts` command lists a run's artifacts (defaults to the latest run on the selected branch) and `--download <name|id>` extracts the zip into `<dir>/<artifact-name>/` (`--force` to overwrite). Expired artifacts are rejected before any network call. Download URLs are never emitted: the API's signed links are short-lived secrets. The `artifacts` command exits `0` on success and `2` on any error (including expired artifacts); it never exits `1` or `3`.
 
 The failure object is the stable agent contract. Agents should not screen-scrape the TUI or parse raw GitHub logs when this object is available.
 

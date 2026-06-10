@@ -83,17 +83,22 @@ type commandRuntime struct {
 }
 
 type cliOptions struct {
-	Repo      string
-	Branch    string
-	Status    string
-	Format    render.Format
-	NoTUI     bool
-	JSON      bool
-	LogLevel  string
-	TraceHTTP bool
-	All       bool
-	Watch     bool
-	Fake      string
+	Repo          string
+	Branch        string
+	Status        string
+	Format        render.Format
+	NoTUI         bool
+	JSON          bool
+	LogLevel      string
+	TraceHTTP     bool
+	All           bool
+	Watch         bool
+	Fake          string
+	WithArtifacts bool
+	RunID         int64
+	Download      string
+	Dir           string
+	Force         bool
 }
 
 func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Command {
@@ -156,6 +161,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.AddCommand(newRunsCommand(runtime, &options))
 	cmd.AddCommand(newWatchCommand(runtime, &options))
 	cmd.AddCommand(newDispatchCommand(runtime, &options))
+	cmd.AddCommand(newArtifactsCommand(runtime, &options))
 	return cmd
 }
 
@@ -247,6 +253,24 @@ func newRunsCommand(runtime commandRuntime, options *cliOptions) *cobra.Command 
 		},
 	}
 	cmd.Flags().StringVar(&options.Status, "status", "", "filter runs by status or conclusion (env HOUND_STATUS)")
+	cmd.Flags().BoolVar(&options.WithArtifacts, "artifacts", false, "include artifact metadata per run (one extra API call per run)")
+	return cmd
+}
+
+func newArtifactsCommand(runtime commandRuntime, options *cliOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "artifacts",
+		Short: "List or download a run's artifacts",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			applyEnv(options, runtime.Env)
+			options.NoTUI = true
+			return writeArtifactsResult(cmd.Context(), runtime.Stdout, *options, runtime)
+		},
+	}
+	cmd.Flags().Int64Var(&options.RunID, "run", 0, "run ID to inspect (defaults to the latest run on the selected branch)")
+	cmd.Flags().StringVar(&options.Download, "download", "", "artifact name or ID to download and extract")
+	cmd.Flags().StringVar(&options.Dir, "dir", ".", "destination directory for downloads")
+	cmd.Flags().BoolVar(&options.Force, "force", false, "overwrite an existing extraction destination")
 	return cmd
 }
 
@@ -979,29 +1003,48 @@ func resultForOptions(ctx context.Context, options cliOptions, runtime commandRu
 	return fakeResult(options, scenario), nil
 }
 
-func liveResult(ctx context.Context, options cliOptions, runtime commandRuntime) (render.Result, error) {
+type resolvedTarget struct {
+	github usecase.GitHub
+	repo   string
+	branch string
+	close  func() error
+}
+
+func resolveTarget(ctx context.Context, options cliOptions, runtime commandRuntime) (resolvedTarget, error) {
 	preparedRuntime, closeTrace, err := runtimeWithGitHubClient(runtime, options)
 	if err != nil {
-		return render.Result{}, err
+		return resolvedTarget{}, err
 	}
-	defer func() {
-		_ = closeTrace()
-	}()
 	githubClient := githubClientForRuntime(preparedRuntime)
 	repoProvider := repoProviderForRuntime(preparedRuntime)
 
 	repoCtx, err := repoProvider.Current(ctx)
 	if err != nil && options.Repo == "" {
-		return render.Result{}, fmt.Errorf("%s; pass -R owner/repo or set GH_REPO", err)
+		_ = closeTrace()
+		return resolvedTarget{}, fmt.Errorf("%s; pass -R owner/repo or set GH_REPO", err)
 	}
 	repo := firstNonEmpty(options.Repo, repoCtx.Repo)
 	if repo == "" {
-		return render.Result{}, errors.New("repository context could not be resolved; pass -R owner/repo or set GH_REPO")
+		_ = closeTrace()
+		return resolvedTarget{}, errors.New("repository context could not be resolved; pass -R owner/repo or set GH_REPO")
 	}
 	branch := firstNonEmpty(options.Branch, repoCtx.Branch)
 	if options.All {
 		branch = ""
 	}
+	return resolvedTarget{github: githubClient, repo: repo, branch: branch, close: closeTrace}, nil
+}
+
+func liveResult(ctx context.Context, options cliOptions, runtime commandRuntime) (render.Result, error) {
+	target, err := resolveTarget(ctx, options, runtime)
+	if err != nil {
+		return render.Result{}, err
+	}
+	defer func() {
+		_ = target.close()
+	}()
+	githubClient := target.github
+	repo, branch := target.repo, target.branch
 
 	filter := usecase.RunFilter{Repo: repo, Branch: branch, PerPage: 30}
 	if options.Status != "" {
@@ -1018,7 +1061,127 @@ func liveResult(ctx context.Context, options cliOptions, runtime commandRuntime)
 	runs = filterRunsByConclusion(runs, options.Status)
 	renderRuns := mapRenderRuns(runs)
 	attachFailures(ctx, usecase.TriageService{GitHub: githubClient}, repo, runs, renderRuns)
+	if options.WithArtifacts {
+		attachArtifacts(ctx, usecase.ArtifactsService{GitHub: githubClient}, repo, runs, renderRuns)
+	}
 	return render.Result{Repo: repo, Branch: branch, Runs: renderRuns}, nil
+}
+
+// attachArtifacts fills artifacts[] for each run in place. Opt-in via
+// --artifacts because it costs one API call per run; errors leave the
+// run's artifacts empty rather than failing the listing.
+func attachArtifacts(ctx context.Context, service usecase.ArtifactsService, repo string, runs []model.Run, out []render.Run) {
+	semaphore := make(chan struct{}, triageWorkers)
+	var wg sync.WaitGroup
+	for i, run := range runs {
+		wg.Add(1)
+		go func(i int, run model.Run) {
+			defer wg.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+			artifacts, err := service.List(ctx, repo, run.ID)
+			if err != nil || len(artifacts) == 0 {
+				return
+			}
+			out[i].Artifacts = mapRenderArtifacts(artifacts)
+		}(i, run)
+	}
+	wg.Wait()
+}
+
+func mapRenderArtifacts(artifacts []model.Artifact) []render.Artifact {
+	out := make([]render.Artifact, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		out = append(out, render.Artifact{
+			ID:          artifact.ID,
+			Name:        artifact.Name,
+			SizeInBytes: artifact.SizeInBytes,
+			Expired:     artifact.Expired,
+			CreatedAt:   artifact.CreatedAt,
+			ExpiresAt:   artifact.ExpiresAt,
+			Digest:      artifact.Digest,
+		})
+	}
+	return out
+}
+
+func writeArtifactsResult(ctx context.Context, w io.Writer, options cliOptions, runtime commandRuntime) error {
+	var githubClient usecase.GitHub
+	var repo, branch string
+	if options.Fake != "" {
+		scenario := normalizedScenario(options)
+		if scenario == "api_error" || scenario == "network_error" || scenario == "rate_limited" {
+			return errors.New("github api unavailable")
+		}
+		githubClient = fake.New(fakeScenarioFor(scenario))
+		repo = firstNonEmpty(options.Repo, "indrasvat/gh-hound")
+		branch = firstNonEmpty(options.Branch, "main")
+		_ = branch
+	} else {
+		target, err := resolveTarget(ctx, options, runtime)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			_ = target.close()
+		}()
+		githubClient = target.github
+		repo, branch = target.repo, target.branch
+	}
+
+	runID := options.RunID
+	if runID == 0 {
+		runs, err := githubClient.ListRuns(ctx, usecase.RunFilter{Repo: repo, Branch: branch, PerPage: 1})
+		if err != nil {
+			return err
+		}
+		if len(runs) == 0 {
+			return errors.New("no runs found to inspect; pass --run <run-id>")
+		}
+		runID = runs[0].ID
+	}
+
+	service := usecase.ArtifactsService{GitHub: githubClient}
+	artifacts, err := service.List(ctx, repo, runID)
+	if err != nil {
+		return err
+	}
+	result := render.ArtifactsResult{Repo: repo, RunID: runID, Artifacts: mapRenderArtifacts(artifacts)}
+
+	if options.Download != "" {
+		artifact, ok := findArtifact(artifacts, options.Download)
+		if !ok {
+			return fmt.Errorf("artifact %q not found in run %d", options.Download, runID)
+		}
+		outcome, err := service.Download(ctx, repo, artifact, firstNonEmpty(options.Dir, "."), options.Force)
+		if err != nil {
+			return err
+		}
+		result.Downloaded = &render.Download{Name: artifact.Name, Path: outcome.Path, FileCount: outcome.FileCount}
+	}
+	return render.WriteArtifacts(w, options.Format, result)
+}
+
+func findArtifact(artifacts []model.Artifact, selector string) (model.Artifact, bool) {
+	for _, artifact := range artifacts {
+		if artifact.Name == selector || strconv.FormatInt(artifact.ID, 10) == selector {
+			return artifact, true
+		}
+	}
+	return model.Artifact{}, false
+}
+
+func fakeScenarioFor(scenario string) fake.Scenario {
+	switch scenario {
+	case "failure":
+		return fake.ScenarioFailing
+	case "pending":
+		return fake.ScenarioRunning
+	case "empty":
+		return fake.ScenarioEmpty
+	default:
+		return fake.ScenarioGreen
+	}
 }
 
 // triageWorkers bounds concurrent failure enrichment so a fully red

@@ -15,6 +15,8 @@ gh hound runs --status failure --no-tui --json   # failure-focused loop
 gh hound runs --all --no-tui --json              # all branches
 gh hound runs -R owner/repo --no-tui --json      # outside a checkout
 gh hound watch --json                            # active run, fail-fast
+gh hound artifacts --no-tui --json               # latest run's artifacts
+gh hound artifacts --run <id> --download <name> --dir <path> --no-tui --json
 ```
 
 Runs are scoped to the current git branch by default. An empty `runs[]` usually means the branch has no runs — pass `--all` or `--branch <ref>` before concluding CI is missing.
@@ -33,6 +35,8 @@ Runs are scoped to the current git branch by default. An empty `runs[]` usually 
 Top level: `repo`, `branch`, `runs[]`. Each run: `id`, `workflow`, `run_number`, `event`, `head_branch`, `head_sha`, `status`, `conclusion`, `created_at`, `html_url`, `failed[]`.
 
 Each `failed[]` entry: `job`, `step`, `exit_code`, `annotations[]` (`path`, `line`, `level`, `message`), `log_excerpt`.
+
+Artifacts: `gh hound artifacts` lists `{id, name, size_in_bytes, expired, expires_at, digest}` for a run (latest on branch when `--run` omitted); `--download <name|id>` extracts into `<dir>/<artifact-name>/` and reports `downloaded.path`. Exit `0` success, `2` any error (expired artifacts are refused before download). Add `--artifacts` to `runs` for per-run artifact metadata (opt-in: one extra API call per run).
 
 Triage degrades per job: when a job log has expired, `log_excerpt` is empty and `exit_code` falls back to `1`, but `job`, `step`, and `annotations` are always present for every failed job. An empty `failed[]` on a red run means job details could not be listed — fall back to `html_url`.
 
