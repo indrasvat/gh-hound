@@ -23,9 +23,9 @@ PLANNED
 
 ## Scope
 - Model: `Cache {id, key, ref, size, last_accessed_at, created_at}` + `CacheUsage {total_size, count}`.
-- Pipe: `gh hound caches --no-tui --json` (list + usage header), `--delete <key|id>` (exit `0` deleted, `1` no match, `2` API error), `--ref <ref>` filter.
-- TUI: palette `caches` entry → caches screen: usage gauge vs 10 GB (themed bar), sortable list (size / last-used), `d` delete (confirm-gated, toast), `/` filter by key substring.
-- Eviction-pressure hint: when usage > 90% of cap, the gauge warns (`kennel's almost full`).
+- Pipe: `gh hound caches --no-tui --json` (list + usage header), deletion via **unambiguous flags** (numeric keys are legal, so a shared operand is a foot-gun): `--delete-id <id>` and `--delete-key <key> [--ref <ref>]`; key deletes can match multiple caches — the JSON result reports `deleted_count` and the TUI confirm shows the match count first. Exit codes follow the global contract: `0` deleted (or list rendered), `2` anything else (no match → typed `not_found`, API, validation).
+- TUI: palette `caches` entry → caches screen: usage gauge vs the repo's actual cap — fetched from the API where exposed (verify the storage-limit endpoint live in session protocol; **10 GB is the documented fallback only**) — themed bar, sortable list (size / last-used), `d` delete (confirm-gated with match count, toast), `/` filter by key substring.
+- Eviction-pressure hint: when usage > 90% of the effective cap, the gauge warns (`kennel's almost full`).
 
 ## Out of Scope
 - Cross-run cache-miss attribution (heuristics deferred; revisit after Task 300 lands a history walker), org rollups, cache restore.
@@ -68,7 +68,7 @@ The cache is the `kennel`. Usage header: `kennel: 7.2/10 GB`. Delete toast: `dug
 ```bash
 make ci && make e2e && make vqa
 ./bin/gh-hound caches --no-tui --json
-./bin/gh-hound caches --delete "go-mod-<stale>" --no-tui --json; echo $?
+./bin/gh-hound caches --delete-key "go-mod-<stale>" --ref refs/heads/main --no-tui --json; echo $?
 ```
 
 ## Session Protocol

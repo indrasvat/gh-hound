@@ -25,7 +25,7 @@ PLANNED
 ## Scope
 - Usecase `LocateRegression(repo, workflow, branch)`: newest-first scan for the most recent completed-success run before the current failure streak → `{last_good_run, first_bad_run, suspect_commits[], compare_url}`; commits via compare API (cap: 50 commits rendered, total count reported). Mixed states (cancelled/skipped between) are skipped, documented.
 - Attempt-aware: a run that failed then succeeded on rerun counts by its **latest** attempt conclusion (note interplay with Task 300; keep the rule explicit and tested).
-- Pipe: `gh hound diff --workflow <name|id> [--branch <b>] --no-tui --json` → verdict object; exit `0` boundary found, `1` workflow currently green (nothing to locate), `2` API error, `3` history exhausted without a green run (verdict `inconclusive`, page cap documented).
+- Pipe: `gh hound diff --workflow <name|id> [--branch <b>] --no-tui --json` → verdict object; exit codes follow the global contract: `0` no action derivable (verdict `green` OR `inconclusive` — JSON `status` is the source of truth), `1` boundary located (a regression exists — action needed), `2` API error. `3` is NOT used (it means pending/running repo-wide and nothing here is pending).
 - TUI: palette `diff` entry opens a diff screen — boundary summary (last good #N ✔ → first bad #M ✗), suspect commit list (sha, author, subject), `o` opens compare URL in browser, `enter` on the first-bad run jumps to its detail screen.
 - Page cap: configurable `diff_max_pages` (default 10 pages × per_page 100 runs) to bound API spend; hitting the cap → `inconclusive` verdict, never a hang.
 
@@ -48,7 +48,7 @@ PLANNED
 - L5: shux against **real repos**: indrasvat/gh-hound (find a real historical boundary — this repo has them) and openclaw/openclaw (deep history, exercises the page cap + etag reuse). Verify the located boundary against `git log` ground truth for gh-hound. Screenshots of the full flow: palette → diff → enter-to-detail → o-to-browser.
 
 ## Performance Budget (hard gates)
-- Verdict on indrasvat/gh-hound: **< 3s** warm network (shux/hyperfine evidence).
+- Verdict benchmark (defined state, serial queue): boundary within the first 2 history pages, warm etag cache → **≤ 3 API round-trips (2 list pages + 1 compare) in < 3s** on indrasvat/gh-hound (shux/hyperfine evidence). Deep-history capped case: a separate envelope of **< 1.5s per additional page**, measured on openclaw/openclaw.
 - API spend bounded by `diff_max_pages`; etag-cached re-runs of the same query answer from 304s (trace-log evidence in PR).
 - TUI diff screen paint < 50ms once data arrives; scan runs async with loading feedback (Task 220 pattern).
 

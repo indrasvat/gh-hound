@@ -22,9 +22,9 @@ PLANNED
 A push typically triggers several workflows. gh-hound watches one run; the human alt-tabs (or worse, opens a browser) to see the rest. Group by `head_sha`, watch the pack together, and after `dispatch`/`rerun` drop straight into watch.
 
 ## Scope
-- Group model: runs sharing `head_sha` + event from the current scope; board shows one row per run (workflow name, status glyph, current job/step, elapsed), aggregate header (`3 running · 1 passed · 0 failing`).
+- Group model: runs sharing `head_sha` + event from the current scope; board shows one row per run (workflow name, status glyph, conclusion, elapsed), aggregate header (`3 running · 1 passed · 0 failing`). Job/step detail appears only for the drilled-in run — the runs-list API carries no job data, and the poll budget (below) forbids per-run job fetches on the board.
 - Watch board keys: `j/k` select run, `enter` drill into single-run watch (existing screen), `esc` back to board, `x` cancel selected (confirm-gated), `f` follow worst-status run automatically.
-- Entry points: `w` on a runs-list selection watches that run's event group (single-run group degrades to today's behavior — zero regression); post-dispatch success offers/auto-enters watch on the new run (config `auto_watch` honored); `rerun` verb in TUI offers the same handoff.
+- Entry points: `w` on a runs-list selection watches that run's event group (single-run group degrades to today's behavior — zero regression); post-dispatch handoff (config `auto_watch` honored) — NOTE: the dispatches endpoint returns `204 No Content` with no run id, so the handoff is a bounded discovery poll (runs list filtered by workflow + ref + `event=workflow_dispatch`, `created_at` after the dispatch timestamp; max 10 polls / 30s, then a `couldn't pick up the scent` toast and graceful return to runs); `rerun` in TUI offers the same handoff (rerun mutations also return no new-run payload — same discovery).
 - Pipe: `gh hound watch --group --no-tui` emits NDJSON state transitions per run until the group settles (documented for agents); exit code = worst outcome (existing exit-code semantics).
 - Polling: ONE serial queue, group polling budget ≤ existing single-watch budget × 1.5 via shared run-list poll (one list call covers all group members) — NOT per-run polling. Cap group size (config `watch_group_max`, default 10).
 

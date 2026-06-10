@@ -27,10 +27,10 @@ A run gated on an environment sits in `waiting` and gh-hound can see it but not 
 ## Scope
 - Model: `PendingDeployment {environment, wait_timer, can_approve, reviewers}`.
 - Adapter: `ListPendingDeployments`, `ReviewPendingDeployments` (+ fake fixtures incl. a not-approvable environment and a multi-environment run).
-- Runs list: `waiting` runs get a themed gate badge (e.g., `⛩` from existing glyph set or `◫` — pick within theme contract, no emoji) and a `v` key (review) when selected; footer/help/palette updated.
+- Runs list: `waiting` runs get a themed gate badge (`◫` or another strict text-presentation geometric glyph per theme contract — no emoji-presentation codepoints, the emoji check enforces) and the `A` key (approve/review) when selected — `A` is the key PRD §7.3 already reserves for "approve deploy (v2)"; footer/help/palette updated.
 - Detail screen: pending environments panel when run is `waiting` (environments, reviewers, wait timer, whether you can approve).
 - Approvals overlay: pick environment(s), approve or reject, optional comment, **confirmation-gated** like rerun/cancel; success/failure toasts.
-- Pipe: `gh hound approvals --run <id> --no-tui --json` (list) and `--approve|--reject [--env <name>...] [--comment <text>]`; exit codes `0` reviewed, `1` nothing reviewable / not permitted (typed), `2` API error. `runs` JSON: `waiting` runs gain `pending_environments: [names]` only when `--approvals` flag passed (zero-extra-calls default, Task 200 precedent).
+- Pipe: `gh hound approvals --run <id> --no-tui --json` (list) and `--approve|--reject [--env <name>...] [--comment <text>]`; exit codes follow the global contract: `0` reviewed (or list rendered — `nothing to review` is `0` with `pending: []`), `2` anything else (not permitted, API, validation) with typed `error.kind`. The review POST body **always includes `comment`** (the API requires the field): user-blank input sends a documented default (`reviewed from gh-hound`); pin the exact body in adapter tests and live verification. `runs` JSON: `waiting` runs gain `pending_environments: [names]` only when `--approvals` flag passed (zero-extra-calls default, Task 200 precedent).
 - Resolve flow: a branch whose newest run is `waiting` should surface the gate immediately (launch context state).
 
 ## Out of Scope
@@ -61,7 +61,7 @@ A run gated on an environment sits in `waiting` and gh-hound can see it but not 
 The hound voice is mandatory across TUI strings, toasts, docs, and site copy. Suggested register: the gate is a door; the hound waits at it. Confirm: `open the gate for production?` Reject toast: `gate stays shut.` No emoji; theme glyphs only.
 
 ## Website & Docs Updates (required)
-- Landing: new trail row in "Sit. Stay. Triage." — q: `Deploy is waiting on me?` keys: `v` — and a new screens-gallery tab (`approvals`) captured via `.claude/automations/capture_fixture.py`. Counts/copy elsewhere updated if they reference row counts. **Voice MUST hold.**
+- Landing: new trail row in "Sit. Stay. Triage." — q: `Deploy is waiting on me?` keys: `A` — and a new screens-gallery tab (`approvals`) captured via `.claude/automations/capture_fixture.py`. Counts/copy elsewhere updated if they reference row counts. **Voice MUST hold.**
 - `docs/agent-surface.md`, `skill/SKILL.md`, README (feature row + keybinding table), `docs/visual-contract.md`, `docs/configuration.md` if any config added.
 - Preview-deploy via the PR workflow; pixel-check the new tab before merge.
 

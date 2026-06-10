@@ -9,10 +9,10 @@ PLANNED
 - **Avoid touching:** dispatch form layout, workflow input parsing, mutation adapter.
 
 ## Depends On
-- 140 (dispatch screen). Closes GitHub issue #15.
+- 140 (dispatch screen), 220 (the async loading pattern — the default-branch fetch uses its shared component; do NOT build bespoke async machinery here). Closes GitHub issue #15.
 
 ## Parallelizable With
-- 220, 240.
+- 240.
 
 ## PRD / Design References
 - PRD §9.7 (dispatch pre-fills the current ref) — the pre-fill contract implicitly assumes the local checkout IS the target repo. Issue #15: with `GH_REPO=owner/foreign`, the form pre-fills the local branch name, which likely doesn't exist on the target; submission 404s or, worse, dispatches the wrong ref.
@@ -22,7 +22,7 @@ PLANNED
 
 ## Scope
 - Ref resolution: target == local origin → local branch (current behavior); target != local origin (or no git checkout) → target repo default branch via `GET /repos/{owner}/{repo}` (`default_branch`), cached for the session.
-- Validation before dispatch: ref must exist on the target (`GET /repos/{o}/{r}/branches/{branch}` or accept tags/SHAs with a typed not-found error mapped to the form, hound-voiced: `that branch isn't in this yard`).
+- Validation before dispatch: allowed refs are **branches and tags** (what workflow_dispatch documents; raw SHAs only if live verification proves support — pin either way). Branches validate via `GET /repos/{o}/{r}/branches/{branch}` (path-escape slash-containing names), tags via the git ref endpoint. Typed not-found maps to the form, hound-voiced: `that branch isn't in this yard`.
 - Same resolution applies to the palette dispatch entry and `dispatch` subcommand.
 
 ## Out of Scope

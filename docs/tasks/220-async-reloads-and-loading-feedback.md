@@ -10,14 +10,14 @@ PLANNED
   - failure screen open (log + annotations fetch);
   - `l` → full log — the slowest path (multi-MB download + parse): spinner MUST include byte progress (`◔ fetching log… 2.1 MB`), and parse runs off the paint path.
   The artifacts fetch is the existing async reference pattern; this task brings every other transition up to it.
-- **Allowed files:** `internal/tui/` (app, runs/detail/failure/log screens, toasts, keys), `internal/usecase/` (resolver entry points only), `cmd/gh-hound/main.go` (resolver wiring), tests, vqa harness, `docs/visual-contract.md`.
+- **Allowed files:** `internal/tui/` (app, runs/detail/failure/log screens, toasts, keys), `internal/theme/` (spinner tokens), `internal/usecase/` (resolver entry points only), `cmd/gh-hound/main.go` (resolver wiring), tests, vqa harness, `docs/visual-contract.md`, `docs/development.md`.
 - **Avoid touching:** adapter request semantics, pipe surface, dispatch/watch internals.
 
 ## Depends On
 - 100 (runs list), 210 (status cycle). Closes GitHub issue #21.
 
 ## Parallelizable With
-- 230, 240 (disjoint files).
+- 240 (disjoint files). NOT 230 — it consumes this task's shared loading component.
 
 ## PRD / Design References
 - PRD §9.2 (runs home is cache-first; network never blocks a keystroke) — currently violated: `f` and `/` reloads are synchronous and freeze the UI 3+ seconds on slow repos (issue #21, QA round 3).
@@ -27,9 +27,17 @@ PLANNED
 gh-hound promises "born to run" speed, but most keystrokes that need the network block the whole TUI with zero feedback. The artifacts pane already does this right; everything else must follow the same message-passing pattern.
 
 ## The Invariant (the actual deliverable)
-> **No keystroke may block on the network. Any operation that can exceed 100ms paints a themed spinner (or byte/percent progress when a size is knowable) within 50ms, stays cancellable with `esc`, and drops stale results.**
+> **No keystroke may block on the network. The UI repaints within 50ms of the keystroke (previous content dimmed, or a skeleton). If the fetch is still in flight after a 100ms grace window, the shared loading indicator appears (spinner, or byte/percent progress when a size is knowable). Every fetch is `esc`-cancellable and drops stale results.**
 
 This is a standing contract: every current fetch is converted in this task, and every FUTURE task (250 approvals, 260 diff scan, 270 pack watch, 290 caches, 300 flake verdicts — all already reference "the Task 220 pattern") inherits it. Add the invariant to `docs/visual-contract.md` and `docs/development.md` so reviews can cite it.
+
+## One Loading Component (consistency is a hard requirement)
+There is exactly **one** loading indicator in gh-hound, and every screen uses it:
+- Lives in the theme/layout foundation (`internal/theme` + a shared TUI component) — **never** ad-hoc per screen. Tasks 250–300 MUST consume it; a bespoke spinner in any later PR is a review-blocking defect (state this in `docs/visual-contract.md`).
+- Spinner glyph cycle and colors come from theme tokens (bramble and bone each define the set); same cadence everywhere (~120ms/frame), same placement grammar: inline in the affected pane's status line, never floating over content.
+- Progress variant: same component with a themed fill bar + human-size text (`◔ fetching log… ▰▰▰▱▱ 2.1/4.8 MB`), reusing the existing human-size formatter. Determinate when content-length is known, indeterminate otherwise — visually identical family.
+- Both themes captured in vqa fixtures; pixel-level review confirms identical geometry across screens (only the label text differs).
+- Loading copy is part of the component contract: short, hound-voiced, per-context label passed in (`sniffing out failing runs…`, `fetching log…`).
 
 ## Scope — full inventory of blocking fetches to convert
 - **Runs-list reloads** (`f` status cycle, `/` filter, `s` scope, `G` load-more) — issue #21; previous list stays visible, dimmed, with a loading line.

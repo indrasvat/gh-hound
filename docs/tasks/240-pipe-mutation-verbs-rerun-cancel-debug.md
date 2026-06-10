@@ -5,8 +5,8 @@ PLANNED
 
 ## Ownership Boundary
 - **Primary area:** agent surface parity for mutations: `rerun`, `cancel` subcommands with `--no-tui` JSON results; `--debug` rerun flag exposed end-to-end.
-- **Allowed files:** `cmd/gh-hound/`, `internal/render/`, `internal/usecase/` (thin wiring only — `ActionService` already implements all mutations), `docs/agent-surface.md`, `skill/SKILL.md`, `README.md`, `pages/` (agents section), tests.
-- **Avoid touching:** TUI mutation flows (already shipped), adapter mutations (already shipped).
+- **Allowed files:** `cmd/gh-hound/`, `internal/render/`, `internal/usecase/`, `internal/adapter/github/mutations.go` + fake (signature extensions ONLY: `RerunFailedJobs`/`RerunJob` gain a `debug bool` matching the official body fields — verify live which endpoints accept it), `docs/agent-surface.md`, `skill/SKILL.md`, `README.md`, `pages/` (agents section), tests.
+- **Avoid touching:** TUI mutation flows beyond the debug toggle, mutation pacing/queue semantics.
 
 ## Depends On
 - 060 (mutations), 160 (agent surface).
@@ -24,8 +24,8 @@ The JSON surface can see everything and do nothing. Close the loop for agents: `
 ## Scope
 - `rerun` subcommand: `--run <id>` (required), `--failed-only`, `--debug` (debug+failed-only is rejected — the API only supports debug on full reruns... verify live; if supported on rerun-failed-jobs, allow it and document), `--job <id>` for single-job rerun.
 - `cancel` subcommand: `--run <id>`, `--force`.
-- JSON result: `{repo, run_id, action, accepted: true, html_url}` where `action` enumerates **every** mutation path: `"rerun" | "rerun_failed" | "rerun_job" | "cancel" | "force_cancel"` (single-job rerun carries `job_id` too); typed error object on failure (existing `ActionErrorKind` taxonomy).
-- Exit codes: `0` accepted, `1` refused by state (conflict, e.g., cancel a completed run), `2` API/auth/validation error.
+- JSON result: `{repo, run_id, action, accepted: true, html_url}` where `action` enumerates **every** mutation path: `"rerun" | "rerun_failed" | "rerun_job" | "cancel" | "force_cancel"` (single-job rerun carries `job_id` too); typed error object on failure (existing `ActionErrorKind` taxonomy). `html_url` is **reconstructed** (`https://github.com/{repo}/actions/runs/{id}`), never fetched — the mutation endpoints return no body and the one-call budget holds.
+- Exit codes follow the global contract (1 is reserved for actionable CI state, never command-local): `0` mutation accepted, `2` anything else (validation, conflict such as cancelling a completed run, permission, API) — agents branch on `error.kind` in the JSON, which the schema enumerates.
 - Mutation pacing: the existing 1s serial spacing applies; document it.
 - TUI gains nothing new except: rerun confirm overlay gets a `d` toggle for debug logging (currently only watch has `d`); footer/help updated.
 
