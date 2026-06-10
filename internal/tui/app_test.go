@@ -1633,3 +1633,28 @@ func TestEscClearsAppliedFilter(t *testing.T) {
 func cliTestRun(id int64, workflow, branch string) model.Run {
 	return model.Run{ID: id, Name: workflow, HeadBranch: branch, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: int(id)}
 }
+
+func TestRunningVocabularyMapsToServerStatus(t *testing.T) {
+	filter, ok := serverRunFilter(usecase.LaunchContext{Repo: "openclaw/openclaw"}, 30, "running")
+	if !ok || filter.Status != string(model.StatusInProgress) {
+		t.Fatalf("running must map to in_progress server filter: ok=%v status=%q", ok, filter.Status)
+	}
+	// The status bar teaches this vocabulary; every word it shows must filter.
+	for _, word := range []string{"failing", "running", "passed"} {
+		if _, ok := serverRunFilter(usecase.LaunchContext{Repo: "x/y"}, 30, word); !ok {
+			t.Fatalf("status-bar word %q must be a valid server filter", word)
+		}
+	}
+}
+
+func TestRunningAliasMatchesLocally(t *testing.T) {
+	m := runs.NewModel(usecase.LaunchContext{
+		Repo:  "x/y",
+		State: usecase.LaunchStateRuns,
+		Runs:  []model.Run{{ID: 1, Name: "CI", Status: model.StatusInProgress, RunNumber: 1}},
+	})
+	m.Filter = "running"
+	if len(m.FilteredRuns()) != 1 {
+		t.Fatalf("local 'running' alias must match in_progress runs")
+	}
+}

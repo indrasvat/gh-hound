@@ -1365,6 +1365,8 @@ func normalizedRunStatus(query string) (string, bool) {
 		return string(model.ConclusionSuccess), true
 	case "cancelled", "canceled":
 		return string(model.ConclusionCancelled), true
+	case "running", "live":
+		return string(model.StatusInProgress), true
 	}
 	if status, err := model.ParseStatus(query); err == nil {
 		return string(status), true

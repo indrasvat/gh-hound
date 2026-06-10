@@ -248,6 +248,8 @@ func queryAliases(query string) []string {
 		return []string{query, "success"}
 	case "canceled":
 		return []string{query, "cancelled"}
+	case "running", "live":
+		return []string{query, "in_progress"}
 	default:
 		return []string{query}
 	}
