@@ -1161,6 +1161,10 @@ func writeArtifactsResult(ctx context.Context, w io.Writer, options cliOptions, 
 		}
 		outcome, err := service.Download(ctx, repo, artifact, firstNonEmpty(options.Dir, "."), options.Force)
 		if err != nil {
+			var destErr usecase.DestinationExistsError
+			if errors.As(err, &destErr) {
+				return fmt.Errorf("%s; pass --force to overwrite", destErr.Error())
+			}
 			return err
 		}
 		result.Downloaded = &render.Download{Name: artifact.Name, Path: outcome.Path, FileCount: outcome.FileCount}

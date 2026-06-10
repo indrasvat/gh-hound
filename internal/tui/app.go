@@ -125,6 +125,7 @@ type App struct {
 	artifactsFetch            *artifactsFetchState
 	artifactDownload          *artifactDownloadState
 	pendingDownload           *model.Artifact
+	lastToastTick             time.Time
 	openURL                   func(string) error
 	copyText                  func(string) error
 }
@@ -392,7 +393,10 @@ func RenderFixtureSize(screen string, width, height int) string {
 		}, usecase.ErrorContext{}))
 		return app.ViewSize(width, height)
 	case "detail":
-		return frameViewSize(app.theme, "hound", "CI #571 › fix/parser", "a1b2c3d", detail.View(sampleDetailModel(), bodyWidth), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
+		return frameViewSize(app.theme, "hound", "CI #571 › fix/parser", "a1b2c3d", detail.ViewSize(sampleDetailModel(), bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
+	case "detail-artifacts":
+		m := sampleDetailModel().Update(detail.KeyMsg{Key: "a"})
+		return frameViewSize(app.theme, "hound", "CI #571 › fix/parser", "artifacts", detail.ViewSize(m, bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
 	case "failure":
 		return frameViewSize(app.theme, "hound", "build › failed step", "exit 1", failure.View(sampleFailureModel(), bodyWidth), keys.FooterForScreen(keys.ScreenFailure), width, height, true)
 	case "watch":
@@ -463,13 +467,13 @@ func RenderInteractionFixtureSize(scenario string, width, height int) string {
 		for _, key := range []string{"tab", "j", "n"} {
 			m = m.Update(detail.KeyMsg{Key: key})
 		}
-		return frameViewSize(app.theme, "hound", "CI #571 › fix/parser", "a1b2c3d", detail.View(m, bodyWidth), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
+		return frameViewSize(app.theme, "hound", "CI #571 › fix/parser", "a1b2c3d", detail.ViewSize(m, bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
 	case "detail-artifacts":
 		m := sampleDetailModel()
 		for _, key := range []string{"a", "j"} {
 			m = m.Update(detail.KeyMsg{Key: key})
 		}
-		return frameViewSize(app.theme, "hound", "CI #571 › fix/parser", "artifacts", detail.View(m, bodyWidth), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
+		return frameViewSize(app.theme, "hound", "CI #571 › fix/parser", "artifacts", detail.ViewSize(m, bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
 	case "failure-actions":
 		m := sampleFailureModel()
 		for _, key := range []string{"l", "y", "o", "r", "R"} {
@@ -525,14 +529,26 @@ func (a App) ShouldQuit() bool {
 }
 
 func (a App) PollInterval() time.Duration {
-	if a.pollInterval > 0 {
-		return a.pollInterval
+	base := a.pollInterval
+	if base <= 0 {
+		base = initialPollInterval(a.config)
 	}
-	return initialPollInterval(a.config)
+	// Tighten the loop while async artifact work or timed toasts are
+	// pending so completions and TTL expiry surface promptly.
+	if a.artifactsFetch != nil || a.artifactDownload != nil || len(a.toasts.Toasts) > 0 {
+		if base > time.Second {
+			return time.Second
+		}
+	}
+	return base
 }
 
 func (a App) Refresh() (App, bool) {
 	changed := false
+	if next, ok := a.tickToasts(); ok {
+		a = next
+		changed = true
+	}
 	if next, ok := a.drainArtifactDownload(); ok {
 		a = next
 		changed = true
@@ -554,6 +570,21 @@ func (a App) Refresh() (App, bool) {
 	default:
 		return a, changed
 	}
+}
+
+// tickToasts advances toast TTLs on poll ticks so timed toasts
+// actually expire; before this the TickMsg path was never driven.
+func (a App) tickToasts() (App, bool) {
+	now := time.Now()
+	if a.lastToastTick.IsZero() || len(a.toasts.Toasts) == 0 {
+		a.lastToastTick = now
+		return a, false
+	}
+	elapsed := now.Sub(a.lastToastTick)
+	a.lastToastTick = now
+	before := len(a.toasts.Toasts)
+	a.toasts, _ = a.toasts.Update(toast.TickMsg{Elapsed: elapsed})
+	return a, len(a.toasts.Toasts) != before
 }
 
 func (a App) drainArtifactsFetch() (App, bool) {
@@ -590,14 +621,19 @@ func (a App) drainArtifactDownload() (App, bool) {
 		return a, false
 	}
 	a.artifactDownload = nil
+	a.toasts = a.toasts.Dismiss("artifact-downloading")
 	if download.err != nil {
 		a.pushErrorToast("artifact-download-failed", usecase.ResilienceFor(download.err, usecase.ErrorContext{}))
 		return a, true
 	}
+	files := "files"
+	if download.result.FileCount == 1 {
+		files = "file"
+	}
 	a.pushToast("artifact-downloaded", usecase.Resilience{
 		Severity: usecase.SeverityOK,
 		Title:    "artifact downloaded",
-		Message:  fmt.Sprintf("%s extracted to %s (%d files)", download.name, download.result.Path, download.result.FileCount),
+		Message:  fmt.Sprintf("%s extracted to %s (%d %s)", download.name, download.result.Path, download.result.FileCount, files),
 	})
 	return a, true
 }
@@ -960,6 +996,13 @@ func (a App) handlePaletteIntent(intent palette.Intent) App {
 		a.routes = []Route{RouteRuns}
 		a.runs.Filter = "failure"
 		a = a.reloadRuns("failure")
+	case "artifacts":
+		a.PopOverlay()
+		if run, ok := a.runs.SelectedRun(); ok {
+			a = a.loadDetail(run)
+			a.routes = []Route{RouteRuns, RouteDetail}
+			a.detail = a.detail.Update(detail.KeyMsg{Key: "a"})
+		}
 	case string(RouteDispatch):
 		a = a.openDispatchFromPalette(intent.Value)
 	}
@@ -1994,7 +2037,7 @@ func (a App) screenBody(width, height int) string {
 		}
 		return runs.ViewSize(a.runs, bodyWidth, bodyHeight(height), time.Now())
 	case RouteDetail:
-		return detail.View(a.detail, bodyWidth)
+		return detail.ViewSize(a.detail, bodyWidth, bodyHeight(height))
 	case RouteFailure:
 		return failure.View(a.failure, bodyWidth)
 	case RouteLog:
@@ -2223,7 +2266,7 @@ func sampleDetailModel() detail.Model {
 	}
 	artifacts := []model.Artifact{
 		{ID: 901, Name: "coverage", SizeInBytes: 1262848, CreatedAt: start.Add(135 * time.Second), ExpiresAt: start.AddDate(0, 0, 7)},
-		{ID: 902, Name: "test-results", SizeInBytes: 348160, CreatedAt: start.Add(136 * time.Second), ExpiresAt: start.AddDate(0, 0, 7)},
+		{ID: 902, Name: "playwright-report-shard-3-of-8-chromium-darwin-arm64", SizeInBytes: 348160, CreatedAt: start.Add(136 * time.Second), ExpiresAt: start.AddDate(0, 0, 7)},
 		{ID: 903, Name: "old-report", SizeInBytes: 52480, Expired: true, CreatedAt: start.AddDate(0, -3, 0), ExpiresAt: start.AddDate(0, -3, 7)},
 	}
 	return detail.NewModel(run, jobs).WithRepo("indrasvat/gh-hound").WithArtifacts(artifacts)

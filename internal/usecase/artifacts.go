@@ -27,6 +27,17 @@ func (e ArtifactExpiredError) Error() string {
 	return fmt.Sprintf("artifact %q has expired and can no longer be downloaded", e.Name)
 }
 
+// DestinationExistsError reports a refused extraction target. Callers
+// add their own recovery hint: the CLI suggests --force, the TUI does
+// not advertise CLI-only flags.
+type DestinationExistsError struct {
+	Path string
+}
+
+func (e DestinationExistsError) Error() string {
+	return fmt.Sprintf("destination %s already exists", e.Path)
+}
+
 type DownloadResult struct {
 	Path      string
 	FileCount int
@@ -43,7 +54,7 @@ func (s ArtifactsService) Download(ctx context.Context, repo string, artifact mo
 	target := filepath.Join(destDir, artifact.Name)
 	if _, err := os.Stat(target); err == nil {
 		if !force {
-			return DownloadResult{}, fmt.Errorf("destination %s already exists; pass --force to overwrite", target)
+			return DownloadResult{}, DestinationExistsError{Path: target}
 		}
 		if err := os.RemoveAll(target); err != nil {
 			return DownloadResult{}, fmt.Errorf("clear destination: %w", err)

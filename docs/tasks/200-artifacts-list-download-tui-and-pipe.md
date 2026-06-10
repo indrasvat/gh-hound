@@ -108,6 +108,10 @@ make ci && make e2e && make vqa
 - [ ] Detail artifacts section at 80x24/120x40/200x60: no overlap, truncation handles long artifact names, expired badge styled per theme.
 - [ ] Confirm + toast layering over base view; no color bleed; footer/help truth after focus changes.
 
+## Accepted Gaps
+- `docs/gh-hound-design.html` (the static HTML mock) does not include the artifacts block; `docs/visual-contract.md` ③ is the authoritative visual contract for this feature. Regenerating the large static mock is deferred.
+- Terminal resize (SIGWINCH) is unhandled app-wide; pre-existing on main, out of scope here (QA finding P2-3, non-gating).
+
 ## Session Protocol
 1. Re-read PRD detail-screen contract and visual contract before TUI edits.
 2. Red tests → green → refactor, committing per layer.

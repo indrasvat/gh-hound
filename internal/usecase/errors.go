@@ -109,6 +109,26 @@ func ResilienceFor(err error, context ErrorContext) Resilience {
 			KeepCachedView: true,
 		}
 	}
+	var expiredErr ArtifactExpiredError
+	if as(err, &expiredErr) {
+		return Resilience{
+			Class:          ErrorClassMutationRejected,
+			Severity:       SeverityWarn,
+			Title:          "Artifact expired",
+			Message:        fmt.Sprintf("%q is past its retention window and can no longer be downloaded", expiredErr.Name),
+			KeepCachedView: true,
+		}
+	}
+	var destErr DestinationExistsError
+	if as(err, &destErr) {
+		return Resilience{
+			Class:          ErrorClassMutationRejected,
+			Severity:       SeverityWarn,
+			Title:          "Download blocked",
+			Message:        fmt.Sprintf("%s already exists; remove it before downloading again", destErr.Path),
+			KeepCachedView: true,
+		}
+	}
 	var logErr LogRenderError
 	if as(err, &logErr) {
 		return Resilience{

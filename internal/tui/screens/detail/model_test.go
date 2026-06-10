@@ -1,6 +1,7 @@
 package detail
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -236,5 +237,45 @@ func TestWithArtifactsClampsSelection(t *testing.T) {
 	m = m.WithArtifacts(artifactFixtures()[:1])
 	if m.SelectedArtifact != 0 {
 		t.Fatalf("selection not clamped: %d", m.SelectedArtifact)
+	}
+}
+
+func TestViewSizeKeepsArtifactsVisibleWithManySteps(t *testing.T) {
+	steps := make([]model.Step, 0, 14)
+	for i := 1; i <= 14; i++ {
+		steps = append(steps, model.Step{Name: fmt.Sprintf("step %d", i), Number: i, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess})
+	}
+	jobs := []model.Job{{ID: 1, Name: "build", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, Steps: steps}}
+	m := NewModel(model.Run{ID: 1}, jobs).WithArtifacts(artifactFixtures())
+
+	view := ansi.Strip(ViewSize(m, 80, 20))
+	lines := strings.Split(view, "\n")
+	if len(lines) > 20 {
+		t.Fatalf("ViewSize must fit the height budget: %d lines > 20\n%s", len(lines), view)
+	}
+	if !strings.Contains(view, "Artifacts (2)") || !strings.Contains(view, "coverage") {
+		t.Fatalf("artifacts must stay visible when steps overflow:\n%s", view)
+	}
+	if !strings.Contains(view, "more") {
+		t.Fatalf("step overflow must be indicated:\n%s", view)
+	}
+	if !strings.Contains(view, "a artifacts") {
+		t.Fatalf("hint line must survive the height budget:\n%s", view)
+	}
+}
+
+func TestViewSizeKeepsSelectedStepVisible(t *testing.T) {
+	steps := make([]model.Step, 0, 20)
+	for i := 1; i <= 20; i++ {
+		steps = append(steps, model.Step{Name: fmt.Sprintf("step %d", i), Number: i, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess})
+	}
+	jobs := []model.Job{{ID: 1, Name: "build", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, Steps: steps}}
+	m := NewModel(model.Run{ID: 1}, jobs).WithArtifacts(artifactFixtures())
+	m.Focus = FocusSteps
+	m.SelectedStep = 17
+
+	view := ansi.Strip(ViewSize(m, 80, 20))
+	if !strings.Contains(view, "step 18") {
+		t.Fatalf("selected step must stay in the window:\n%s", view)
 	}
 }
