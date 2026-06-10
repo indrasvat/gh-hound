@@ -150,6 +150,15 @@ var (
 	absoluteRE = regexp.MustCompile(`^\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?$`)
 )
 
+// padHour zero-pads single-digit hours so lexical clock comparison
+// works against the runner's zero-padded timestamps ("1:05" -> "01:05").
+func padHour(clock string) string {
+	if idx := strings.IndexByte(clock, ':'); idx == 1 {
+		return "0" + clock
+	}
+	return clock
+}
+
 // Commit resolves enter: the selected entry when no input was typed,
 // otherwise the parsed query. Invalid queries return feedback and keep
 // the modal open.
@@ -173,7 +182,7 @@ func (m Model) Commit() (Model, Action) {
 		return m, Action{Kind: ActionRelative, DeltaSeconds: delta}
 	}
 	if start, end, ok := strings.Cut(input, "-"); ok && absoluteRE.MatchString(start) && absoluteRE.MatchString(end) {
-		first, lastLine, found := m.resolveRange(start, end)
+		first, lastLine, found := m.resolveRange(padHour(start), padHour(end))
 		if !found {
 			m.Feedback = fmt.Sprintf("no lines between %s and %s", start, end)
 			return m, Action{Kind: ActionInvalid, Message: m.Feedback}
@@ -181,7 +190,7 @@ func (m Model) Commit() (Model, Action) {
 		return m, Action{Kind: ActionRange, Line: first, EndLine: lastLine}
 	}
 	if absoluteRE.MatchString(input) {
-		if line, ok := resolveClock(m.timeline, input); ok {
+		if line, ok := resolveClock(m.timeline, padHour(input)); ok {
 			return m, Action{Kind: ActionJump, Line: line}
 		}
 		m.Feedback = fmt.Sprintf("no line at/after %s", input)

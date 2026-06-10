@@ -188,6 +188,11 @@ func (m *Model) jumpToTime(query string) {
 	if query == "" {
 		return
 	}
+	// Zero-pad single-digit hours: runner clocks are zero-padded and
+	// every comparison below is lexical.
+	if idx := strings.IndexByte(query, ':'); idx == 1 {
+		query = "0" + query
+	}
 	type stamped struct {
 		number int
 		day    int

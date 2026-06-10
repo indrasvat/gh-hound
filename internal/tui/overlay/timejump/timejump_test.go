@@ -164,3 +164,23 @@ func TestRangeCrossingMidnight(t *testing.T) {
 		t.Fatalf("23:59-00:05 must span the wrap (lines 2-3): %#v", action)
 	}
 }
+
+func TestSingleDigitHourQueriesResolve(t *testing.T) {
+	doc := logs.Parse("01:05:00.000Z early\n10:00:00.000Z later")
+	m := New(doc)
+	for _, key := range []string{"1", ":", "0", "5"} {
+		m = m.Update(key)
+	}
+	_, action := m.Commit()
+	if action.Kind != ActionJump || action.Line != 1 {
+		t.Fatalf("1:05 must match 01:05: %#v", action)
+	}
+	m2 := New(doc)
+	for _, key := range []string{"9", ":", "5", "9", "-", "1", "0", ":", "0", "1"} {
+		m2 = m2.Update(key)
+	}
+	_, action = m2.Commit()
+	if action.Kind != ActionRange || action.Line != 2 || action.EndLine != 2 {
+		t.Fatalf("9:59-10:01 must resolve with padded hours: %#v", action)
+	}
+}
