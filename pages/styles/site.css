@@ -593,6 +593,22 @@ footer {
 .foot-meta a { color: var(--subtle); }
 .foot-meta a:hover { color: var(--fg); }
 
+.foot-made {
+  margin-top: 2rem;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--dim);
+}
+.foot-made .heart {
+  width: 0.9em;
+  height: 0.9em;
+  fill: var(--ok);
+  vertical-align: -0.08em;
+}
+.foot-made a { color: var(--subtle); }
+.foot-made a:hover { color: var(--fg); }
+
 @media (max-width: 760px) {
   .foot-grid { grid-template-columns: 1fr; gap: 2rem; }
 }
