@@ -1658,3 +1658,34 @@ func TestRunningAliasMatchesLocally(t *testing.T) {
 		t.Fatalf("local 'running' alias must match in_progress runs")
 	}
 }
+
+func TestEscClearingServerFilterRestoresUnfilteredRuns(t *testing.T) {
+	full := []model.Run{
+		cliTestRun(1, "CI", "main"),
+		cliTestRun(2, "Release", "main"),
+		cliTestRun(3, "CI", "fix/x"),
+	}
+	running := []model.Run{{ID: 9, Name: "CI", HeadBranch: "main", Status: model.StatusInProgress, RunNumber: 9}}
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{Repo: "x/y", Branch: "main", State: usecase.LaunchStateRuns, Runs: full},
+		RunsResolver: func(filter usecase.RunFilter) ([]model.Run, error) {
+			if filter.Status != "" {
+				return running, nil
+			}
+			return full, nil
+		},
+	})
+	for _, key := range []string{"/", "r", "u", "n", "n", "i", "n", "g", "enter"} {
+		app, _ = app.Update(KeyMsg{Key: key})
+	}
+	if got := len(app.runs.FilteredRuns()); got != 1 {
+		t.Fatalf("server filter applied = %d rows, want 1", got)
+	}
+	app, _ = app.Update(KeyMsg{Key: "esc"})
+	if got := len(app.runs.FilteredRuns()); got != len(full) {
+		t.Fatalf("esc must restore the unfiltered listing immediately: %d rows, want %d", got, len(full))
+	}
+}

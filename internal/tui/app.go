@@ -1084,7 +1084,14 @@ func (a App) loadDetail(run model.Run) App {
 func (a App) reloadRuns(query string) App {
 	filter, ok := serverRunFilter(a.runs.Context, a.config.PerPage, query)
 	if !ok {
-		return a
+		if strings.TrimSpace(query) == "" {
+			// Clearing a server-backed filter must restore the unfiltered
+			// listing immediately, not leave the filtered subset on
+			// screen until the next poll tick.
+			filter = baseRunsFilter(a.runs.Context, a.config.PerPage)
+		} else {
+			return a
+		}
 	}
 	a.clearRouteError(RouteRuns)
 	if a.runsResolver == nil {
