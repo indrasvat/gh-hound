@@ -1,7 +1,7 @@
 # Task 200: artifacts — list and download on TUI and pipe surface
 
 ## Status
-IN PROGRESS
+DONE
 
 ## Ownership Boundary
 - **Primary area:** artifacts listing/download across usecase, adapter, fake, render, cmd, and TUI detail screen.
@@ -83,18 +83,18 @@ Downloading a test-report or build artifact after a CI run is a daily-loop actio
 - Benchmark evidence (before/after `hyperfine` or timed runs against gh-hound + openclaw/openclaw) included in PR body.
 
 ## Definition of Done
-- [ ] All red tests written first and observed failing; then green; race-enabled suite passes.
-- [ ] `make ci`, `make e2e`, `make vqa`, `make docs-check` all pass.
-- [ ] Pipe surface: `artifacts` command + `runs --artifacts` shipped, schema.json updated, exit codes documented in agent-surface.md.
-- [ ] TUI: artifacts visible in detail, download flow with confirm + success/failure toasts, keymap/palette/help/footer all updated and truthful.
-- [ ] Zero extra API calls on default runs path (call-count test green).
-- [ ] Live download verified: real artifact from a real run extracts correctly, content checksum matches `digest` where available.
-- [ ] openclaw/openclaw stress run: listing + TUI responsiveness verified, timings recorded.
-- [ ] Benchmark results in PR body; no perf regression vs v0.1.1 baseline.
-- [ ] tui-qa cold-context audit: `VERDICT: PASS` with screenshot evidence at all three breakpoints.
-- [ ] Dootsabha review rounds (codex + gemini) converged: no remaining blocking findings.
-- [ ] README, SKILL.md, agent-surface.md updated; landing page updated + wrangler-deployed + verified if feature is mentioned there.
-- [ ] Branch pushed only after all of the above; PR created with evidence.
+- [x] All red tests written first and observed failing; then green; race-enabled suite passes.
+- [x] `make ci`, `make e2e`, `make vqa`, `make docs-check` all pass.
+- [x] Pipe surface: `artifacts` command + `runs --artifacts` shipped, schema.json updated, exit codes documented in agent-surface.md.
+- [x] TUI: artifacts visible in detail, download flow with confirm + success/failure toasts, keymap/palette/help/footer all updated and truthful.
+- [x] Zero extra API calls on default runs path (call-count test green).
+- [x] Live download verified: real artifact from a real run extracts correctly, content checksum matches `digest` where available.
+- [x] openclaw/openclaw stress run: listing + TUI responsiveness verified, timings recorded.
+- [x] Benchmark results in PR body; no perf regression vs v0.1.1 baseline.
+- [x] tui-qa cold-context audit: `VERDICT: PASS` with screenshot evidence at all three breakpoints.
+- [x] Dootsabha review rounds (codex + gemini) converged: no remaining blocking findings.
+- [x] README, SKILL.md, agent-surface.md updated; landing page updated + wrangler-deployed + verified if feature is mentioned there.
+- [x] Branch pushed only after all of the above; PR created with evidence.
 
 ## Verification Commands
 ```bash
@@ -105,8 +105,16 @@ make ci && make e2e && make vqa
 ```
 
 ## Visual QA Checklist
-- [ ] Detail artifacts section at 80x24/120x40/200x60: no overlap, truncation handles long artifact names, expired badge styled per theme.
-- [ ] Confirm + toast layering over base view; no color bleed; footer/help truth after focus changes.
+- [x] Detail artifacts section at 80x24/120x40/200x60: no overlap, truncation handles long artifact names, expired badge styled per theme.
+- [x] Confirm + toast layering over base view; no color bleed; footer/help truth after focus changes.
+
+## Completion Evidence
+- TDD: every layer red-first; final suite 235+ tests, race-enabled, green.
+- tui-qa cold-context audits: 4 rounds (FAIL, FAIL, FAIL, PASS) — 80+ pixel-inspected screenshots across fixture/fake/live lenses incl. openclaw; final round PASS with /running fix verified live.
+- Dootsabha: codex BLOCKED -> BLOCKED -> CONVERGED across 3 rounds; gemini round-1 findings addressed, final consult CONVERGED. 12 findings fixed incl. '.'-name RemoveAll escape, zip-bomb budget, toast TTL dead code, palette dead path.
+- Live: real artifact downloads verified on indrasvat/gh-hound (coverage, 28KB and 250KB) and openclaw 25MB dist-runtime-build (6.5s, 38.9MB peak RSS, streamed).
+- Benchmarks: default runs path +0.8% vs v0.1.1 interleaved A/B (noise); zero extra API calls pinned by test.
+- Pre-existing scale bugs fixed in passing: server-tagged filter 0-matches, pagination HasMore latch, esc-clear, running vocabulary. Follow-ups filed: #11 (SIGWINCH), #12 (filtered column alignment), #13 (palette dispatch toast).
 
 ## Accepted Gaps
 - `docs/gh-hound-design.html` (the static HTML mock) does not include the artifacts block; `docs/visual-contract.md` ③ is the authoritative visual contract for this feature. Regenerating the large static mock is deferred.
