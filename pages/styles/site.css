@@ -158,7 +158,9 @@ h1, h2, h3 {
 
 /* ---------- hero ---------- */
 
-.hero { padding: clamp(3.5rem, 9vh, 5.5rem) 0 0; }
+/* padding-top only: the shorthand would zero out .wrap's side padding
+   (same specificity, .hero wins by order). */
+.hero { padding-top: clamp(3.5rem, 9vh, 5.5rem); }
 
 .hero h1 {
   font-size: clamp(2.35rem, 5.6vw, 4.1rem);
