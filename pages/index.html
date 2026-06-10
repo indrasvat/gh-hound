@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0E0F0C">
-<title>gh-hound · GitHub Actions, without the browser side quest</title>
-<meta name="description" content="gh-hound is a fast terminal cockpit for GitHub Actions: what broke, where, whether to rerun. A gh extension with a real TUI for humans and schema-stable JSON for agents.">
+<title>gh-hound · Fetch happens.</title>
+<meta name="description" content="gh-hound is a fast terminal cockpit for GitHub Actions: the failing step, the guilty log line, the rerun verdict. A gh extension with a real TUI for humans and schema-stable JSON for agents.">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,17 +17,17 @@
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="gh-hound">
-<meta property="og:title" content="gh-hound · GitHub Actions, without the browser side quest">
-<meta property="og:description" content="A fast terminal cockpit for CI triage. TUI for humans, schema-stable JSON for agents.">
+<meta property="og:title" content="gh-hound · Fetch happens.">
+<meta property="og:description" content="A fast terminal cockpit for broken CI. TUI for humans, schema-stable JSON for agents.">
 <meta property="og:url" content="https://gh-hound.pages.dev/">
-<meta property="og:image" content="https://gh-hound.pages.dev/og-card.png?v=2026-06-10">
-<meta property="og:image:secure_url" content="https://gh-hound.pages.dev/og-card.png?v=2026-06-10">
+<meta property="og:image" content="https://gh-hound.pages.dev/og-card.png?v=2026-06-10b">
+<meta property="og:image:secure_url" content="https://gh-hound.pages.dev/og-card.png?v=2026-06-10b">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="gh-hound · GitHub Actions, without the browser side quest">
-<meta name="twitter:description" content="A fast terminal cockpit for CI triage. TUI for humans, schema-stable JSON for agents.">
-<meta name="twitter:image" content="https://gh-hound.pages.dev/og-card.png?v=2026-06-10">
+<meta name="twitter:title" content="gh-hound · Fetch happens.">
+<meta name="twitter:description" content="A fast terminal cockpit for broken CI. TUI for humans, schema-stable JSON for agents.">
+<meta name="twitter:image" content="https://gh-hound.pages.dev/og-card.png?v=2026-06-10b">
 <link rel="canonical" href="https://gh-hound.pages.dev/">
 </head>
 <body>
@@ -56,8 +56,8 @@
 <main id="main">
 
   <header class="hero wrap">
-    <h1 class="rise">GitHub Actions, without the <span class="accent">browser side quest</span>.</h1>
-    <p class="sub rise d1">One terminal cockpit for what broke, where, and whether to rerun. For humans in the TUI, for agents on <span class="mono">stdout</span>.</p>
+    <h1 class="rise">Fetch <span class="accent">happens</span>.</h1>
+    <p class="sub rise d1">When CI goes red, gh-hound retrieves the failing step, the guilty log line, and the rerun verdict &mdash; no browser tab involved. TUI for humans, <span class="mono">JSON</span> for agents.</p>
     <div class="cta-row rise d2">
       <span class="install-pill">
         <span class="ps1">$</span>
@@ -70,13 +70,13 @@
       <div class="term">
         <img src="/assets/shots/runs.png" alt="gh-hound runs screen: a branch-scoped list of workflow runs with status glyphs, events, duration sparklines and rate budget" width="2242" height="712" fetchpriority="high">
       </div>
-      <figcaption>the runs home: status, event, duration sparkline, age, rate budget</figcaption>
+      <figcaption>the runs home: status, event, duration sparkline, age, rate budget · f cycles the status filter</figcaption>
     </figure>
   </header>
 
   <section id="why" class="wrap">
     <div class="section-head reveal">
-      <h2>Seven questions. Zero browser tabs.</h2>
+      <h2>Sit. Stay. Triage.</h2>
       <p class="lede">CI triage is the same loop every time. gh-hound binds each step of it to a keystroke and keeps the answer in your terminal, next to the code.</p>
     </div>
     <div class="trail">
@@ -84,6 +84,11 @@
         <p class="trail-q">Is my branch green?</p>
         <div class="keys"><span class="key">gh hound</span></div>
         <p class="trail-a">Scoped run list with <b>status, age, event</b> and live rate budget.</p>
+      </div>
+      <div class="trail-row reveal">
+        <p class="trail-q">Just the failures?</p>
+        <div class="keys"><span class="key">f</span></div>
+        <p class="trail-a">One key cycles the status filter: <b>failing &rarr; running &rarr; passed</b>. ⎋ drops it.</p>
       </div>
       <div class="trail-row reveal">
         <p class="trail-q">What failed?</p>
@@ -134,15 +139,15 @@
     </div>
     <div class="shot-stage reveal">
       <figure class="shot active" id="shot-detail" role="tabpanel">
-        <div class="term"><img src="/assets/shots/detail.png" alt="Run detail screen: master-detail view of jobs and step timeline with durations" loading="lazy" width="2242" height="798"></div>
-        <figcaption class="shot-caption">jobs and step timeline · n jumps to the failure</figcaption>
+        <div class="term"><img src="/assets/shots/detail.png" alt="Run detail screen: master-detail view of jobs, step timeline with durations, and the run's artifacts" loading="lazy" width="2242" height="1038"></div>
+        <figcaption class="shot-caption">jobs, step timeline and artifacts · n jumps to the failure</figcaption>
       </figure>
       <figure class="shot" id="shot-failure" role="tabpanel" hidden>
         <div class="term"><img src="/assets/shots/failure.png" alt="Failure screen: annotations, failing step, exit code and a de-noised log excerpt" loading="lazy" width="2242" height="670"></div>
         <figcaption class="shot-caption">annotations, failing step, exit code, de-noised excerpt</figcaption>
       </figure>
       <figure class="shot" id="shot-log" role="tabpanel" hidden>
-        <div class="term"><img src="/assets/shots/log.png" alt="Full log viewer on live CI data: line numbers, folds, search with 78 matches highlighted" loading="lazy" width="2218" height="1136"></div>
+        <div class="term"><img src="/assets/shots/log.png" alt="Full log viewer on live CI data: line numbers, folds, search with 80 matches highlighted" loading="lazy" width="2231" height="1091"></div>
         <figcaption class="shot-caption">live capture · folds, line numbers, search with match count</figcaption>
       </figure>
       <figure class="shot" id="shot-time" role="tabpanel" hidden>
@@ -154,7 +159,7 @@
         <figcaption class="shot-caption">watch mode · streams the active run, f follows</figcaption>
       </figure>
       <figure class="shot" id="shot-palette" role="tabpanel" hidden>
-        <div class="term"><img src="/assets/shots/palette.png" alt="Command palette overlay listing jump targets like runs, failures and dispatch" loading="lazy" width="2242" height="754"></div>
+        <div class="term"><img src="/assets/shots/palette.png" alt="Command palette overlay listing jump targets like runs, failures, artifacts and dispatch" loading="lazy" width="2242" height="780"></div>
         <figcaption class="shot-caption">command palette · : jumps anywhere</figcaption>
       </figure>
       <figure class="shot" id="shot-green" role="tabpanel" hidden>
