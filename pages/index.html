@@ -76,7 +76,7 @@
 
   <section id="why" class="wrap">
     <div class="section-head reveal">
-      <h2>Six questions. Zero browser tabs.</h2>
+      <h2>Seven questions. Zero browser tabs.</h2>
       <p class="lede">CI triage is the same loop every time. gh-hound binds each step of it to a keystroke and keeps the answer in your terminal, next to the code.</p>
     </div>
     <div class="trail">
@@ -101,6 +101,11 @@
         <p class="trail-a">Rerun, rerun failed, cancel: local, visible, <b>confirmation-gated</b>.</p>
       </div>
       <div class="trail-row reveal">
+        <p class="trail-q">Where did the time go?</p>
+        <div class="keys"><span class="key">t</span></div>
+        <p class="trail-a">Step picker, <b>slowest-gap detection</b>, jump or range-filter by time.</p>
+      </div>
+      <div class="trail-row reveal">
         <p class="trail-q">Where&rsquo;s the build output?</p>
         <div class="keys"><span class="key">a</span><span class="key">d</span></div>
         <p class="trail-a">List a run&rsquo;s artifacts, then <b>download and extract</b> in place.</p>
@@ -122,6 +127,7 @@
       <button class="tab" role="tab" aria-selected="true" data-shot="shot-detail">run detail</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-failure">failure</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-log">full log</button>
+      <button class="tab" role="tab" aria-selected="false" data-shot="shot-time">time travel</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-watch">watch</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-palette">palette</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-green">all green</button>
@@ -138,6 +144,10 @@
       <figure class="shot" id="shot-log" role="tabpanel" hidden>
         <div class="term"><img src="/assets/shots/log.png" alt="Full log viewer on live CI data: line numbers, folds, search with 78 matches highlighted" loading="lazy" width="2218" height="1136"></div>
         <figcaption class="shot-caption">live capture · folds, line numbers, search with match count</figcaption>
+      </figure>
+      <figure class="shot" id="shot-time" role="tabpanel" hidden>
+        <div class="term"><img src="/assets/shots/time.png" alt="Time-navigation modal over the log: step picker with clocks, a +51s slowest-gap entry, the failure window, and typed time, relative, and range queries" loading="lazy" width="2231" height="917"></div>
+        <figcaption class="shot-caption">t opens time travel · step picker, slowest-gap detection, jump or range-filter</figcaption>
       </figure>
       <figure class="shot" id="shot-watch" role="tabpanel" hidden>
         <div class="term"><img src="/assets/shots/watch.png" alt="Watch screen streaming a running job's log with follow mode" loading="lazy" width="2242" height="498"></div>

@@ -84,6 +84,7 @@ The GIF is deliberately secondary: static shux captures are the visual truth; VH
 | Rerun/cancel lives away from diagnosis. | Actions are available in context and guarded by explicit confirmation. |
 | Agents get raw pages or raw logs. | `--no-tui --json` returns schema-stable runs, failures, annotations, and excerpts. |
 | Downloading an artifact means a browser trip. | List artifacts in run detail and download/extract with one confirmed keystroke, or `gh hound artifacts --download`. |
+| Finding when a step hung means scrolling a 10k-line log. | `t` opens a time modal: step picker, slowest-gap detection, jump to `17:43`, or filter to `17:42-17:44`. |
 
 ## Performance
 
@@ -103,6 +104,9 @@ The local gate includes race-enabled Go tests, large-log performance tests, and 
 - **Runs home**: branch or repo-wide list, all-green state, status glyphs, run numbers, filters, summary counts, and rate/cache metadata.
 - **Run detail**: master-detail job/step view with responsive collapse at narrow terminal sizes.
 - **Artifacts**: list a run's artifacts in detail view, download and auto-extract with confirmation; expired artifacts are flagged and refused up front.
+- **Time navigation**: a `t` modal on the log screen with a landmark picker (step boundaries, the failure window, the slowest gaps), typed jumps (`17:43`, `+30s`, `-2m`), and `A-B` range filtering.
+- **Status cycle**: `f` on the runs screen cycles all / failing / running / passed through the server filter.
+- **Attempt forensics**: `runs --run <id> --attempt <n>` triages a specific attempt after a re-run -- failed jobs, clean excerpts, exit codes.
 - **Failure diagnosis**: annotations, failing step, exit code, and de-noised failure excerpts.
 - **Full log viewer**: line-number gutter, fold rows, search, match count, wrap toggle, scrollbar, and syntax-aware highlighting.
 - **Watch mode**: active-run frame with follow, debug toggle, cancel, and detach.
@@ -170,6 +174,7 @@ gh hound runs --status failure --no-tui --json
 gh hound watch --json
 gh hound artifacts --no-tui --json
 gh hound artifacts --run <run-id> --download <name> --dir <path> --no-tui --json
+gh hound runs --run <run-id> --attempt 2 --no-tui --json   # forensics on a re-run
 ```
 
 Local deterministic scenarios are available for docs, tests, and agent harnesses:
@@ -188,11 +193,11 @@ Fixture scenarios are intentionally restricted to non-interactive/test paths. Th
 | Context | Keys |
 | --- | --- |
 | Global | `?` help, `:` palette, `T` theme, `q`/`Ctrl+C` quit, `Esc` back |
-| Runs | `j/k` or arrows move, `g/G` top/bottom, `s` scope, `Enter` open, `/` filter, `l` logs, `w` watch |
+| Runs | `j/k` or arrows move, `g/G` top/bottom, `s` scope, `Enter` open, `f` status cycle, `/` filter, `l` logs, `w` watch |
 | Actions | `r` rerun, `R` rerun failed, `x` cancel, `X` force cancel, `D` dispatch |
 | Detail | `Tab` focus, `n` next failure, `l` logs, `a` artifacts, `d` download, `J/K` next/previous run |
 | Failure | `l` full log, `o` browser, `y` copy excerpt, `r` rerun job |
-| Log | `/` search, `n/N` matches, `z/Z` fold, `w` wrap, `g/G` top/bottom |
+| Log | `/` search, `t` time jump/range, `n/N` matches, `z/Z` fold, `w` wrap, `g/G` top/bottom |
 | Watch | `f` follow, `d` debug, `x` cancel, `Esc` detach |
 | Dispatch | `Tab` next, arrows/select controls, `Enter` run, `Esc` cancel |
 
