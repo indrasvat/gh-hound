@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -287,4 +288,57 @@ func settleApp(t *testing.T, app App) App {
 		t.Fatal("pending load did not settle")
 	}
 	return app
+}
+
+func TestDetailOpenPaintsSkeletonImmediately(t *testing.T) {
+	app := asyncTestApp()
+	release := make(chan struct{})
+	app.detailResolver = func(run model.Run) (detail.Model, error) {
+		<-release
+		return sampleDetailModel(), nil
+	}
+	started := time.Now()
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	if elapsed := time.Since(started); elapsed > 50*time.Millisecond {
+		t.Fatalf("detail open blocked for %v", elapsed)
+	}
+	if app.Route() != RouteDetail {
+		t.Fatalf("route = %v, want detail", app.Route())
+	}
+	if app.load == nil || app.load.kind != loadKindDetail {
+		t.Fatal("detail open started no load")
+	}
+	app.load.started = time.Now().Add(-200 * time.Millisecond)
+	view := ansi.Strip(app.ViewSized(124))
+	if !strings.Contains(view, "fetching jobs") {
+		t.Fatalf("skeleton missing loading hint:\n%s", view)
+	}
+	close(release)
+	app = settleApp(t, app)
+	settled := ansi.Strip(app.ViewSized(124))
+	if !strings.Contains(settled, "go test ./...") {
+		t.Fatalf("resolved jobs missing after settle:\n%s", settled)
+	}
+}
+
+func TestDetailResultForAbandonedRunNeverApplies(t *testing.T) {
+	app := asyncTestApp()
+	slow := make(chan struct{})
+	app.detailResolver = func(run model.Run) (detail.Model, error) {
+		if run.ID == 571 {
+			<-slow
+		}
+		return detail.NewModel(run, nil), nil
+	}
+	app, _ = app.Update(KeyMsg{Key: "enter"}) // open #571, slow
+	app, _ = app.Update(KeyMsg{Key: "esc"})   // back to runs
+	app, _ = app.Update(KeyMsg{Key: "j"})     // select #570
+	app, _ = app.Update(KeyMsg{Key: "enter"}) // open #570, instant
+	close(slow)
+	app = settleApp(t, app)
+	// The second run's view must never be clobbered by the first
+	// run's late result.
+	if got := app.detail.Run.ID; got != 570 {
+		t.Fatalf("detail shows run %d, want 570", got)
+	}
 }

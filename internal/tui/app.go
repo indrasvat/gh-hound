@@ -1223,17 +1223,35 @@ func (a *App) PopOverlay() {
 
 func (a App) loadDetail(run model.Run) App {
 	a.clearRouteError(RouteDetail)
+	// The skeleton paints immediately from cached run data; jobs fold
+	// in when the resolver returns. The repo breadcrumb must stay
+	// truthful even while loading.
+	a.detail = DetailModelForRun(run).WithRepo(a.runs.Context.Repo)
 	if a.detailResolver == nil {
-		a.detail = DetailModelForRun(run)
 		return a.startArtifactsFetch(run)
 	}
-	resolved, err := a.detailResolver(run)
-	if err != nil {
-		a.detail = DetailModelForRun(run)
-		a.setRouteError(RouteDetail, "detail unavailable: "+err.Error())
-		return a
-	}
-	a.detail = resolved
+	resolver := a.detailResolver
+	a = a.startLoad(loadKindDetail, "fetching jobs", func() func(App) App {
+		resolved, err := resolver(run)
+		return func(app App) App {
+			if app.detail.Run.ID != run.ID {
+				// The user opened a different run meanwhile; this
+				// result no longer has a home.
+				return app
+			}
+			if err != nil {
+				app.setRouteError(RouteDetail, "detail unavailable: "+err.Error())
+				return app
+			}
+			// Artifacts race jobs: the async artifacts fetch may have
+			// landed on the skeleton already — carry it over.
+			if len(app.detail.Artifacts) > 0 && len(resolved.Artifacts) == 0 {
+				resolved = resolved.WithArtifacts(app.detail.Artifacts)
+			}
+			app.detail = resolved
+			return app
+		}
+	})
 	return a.startArtifactsFetch(run)
 }
 
@@ -2262,7 +2280,12 @@ func (a App) screenBody(width, height int) string {
 		}
 		return runs.ViewSize(runsModel, bodyWidth, bodyHeight(height), time.Now())
 	case RouteDetail:
-		return detail.ViewSize(a.detail, bodyWidth, bodyHeight(height))
+		detailModel := a.detail
+		if load := a.load; load != nil && load.kind == loadKindDetail {
+			detailModel.Loading = true
+			detailModel.LoadingLine = loadingLine(a.theme, load, bodyWidth/2, time.Now())
+		}
+		return detail.ViewSize(detailModel, bodyWidth, bodyHeight(height))
 	case RouteFailure:
 		return failure.View(a.failure, bodyWidth)
 	case RouteLog:

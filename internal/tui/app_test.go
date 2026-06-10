@@ -163,6 +163,13 @@ func TestProductionChromeDoesNotInventMissingGitHubMetadata(t *testing.T) {
 	if !handled || app.Route() != RouteDetail {
 		t.Fatalf("enter did not open detail: handled=%v route=%s", handled, app.Route())
 	}
+	// The skeleton must already show the real repo, never invented
+	// metadata; resolved identifiers are asserted after settle.
+	skeleton := ansi.Strip(app.ViewSize(120, 32))
+	if !strings.Contains(skeleton, "openclaw/openclaw") {
+		t.Fatalf("loading skeleton lost the repo breadcrumb:\n%s", skeleton)
+	}
+	app = settleApp(t, app)
 	view := ansi.Strip(app.ViewSize(120, 32))
 	for _, banned := range []string{"branch", "@sha", "unknown", "workflow"} {
 		if strings.Contains(view, banned) {
@@ -613,6 +620,7 @@ func TestRootShellDelegatesScreenKeysAndRoutes(t *testing.T) {
 	if !handled || app.Route() != RouteDetail {
 		t.Fatalf("runs enter should route to detail: handled=%v route=%s", handled, app.Route())
 	}
+	app = settleApp(t, app)
 
 	app, handled = app.Update(KeyMsg{Key: "tab"})
 	if !handled || app.detail.Focus != detail.FocusArtifacts {
@@ -672,6 +680,7 @@ func TestRunsArrowKeysNavigateAndSelectedRunOpensDistinctDetail(t *testing.T) {
 	if !handled || app.Route() != RouteDetail {
 		t.Fatalf("enter did not open selected detail: handled=%v route=%s", handled, app.Route())
 	}
+	app = settleApp(t, app)
 	view := ansi.Strip(app.View())
 	for _, want := range []string{"CodeQL #43", "CodeQL job", "ql56789"} {
 		if !strings.Contains(view, want) {
@@ -1295,6 +1304,7 @@ func TestDetailOpenBrowserAndCopyUseSelectedJobAndRun(t *testing.T) {
 		},
 	})
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 
 	app, handled := app.Update(KeyMsg{Key: "o"})
 	if !handled || opened != job.HTMLURL {
@@ -1475,10 +1485,12 @@ func TestLogRefetchNoticeShowsToastWhileKeepingRecoveredLog(t *testing.T) {
 		},
 	})
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 	app, handled := app.Update(KeyMsg{Key: "l"})
 	if !handled || app.Route() != RouteLog {
 		t.Fatalf("log open handled=%v route=%s", handled, app.Route())
 	}
+	app = settleApp(t, app)
 	view := ansi.Strip(app.ViewSize(120, 28))
 	for _, want := range []string{"recovered log line", "Log render failed", "link had expired"} {
 		if !strings.Contains(view, want) {
@@ -1527,10 +1539,12 @@ func TestFailureRouteShowsLogRefetchToastAfterRecoveredFailureLoad(t *testing.T)
 		},
 	})
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 	app, handled := app.Update(KeyMsg{Key: "enter"})
 	if !handled || app.Route() != RouteFailure {
 		t.Fatalf("failure open handled=%v route=%s", handled, app.Route())
 	}
+	app = settleApp(t, app)
 	view := ansi.Strip(app.ViewSize(120, 28))
 	for _, want := range []string{"Process completed with exit code 1", "Log render failed", "HTTP 410"} {
 		if !strings.Contains(view, want) {

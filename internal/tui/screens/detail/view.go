@@ -76,6 +76,13 @@ func renderJobsPane(m Model, width int) []string {
 		divider(width),
 	}
 	if len(m.Jobs) == 0 {
+		if m.Loading {
+			line := m.LoadingLine
+			if line == "" {
+				line = colorize(sgrDim, "  fetching jobs…")
+			}
+			return append(lines, fitANSI(line, width))
+		}
 		return append(lines, fitANSI(colorize(sgrDim, "No jobs returned by GitHub"), width))
 	}
 	for i, job := range m.Jobs {
@@ -87,10 +94,14 @@ func renderJobsPane(m Model, width int) []string {
 func renderStepsPane(m Model, width, stepsBudget int) []string {
 	job := m.selectedJob()
 	if len(m.Jobs) == 0 {
+		hint := "Select a job after GitHub returns job data"
+		if m.Loading {
+			hint = "the hound is on its way back…"
+		}
 		return []string{
 			paneHeader("Steps", "", width, m.Focus == FocusSteps),
 			divider(width),
-			fitANSI(colorize(sgrDim, "Select a job after GitHub returns job data"), width),
+			fitANSI(colorize(sgrDim, hint), width),
 		}
 	}
 	header := stepHeader(job)
