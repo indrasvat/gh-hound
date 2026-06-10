@@ -1,7 +1,7 @@
 # Task 210: status-cycle filter, attempt history, excerpt quality
 
 ## Status
-IN PROGRESS
+DONE
 
 ## Ownership Boundary
 - **Primary area:** runs-screen status filter, pipe-surface attempt targeting, failure-excerpt windowing.
@@ -33,11 +33,18 @@ IN PROGRESS
 - runs model: `f` cycles vocabulary + emits IntentFilter; esc resets cycle; footer truth test.
 
 ## Definition of Done
-- [ ] All red tests written first, then green; race-enabled suite, `make check`/`e2e`/`vqa` pass.
-- [ ] Real-log proof: attempt-2 release log excerpt ends at the `##[error]` terminus, timestamp-free, via `--run <id> --attempt 2` against the live repo.
-- [ ] tui-qa cold-context audit PASS (status cycle at 3 breakpoints, footer/help truth, compose-with-`/` behavior, regression sweep).
-- [ ] Dootsabha (codex+gemini) converged.
-- [ ] Docs updated; ship as v0.3.0 (new surface).
+- [x] All red tests written first, then green; race-enabled suite, `make check`/`e2e`/`vqa` pass.
+- [x] Real-log proof: attempt-2 release log excerpt ends at the `##[error]` terminus, timestamp-free, via `--run <id> --attempt 2` against the live repo.
+- [x] tui-qa cold-context audit PASS (status cycle at 3 breakpoints, footer/help truth, compose-with-`/` behavior, regression sweep).
+- [x] Dootsabha (codex+gemini) converged.
+- [x] Docs updated; ship as v0.3.0 (new surface).
+
+## Completion Evidence
+- The wave grew mid-flight by user request: the typed time input became a landmark picker (steps/failure/top gaps) with relative (+30s/-2m) and range (A-B) queries; scrubber deferred to #22.
+- tui-qa: 3 audit rounds (FAIL, FAIL, PASS) -- esc double-pop, fake-lens honesty, footer truth, viewport-height sync, breadcrumb + fixture fidelity all caught and fixed; final verdict PASS with pixel evidence.
+- Dootsabha: 4 rounds to dual convergence -- midnight wrap (twice), unpaginated attempt jobs, range day-leak (gemini P0), single-digit-hour normalization (joint finding).
+- Live: attempt-2 forensics on the real v0.2.1 outage run returns the 401 diagnostic as a clean timestamp-free excerpt ending at the ##[error] terminus.
+- New permanent vqa gates: runs-status-cycle, log-time-jump, log-time-picker real-pty interactions.
 
 ## Verification Commands
 ```bash
