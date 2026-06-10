@@ -21,7 +21,10 @@ func ViewSize(m Model, width, height int, now time.Time) string {
 	if width <= 0 {
 		width = 80
 	}
-	if m.AllGreen() {
+	filterActive := m.InputMode || strings.TrimSpace(m.Filter) != ""
+	if m.AllGreen() && !filterActive {
+		// The all-green celebration is a home state; filter results
+		// always use the standard table so columns stay comparable.
 		return renderAllGreen(m, width, height, now)
 	}
 	return renderRuns(m, width, height, now)
@@ -120,7 +123,7 @@ func row(run model.Run, selected bool, width int, now time.Time) string {
 	duration := colorize(durationColor(run), sparkline.Render(sparkValues(run), 5))
 	runAge := colorize(sgrSubtle, age(run, now))
 	line := prefix +
-		padANSI(number, 6) + " " +
+		padANSI(number, 8) + " " +
 		status + " " +
 		padANSI(label, 30) + " " +
 		padANSI(event, 16) + " " +
@@ -170,9 +173,9 @@ func duration(run model.Run) string {
 
 func runsHeader(width int) string {
 	if width >= 92 {
-		return dimLine("  #      Status  Workflow / detail              Event             Duration  Age", width)
+		return dimLine("  #        Status  Workflow / detail              Event             Duration  Age", width)
 	}
-	return dimLine("  #      St  Workflow / detail              Event             Dur.  Age", width)
+	return dimLine("  #        St  Workflow / detail              Event             Dur.  Age", width)
 }
 
 func runLabel(run model.Run, width int) string {
@@ -313,10 +316,12 @@ func successLead(title string) string {
 }
 
 func allGreenHeader(width int) string {
-	if width >= 70 {
-		return dimLine("  #      Status  Workflow / detail                                  Age", width)
+	left := "  #        Status  Workflow / detail"
+	if width < 70 {
+		left = "  #        St  Workflow / detail"
 	}
-	return dimLine("  #      St  Workflow / detail                         Age", width)
+	// Age values right-align in allGreenRow; the header label must too.
+	return dimLine(joinRightANSI(left, "Age", width), width)
 }
 
 func allGreenRow(run model.Run, selected bool, width int, now time.Time) string {
@@ -335,9 +340,9 @@ func allGreenRow(run model.Run, selected bool, width int, now time.Time) string 
 		Foreground(lipgloss.Color("#8C9179")).
 		Render(age(run, now))
 	if width >= 70 {
-		return fitANSI(joinRightANSI(prefix+padANSI(num, 6)+" "+icon+"       "+label, runAge, width), width)
+		return fitANSI(joinRightANSI(prefix+padANSI(num, 8)+" "+icon+"       "+label, runAge, width), width)
 	}
-	return fitANSI(joinRightANSI(prefix+padANSI(num, 6)+" "+icon+" "+label, runAge, width), width)
+	return fitANSI(joinRightANSI(prefix+padANSI(num, 8)+" "+icon+" "+label, runAge, width), width)
 }
 
 func scopeTitle(scope usecase.LaunchScope, branch string) string {
