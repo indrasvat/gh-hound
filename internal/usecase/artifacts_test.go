@@ -135,7 +135,7 @@ func (g *countingArtifactGitHub) DownloadArtifact(ctx context.Context, repo stri
 func TestArtifactsDownloadRejectsHostileName(t *testing.T) {
 	github := &countingArtifactGitHub{Adapter: fake.New(fake.ScenarioFailing)}
 	service := usecase.ArtifactsService{GitHub: github}
-	for _, name := range []string{"../evil", "a/b", "..", ""} {
+	for _, name := range []string{"../evil", "a/b", "..", ".", ""} {
 		_, err := service.Download(context.Background(), "indrasvat/gh-hound", model.Artifact{ID: 1, Name: name}, t.TempDir(), false)
 		if err == nil {
 			t.Fatalf("hostile artifact name %q must be rejected", name)
