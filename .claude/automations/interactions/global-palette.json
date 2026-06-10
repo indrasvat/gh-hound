@@ -1,0 +1,7 @@
+{
+  "contains": [
+    ": jump to…",
+    "runs --all",
+    "dispatch: CI"
+  ]
+}

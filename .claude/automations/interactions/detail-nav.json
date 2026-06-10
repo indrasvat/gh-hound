@@ -1,0 +1,7 @@
+{
+  "contains": [
+    "build [failure]",
+    "go test ./...",
+    "n jump to failure"
+  ]
+}

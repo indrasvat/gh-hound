@@ -1,0 +1,1 @@
+{"contains":["build › failed step","Annotations","✗ internal/parser/lexer.go:142","identifier lexer drops trailing underscore","✗ internal/parser/lexer_test.go:88","FAIL TestLexIdent/trailing_underscore","error window","got \"foo\" want \"foo_\"","⤓ expand full log (l)","↻ rerun failed · r rerun job · l full log · o browser · y copy excerpt"]}
