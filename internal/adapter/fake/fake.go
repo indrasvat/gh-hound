@@ -88,6 +88,14 @@ func (a *Adapter) ListJobs(context.Context, string, int64) ([]model.Job, error) 
 	return []model.Job{job()}, nil
 }
 
+func (a *Adapter) GetRunAttempt(ctx context.Context, repo string, runID int64, attempt int) (model.Run, error) {
+	return a.GetRun(ctx, repo, runID)
+}
+
+func (a *Adapter) ListJobsForAttempt(ctx context.Context, repo string, runID int64, _ int) ([]model.Job, error) {
+	return a.ListJobs(ctx, repo, runID)
+}
+
 func (a *Adapter) GetJob(context.Context, string, int64) (model.Job, error) {
 	return job(), nil
 }

@@ -8,6 +8,8 @@
 gh hound runs --no-tui --json
 gh hound runs --status failure --no-tui --json
 gh hound watch --json
+gh hound runs --run <run-id> --no-tui --json
+gh hound runs --run <run-id> --attempt <n> --no-tui --json
 gh hound artifacts --run <run-id> --no-tui --json
 gh hound artifacts --run <run-id> --download <name> --dir <path> --no-tui --json
 gh hound runs --artifacts --no-tui --json
@@ -37,6 +39,8 @@ Each run includes:
 - `id`, `workflow`, `run_number`, `event`, `head_branch`, `head_sha`.
 - `status`, `conclusion`, `created_at`, `html_url`.
 - `failed[]` entries with `job`, `step`, `exit_code`, `annotations[]`, and `log_excerpt`.
+
+`runs --run <id>` narrows the listing to one run (any branch); add `--attempt <n>` to triage a specific attempt's jobs and logs -- the forensics path for failures that were later re-run to green. `--attempt` requires `--run` (exit `2` otherwise). Failure excerpts are timestamp-stripped and end at the terminal `##[error]` line.
 
 Runs include `artifacts[]` (`id`, `name`, `size_in_bytes`, `expired`, `expires_at`, `created_at`, `digest`) only when `--artifacts` is passed; the default runs path makes zero artifact API calls (with the flag, expect paginated artifact-list calls per run). The `artifacts` command lists a run's artifacts (defaults to the latest run on the selected branch) and `--download <name|id>` extracts the zip into `<dir>/<artifact-name>/` (`--force` to overwrite). Expired artifacts are rejected before any network call. Download URLs are never emitted: the API's signed links are short-lived secrets. The `artifacts` command exits `0` on success and `2` on any error (including expired artifacts); it never exits `1` or `3`.
 

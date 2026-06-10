@@ -30,6 +30,8 @@ scenarios=(
   overlay-esc
   runs-select
   runs-filter
+  runs-status-cycle
+  log-time-jump
   detail-nav
   detail-artifacts
   detail-artifact-confirm
@@ -64,6 +66,8 @@ keys_for() {
     overlay-esc) printf '? : esc' ;;
     runs-select) printf 'j' ;;
     runs-filter) printf '/ f a i l enter' ;;
+    runs-status-cycle) printf 'f' ;;
+    log-time-jump) printf 'enter enter l t 1 7 : 4 2 enter' ;;
     detail-nav) printf 'enter tab n' ;;
     detail-artifacts) printf 'enter a j k' ;;
     detail-artifact-confirm) printf 'enter a enter' ;;

@@ -300,3 +300,11 @@ func (g *launchGitHub) ListArtifacts(context.Context, string, int64) ([]model.Ar
 func (g *launchGitHub) DownloadArtifact(context.Context, string, int64) (io.ReadCloser, error) {
 	return nil, errors.New("not implemented")
 }
+
+func (g *launchGitHub) GetRunAttempt(context.Context, string, int64, int) (model.Run, error) {
+	return model.Run{}, errors.New("not implemented")
+}
+
+func (g *launchGitHub) ListJobsForAttempt(context.Context, string, int64, int) ([]model.Job, error) {
+	return nil, errors.New("not implemented")
+}

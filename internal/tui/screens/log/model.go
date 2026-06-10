@@ -24,6 +24,8 @@ type Model struct {
 	Height    int
 	Wrap      bool
 	InputMode bool
+	TimeInput bool
+	LastJump  string
 	input     string
 	collapsed map[int]bool
 	Search    SearchState
@@ -63,6 +65,11 @@ func (m Model) Update(msg KeyMsg) Model {
 		m.Offset = max(1, m.Offset-m.Height/2)
 	case "/":
 		m.InputMode = true
+		m.TimeInput = false
+		m.input = ""
+	case "t":
+		m.InputMode = true
+		m.TimeInput = true
 		m.input = ""
 	case "n":
 		m.moveMatch(1)
@@ -82,8 +89,14 @@ func (m Model) updateInput(msg KeyMsg) Model {
 	switch msg.Key {
 	case "esc":
 		m.InputMode = false
+		m.TimeInput = false
 	case "enter":
 		m.InputMode = false
+		if m.TimeInput {
+			m.TimeInput = false
+			m.jumpToTime(m.input)
+			break
+		}
 		m.Search = buildSearch(m.Document, m.input)
 		m.gotoCurrentMatch()
 	case "backspace":
@@ -96,6 +109,23 @@ func (m Model) updateInput(msg KeyMsg) Model {
 		}
 	}
 	return m
+}
+
+// jumpToTime moves the viewport to the first line whose runner clock
+// is at or after the query ("15:53:14" or a prefix like "15:53").
+func (m *Model) jumpToTime(query string) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return
+	}
+	for _, line := range m.Document.Lines {
+		clock, ok := logs.ClockTime(line.Text)
+		if ok && clock >= query {
+			m.Offset = line.Number
+			m.LastJump = query
+			return
+		}
+	}
 }
 
 func (m Model) Collapsed(line int) bool {

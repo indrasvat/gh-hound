@@ -152,3 +152,22 @@ func (c *Client) fetchArtifactStream(ctx context.Context, rawURL string) (io.Rea
 	}
 	return resp.Body, nil
 }
+
+func (c *Client) GetRunAttempt(ctx context.Context, repo string, runID int64, attempt int) (model.Run, error) {
+	var dto runDTO
+	resource := resourcePath(repo, "actions/runs/"+strconv.FormatInt(runID, 10)+"/attempts/"+strconv.Itoa(attempt))
+	if err := c.getJSON(ctx, resource, nil, &dto); err != nil {
+		return model.Run{}, err
+	}
+	return mapRun(dto)
+}
+
+func (c *Client) ListJobsForAttempt(ctx context.Context, repo string, runID int64, attempt int) ([]model.Job, error) {
+	resource := resourcePath(repo, "actions/runs/"+strconv.FormatInt(runID, 10)+"/attempts/"+strconv.Itoa(attempt)+"/jobs")
+	values := url.Values{"per_page": []string{"100"}}
+	var decoded jobsResponse
+	if err := c.getJSON(ctx, resource, values, &decoded); err != nil {
+		return nil, err
+	}
+	return mapJobs(decoded.Jobs)
+}

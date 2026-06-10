@@ -517,6 +517,14 @@ func extractFailure(lines []Line) FailureWindow {
 		if isFailureAnchor(line.Text) {
 			start := max(0, i-3)
 			end := min(len(lines), i+6)
+			// A terminal "process completed" marker ends the story;
+			// anything after it is post-job cleanup noise.
+			for j := i; j < end; j++ {
+				if isTerminalError(lines[j].Text) {
+					end = j + 1
+					break
+				}
+			}
 			return FailureWindow{
 				Found:      true,
 				AnchorLine: line.Number,
@@ -527,6 +535,38 @@ func extractFailure(lines []Line) FailureWindow {
 		}
 	}
 	return FailureWindow{}
+}
+
+func isTerminalError(text string) bool {
+	return strings.Contains(text, "Process completed with exit code") &&
+		(strings.Contains(text, "##[error") || strings.Contains(text, "::error"))
+}
+
+// ClockTime extracts the zero-padded clock portion ("15:53:14.280...")
+// of a line's leading runner timestamp. Lexical comparison of the
+// result orders correctly, including against partial queries ("15:53").
+func ClockTime(text string) (string, bool) {
+	end, ok := timestampPrefixEnd(text)
+	if !ok {
+		return "", false
+	}
+	stamp := strings.TrimSuffix(text[:end], "Z")
+	if t := strings.IndexByte(stamp, 'T'); t >= 0 {
+		stamp = stamp[t+1:]
+	}
+	if len(stamp) < len("00:00:00") {
+		return "", false
+	}
+	return stamp, true
+}
+
+// StripTimestamp removes the leading runner timestamp from a log line,
+// for surfaces that want denoised excerpts.
+func StripTimestamp(text string) string {
+	if end, ok := timestampPrefixEnd(text); ok {
+		return strings.TrimLeft(text[end:], " ")
+	}
+	return text
 }
 
 func isFailureAnchor(text string) bool {

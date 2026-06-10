@@ -15,6 +15,7 @@ gh hound runs --status failure --no-tui --json   # failure-focused loop
 gh hound runs --all --no-tui --json              # all branches
 gh hound runs -R owner/repo --no-tui --json      # outside a checkout
 gh hound watch --json                            # active run, fail-fast
+gh hound runs --run <id> --attempt 2 --no-tui --json   # forensics on a re-run
 gh hound artifacts --no-tui --json               # latest run's artifacts
 gh hound artifacts --run <id> --download <name> --dir <path> --no-tui --json
 ```

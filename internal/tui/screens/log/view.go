@@ -25,6 +25,15 @@ func View(m Model, width int) string {
 }
 
 func header(m Model) string {
+	if m.InputMode && m.TimeInput {
+		return fmt.Sprintf("log · t→%s▌", m.input)
+	}
+	if m.InputMode {
+		return fmt.Sprintf("log · /%s▌", m.input)
+	}
+	if m.LastJump != "" && m.Search.Query == "" {
+		return fmt.Sprintf("log · t→%s", m.LastJump)
+	}
 	if m.Search.Query != "" {
 		return fmt.Sprintf("log · /%s · match %d/%d", m.Search.Query, m.Search.Current, m.Search.Total)
 	}

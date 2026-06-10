@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/indrasvat/gh-hound/internal/logs"
 )
 
 func TestExtractZipEnforcesBudget(t *testing.T) {
@@ -64,4 +66,21 @@ func TestExtractZipCleanupContractOnFailure(t *testing.T) {
 		// extractZip itself leaves prior entries; Download removes them.
 		t.Skipf("entry order changed: %v", statErr)
 	}
+}
+
+func TestExcerptForStripsTimestamps(t *testing.T) {
+	// Uses the triage excerpt path shared by the pipe surface.
+	raw := "2026-06-10T15:53:14.2803225Z --- FAIL: TestX (0.00s)\n2026-06-10T15:53:15.1281282Z ##[error]Process completed with exit code 1."
+	doc := parseForTest(raw)
+	excerpt := excerptFor(doc)
+	if strings.Contains(excerpt, "2026-06-10T") {
+		t.Fatalf("pipe excerpt must strip timestamps:\n%s", excerpt)
+	}
+	if !strings.Contains(excerpt, "--- FAIL: TestX") {
+		t.Fatalf("excerpt lost the anchor:\n%s", excerpt)
+	}
+}
+
+func parseForTest(raw string) logs.Document {
+	return logs.Parse(raw)
 }
