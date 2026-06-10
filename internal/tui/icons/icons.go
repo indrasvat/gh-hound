@@ -23,6 +23,7 @@ const (
 	Dispatch       = "▶"
 	Enter          = "⏎"
 	Escape         = "⎋"
+	Artifact       = "▣"
 )
 
 func ForStatus(status model.Status) string {

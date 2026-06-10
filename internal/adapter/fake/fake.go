@@ -1,8 +1,11 @@
 package fake
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -124,6 +127,58 @@ func (a *Adapter) ListAnnotations(context.Context, string, model.Job) ([]model.A
 		Message:   "identifier mismatch",
 		Title:     "go test",
 	}}, nil
+}
+
+func (a *Adapter) ListArtifacts(context.Context, string, int64) ([]model.Artifact, error) {
+	return []model.Artifact{
+		{
+			ID:          901,
+			Name:        "coverage",
+			SizeInBytes: 1262848,
+			Expired:     false,
+			CreatedAt:   time.Date(2026, 6, 7, 17, 44, 30, 0, time.UTC),
+			ExpiresAt:   time.Date(2026, 6, 14, 17, 44, 30, 0, time.UTC),
+			UpdatedAt:   time.Date(2026, 6, 7, 17, 44, 30, 0, time.UTC),
+			Digest:      "sha256:9c4f3a2b1d0e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a",
+			RunID:       30433642,
+			HeadBranch:  "main",
+			HeadSHA:     "a1b2c3d",
+		},
+		{
+			ID:          902,
+			Name:        "old-report",
+			SizeInBytes: 52480,
+			Expired:     true,
+			CreatedAt:   time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC),
+			ExpiresAt:   time.Date(2026, 3, 8, 9, 0, 0, 0, time.UTC),
+			UpdatedAt:   time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC),
+			Digest:      "sha256:1f2e3d4c5b6a7980aabbccddeeff00112233445566778899aabbccddeeff0011",
+			RunID:       30433001,
+			HeadBranch:  "main",
+			HeadSHA:     "d4e5f6a",
+		},
+	}, nil
+}
+
+func (a *Adapter) DownloadArtifact(context.Context, string, int64) (io.ReadCloser, error) {
+	var buf bytes.Buffer
+	writer := zip.NewWriter(&buf)
+	for name, content := range map[string]string{
+		"coverage.out":        "mode: atomic\ngithub.com/indrasvat/gh-hound/internal/usecase/artifacts.go:42.2,44.16 2 1\n",
+		"nested/summary.json": `{"total":"83.4%"}` + "\n",
+	} {
+		entry, err := writer.Create(name)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := entry.Write([]byte(content)); err != nil {
+			return nil, err
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+	return io.NopCloser(bytes.NewReader(buf.Bytes())), nil
 }
 
 func (a *Adapter) FetchJobLog(context.Context, string, int64) (string, error) {

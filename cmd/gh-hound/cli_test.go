@@ -1,11 +1,14 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -909,19 +912,23 @@ func (r *cliRepo) Current(context.Context) (usecase.RepositoryContext, error) {
 }
 
 type cliGitHub struct {
-	mu             sync.Mutex
-	runs           []model.Run
-	runBatches     [][]model.Run
-	jobs           []model.Job
-	jobLog         string
-	annotations    []model.Annotation
-	filters        []usecase.RunFilter
-	listJobs       int
-	fetchJobLog    int
-	workflows      []model.Workflow
-	workflowFiles  map[string]string
-	workflowErrors map[string]error
-	err            error
+	mu               sync.Mutex
+	runs             []model.Run
+	runBatches       [][]model.Run
+	jobs             []model.Job
+	jobLog           string
+	annotations      []model.Annotation
+	artifactList     []model.Artifact
+	artifactZip      string
+	listArtifacts    int
+	downloadArtifact int
+	filters          []usecase.RunFilter
+	listJobs         int
+	fetchJobLog      int
+	workflows        []model.Workflow
+	workflowFiles    map[string]string
+	workflowErrors   map[string]error
+	err              error
 }
 
 func (g *cliGitHub) ListRuns(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
@@ -1014,5 +1021,228 @@ func cliRun(id int64, workflow string, status model.Status, conclusion model.Con
 		RunNumber:  int(id % 1000),
 		CreatedAt:  time.Date(2026, 6, 7, 17, 42, 0, 0, time.UTC),
 		HTMLURL:    "https://github.com/indrasvat/gh-hound/actions/runs/777",
+	}
+}
+
+func (g *cliGitHub) ListArtifacts(context.Context, string, int64) ([]model.Artifact, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.listArtifacts++
+	return g.artifactList, nil
+}
+
+func (g *cliGitHub) DownloadArtifact(context.Context, string, int64) (io.ReadCloser, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.downloadArtifact++
+	return io.NopCloser(strings.NewReader(g.artifactZip)), nil
+}
+
+func artifactZipBytes(t *testing.T) string {
+	t.Helper()
+	var buf bytes.Buffer
+	writer := zip.NewWriter(&buf)
+	entry, err := writer.Create("report.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := entry.Write([]byte("ok")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.String()
+}
+
+func cliArtifact(id int64, name string, expired bool) model.Artifact {
+	return model.Artifact{
+		ID:          id,
+		Name:        name,
+		SizeInBytes: 2048,
+		Expired:     expired,
+		CreatedAt:   time.Date(2026, 6, 7, 17, 44, 0, 0, time.UTC),
+		ExpiresAt:   time.Date(2026, 6, 14, 17, 44, 0, 0, time.UTC),
+		Digest:      "sha256:abc",
+	}
+}
+
+func TestArtifactsJSONListsRunArtifacts(t *testing.T) {
+	var out bytes.Buffer
+	github := &cliGitHub{
+		runs:         []model.Run{cliRun(908, "CI", model.StatusCompleted, model.ConclusionSuccess)},
+		artifactList: []model.Artifact{cliArtifact(901, "coverage", false), cliArtifact(902, "old-report", true)},
+	}
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: &bytes.Buffer{},
+		Env:    emptyEnv,
+		IsTTY:  false,
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"artifacts", "--run", "42", "--no-tui", "--json"})
+
+	code, err := executeCommand(cmd)
+	if err != nil || code != 0 {
+		t.Fatalf("artifacts exit = %d, err = %v", code, err)
+	}
+	var decoded struct {
+		Repo      string `json:"repo"`
+		RunID     int64  `json:"run_id"`
+		Artifacts []struct {
+			ID          int64  `json:"id"`
+			Name        string `json:"name"`
+			SizeInBytes int64  `json:"size_in_bytes"`
+			Expired     bool   `json:"expired"`
+		} `json:"artifacts"`
+	}
+	if jsonErr := json.Unmarshal(out.Bytes(), &decoded); jsonErr != nil {
+		t.Fatalf("invalid JSON: %v\n%s", jsonErr, out.String())
+	}
+	if decoded.Repo != "indrasvat/gh-hound" || decoded.RunID != 42 {
+		t.Fatalf("envelope wrong: %#v", decoded)
+	}
+	if len(decoded.Artifacts) != 2 || decoded.Artifacts[0].Name != "coverage" || !decoded.Artifacts[1].Expired {
+		t.Fatalf("artifacts wrong: %#v", decoded.Artifacts)
+	}
+	if github.listArtifacts != 1 {
+		t.Fatalf("listArtifacts calls = %d, want 1", github.listArtifacts)
+	}
+}
+
+func TestArtifactsDownloadExtractsAndReportsPath(t *testing.T) {
+	var out bytes.Buffer
+	dir := t.TempDir()
+	github := &cliGitHub{
+		artifactList: []model.Artifact{cliArtifact(901, "coverage", false)},
+		artifactZip:  artifactZipBytes(t),
+	}
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: &bytes.Buffer{},
+		Env:    emptyEnv,
+		IsTTY:  false,
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"artifacts", "--run", "42", "--download", "coverage", "--dir", dir, "--no-tui", "--json"})
+
+	code, err := executeCommand(cmd)
+	if err != nil || code != 0 {
+		t.Fatalf("download exit = %d, err = %v\n%s", code, err, out.String())
+	}
+	var decoded struct {
+		Downloaded struct {
+			Path      string `json:"path"`
+			FileCount int    `json:"file_count"`
+		} `json:"downloaded"`
+	}
+	if jsonErr := json.Unmarshal(out.Bytes(), &decoded); jsonErr != nil {
+		t.Fatalf("invalid JSON: %v\n%s", jsonErr, out.String())
+	}
+	if decoded.Downloaded.FileCount != 1 {
+		t.Fatalf("file_count = %d, want 1", decoded.Downloaded.FileCount)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "coverage", "report.txt")); statErr != nil {
+		t.Fatalf("extracted file missing: %v", statErr)
+	}
+}
+
+func TestArtifactsDownloadExpiredExitsTwo(t *testing.T) {
+	var out bytes.Buffer
+	github := &cliGitHub{artifactList: []model.Artifact{cliArtifact(902, "old-report", true)}}
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: &bytes.Buffer{},
+		Env:    emptyEnv,
+		IsTTY:  false,
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"artifacts", "--run", "42", "--download", "old-report", "--no-tui", "--json"})
+
+	code, _ := executeCommand(cmd)
+	if code != 2 {
+		t.Fatalf("expired download exit = %d, want 2\n%s", code, out.String())
+	}
+	if github.downloadArtifact != 0 {
+		t.Fatalf("expired artifact must not be downloaded, got %d calls", github.downloadArtifact)
+	}
+}
+
+func TestArtifactsDefaultsToLatestRunOnBranch(t *testing.T) {
+	var out bytes.Buffer
+	github := &cliGitHub{
+		runs:         []model.Run{cliRun(908, "CI", model.StatusCompleted, model.ConclusionSuccess)},
+		artifactList: []model.Artifact{cliArtifact(901, "coverage", false)},
+	}
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: &bytes.Buffer{},
+		Env:    emptyEnv,
+		IsTTY:  false,
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"artifacts", "--no-tui", "--json"})
+
+	code, err := executeCommand(cmd)
+	if err != nil || code != 0 {
+		t.Fatalf("artifacts default-run exit = %d, err = %v\n%s", code, err, out.String())
+	}
+	var decoded struct {
+		RunID int64 `json:"run_id"`
+	}
+	if jsonErr := json.Unmarshal(out.Bytes(), &decoded); jsonErr != nil {
+		t.Fatalf("invalid JSON: %v", jsonErr)
+	}
+	if decoded.RunID != 908 {
+		t.Fatalf("run_id = %d, want latest run 908", decoded.RunID)
+	}
+}
+
+func TestRunsArtifactsFlagIsOptIn(t *testing.T) {
+	var out bytes.Buffer
+	github := &cliGitHub{
+		runs:         []model.Run{cliRun(908, "CI", model.StatusCompleted, model.ConclusionSuccess)},
+		artifactList: []model.Artifact{cliArtifact(901, "coverage", false)},
+	}
+	runtime := commandRuntime{
+		Stdout: &out,
+		Stderr: &bytes.Buffer{},
+		Env:    emptyEnv,
+		IsTTY:  false,
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}
+
+	cmd := newRootCommandWithRuntime(runtime, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--no-tui", "--json"})
+	if code, err := executeCommand(cmd); err != nil || code != 0 {
+		t.Fatalf("runs exit = %d, err = %v", code, err)
+	}
+	if github.listArtifacts != 0 {
+		t.Fatalf("default runs path must make zero artifact calls, got %d", github.listArtifacts)
+	}
+
+	out.Reset()
+	cmd = newRootCommandWithRuntime(runtime, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--artifacts", "--no-tui", "--json"})
+	if code, err := executeCommand(cmd); err != nil || code != 0 {
+		t.Fatalf("runs --artifacts exit = %d, err = %v", code, err)
+	}
+	var decoded struct {
+		Runs []struct {
+			Artifacts []struct {
+				Name string `json:"name"`
+			} `json:"artifacts"`
+		} `json:"runs"`
+	}
+	if jsonErr := json.Unmarshal(out.Bytes(), &decoded); jsonErr != nil {
+		t.Fatalf("invalid JSON: %v\n%s", jsonErr, out.String())
+	}
+	if len(decoded.Runs) != 1 || len(decoded.Runs[0].Artifacts) != 1 || decoded.Runs[0].Artifacts[0].Name != "coverage" {
+		t.Fatalf("runs --artifacts metadata missing:\n%s", out.String())
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/tui/screens/dispatch"
 	failurescreen "github.com/indrasvat/gh-hound/internal/tui/screens/failure"
 	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/runs"
 	watchscreen "github.com/indrasvat/gh-hound/internal/tui/screens/watch"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
@@ -612,8 +613,13 @@ func TestRootShellDelegatesScreenKeysAndRoutes(t *testing.T) {
 	}
 
 	app, handled = app.Update(KeyMsg{Key: "tab"})
+	if !handled || app.detail.Focus != detail.FocusArtifacts {
+		t.Fatalf("detail tab from steps should focus artifacts when present: handled=%v focus=%s route=%s\n%s", handled, app.detail.Focus, app.Route(), app.View())
+	}
+
+	app, handled = app.Update(KeyMsg{Key: "tab"})
 	if !handled || app.detail.Focus != detail.FocusJobs {
-		t.Fatalf("detail tab should update focused pane: handled=%v focus=%s route=%s\n%s", handled, app.detail.Focus, app.Route(), app.View())
+		t.Fatalf("detail tab should cycle back to jobs: handled=%v focus=%s route=%s\n%s", handled, app.detail.Focus, app.Route(), app.View())
 	}
 
 	app, handled = app.Update(KeyMsg{Key: "enter"})
@@ -1575,4 +1581,111 @@ func watchModelForTest(run model.Run) watchscreen.Model {
 		Run:     run,
 		Elapsed: "1m02s",
 	})
+}
+
+func TestPaletteArtifactsEntryReachesDetail(t *testing.T) {
+	app := artifactsTestApp(t, nil)
+	app, _ = app.Update(KeyMsg{Key: ":"})
+	for _, key := range []string{"a", "r", "t", "i"} {
+		app, _ = app.Update(KeyMsg{Key: key})
+	}
+	app, handled := app.Update(KeyMsg{Key: "enter"})
+	if !handled || app.Route() != RouteDetail {
+		t.Fatalf("palette artifacts should open detail: handled=%v route=%s", handled, app.Route())
+	}
+	if app.detail.Focus != detail.FocusArtifacts && len(app.detail.Artifacts) == 0 {
+		// artifacts may still be loading; focus request happens after load
+		app = waitForArtifacts(t, app)
+	}
+}
+
+func TestServerTaggedFilterSkipsLocalSubstringMatch(t *testing.T) {
+	m := runs.NewModel(usecase.LaunchContext{
+		Repo:  "openclaw/openclaw",
+		State: usecase.LaunchStateRuns,
+		Runs:  []model.Run{cliTestRun(1, "CI", "fix/parser")},
+	})
+	m.Filter = "branch:fix/parser"
+	m.ServerFiltered = true
+	if len(m.FilteredRuns()) != 1 {
+		t.Fatalf("server-filtered results must not be re-filtered locally: %d visible", len(m.FilteredRuns()))
+	}
+}
+
+func TestEscClearsAppliedFilter(t *testing.T) {
+	m := runs.NewModel(usecase.LaunchContext{
+		Repo:  "indrasvat/gh-hound",
+		State: usecase.LaunchStateRuns,
+		Runs:  []model.Run{cliTestRun(1, "CI", "main")},
+	})
+	for _, key := range []string{"/", "z", "z", "enter"} {
+		m = m.Update(runs.KeyMsg{Key: key})
+	}
+	m = m.Update(runs.KeyMsg{Key: "esc"})
+	if m.Filter != "" {
+		t.Fatalf("esc must clear the applied filter, got %q", m.Filter)
+	}
+	if m.Intent.Kind != runs.IntentFilter || m.Intent.Filter != "" {
+		t.Fatalf("esc must emit an empty filter intent to reload: %#v", m.Intent)
+	}
+}
+
+func cliTestRun(id int64, workflow, branch string) model.Run {
+	return model.Run{ID: id, Name: workflow, HeadBranch: branch, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: int(id)}
+}
+
+func TestRunningVocabularyMapsToServerStatus(t *testing.T) {
+	filter, ok := serverRunFilter(usecase.LaunchContext{Repo: "openclaw/openclaw"}, 30, "running")
+	if !ok || filter.Status != string(model.StatusInProgress) {
+		t.Fatalf("running must map to in_progress server filter: ok=%v status=%q", ok, filter.Status)
+	}
+	// The status bar teaches this vocabulary; every word it shows must filter.
+	for _, word := range []string{"failing", "running", "passed"} {
+		if _, ok := serverRunFilter(usecase.LaunchContext{Repo: "x/y"}, 30, word); !ok {
+			t.Fatalf("status-bar word %q must be a valid server filter", word)
+		}
+	}
+}
+
+func TestRunningAliasMatchesLocally(t *testing.T) {
+	m := runs.NewModel(usecase.LaunchContext{
+		Repo:  "x/y",
+		State: usecase.LaunchStateRuns,
+		Runs:  []model.Run{{ID: 1, Name: "CI", Status: model.StatusInProgress, RunNumber: 1}},
+	})
+	m.Filter = "running"
+	if len(m.FilteredRuns()) != 1 {
+		t.Fatalf("local 'running' alias must match in_progress runs")
+	}
+}
+
+func TestEscClearingServerFilterRestoresUnfilteredRuns(t *testing.T) {
+	full := []model.Run{
+		cliTestRun(1, "CI", "main"),
+		cliTestRun(2, "Release", "main"),
+		cliTestRun(3, "CI", "fix/x"),
+	}
+	running := []model.Run{{ID: 9, Name: "CI", HeadBranch: "main", Status: model.StatusInProgress, RunNumber: 9}}
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{Repo: "x/y", Branch: "main", State: usecase.LaunchStateRuns, Runs: full},
+		RunsResolver: func(filter usecase.RunFilter) ([]model.Run, error) {
+			if filter.Status != "" {
+				return running, nil
+			}
+			return full, nil
+		},
+	})
+	for _, key := range []string{"/", "r", "u", "n", "n", "i", "n", "g", "enter"} {
+		app, _ = app.Update(KeyMsg{Key: key})
+	}
+	if got := len(app.runs.FilteredRuns()); got != 1 {
+		t.Fatalf("server filter applied = %d rows, want 1", got)
+	}
+	app, _ = app.Update(KeyMsg{Key: "esc"})
+	if got := len(app.runs.FilteredRuns()); got != len(full) {
+		t.Fatalf("esc must restore the unfiltered listing immediately: %d rows, want %d", got, len(full))
+	}
 }

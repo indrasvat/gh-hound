@@ -9,7 +9,7 @@ Source of truth: `docs/gh-hound-design.html`. Re-read the matching mock before e
 | ⓪ | welcome/version | ANSI Shadow `HOUND` banner; ok-to-info-to-fg gradient; tagline; first-run cards; emoji-free |
 | ① | all_green | green summary band; large success glyph; dim recent rows; footer biases watch and dispatch |
 | ② | runs_list | focused panel; breadcrumb; rate/cache/live header; selected row uses surface-2 fill plus green left bar |
-| ③ | detail | side-by-side jobs and step timeline; failed step gets fail-tinted fill plus fail left bar; Tab moves focus |
+| ③ | detail | side-by-side jobs and step timeline; failed step gets fail-tinted fill plus fail left bar; Tab moves focus across jobs, steps, and artifacts; artifacts block lists name, size, and expired badge with selected-row fill |
 | ④ | failure | breadcrumb header; annotations first; de-noised colored error window with line count and expand affordance |
 | ⑤ | watch | streaming badge; follow marker; completed steps colored; active step shows running cursor and append-only tail |
 | ⑥ | log | line-number gutter; fold rows; search hit tint; ANSI plus syntax accents; decorative scrollbar |

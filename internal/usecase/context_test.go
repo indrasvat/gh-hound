@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"errors"
+	"io"
 	"slices"
 	"strings"
 	"testing"
@@ -290,4 +291,12 @@ func runningRun(number int, branch string) model.Run {
 
 func sameFilter(a, b usecase.RunFilter) bool {
 	return a.Repo == b.Repo && a.Branch == b.Branch && a.PerPage == b.PerPage && a.Page == b.Page
+}
+
+func (g *launchGitHub) ListArtifacts(context.Context, string, int64) ([]model.Artifact, error) {
+	return nil, nil
+}
+
+func (g *launchGitHub) DownloadArtifact(context.Context, string, int64) (io.ReadCloser, error) {
+	return nil, errors.New("not implemented")
 }

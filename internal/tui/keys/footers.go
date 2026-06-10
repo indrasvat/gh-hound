@@ -49,6 +49,10 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "r", Display: "↻", Action: "rerun_job", Help: "rerun job", ShowInFooter: true},
 		{Key: "R", Action: "rerun_failed", Help: "rerun failed", ShowInFooter: true},
 		{Key: "x", Display: "✗", Action: "cancel", Help: "cancel", ShowInFooter: true},
+		// In-pane hint line advertises these contextually; the static
+		// footer stays truthful for runs without artifacts.
+		{Key: "a", Action: "artifacts", Help: "artifacts (when present)", ShowInFooter: false},
+		{Key: "d", Action: "download", Help: "download artifact", ShowInFooter: false},
 		{Key: "esc", Display: "⎋", Action: "back", Help: "back", ShowInFooter: true},
 		{Key: "?", Action: "help", Help: "", ShowInFooter: true},
 	},

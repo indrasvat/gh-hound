@@ -91,6 +91,20 @@ type Annotation struct {
 	Title     string `json:"title"`
 }
 
+type Artifact struct {
+	ID          int64     `json:"id"`
+	Name        string    `json:"name"`
+	SizeInBytes int64     `json:"size_in_bytes"`
+	Expired     bool      `json:"expired"`
+	CreatedAt   time.Time `json:"created_at"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	Digest      string    `json:"digest"`
+	RunID       int64     `json:"run_id"`
+	HeadBranch  string    `json:"head_branch"`
+	HeadSHA     string    `json:"head_sha"`
+}
+
 type Workflow struct {
 	ID      int64           `json:"id"`
 	Name    string          `json:"name"`

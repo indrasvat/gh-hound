@@ -3,10 +3,19 @@
   "$id": "https://github.com/indrasvat/gh-hound/internal/render/testdata/schema.json",
   "title": "gh-hound agent result",
   "type": "object",
-  "required": ["repo", "branch", "runs"],
+  "required": [
+    "repo",
+    "branch",
+    "runs"
+  ],
   "properties": {
-    "repo": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
-    "branch": { "type": "string" },
+    "repo": {
+      "type": "string",
+      "pattern": "^[^/]+/[^/]+$"
+    },
+    "branch": {
+      "type": "string"
+    },
     "runs": {
       "type": "array",
       "items": {
@@ -25,39 +34,127 @@
           "failed"
         ],
         "properties": {
-          "id": { "type": "integer" },
-          "workflow": { "type": "string" },
-          "run_number": { "type": "integer" },
-          "event": { "type": "string" },
-          "head_branch": { "type": "string" },
-          "head_sha": { "type": "string" },
-          "status": { "type": "string" },
-          "conclusion": { "type": "string" },
-          "created_at": { "type": "string", "format": "date-time" },
-          "html_url": { "type": "string", "format": "uri" },
+          "id": {
+            "type": "integer"
+          },
+          "workflow": {
+            "type": "string"
+          },
+          "run_number": {
+            "type": "integer"
+          },
+          "event": {
+            "type": "string"
+          },
+          "head_branch": {
+            "type": "string"
+          },
+          "head_sha": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "conclusion": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "html_url": {
+            "type": "string",
+            "format": "uri"
+          },
           "failed": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["job", "step", "exit_code", "annotations", "log_excerpt"],
+              "required": [
+                "job",
+                "step",
+                "exit_code",
+                "annotations",
+                "log_excerpt"
+              ],
               "properties": {
-                "job": { "type": "string" },
-                "step": { "type": "string" },
-                "exit_code": { "type": "integer" },
+                "job": {
+                  "type": "string"
+                },
+                "step": {
+                  "type": "string"
+                },
+                "exit_code": {
+                  "type": "integer"
+                },
                 "annotations": {
                   "type": "array",
                   "items": {
                     "type": "object",
-                    "required": ["path", "line", "level", "message"],
+                    "required": [
+                      "path",
+                      "line",
+                      "level",
+                      "message"
+                    ],
                     "properties": {
-                      "path": { "type": "string" },
-                      "line": { "type": "integer" },
-                      "level": { "type": "string" },
-                      "message": { "type": "string" }
+                      "path": {
+                        "type": "string"
+                      },
+                      "line": {
+                        "type": "integer"
+                      },
+                      "level": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      }
                     }
                   }
                 },
-                "log_excerpt": { "type": "string" }
+                "log_excerpt": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "name",
+                "size_in_bytes",
+                "expired",
+                "created_at",
+                "expires_at"
+              ],
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "size_in_bytes": {
+                  "type": "integer"
+                },
+                "expired": {
+                  "type": "boolean"
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "expires_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "digest": {
+                  "type": "string"
+                }
               }
             }
           }

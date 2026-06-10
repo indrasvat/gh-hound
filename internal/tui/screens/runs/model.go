@@ -43,11 +43,12 @@ type Summary struct {
 }
 
 type Model struct {
-	Context   usecase.LaunchContext
-	Selected  int
-	Filter    string
-	InputMode bool
-	Intent    Intent
+	Context        usecase.LaunchContext
+	Selected       int
+	Filter         string
+	InputMode      bool
+	ServerFiltered bool
+	Intent         Intent
 }
 
 func NewModel(ctx usecase.LaunchContext) Model {
@@ -90,6 +91,13 @@ func (m Model) Update(msg KeyMsg) Model {
 		}
 	case "s":
 		m = m.toggleScope()
+	case "esc":
+		if m.Filter != "" {
+			m.Filter = ""
+			m.ServerFiltered = false
+			m.Selected = 0
+			m.Intent = Intent{Kind: IntentFilter, Filter: ""}
+		}
 	case "/":
 		m.InputMode = true
 		m.Filter = ""
@@ -155,6 +163,11 @@ func (m Model) Summary() Summary {
 	return summary
 }
 
+// FilteredRuns exposes the rows the list will render after filtering.
+func (m Model) FilteredRuns() []model.Run {
+	return m.filteredRuns()
+}
+
 func (m Model) AllGreen() bool {
 	summary := m.Summary()
 	runs := m.filteredRuns()
@@ -195,7 +208,10 @@ func (m Model) intentFor(kind IntentKind) Intent {
 
 func (m Model) filteredRuns() []model.Run {
 	query := strings.ToLower(strings.TrimSpace(m.Filter))
-	if query == "" {
+	if query == "" || m.ServerFiltered {
+		// Server-tagged queries (branch:x, running, ...) already came
+		// back filtered; re-applying the raw tag as a substring match
+		// shows 0 results for data the API just returned.
 		return m.activeRuns()
 	}
 	runs := m.activeRuns()
@@ -232,6 +248,8 @@ func queryAliases(query string) []string {
 		return []string{query, "success"}
 	case "canceled":
 		return []string{query, "cancelled"}
+	case "running", "live":
+		return []string{query, "in_progress"}
 	default:
 		return []string{query}
 	}

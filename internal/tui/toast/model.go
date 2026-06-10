@@ -55,6 +55,19 @@ func (m Model) Push(toast Toast) Model {
 	return m
 }
 
+// Dismiss drops every toast with the given id, e.g. a progress toast
+// superseded by its completion toast.
+func (m Model) Dismiss(id string) Model {
+	next := make([]Toast, 0, len(m.Toasts))
+	for _, toast := range m.Toasts {
+		if toast.ID != id {
+			next = append(next, toast)
+		}
+	}
+	m.Toasts = next
+	return m
+}
+
 func (m Model) Update(msg any) (Model, bool) {
 	switch typed := msg.(type) {
 	case KeyMsg:

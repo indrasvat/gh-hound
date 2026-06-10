@@ -1,6 +1,7 @@
 package detail
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -171,5 +172,110 @@ func step(number int, name string, conclusion model.Conclusion, duration time.Du
 		Conclusion:  conclusion,
 		StartedAt:   start,
 		CompletedAt: start.Add(duration),
+	}
+}
+
+func artifactFixtures() []model.Artifact {
+	return []model.Artifact{
+		{ID: 901, Name: "coverage", SizeInBytes: 1262848},
+		{ID: 902, Name: "old-report", SizeInBytes: 52480, Expired: true},
+	}
+}
+
+func TestArtifactsKeyFocusesArtifactsPane(t *testing.T) {
+	m := NewModel(model.Run{ID: 1}, nil).WithArtifacts(artifactFixtures())
+	m = m.Update(KeyMsg{Key: "a"})
+	if m.Focus != FocusArtifacts {
+		t.Fatalf("focus = %q, want artifacts", m.Focus)
+	}
+	m = m.Update(KeyMsg{Key: "j"})
+	if m.SelectedArtifact != 1 {
+		t.Fatalf("selected artifact = %d, want 1", m.SelectedArtifact)
+	}
+	m = m.Update(KeyMsg{Key: "enter"})
+	if m.Intent.Kind != IntentDownloadArtifact || m.Intent.ArtifactID != 902 {
+		t.Fatalf("intent = %#v, want download for 902", m.Intent)
+	}
+}
+
+func TestArtifactsKeyIsNoOpWithoutArtifacts(t *testing.T) {
+	m := NewModel(model.Run{ID: 1}, nil)
+	m = m.Update(KeyMsg{Key: "a"})
+	if m.Focus == FocusArtifacts {
+		t.Fatal("artifacts focus must be unreachable when no artifacts exist")
+	}
+}
+
+func TestTabCyclesThroughArtifactsWhenPresent(t *testing.T) {
+	m := NewModel(model.Run{ID: 1}, nil).WithArtifacts(artifactFixtures())
+	m.Focus = FocusJobs
+	m = m.Update(KeyMsg{Key: "tab"})
+	if m.Focus != FocusSteps {
+		t.Fatalf("first tab = %q, want steps", m.Focus)
+	}
+	m = m.Update(KeyMsg{Key: "tab"})
+	if m.Focus != FocusArtifacts {
+		t.Fatalf("second tab = %q, want artifacts", m.Focus)
+	}
+	m = m.Update(KeyMsg{Key: "tab"})
+	if m.Focus != FocusJobs {
+		t.Fatalf("third tab = %q, want jobs", m.Focus)
+	}
+}
+
+func TestDownloadKeyTriggersFromAnyFocusWithSelection(t *testing.T) {
+	m := NewModel(model.Run{ID: 1}, nil).WithArtifacts(artifactFixtures())
+	m = m.Update(KeyMsg{Key: "d"})
+	if m.Intent.Kind != IntentDownloadArtifact || m.Intent.ArtifactID != 901 {
+		t.Fatalf("intent = %#v, want download for selected artifact 901", m.Intent)
+	}
+}
+
+func TestWithArtifactsClampsSelection(t *testing.T) {
+	m := NewModel(model.Run{ID: 1}, nil).WithArtifacts(artifactFixtures())
+	m.SelectedArtifact = 5
+	m = m.WithArtifacts(artifactFixtures()[:1])
+	if m.SelectedArtifact != 0 {
+		t.Fatalf("selection not clamped: %d", m.SelectedArtifact)
+	}
+}
+
+func TestViewSizeKeepsArtifactsVisibleWithManySteps(t *testing.T) {
+	steps := make([]model.Step, 0, 14)
+	for i := 1; i <= 14; i++ {
+		steps = append(steps, model.Step{Name: fmt.Sprintf("step %d", i), Number: i, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess})
+	}
+	jobs := []model.Job{{ID: 1, Name: "build", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, Steps: steps}}
+	m := NewModel(model.Run{ID: 1}, jobs).WithArtifacts(artifactFixtures())
+
+	view := ansi.Strip(ViewSize(m, 80, 20))
+	lines := strings.Split(view, "\n")
+	if len(lines) > 20 {
+		t.Fatalf("ViewSize must fit the height budget: %d lines > 20\n%s", len(lines), view)
+	}
+	if !strings.Contains(view, "Artifacts (2)") || !strings.Contains(view, "coverage") {
+		t.Fatalf("artifacts must stay visible when steps overflow:\n%s", view)
+	}
+	if !strings.Contains(view, "more") {
+		t.Fatalf("step overflow must be indicated:\n%s", view)
+	}
+	if !strings.Contains(view, "a artifacts") {
+		t.Fatalf("hint line must survive the height budget:\n%s", view)
+	}
+}
+
+func TestViewSizeKeepsSelectedStepVisible(t *testing.T) {
+	steps := make([]model.Step, 0, 20)
+	for i := 1; i <= 20; i++ {
+		steps = append(steps, model.Step{Name: fmt.Sprintf("step %d", i), Number: i, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess})
+	}
+	jobs := []model.Job{{ID: 1, Name: "build", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, Steps: steps}}
+	m := NewModel(model.Run{ID: 1}, jobs).WithArtifacts(artifactFixtures())
+	m.Focus = FocusSteps
+	m.SelectedStep = 17
+
+	view := ansi.Strip(ViewSize(m, 80, 20))
+	if !strings.Contains(view, "step 18") {
+		t.Fatalf("selected step must stay in the window:\n%s", view)
 	}
 }

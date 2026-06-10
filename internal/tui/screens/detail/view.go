@@ -11,23 +11,49 @@ import (
 )
 
 func View(m Model, width int) string {
+	return ViewSize(m, width, 0)
+}
+
+// ViewSize renders the detail screen within a height budget. With many
+// steps the steps list windows around the selection so the artifacts
+// block and hint line are never clipped into invisible-but-interactive
+// state; height <= 0 means unbudgeted.
+func ViewSize(m Model, width, height int) string {
 	if width <= 0 {
 		width = 80
 	}
+	stepsBudget := 0
+	if height > 0 {
+		// breadcrumb + pane header + divider + trailing divider + hint.
+		fixed := 5 + artifactsBlockLines(m)
+		stepsBudget = max(height-fixed, 3)
+	}
 	lines := []string{fit(breadcrumb(m), width)}
 	if width < 100 {
-		lines = append(lines, renderStepsPane(m, width)...)
+		lines = append(lines, renderStepsPane(m, width, stepsBudget)...)
 	} else {
-		lines = append(lines, renderWide(m, width)...)
+		lines = append(lines, renderWide(m, width, stepsBudget)...)
 	}
 	return strings.Join(lines, "\n")
 }
 
-func renderWide(m Model, width int) []string {
+func artifactsBlockLines(m Model) int {
+	if len(m.Artifacts) == 0 {
+		return 0
+	}
+	visible := min(len(m.Artifacts), artifactsWindow)
+	lines := 2 + visible
+	if len(m.Artifacts) > visible {
+		lines++
+	}
+	return lines
+}
+
+func renderWide(m Model, width, stepsBudget int) []string {
 	leftWidth := clampInt(width/3, 30, 38)
 	rightWidth := width - leftWidth - 1
 	jobs := renderJobsPane(m, leftWidth)
-	steps := renderStepsPane(m, rightWidth)
+	steps := renderStepsPane(m, rightWidth, stepsBudget)
 	height := max(len(jobs), len(steps))
 	lines := make([]string, 0, height)
 	for i := range height {
@@ -58,7 +84,7 @@ func renderJobsPane(m Model, width int) []string {
 	return lines
 }
 
-func renderStepsPane(m Model, width int) []string {
+func renderStepsPane(m Model, width, stepsBudget int) []string {
 	job := m.selectedJob()
 	if len(m.Jobs) == 0 {
 		return []string{
@@ -72,12 +98,95 @@ func renderStepsPane(m Model, width int) []string {
 		paneHeader(header, duration(job.StartedAt, job.CompletedAt), width, m.Focus == FocusSteps),
 		divider(width),
 	}
-	for i, step := range job.Steps {
-		lines = append(lines, stepRow(step, i == m.SelectedStep, width))
+	start, end := stepWindow(len(job.Steps), m.SelectedStep, stepsBudget)
+	if start > 0 {
+		lines = append(lines, fitANSI("    "+colorize(sgrDim, fmt.Sprintf("+%d more above", start)), width))
 	}
+	for i := start; i < end; i++ {
+		lines = append(lines, stepRow(job.Steps[i], i == m.SelectedStep, width))
+	}
+	if remaining := len(job.Steps) - end; remaining > 0 {
+		lines = append(lines, fitANSI("    "+colorize(sgrDim, fmt.Sprintf("+%d more", remaining)), width))
+	}
+	lines = append(lines, renderArtifactsBlock(m, width)...)
 	lines = append(lines, divider(width))
-	lines = append(lines, hintLine(width))
+	lines = append(lines, hintLine(m, width))
 	return lines
+}
+
+// stepWindow returns the visible [start, end) slice of steps for the
+// given budget, keeping the selection inside the window. Overflow
+// indicator lines are paid for out of the same budget.
+func stepWindow(total, selected, budget int) (int, int) {
+	if budget <= 0 || total <= budget {
+		return 0, total
+	}
+	visible := max(budget-2, 1)
+	start := selected - visible/2
+	start = max(start, 0)
+	start = min(start, total-visible)
+	return start, start + visible
+}
+
+const artifactsWindow = 5
+
+func renderArtifactsBlock(m Model, width int) []string {
+	if len(m.Artifacts) == 0 {
+		return nil
+	}
+	lines := []string{
+		divider(width),
+		paneHeader(fmt.Sprintf("Artifacts (%d)", len(m.Artifacts)), "", width, m.Focus == FocusArtifacts),
+	}
+	start := 0
+	if m.SelectedArtifact >= artifactsWindow {
+		start = m.SelectedArtifact - artifactsWindow + 1
+	}
+	end := min(start+artifactsWindow, len(m.Artifacts))
+	for i := start; i < end; i++ {
+		lines = append(lines, artifactRow(m.Artifacts[i], i == m.SelectedArtifact && m.Focus == FocusArtifacts, width))
+	}
+	if remaining := len(m.Artifacts) - end; remaining > 0 {
+		lines = append(lines, fitANSI("    "+colorize(sgrDim, fmt.Sprintf("+%d more", remaining)), width))
+	}
+	return lines
+}
+
+func artifactRow(artifact model.Artifact, selected bool, width int) string {
+	bar := " "
+	if selected {
+		bar = colorize(sgrOK, icons.Cursor)
+	}
+	nameColor := sgrFGSoft
+	iconColor := sgrInfo
+	if artifact.Expired {
+		nameColor = sgrDim
+		iconColor = sgrDim
+	}
+	leftWidth := max(width-22, 1)
+	left := fitANSI(bar+" "+colorize(iconColor, icons.Artifact)+" "+colorize(nameColor, artifact.Name), leftWidth)
+	right := colorize(sgrDim, humanSize(artifact.SizeInBytes))
+	if artifact.Expired {
+		right = colorize(sgrWarn, "[expired]") + " " + right
+	}
+	row := joinRightANSI(left, right, width)
+	if selected {
+		return backgroundSafe(row, width, sgrFG, sgrSurface2BG)
+	}
+	return row
+}
+
+func humanSize(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
 func paneHeader(left, right string, width int, focused bool) string {
@@ -162,8 +271,14 @@ func stepRow(step model.Step, selected bool, width int) string {
 	}
 }
 
-func hintLine(width int) string {
-	return fitANSI("  "+colorize(sgrInfo, "n")+" jump to failure · "+colorize(sgrInfo, "l")+" full log · "+colorize(sgrInfo, "y")+" copy", width)
+func hintLine(m Model, width int) string {
+	hint := "  " + colorize(sgrInfo, "n") + " jump to failure · " + colorize(sgrInfo, "l") + " full log"
+	if len(m.Artifacts) > 0 {
+		hint += " · " + colorize(sgrInfo, "a") + " artifacts · " + colorize(sgrInfo, "d") + " download"
+	} else {
+		hint += " · " + colorize(sgrInfo, "y") + " copy"
+	}
+	return fitANSI(hint, width)
 }
 
 func divider(width int) string {

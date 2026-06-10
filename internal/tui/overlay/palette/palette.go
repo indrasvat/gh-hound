@@ -35,6 +35,7 @@ func DefaultItems() []Item {
 		{Name: "runs", Description: "workflow runs · this branch", Tag: "default"},
 		{Name: "runs --all", Description: "runs across all branches"},
 		{Name: "run:failed", Description: "filtered to failures"},
+		{Name: "artifacts", Description: "selected run's artifacts"},
 		{Name: "dispatch", Description: "trigger workflow_dispatch"},
 	}
 }
