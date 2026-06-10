@@ -5,8 +5,8 @@ PLANNED
 
 ## Ownership Boundary
 - **Primary area:** watch a group of runs (same push/PR event) as one board; auto-attach watch after dispatch and rerun.
-- **Allowed files:** `internal/usecase/` (watch, context), `internal/tui/screens/watch/`, `internal/tui/` (app routing), `internal/render/`, `cmd/gh-hound/`, fakes, `docs/`, `skill/SKILL.md`, `README.md`, `pages/`, vqa harness.
-- **Avoid touching:** log streaming internals (per-step append contract stays as PRD §9.5), adapter request semantics.
+- **Allowed files:** `internal/usecase/` (watch, context, ports, `ActionResult` — gains optional `WorkflowRunID`/`RunURL`/`HTMLURL` from the dispatch `200` body), `internal/adapter/github/mutations.go` (consume the dispatch response body; pin 200-body AND 204-fallback adapter tests), `internal/adapter/fake/`, `internal/tui/screens/watch/`, `internal/tui/` (app routing), `internal/render/`, `cmd/gh-hound/`, `docs/`, `skill/SKILL.md`, `README.md`, `pages/`, vqa harness.
+- **Avoid touching:** log streaming internals (per-step append contract stays as PRD §9.5), request pacing/etag semantics.
 
 ## Depends On
 - 135 (watch), 140 (dispatch), 220 (async pattern), 240 (rerun verbs for handoff).

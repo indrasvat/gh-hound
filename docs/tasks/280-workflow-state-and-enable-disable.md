@@ -67,7 +67,7 @@ Hound voice on badges and toasts: disabled_inactivity = `asleep` (fell asleep af
 ```bash
 make ci && make e2e && make vqa
 ./bin/gh-hound workflows --no-tui --json
-./bin/gh-hound workflows --disable docs-check --no-tui --json && ./bin/gh-hound workflows --enable docs-check --no-tui --json
+./bin/gh-hound workflows --disable .github/workflows/ci.yml --no-tui --json && ./bin/gh-hound workflows --enable .github/workflows/ci.yml --no-tui --json
 ```
 
 ## Session Protocol
