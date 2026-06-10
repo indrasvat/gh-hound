@@ -46,10 +46,11 @@ const (
 type Overlay string
 
 const (
-	OverlayNone    Overlay = ""
-	OverlayHelp    Overlay = "help"
-	OverlayPalette Overlay = "palette"
-	OverlayConfirm Overlay = "confirm"
+	OverlayNone     Overlay = ""
+	OverlayHelp     Overlay = "help"
+	OverlayPalette  Overlay = "palette"
+	OverlayConfirm  Overlay = "confirm"
+	OverlayTimeJump Overlay = "time_jump"
 )
 
 type KeyMsg struct {
@@ -125,6 +126,7 @@ type App struct {
 	artifactsFetch            *artifactsFetchState
 	artifactDownload          *artifactDownloadState
 	pendingDownload           *model.Artifact
+	timeJumpInput             string
 	lastToastTick             time.Time
 	openURL                   func(string) error
 	copyText                  func(string) error
@@ -286,6 +288,9 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 		}
 		if a.TopOverlay() == OverlayPalette {
 			return a.updatePalette(msg)
+		}
+		if a.TopOverlay() == OverlayTimeJump {
+			return a.updateTimeJump(msg)
 		}
 		switch msg.Key {
 		case "esc":
@@ -922,9 +927,18 @@ func (a App) updateFailure(msg KeyMsg) (App, bool) {
 }
 
 func (a App) updateLog(msg KeyMsg) (App, bool) {
+	if msg.Key == "t" && !a.log.InputMode {
+		a.timeJumpInput = ""
+		a.overlays = append(a.overlays, OverlayTimeJump)
+		return a, true
+	}
 	before := a.log
 	a.log = a.log.Update(logscreen.KeyMsg{Key: msg.Key})
 	if msg.Key == "esc" {
+		if before.InputMode {
+			// Esc only cancelled the input layer; stay on the log.
+			return a, true
+		}
 		a.PopRoute()
 		return a, true
 	}
@@ -975,6 +989,32 @@ func (a App) updateConfirm(msg KeyMsg) (App, bool) {
 		a = a.closeConfirm()
 		return a, true
 	default:
+		return a, false
+	}
+}
+
+func (a App) updateTimeJump(msg KeyMsg) (App, bool) {
+	switch msg.Key {
+	case "esc":
+		a.PopOverlay()
+		a.timeJumpInput = ""
+		return a, true
+	case "enter":
+		query := a.timeJumpInput
+		a.PopOverlay()
+		a.timeJumpInput = ""
+		a.log = a.log.JumpTo(query)
+		return a, true
+	case "backspace":
+		if len(a.timeJumpInput) > 0 {
+			a.timeJumpInput = a.timeJumpInput[:len(a.timeJumpInput)-1]
+		}
+		return a, true
+	default:
+		if len([]rune(msg.Key)) == 1 {
+			a.timeJumpInput += msg.Key
+			return a, true
+		}
 		return a, false
 	}
 }
@@ -1873,6 +1913,8 @@ func (a App) overlayTitle() string {
 		return ": jump to…"
 	case OverlayConfirm:
 		return "Confirm action"
+	case OverlayTimeJump:
+		return "Jump to time"
 	default:
 		return ""
 	}
@@ -1886,6 +1928,13 @@ func (a App) overlayView(width int) string {
 		return palette.View(a.palette, width-20)
 	case OverlayConfirm:
 		return confirm.View(a.confirm, width-20)
+	case OverlayTimeJump:
+		return strings.Join([]string{
+			"t→" + a.timeJumpInput + "▌",
+			"",
+			"HH:MM or HH:MM:SS · jumps to the first line at/after that clock.",
+			"Press enter to jump, esc to cancel.",
+		}, "\n")
 	default:
 		return ""
 	}

@@ -11,63 +11,48 @@ func timeDoc() logs.Document {
 }
 
 func TestTimestampJumpModal(t *testing.T) {
-	m := NewModel(timeDoc(), 1, 6)
-	m = m.Update(KeyMsg{Key: "t"})
-	if !m.InputMode {
-		t.Fatal("t must open the time-input modal")
-	}
-	for _, key := range []string{"1", "5", ":", "5", "3"} {
-		m = m.Update(KeyMsg{Key: key})
-	}
-	m = m.Update(KeyMsg{Key: "enter"})
-	if m.InputMode {
-		t.Fatal("enter must close the modal")
-	}
+	m := NewModel(timeDoc(), 1, 6).JumpTo("15:53")
 	if m.Offset != 2 {
 		t.Fatalf("jump to first line at/after 15:53 should set offset 2, got %d", m.Offset)
+	}
+	if m.LastJump != "15:53" {
+		t.Fatalf("breadcrumb must record the jump: %q", m.LastJump)
 	}
 }
 
 func TestTimestampJumpBareClockFormat(t *testing.T) {
 	doc := logs.Parse("17:42:53.114Z go test ./... -race\n17:43:10.000Z --- FAIL: TestX\n17:44:00.000Z FAIL")
-	m := NewModel(doc, 1, 6)
-	m = m.Update(KeyMsg{Key: "t"})
-	for _, key := range []string{"1", "7", ":", "4", "3"} {
-		m = m.Update(KeyMsg{Key: key})
-	}
-	m = m.Update(KeyMsg{Key: "enter"})
-	if m.Offset != 2 {
+	if m := NewModel(doc, 1, 6).JumpTo("17:43"); m.Offset != 2 {
 		t.Fatalf("bare-clock logs must jump too, got offset %d", m.Offset)
 	}
 }
 
-func TestTimestampJumpEscCancels(t *testing.T) {
+func TestSearchStillWorksAlongsideJump(t *testing.T) {
 	m := NewModel(timeDoc(), 1, 6)
-	m = m.Update(KeyMsg{Key: "t"})
-	m = m.Update(KeyMsg{Key: "esc"})
-	if m.InputMode || m.Offset != 1 {
-		t.Fatalf("esc must cancel without jumping: input=%v offset=%d", m.InputMode, m.Offset)
-	}
-	// t must not break / search afterwards
 	m = m.Update(KeyMsg{Key: "/"})
 	for _, key := range []string{"4", "0", "1"} {
 		m = m.Update(KeyMsg{Key: key})
 	}
 	m = m.Update(KeyMsg{Key: "enter"})
 	if m.Search.Total != 1 {
-		t.Fatalf("search must still work after a cancelled time jump: %d matches", m.Search.Total)
+		t.Fatalf("search must work: %d matches", m.Search.Total)
 	}
 }
 
 func TestTimestampJumpHandlesMidnightWrap(t *testing.T) {
 	doc := logs.Parse("23:59:50.000Z winding down\n23:59:58.000Z almost\n00:01:00.000Z next day work\n00:02:00.000Z more")
-	m := NewModel(doc, 1, 6)
-	m = m.Update(KeyMsg{Key: "t"})
-	for _, key := range []string{"0", "0", ":", "0", "1"} {
-		m = m.Update(KeyMsg{Key: key})
-	}
-	m = m.Update(KeyMsg{Key: "enter"})
+	m := NewModel(doc, 1, 6).JumpTo("00:01")
 	if m.Offset != 3 {
 		t.Fatalf("00:01 must land on the post-midnight line, got offset %d", m.Offset)
+	}
+}
+
+func TestTimestampJumpAfterLastWrapSpanIsNoOp(t *testing.T) {
+	doc := logs.Parse("23:59:50.000Z winding down\n00:01:00.000Z next day\n00:02:00.000Z more")
+	m := NewModel(doc, 1, 6)
+	m.Offset = 2
+	m = m.JumpTo("00:03")
+	if m.Offset != 2 || m.LastJump != "" {
+		t.Fatalf("query past the final span must not jump: offset=%d lastJump=%q", m.Offset, m.LastJump)
 	}
 }

@@ -110,3 +110,21 @@ func TestScenariosReproduceErrorTaxonomy(t *testing.T) {
 		}
 	}
 }
+
+func TestFakeListRunsHonorsStatusFilter(t *testing.T) {
+	adapter := New(ScenarioFailing)
+	runs, err := adapter.ListRuns(context.Background(), usecase.RunFilter{Status: "in_progress"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 0 {
+		t.Fatalf("failing fixture has no in_progress runs; got %d", len(runs))
+	}
+	runs, err = adapter.ListRuns(context.Background(), usecase.RunFilter{Status: "failure"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("failing fixture must match status=failure: got %d", len(runs))
+	}
+}

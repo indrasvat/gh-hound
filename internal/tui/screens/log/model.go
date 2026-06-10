@@ -24,7 +24,6 @@ type Model struct {
 	Height    int
 	Wrap      bool
 	InputMode bool
-	TimeInput bool
 	LastJump  string
 	input     string
 	collapsed map[int]bool
@@ -65,11 +64,6 @@ func (m Model) Update(msg KeyMsg) Model {
 		m.Offset = max(1, m.Offset-m.Height/2)
 	case "/":
 		m.InputMode = true
-		m.TimeInput = false
-		m.input = ""
-	case "t":
-		m.InputMode = true
-		m.TimeInput = true
 		m.input = ""
 	case "n":
 		m.moveMatch(1)
@@ -89,14 +83,8 @@ func (m Model) updateInput(msg KeyMsg) Model {
 	switch msg.Key {
 	case "esc":
 		m.InputMode = false
-		m.TimeInput = false
 	case "enter":
 		m.InputMode = false
-		if m.TimeInput {
-			m.TimeInput = false
-			m.jumpToTime(m.input)
-			break
-		}
 		m.Search = buildSearch(m.Document, m.input)
 		m.gotoCurrentMatch()
 	case "backspace":
@@ -116,6 +104,13 @@ func (m Model) updateInput(msg KeyMsg) Model {
 // Clocks can wrap past midnight: lines are bucketed into days by
 // rollover detection and days are searched in order, so a 00:01 query
 // against a log starting at 23:59 lands after the wrap.
+// JumpTo is the modal's commit: it returns the model scrolled to the
+// queried wall-clock moment.
+func (m Model) JumpTo(query string) Model {
+	m.jumpToTime(query)
+	return m
+}
+
 func (m *Model) jumpToTime(query string) {
 	query = strings.TrimSpace(query)
 	if query == "" {
@@ -166,8 +161,11 @@ func (m *Model) jumpToTime(query string) {
 			}
 		}
 	}
-	// Query predates the whole log: land on the first stamped line.
-	if query < lines[0].clock {
+	// Single-day log with a query before its first clock: the moment
+	// predates the log, so land on the first stamped line. Multi-day
+	// logs reaching here mean the query is past every span -- no jump
+	// (a lexically-small query there is post-midnight, not earlier).
+	if day == 0 && query < lines[0].clock {
 		m.Offset = lines[0].number
 		m.LastJump = query
 	}

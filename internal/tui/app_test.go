@@ -1719,3 +1719,62 @@ func TestPaletteOpenDoesNotToastDispatchResolutionErrors(t *testing.T) {
 		t.Fatalf("selecting dispatch must surface the resolution error:\n%s", view)
 	}
 }
+
+func TestTimeJumpModalFlow(t *testing.T) {
+	app := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+	app.config.Welcome = false
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.Update(KeyMsg{Key: "l"})
+	if app.Route() != RouteLog {
+		t.Fatalf("setup: expected log route, got %s", app.Route())
+	}
+	app, handled := app.Update(KeyMsg{Key: "t"})
+	if !handled || app.TopOverlay() != OverlayTimeJump {
+		t.Fatalf("t must open the time-jump modal: %s", app.TopOverlay())
+	}
+	view := ansi.Strip(app.ViewSize(120, 40))
+	if !strings.Contains(view, "Jump to time") || !strings.Contains(view, "t→▌") {
+		t.Fatalf("modal must render title and input cursor:\n%s", view)
+	}
+	for _, key := range []string{"1", "7", ":", "4", "2"} {
+		app, _ = app.Update(KeyMsg{Key: key})
+	}
+	view = ansi.Strip(app.ViewSize(120, 40))
+	if !strings.Contains(view, "t→17:42▌") {
+		t.Fatalf("modal must echo input:\n%s", view)
+	}
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	if app.TopOverlay() != OverlayNone || app.Route() != RouteLog {
+		t.Fatalf("enter must close modal and stay on log: overlay=%s route=%s", app.TopOverlay(), app.Route())
+	}
+	if app.log.LastJump != "17:42" {
+		t.Fatalf("jump must land: LastJump=%q offset=%d", app.log.LastJump, app.log.Offset)
+	}
+
+	// esc path: opens and cancels without moving or popping the log
+	beforeOffset := app.log.Offset
+	app, _ = app.Update(KeyMsg{Key: "t"})
+	app, _ = app.Update(KeyMsg{Key: "esc"})
+	if app.Route() != RouteLog || app.log.Offset != beforeOffset {
+		t.Fatalf("modal esc must cancel in place: route=%s", app.Route())
+	}
+}
+
+func TestLogSearchEscStaysOnLog(t *testing.T) {
+	app := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+	app.config.Welcome = false
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.Update(KeyMsg{Key: "l"})
+	app, _ = app.Update(KeyMsg{Key: "/"})
+	app, _ = app.Update(KeyMsg{Key: "x"})
+	app, handled := app.Update(KeyMsg{Key: "esc"})
+	if !handled || app.Route() != RouteLog {
+		t.Fatalf("esc during search input must only cancel the input: route=%s", app.Route())
+	}
+	app, _ = app.Update(KeyMsg{Key: "esc"})
+	if app.Route() == RouteLog {
+		t.Fatal("second esc must pop the log route")
+	}
+}

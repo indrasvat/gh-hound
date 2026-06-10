@@ -1309,6 +1309,7 @@ func mapRenderRuns(runs []model.Run) []render.Run {
 			HeadBranch: run.HeadBranch,
 			HeadSHA:    run.HeadSHA,
 			Status:     string(run.Status),
+			Attempt:    run.RunAttempt,
 			Conclusion: string(run.Conclusion),
 			CreatedAt:  run.CreatedAt,
 			HTMLURL:    run.HTMLURL,
