@@ -31,11 +31,14 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # workflow_run fires regardless of branch; gate head_branch=main.
+    # workflow_run fires regardless of ref. Release is tag-triggered,
+    # so head_branch carries the tag name (v*) for release runs; allow
+    # those plus main (workflow_dispatch of Release from main).
     if: >-
       ${{ github.event_name != 'workflow_run'
           || (github.event.workflow_run.conclusion == 'success'
-              && github.event.workflow_run.head_branch == 'main') }}
+              && (github.event.workflow_run.head_branch == 'main'
+                  || startsWith(github.event.workflow_run.head_branch, 'v'))) }}
     env:
       REPO: ${{ github.repository }}
     steps:

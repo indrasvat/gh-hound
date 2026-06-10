@@ -9,9 +9,11 @@
   Permissions-Policy: geolocation=(), camera=(), microphone=(), payment=()
   Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'
 
-# Long-cache immutable assets; index.html stays fresh.
+# Asset URLs are not fingerprinted, so no immutable/year-long cache:
+# a changed site.css or screenshot must reach returning visitors.
+# One hour is plenty behind Cloudflare's edge cache.
 /assets/*
-  Cache-Control: public, max-age=31536000, immutable
+  Cache-Control: public, max-age=3600
 
 /styles/*
-  Cache-Control: public, max-age=31536000, immutable
+  Cache-Control: public, max-age=3600
