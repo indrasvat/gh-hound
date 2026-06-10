@@ -45,7 +45,8 @@ Automatic hard failures:
 - P2 FAIL: wrapping, truncation, clipped borders, off-by-one columns, or color bleed at any supported breakpoint.
 
 Standard operating procedure:
-1. Re-read requirements before judging: docs/gh-hound-PRD.md screen contracts, docs/gh-hound-design.html mocks, docs/visual-contract.md, existing VQA scripts and screenshot directories, the task doc under docs/tasks/ for the change under review.
+0. Audit a clean tree. If the working tree is dirty on the surface under review, gate against a clean worktree of the commit under audit and say so; never let in-progress edits contaminate the verdict.
+1. Re-read requirements before judging: docs/gh-hound-PRD.md screen contracts, docs/gh-hound-design.html mocks, docs/visual-contract.md, existing VQA scripts and screenshot directories, the task doc under docs/tasks/ for the change under review. Compare the implementation against the task doc's UX wording, not only the audit brief: if the brief itself diverges from the product owner's recorded ask, flag the divergence as a finding instead of passing the divergent build.
 2. Inventory the TUI surface under review: routes/screens, overlays/modals, keybindings and contextual help, breakpoints, theme variants, log viewer states.
 3. Launch through shux: named session (`tui-qa-<slug>`), explicit pane sizes, `pane wait-for` on stable rendered text before snapshots (never bare sleeps unless called out), capture both text (`pane capture`) and pixels (`pane snapshot`).
 4. Breakpoints: always 80x24, 120x40, and 200x60 unless the request narrows scope. At least one screenshot per screen per breakpoint.
@@ -91,12 +92,21 @@ Screenshot minimums:
 - Multi-screen audit: >= 25 covering all primary screens and overlays.
 - Release audit: >= 30. Filenames encode screen/state/viewport (e.g. `runs-filter-80x24.png`). Verify screenshots were regenerated during THIS audit.
 
+Claim-verification rules:
+- Every fix the commit message or parent claims must be demonstrated in the BUILT binary, not the diff. Green unit tests are not evidence: fixes have landed in dead code paths (DefaultItems vs the live paletteItems) and in state that was discarded before taking effect (toast TTL tick), with tests green both times.
+- Fixture fidelity is a release criterion, not a footnote: if the deterministic lens cannot exercise a claimed affordance (entries render blank, a state is unreachable in fixtures), FAIL the lens and demand fixture enrichment.
+
 Mined recurring failures (check explicitly every audit):
 - Display width vs byte length: glyphs like box-drawing, wide/CJK chars, and Nerd Font icons break borders, footers, and columns when code measures bytes. Inspect right borders, column separators, and table headers for one-column drift. Test truncation with real long repo/branch/workflow/step names.
 - Banner lifecycle: renders at startup only, degrades cleanly at small sizes, no color bleed into subsequent text.
 - Esc from every layer pops exactly one layer. Input/search modes swallow printable global shortcuts.
 - Stale async state: old API data, stale filters, stale selection, stale toast, stale fixture data leaking into live mode.
 - Nested lipgloss styles: black-background bleed, color bleed, tearing in list rows, toasts, logs, legends, help panels.
+- Value-type Elm models: state advanced on a tick/branch and then discarded when the "changed" flag is false -- TTLs and counters silently never accumulate.
+- Stale geometry: key handling scrolling against a resolver-default Height while only the render copy gets the real viewport (G lands short; resize ignored).
+- New overlays inheriting the generic footer: every new modal needs a dedicated truthful footer, and its keys must be driven to confirm the footer is honest.
+- Esc layering per input mode: esc inside any input/filter/range layer must pop exactly that layer; route-pop only from the base layer.
+- Column math in assertions measured in BYTES: multi-byte glyphs (cursor bars, status icons) shift strings.Index offsets; measure in runes/cells.
 - Fixed-height panes leaving most of a large terminal empty when more content exists.
 - Silent failures: expired log links, rate limits, permission errors must surface as concise status/toast with recovery path.
 
