@@ -204,14 +204,14 @@
 
   <section id="agents" class="wrap">
     <div class="section-head reveal">
-      <h2>The TUI is for humans.<br>The JSON is for agents.</h2>
-      <p class="lede">Both surfaces share one usecase core, so CI state, failures, annotations and exit codes stay consistent whether a person or a coding agent is on the leash.</p>
+      <h2>Good with humans.<br>Good with agents.</h2>
+      <p class="lede">Same hound, two leashes: one usecase core feeds both surfaces, so CI state, failures, annotations and exit codes read identical whichever species is asking.</p>
     </div>
     <div class="agents-split">
       <div class="reveal">
-        <p style="color:var(--muted);font-size:0.97rem">Point your agent at <span class="mono" style="color:var(--fg-soft)">gh hound runs --no-tui --json</span> and branch on the exit code. Deterministic fake scenarios make harnesses reproducible without touching the network.</p>
+        <p style="color:var(--muted);font-size:0.97rem">Agents don&rsquo;t click dashboards &mdash; they read <span class="mono" style="color:var(--fg-soft)">stdout</span>. Point yours at <span class="mono" style="color:var(--fg-soft)">gh hound runs --no-tui --json</span> and branch on the exit code. Deterministic fake scenarios let your harness play fetch without ever touching the network.</p>
         <table class="exit-table">
-          <caption>exit codes</caption>
+          <caption>exit codes &middot; barks, translated</caption>
           <tbody>
             <tr><td class="code">0</td><td>all good, branch is green</td></tr>
             <tr><td class="code">1</td><td>CI failure, action needed</td></tr>
