@@ -1,64 +1,50 @@
 ---
 name: gh-hound
-description: Use gh-hound's structured GitHub Actions CI surface for agent workflows: inspect runs, detect failures, watch fail-fast, parse JSON failure excerpts, and respect gh-hound exit codes instead of screen-scraping the TUI.
+description: Use gh-hound's structured GitHub Actions CI surface for agent workflows: inspect runs, detect failures, watch fail-fast, parse JSON failure triage (job, step, exit_code, log_excerpt), and branch on gh-hound exit codes instead of screen-scraping the TUI.
 ---
 
 # gh-hound
 
-Use this skill when an agent needs to inspect GitHub Actions CI with `gh hound`, especially in fix loops, PR checks, or local repo verification.
+Use when inspecting GitHub Actions CI with `gh hound` — fix loops, PR checks, post-push verification. Always use the pipe surface; never screen-scrape the TUI or parse raw GitHub logs when `failed[]` is available.
 
-## Default Workflow
-
-1. Prefer structured output:
+## Commands
 
 ```bash
-gh hound runs --no-tui --json
+gh hound runs --no-tui --json                    # current branch's runs
+gh hound runs --status failure --no-tui --json   # failure-focused loop
+gh hound runs --all --no-tui --json              # all branches
+gh hound runs -R owner/repo --no-tui --json      # outside a checkout
+gh hound watch --json                            # active run, fail-fast
 ```
 
-2. For failure-focused loops:
-
-```bash
-gh hound runs --status failure --no-tui --json
-```
-
-3. For active runs:
-
-```bash
-gh hound watch --json
-```
-
-4. Parse `runs[].failed[]` for `job`, `step`, `exit_code`, `annotations`, and `log_excerpt`. Do not screen-scrape the TUI.
+Runs are scoped to the current git branch by default. An empty `runs[]` usually means the branch has no runs — pass `--all` or `--branch <ref>` before concluding CI is missing.
 
 ## Exit Codes
 
-- `0`: all good.
-- `1`: action needed; inspect failure objects and fix.
-- `2`: API/network/config/render error; retry or report infrastructure failure.
-- `3`: pending/running; wait or keep watching.
+- `0`: all selected runs green; continue.
+- `1`: action needed; inspect `runs[].failed[]` and fix.
+- `2`: API/network/config error; retry or report infrastructure failure, not CI failure.
+- `3`: pending/running; wait and re-poll, or use `watch`.
 
-`watch --json` is fail-fast: it exits `1` as soon as a watched run turns red and includes failure details.
+`watch --json` is fail-fast: it exits `1` the moment the watched run turns red and includes the failure payload immediately.
 
 ## JSON Shape
 
-The top-level object has `repo`, `branch`, and `runs`. Each run has `id`, `workflow`, `run_number`, `event`, `head_branch`, `head_sha`, `status`, `conclusion`, `created_at`, `html_url`, and `failed`.
+Top level: `repo`, `branch`, `runs[]`. Each run: `id`, `workflow`, `run_number`, `event`, `head_branch`, `head_sha`, `status`, `conclusion`, `created_at`, `html_url`, `failed[]`.
 
-Failure entries include `job`, `step`, `exit_code`, `annotations`, and `log_excerpt`.
+Each `failed[]` entry: `job`, `step`, `exit_code`, `annotations[]` (`path`, `line`, `level`, `message`), `log_excerpt`.
 
-## Local Verification
+Triage degrades per job: when a job log has expired, `log_excerpt` is empty and `exit_code` falls back to `1`, but `job`, `step`, and `annotations` are always present for every failed job. An empty `failed[]` on a red run means job details could not be listed — fall back to `html_url`.
 
-Use deterministic scenarios when testing agent behavior:
+## Deterministic Scenarios
+
+For testing agent behavior without live CI:
 
 ```bash
-./bin/gh-hound runs --no-tui --json --fake-scenario green
-./bin/gh-hound runs --no-tui --json --fake-scenario failure
-./bin/gh-hound runs --no-tui --json --fake-scenario pending
-./bin/gh-hound watch --json --fake-scenario failure
+gh hound runs --no-tui --json --fake-scenario failure   # also: green, pending, empty, api_error
 ```
 
-Schema and golden fixture:
-
-- `internal/render/testdata/schema.json`
-- `internal/render/testdata/failure.golden.json`
+The JSON schema lives at `internal/render/testdata/schema.json` in the gh-hound repo.
 
 ## Guardrails
 
