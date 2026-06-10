@@ -3,6 +3,7 @@ package usecase_test
 import (
 	"context"
 	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -122,4 +123,12 @@ func (g *watchGitHub) ForceCancelRun(context.Context, string, int64) (usecase.Ac
 
 func (g *watchGitHub) DispatchWorkflow(context.Context, string, string, usecase.DispatchRequest) (usecase.ActionResult, error) {
 	return usecase.ActionResult{}, errors.New("not implemented")
+}
+
+func (g *watchGitHub) ListArtifacts(context.Context, string, int64) ([]model.Artifact, error) {
+	return nil, nil
+}
+
+func (g *watchGitHub) DownloadArtifact(context.Context, string, int64) (io.ReadCloser, error) {
+	return nil, errors.New("not implemented")
 }

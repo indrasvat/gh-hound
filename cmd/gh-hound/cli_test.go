@@ -909,19 +909,23 @@ func (r *cliRepo) Current(context.Context) (usecase.RepositoryContext, error) {
 }
 
 type cliGitHub struct {
-	mu             sync.Mutex
-	runs           []model.Run
-	runBatches     [][]model.Run
-	jobs           []model.Job
-	jobLog         string
-	annotations    []model.Annotation
-	filters        []usecase.RunFilter
-	listJobs       int
-	fetchJobLog    int
-	workflows      []model.Workflow
-	workflowFiles  map[string]string
-	workflowErrors map[string]error
-	err            error
+	mu               sync.Mutex
+	runs             []model.Run
+	runBatches       [][]model.Run
+	jobs             []model.Job
+	jobLog           string
+	annotations      []model.Annotation
+	artifactList     []model.Artifact
+	artifactZip      string
+	listArtifacts    int
+	downloadArtifact int
+	filters          []usecase.RunFilter
+	listJobs         int
+	fetchJobLog      int
+	workflows        []model.Workflow
+	workflowFiles    map[string]string
+	workflowErrors   map[string]error
+	err              error
 }
 
 func (g *cliGitHub) ListRuns(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
@@ -1015,4 +1019,18 @@ func cliRun(id int64, workflow string, status model.Status, conclusion model.Con
 		CreatedAt:  time.Date(2026, 6, 7, 17, 42, 0, 0, time.UTC),
 		HTMLURL:    "https://github.com/indrasvat/gh-hound/actions/runs/777",
 	}
+}
+
+func (g *cliGitHub) ListArtifacts(context.Context, string, int64) ([]model.Artifact, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.listArtifacts++
+	return g.artifactList, nil
+}
+
+func (g *cliGitHub) DownloadArtifact(context.Context, string, int64) (io.ReadCloser, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.downloadArtifact++
+	return io.NopCloser(strings.NewReader(g.artifactZip)), nil
 }

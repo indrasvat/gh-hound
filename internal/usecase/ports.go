@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"io"
 
 	"github.com/indrasvat/gh-hound/internal/model"
 )
@@ -40,6 +41,8 @@ type GitHub interface {
 	FetchWorkflowFile(context.Context, string, string) (string, error)
 	ListAnnotations(context.Context, string, model.Job) ([]model.Annotation, error)
 	FetchJobLog(context.Context, string, int64) (string, error)
+	ListArtifacts(context.Context, string, int64) ([]model.Artifact, error)
+	DownloadArtifact(context.Context, string, int64) (io.ReadCloser, error)
 	RerunRun(context.Context, string, int64, bool) (ActionResult, error)
 	RerunFailedJobs(context.Context, string, int64) (ActionResult, error)
 	RerunJob(context.Context, string, int64) (ActionResult, error)
