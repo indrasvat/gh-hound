@@ -4,7 +4,6 @@
   <em>A fast terminal cockpit for "what broke?", "where?", "can I rerun it?", and "what should my agent fix?"</em><br><br>
   <a href="https://github.com/indrasvat/gh-hound/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/indrasvat/gh-hound/ci.yml?branch=main&style=flat&labelColor=1a1a1a&label=CI" alt="CI"></a>
   <a href="https://github.com/indrasvat/gh-hound/releases/latest"><img src="https://img.shields.io/github/v/release/indrasvat/gh-hound?style=flat&labelColor=1a1a1a" alt="release"></a>
-  <a href="go.mod"><img src="https://img.shields.io/github/go-mod-go-version/indrasvat/gh-hound?style=flat&labelColor=1a1a1a" alt="Go version"></a>
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat&labelColor=1a1a1a" alt="MIT">
 </p>
 
