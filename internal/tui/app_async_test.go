@@ -2,9 +2,15 @@ package tui
 
 import (
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
+	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/tui/icons"
+	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
 func asyncTestApp() App {
@@ -193,4 +199,92 @@ func TestRapidLoadCyclesLeakNoGoroutines(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("goroutines leaked: baseline %d, now %d", baseline, runtime.NumGoroutine())
+}
+
+func TestStatusCycleReloadDoesNotBlock(t *testing.T) {
+	app := asyncTestApp()
+	release := make(chan struct{})
+	var calls atomic.Int32
+	app.runsResolver = func(usecase.RunFilter) ([]model.Run, error) {
+		calls.Add(1)
+		<-release
+		return sampleRunsModel().Context.Runs, nil
+	}
+	started := time.Now()
+	app, handled := app.Update(KeyMsg{Key: "f"})
+	if elapsed := time.Since(started); elapsed > 50*time.Millisecond {
+		t.Fatalf("status cycle blocked for %v", elapsed)
+	}
+	if !handled {
+		t.Fatal("f not handled")
+	}
+	if app.load == nil || app.load.kind != loadKindRuns {
+		t.Fatalf("status cycle did not start a runs load: %+v", app.load)
+	}
+	// After the grace window the view carries the shared loading line.
+	app.load.started = time.Now().Add(-200 * time.Millisecond)
+	view := ansi.Strip(app.ViewSized(124))
+	hasFrame := false
+	for _, frame := range icons.SpinnerFrames {
+		if strings.Contains(view, frame+" ") {
+			hasFrame = true
+			break
+		}
+	}
+	if !hasFrame {
+		t.Fatalf("loading view missing spinner line:\n%s", view)
+	}
+	close(release)
+	app, ok := app.SettleLoads(time.Second)
+	if !ok {
+		t.Fatal("reload never settled")
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("resolver calls = %d, want exactly 1", got)
+	}
+	settled := ansi.Strip(app.ViewSized(124))
+	for _, frame := range icons.SpinnerFrames {
+		if strings.Contains(settled, frame+" sniffing") {
+			t.Fatalf("loading line survived settle:\n%s", settled)
+		}
+	}
+}
+
+func TestEscDuringReloadKeepsPreviousList(t *testing.T) {
+	app := asyncTestApp()
+	before := ansi.Strip(app.ViewSized(124))
+	release := make(chan struct{})
+	defer close(release)
+	app.runsResolver = func(usecase.RunFilter) ([]model.Run, error) {
+		<-release
+		return nil, nil
+	}
+	app, _ = app.Update(KeyMsg{Key: "f"})
+	if app.load == nil {
+		t.Fatal("no pending load after f")
+	}
+	app, _ = app.Update(KeyMsg{Key: "esc"})
+	// esc cancels the reload AND clears the runs filter (the runs model
+	// owns esc-clears-filter); the second reload from the clear is also
+	// fine — what must never happen is a stuck loading state.
+	if app.load != nil {
+		var ok bool
+		app, ok = app.SettleLoads(time.Second)
+		_ = ok
+	}
+	after := ansi.Strip(app.ViewSized(124))
+	if !strings.Contains(after, "#571") {
+		t.Fatalf("run rows lost after esc-cancel:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+// settleApp drains the app's pending load for tests that assert on
+// post-reload state. Fails the test instead of hanging forever.
+func settleApp(t *testing.T, app App) App {
+	t.Helper()
+	app, ok := app.SettleLoads(2 * time.Second)
+	if !ok {
+		t.Fatal("pending load did not settle")
+	}
+	return app
 }

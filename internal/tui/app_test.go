@@ -841,6 +841,7 @@ func TestRunsFilterReloadsServerSupportedQueries(t *testing.T) {
 			t.Fatalf("key %q was not handled", key)
 		}
 	}
+	app = settleApp(t, app)
 
 	if len(calls) != 1 {
 		t.Fatalf("runs resolver calls = %d, want 1", len(calls))
@@ -891,6 +892,7 @@ func TestRunsEndLoadsNextGitHubPage(t *testing.T) {
 	if !handled {
 		t.Fatal("G should be handled")
 	}
+	app = settleApp(t, app)
 	if len(calls) != 1 {
 		t.Fatalf("pagination resolver calls = %d, want 1", len(calls))
 	}
@@ -1683,10 +1685,12 @@ func TestEscClearingServerFilterRestoresUnfilteredRuns(t *testing.T) {
 	for _, key := range []string{"/", "r", "u", "n", "n", "i", "n", "g", "enter"} {
 		app, _ = app.Update(KeyMsg{Key: key})
 	}
+	app = settleApp(t, app)
 	if got := len(app.runs.FilteredRuns()); got != 1 {
 		t.Fatalf("server filter applied = %d rows, want 1", got)
 	}
 	app, _ = app.Update(KeyMsg{Key: "esc"})
+	app = settleApp(t, app)
 	if got := len(app.runs.FilteredRuns()); got != len(full) {
 		t.Fatalf("esc must restore the unfiltered listing immediately: %d rows, want %d", got, len(full))
 	}

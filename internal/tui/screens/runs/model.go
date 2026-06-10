@@ -49,6 +49,12 @@ type Model struct {
 	InputMode      bool
 	ServerFiltered bool
 	Intent         Intent
+
+	// Loading state is transient render input set by the app from its
+	// pending load each frame — never persisted on the model, so a
+	// cancelled load can not strand a dimmed list.
+	Loading     bool
+	LoadingLine string
 }
 
 func NewModel(ctx usecase.LaunchContext) Model {

@@ -1254,23 +1254,43 @@ func (a App) reloadRuns(query string) App {
 		a.setRouteError(RouteRuns, "runs filter unavailable: live GitHub runs loader is not configured")
 		return a
 	}
-	resolved, err := a.runsResolver(filter)
-	if err != nil {
-		a = a.handleRunsError(RouteRuns, "runs-filter", "runs filter failed: "+err.Error(), err)
-		return a
+	resolver := a.runsResolver
+	return a.startLoad(loadKindRuns, runsLoadLabel(query), func() func(App) App {
+		resolved, err := resolver(filter)
+		return func(app App) App {
+			if err != nil {
+				return app.handleRunsError(RouteRuns, "runs-filter", "runs filter failed: "+err.Error(), err)
+			}
+			app.runs.Context.Runs = resolved
+			switch app.runs.Context.Scope {
+			case usecase.LaunchScopeBranch:
+				app.runs.Context.BranchRuns = resolved
+			case usecase.LaunchScopeRepo:
+				app.runs.Context.RepoRuns = resolved
+			}
+			app.runs.Context.Page = 1
+			app.runs.Context.PerPage = perPageFor(app.runs.Context, app.config.PerPage)
+			app.runs.Context.HasMore = len(resolved) >= app.runs.Context.PerPage
+			app.runs.Selected = 0
+			return app
+		}
+	})
+}
+
+// runsLoadLabel keeps the loading line hound-voiced per query.
+func runsLoadLabel(query string) string {
+	switch strings.TrimSpace(query) {
+	case "":
+		return "fetching the pack"
+	case "failing", "failed", "red":
+		return "sniffing out failing runs"
+	case "running", "live":
+		return "sniffing out running runs"
+	case "passed", "passing", "green":
+		return "sniffing out passing runs"
+	default:
+		return "sniffing out /" + strings.TrimSpace(query)
 	}
-	a.runs.Context.Runs = resolved
-	switch a.runs.Context.Scope {
-	case usecase.LaunchScopeBranch:
-		a.runs.Context.BranchRuns = resolved
-	case usecase.LaunchScopeRepo:
-		a.runs.Context.RepoRuns = resolved
-	}
-	a.runs.Context.Page = 1
-	a.runs.Context.PerPage = perPageFor(a.runs.Context, a.config.PerPage)
-	a.runs.Context.HasMore = len(resolved) >= a.runs.Context.PerPage
-	a.runs.Selected = 0
-	return a
 }
 
 func (a App) loadMoreRuns() App {
@@ -1292,19 +1312,23 @@ func (a App) loadMoreRuns() App {
 		a.setRouteError(RouteRuns, "next page unavailable: live GitHub runs loader is not configured")
 		return a
 	}
-	resolved, err := a.runsResolver(filter)
-	if err != nil {
-		a = a.handleRunsError(RouteRuns, "runs-page", "next page failed: "+err.Error(), err)
-		return a
-	}
-	a.runs.Context.Page = nextPage
-	a.runs.Context.PerPage = perPage
-	_ = a.appendActiveRuns(resolved)
-	// A full page that deduped to nothing still means deeper pages
-	// exist (high-velocity repos shift runs between pages); latching
-	// HasMore=false there froze pagination on openclaw-sized repos.
-	a.runs.Context.HasMore = len(resolved) >= perPage
-	return a
+	resolver := a.runsResolver
+	return a.startLoad(loadKindRuns, "fetching more runs", func() func(App) App {
+		resolved, err := resolver(filter)
+		return func(app App) App {
+			if err != nil {
+				return app.handleRunsError(RouteRuns, "runs-page", "next page failed: "+err.Error(), err)
+			}
+			app.runs.Context.Page = nextPage
+			app.runs.Context.PerPage = perPage
+			_ = app.appendActiveRuns(resolved)
+			// A full page that deduped to nothing still means deeper pages
+			// exist (high-velocity repos shift runs between pages); latching
+			// HasMore=false there froze pagination on openclaw-sized repos.
+			app.runs.Context.HasMore = len(resolved) >= perPage
+			return app
+		}
+	})
 }
 
 func (a App) refreshRuns() (App, bool) {
@@ -2231,7 +2255,12 @@ func (a App) screenBody(width, height int) string {
 		if body, ok := a.launchStateBody(bodyWidth); ok {
 			return body
 		}
-		return runs.ViewSize(a.runs, bodyWidth, bodyHeight(height), time.Now())
+		runsModel := a.runs
+		if load := a.load; load != nil && load.kind == loadKindRuns {
+			runsModel.Loading = true
+			runsModel.LoadingLine = loadingLine(a.theme, load, bodyWidth, time.Now())
+		}
+		return runs.ViewSize(runsModel, bodyWidth, bodyHeight(height), time.Now())
 	case RouteDetail:
 		return detail.ViewSize(a.detail, bodyWidth, bodyHeight(height))
 	case RouteFailure:
