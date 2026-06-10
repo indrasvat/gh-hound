@@ -2,6 +2,7 @@ package logs
 
 import (
 	"bufio"
+	"fmt"
 	"regexp"
 	"sort"
 	"strconv"
@@ -585,4 +586,64 @@ func isFailureText(text string) bool {
 		strings.Contains(text, "::error") ||
 		strings.Contains(text, "FAIL") ||
 		strings.Contains(strings.ToLower(text), "error:")
+}
+
+// Stamp is a timestamped line on a day-aware timeline: Seconds is the
+// effective offset (day*86400 + clock) so gaps and ordering survive
+// midnight wraps.
+type Stamp struct {
+	LineNumber int
+	Day        int
+	Clock      string
+	Seconds    float64
+}
+
+// Timeline extracts the document's stamped lines with rollover-aware
+// day bucketing. It is the single source for time navigation: jumps,
+// gap detection, and range filtering all derive from it.
+func Timeline(doc Document) []Stamp {
+	var stamps []Stamp
+	day := 0
+	prev := ""
+	for _, line := range doc.Lines {
+		clock, ok := ClockTime(line.Text)
+		if !ok {
+			continue
+		}
+		if prev != "" && clock < prev {
+			day++
+		}
+		prev = clock
+		stamps = append(stamps, Stamp{
+			LineNumber: line.Number,
+			Day:        day,
+			Clock:      clock,
+			Seconds:    float64(day)*86400 + clockSeconds(clock),
+		})
+	}
+	return stamps
+}
+
+// ClockSeconds converts "HH:MM[:SS[.fff]]" to seconds; partial inputs
+// (query prefixes) are accepted. Returns false on malformed input.
+func ClockSeconds(clock string) (float64, bool) {
+	parts := strings.SplitN(clock, ":", 3)
+	if len(parts) < 2 {
+		return 0, false
+	}
+	total := 0.0
+	multipliers := []float64{3600, 60, 1}
+	for i, part := range parts {
+		var value float64
+		if _, err := fmt.Sscanf(part, "%f", &value); err != nil || value < 0 {
+			return 0, false
+		}
+		total += value * multipliers[i]
+	}
+	return total, true
+}
+
+func clockSeconds(clock string) float64 {
+	value, _ := ClockSeconds(clock)
+	return value
 }

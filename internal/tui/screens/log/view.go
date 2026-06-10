@@ -28,6 +28,9 @@ func header(m Model) string {
 	if m.InputMode {
 		return fmt.Sprintf("log · /%s▌", m.input)
 	}
+	if m.RangeLabel != "" {
+		return fmt.Sprintf("log · [%s] · ⎋ clear", m.RangeLabel)
+	}
 	if m.LastJump != "" && m.Search.Query == "" {
 		return fmt.Sprintf("log · t→%s", m.LastJump)
 	}

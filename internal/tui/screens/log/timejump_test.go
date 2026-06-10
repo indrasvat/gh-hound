@@ -56,3 +56,34 @@ func TestTimestampJumpAfterLastWrapSpanIsNoOp(t *testing.T) {
 		t.Fatalf("query past the final span must not jump: offset=%d lastJump=%q", m.Offset, m.LastJump)
 	}
 }
+
+func TestRangeFilterLimitsVisibleRows(t *testing.T) {
+	m := NewModel(timeDoc(), 1, 6)
+	m = m.SetRange(2, 2, "15:53-15:53")
+	rows := m.VisibleRowNumbers()
+	if len(rows) != 1 || rows[0] != 2 {
+		t.Fatalf("range must limit rows to [2], got %v", rows)
+	}
+	if m.RangeLabel == "" {
+		t.Fatal("range label must be set for the header")
+	}
+	m = m.Update(KeyMsg{Key: "esc"})
+	if m.RangeLabel != "" {
+		t.Fatal("esc must clear the range first")
+	}
+	if rows := m.VisibleRowNumbers(); len(rows) != 2 || rows[0] != 2 {
+		t.Fatalf("cleared range keeps position and restores subsequent rows, got %v", rows)
+	}
+}
+
+func TestJumpRelativeMovesByDelta(t *testing.T) {
+	m := NewModel(timeDoc(), 1, 6)
+	m = m.JumpRelative(70) // 15:52:00 + 70s -> first line >= 15:53:10 is 15:53:14 (line 2)
+	if m.Offset != 2 {
+		t.Fatalf("relative jump +70s should land on line 2, got %d", m.Offset)
+	}
+	m = m.JumpRelative(-3600)
+	if m.Offset != 1 {
+		t.Fatalf("relative jump past start clamps to first line, got %d", m.Offset)
+	}
+}

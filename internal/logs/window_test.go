@@ -41,3 +41,20 @@ func TestStripTimestampPrefix(t *testing.T) {
 		t.Fatalf("non-timestamped lines pass through: %q", got)
 	}
 }
+
+func TestTimelineBucketsDaysAndSeconds(t *testing.T) {
+	doc := Parse("23:59:50.000Z a\n##[group] untimestamped\n00:01:00.000Z b\n00:02:30.500Z c")
+	stamps := Timeline(doc)
+	if len(stamps) != 3 {
+		t.Fatalf("stamps = %d, want 3 (untimestamped skipped)", len(stamps))
+	}
+	if stamps[0].Day != 0 || stamps[1].Day != 1 || stamps[2].Day != 1 {
+		t.Fatalf("day bucketing wrong: %+v", stamps)
+	}
+	if stamps[1].Seconds != 86400+60 {
+		t.Fatalf("effective seconds wrong: %v", stamps[1].Seconds)
+	}
+	if stamps[2].Seconds-stamps[1].Seconds != 90.5 {
+		t.Fatalf("gap math wrong: %v", stamps[2].Seconds-stamps[1].Seconds)
+	}
+}

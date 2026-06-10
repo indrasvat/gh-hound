@@ -1778,3 +1778,54 @@ func TestLogSearchEscStaysOnLog(t *testing.T) {
 		t.Fatal("second esc must pop the log route")
 	}
 }
+
+func TestTimeJumpPickerAndRangeFlow(t *testing.T) {
+	app := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+	app.config.Welcome = false
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.Update(KeyMsg{Key: "l"})
+	app, _ = app.Update(KeyMsg{Key: "t"})
+	view := ansi.Strip(app.ViewSize(120, 40))
+	if !strings.Contains(view, "failure window") {
+		t.Fatalf("picker must list the failure window entry:\n%s", view)
+	}
+	// picker enter with default selection jumps somewhere valid
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	if app.TopOverlay() != OverlayNone || app.Route() != RouteLog {
+		t.Fatalf("picker commit must close modal on log: overlay=%s", app.TopOverlay())
+	}
+
+	// invalid input keeps the modal open with feedback
+	app, _ = app.Update(KeyMsg{Key: "t"})
+	for _, key := range []string{"9", "9", ":", "9", "9"} {
+		app, _ = app.Update(KeyMsg{Key: key})
+	}
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	if app.TopOverlay() != OverlayTimeJump {
+		t.Fatal("invalid query must keep the modal open")
+	}
+	view = ansi.Strip(app.ViewSize(120, 40))
+	if !strings.Contains(view, "no line at/after 99:99") {
+		t.Fatalf("feedback must be visible:\n%s", view)
+	}
+	app, _ = app.Update(KeyMsg{Key: "esc"})
+
+	// range flow: filter to the failing second, esc clears
+	app, _ = app.Update(KeyMsg{Key: "t"})
+	for _, key := range []string{"1", "7", ":", "4", "2", "-", "1", "7", ":", "4", "2"} {
+		app, _ = app.Update(KeyMsg{Key: key})
+	}
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	if app.log.RangeLabel == "" {
+		t.Fatalf("range commit must set the range filter")
+	}
+	view = ansi.Strip(app.ViewSize(120, 40))
+	if !strings.Contains(view, "[17:42-17:42]") {
+		t.Fatalf("header must show the active range:\n%s", view)
+	}
+	app, _ = app.Update(KeyMsg{Key: "esc"})
+	if app.log.RangeLabel != "" || app.Route() != RouteLog {
+		t.Fatalf("first esc clears the range and stays on log: %q %s", app.log.RangeLabel, app.Route())
+	}
+}
