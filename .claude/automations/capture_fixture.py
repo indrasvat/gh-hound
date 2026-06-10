@@ -221,7 +221,10 @@ async def main(connection):
                 f"--width {COLS} --height {args.rows}; sleep 600\r"
             )
             await asyncio.sleep(2.0)
-            checks = args.verify
+            # Never capture unverified: every fixture frame titles itself
+            # "hound", so a bad screen name, missing binary, or startup
+            # panic fails here instead of overwriting a shipped PNG.
+            checks = args.verify or ["hound"]
         text = await screen_text(session)
         for check in checks:
             if check not in text:
