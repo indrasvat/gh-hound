@@ -67,3 +67,4 @@ coverage.html
 .DS_Store
 .claude/automations/screenshots/*
 !.claude/automations/screenshots/.gitkeep
+.wrangler/

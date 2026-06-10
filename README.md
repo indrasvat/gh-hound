@@ -224,7 +224,7 @@ Exit codes:
 | 2 | API/network/config/render error |
 | 3 | pending/running |
 
-Schema and fixtures live under `internal/render/testdata/`. Full agent docs are in [docs/agent-surface.md](docs/agent-surface.md); the repo-local skill handoff is [skills/gh-hound/SKILL.md](skills/gh-hound/SKILL.md).
+Schema and fixtures live under `internal/render/testdata/`. Full agent docs are in [docs/agent-surface.md](docs/agent-surface.md); the repo-local skill handoff is [skill/SKILL.md](skill/SKILL.md).
 
 ## Architecture
 

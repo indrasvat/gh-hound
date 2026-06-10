@@ -1,0 +1,14 @@
+# Cloudflare Pages redirects for gh-hound.pages.dev.
+# Operator-friendly short URLs. /install.sh itself is staged by the
+# deploy workflow from the repo-root installer.
+
+/install              /install.sh                                                  200
+
+/docs                 https://github.com/indrasvat/gh-hound/tree/main/docs          302
+/agent                https://github.com/indrasvat/gh-hound/blob/main/docs/agent-surface.md 302
+/skill                https://github.com/indrasvat/gh-hound/tree/main/skill          302
+/source               https://github.com/indrasvat/gh-hound                         302
+/repo                 https://github.com/indrasvat/gh-hound                         302
+/issues               https://github.com/indrasvat/gh-hound/issues                  302
+/changelog            https://github.com/indrasvat/gh-hound/releases                302
+/releases             https://github.com/indrasvat/gh-hound/releases                302
