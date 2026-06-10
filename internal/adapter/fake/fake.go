@@ -218,17 +218,20 @@ func (a *Adapter) FetchJobLog(context.Context, string, int64) (string, error) {
 	if a.scenario == ScenarioLogRender {
 		return "", usecase.LogRenderError{Message: "link expired"}
 	}
+	// Timestamped like real runner logs (with a 51s gap before the
+	// failing test) so the time-jump picker's clocks and gap entries
+	// are exercisable in the deterministic lens.
 	return strings.Join([]string{
 		"17:42:53.114Z go test ./... -race",
-		"##[group] Run go test ./...",
-		"ok    internal/api 0.214s",
-		"##[group] test output",
-		"=== RUN   TestLexIdent/trailing_underscore",
-		"    internal/parser/lexer.go:142: got \"foo\" want \"foo_\"",
-		"--- FAIL: TestLexIdent/trailing_underscore (0.00s)",
-		"FAIL  github.com/indrasvat/gh-hound/internal/parser  0.412s",
-		"##[error]Process completed with exit code 1",
-		"##[endgroup]",
+		"17:42:53.500Z ##[group] Run go test ./...",
+		"17:42:54.100Z ok    internal/api 0.214s",
+		"17:43:45.000Z ##[group] test output",
+		"17:43:45.200Z === RUN   TestLexIdent/trailing_underscore",
+		"17:43:45.300Z     internal/parser/lexer.go:142: got \"foo\" want \"foo_\"",
+		"17:43:46.000Z --- FAIL: TestLexIdent/trailing_underscore (0.00s)",
+		"17:43:46.100Z FAIL  github.com/indrasvat/gh-hound/internal/parser  0.412s",
+		"17:43:46.200Z ##[error]Process completed with exit code 1",
+		"17:43:46.300Z ##[endgroup]",
 		"##[endgroup]",
 	}, "\n"), nil
 }

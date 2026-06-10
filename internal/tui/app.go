@@ -1052,7 +1052,10 @@ func (a App) timeJumpBreadcrumb() string {
 	}
 	if len(a.timeJump.Entries) > a.timeJump.Selected {
 		entry := a.timeJump.Entries[a.timeJump.Selected]
-		return entry.Clock
+		if entry.Clock != "" {
+			return entry.Clock
+		}
+		return entry.Label
 	}
 	return ""
 }

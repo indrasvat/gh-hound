@@ -32,6 +32,7 @@ scenarios=(
   runs-filter
   runs-status-cycle
   log-time-jump
+  log-time-picker
   detail-nav
   detail-artifacts
   detail-artifact-confirm
@@ -68,6 +69,7 @@ keys_for() {
     runs-filter) printf '/ f a i l enter' ;;
     runs-status-cycle) printf 'f' ;;
     log-time-jump) printf 'enter enter l t 1 7 : 4 2 enter' ;;
+    log-time-picker) printf 'enter enter l t' ;;
     detail-nav) printf 'enter tab n' ;;
     detail-artifacts) printf 'enter a j k' ;;
     detail-artifact-confirm) printf 'enter a enter' ;;
