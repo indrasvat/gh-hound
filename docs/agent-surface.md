@@ -37,6 +37,8 @@ Each run includes:
 
 The failure object is the stable agent contract. Agents should not screen-scrape the TUI or parse raw GitHub logs when this object is available.
 
+Triage degrades per job instead of failing the listing: when a job log has expired or cannot be fetched, `log_excerpt` is empty and `exit_code` falls back to `1`, but the failure entry itself — `job`, `step`, `annotations[]` — is always present for every failed job.
+
 ## Deterministic Verification
 
 For local tests and docs, use fake scenarios:

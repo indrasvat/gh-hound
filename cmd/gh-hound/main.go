@@ -11,6 +11,7 @@ import (
 	goruntime "runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/indrasvat/gh-hound/internal/adapter/fake"
@@ -1015,7 +1016,58 @@ func liveResult(ctx context.Context, options cliOptions, runtime commandRuntime)
 		return render.Result{}, err
 	}
 	runs = filterRunsByConclusion(runs, options.Status)
-	return render.Result{Repo: repo, Branch: branch, Runs: mapRenderRuns(runs)}, nil
+	renderRuns := mapRenderRuns(runs)
+	attachFailures(ctx, usecase.TriageService{GitHub: githubClient}, repo, runs, renderRuns)
+	return render.Result{Repo: repo, Branch: branch, Runs: renderRuns}, nil
+}
+
+// triageWorkers bounds concurrent failure enrichment so a fully red
+// --all listing stays fast without hammering the API.
+const triageWorkers = 4
+
+// attachFailures fills failed[] for actionable runs in place. A triage
+// error leaves that run's failed[] empty instead of failing the whole
+// listing; the run conclusion and exit code still signal the failure.
+func attachFailures(ctx context.Context, triage usecase.TriageService, repo string, runs []model.Run, out []render.Run) {
+	semaphore := make(chan struct{}, triageWorkers)
+	var wg sync.WaitGroup
+	for i, run := range runs {
+		wg.Add(1)
+		go func(i int, run model.Run) {
+			defer wg.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+			failures, err := triage.LoadRunFailures(ctx, repo, run)
+			if err != nil || len(failures) == 0 {
+				return
+			}
+			out[i].Failed = mapRenderFailures(failures)
+		}(i, run)
+	}
+	wg.Wait()
+}
+
+func mapRenderFailures(failures []usecase.RunFailure) []render.Failure {
+	out := make([]render.Failure, 0, len(failures))
+	for _, failure := range failures {
+		annotations := make([]render.Annotation, 0, len(failure.Annotations))
+		for _, annotation := range failure.Annotations {
+			annotations = append(annotations, render.Annotation{
+				Path:    annotation.Path,
+				Line:    annotation.StartLine,
+				Level:   annotation.Level,
+				Message: annotation.Message,
+			})
+		}
+		out = append(out, render.Failure{
+			Job:         failure.Job.Name,
+			Step:        failure.Step.Name,
+			ExitCode:    failure.ExitCode,
+			Annotations: annotations,
+			LogExcerpt:  failure.LogExcerpt,
+		})
+	}
+	return out
 }
 
 func parseStatusFilter(raw string) (string, error) {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -784,6 +785,109 @@ func testBuildInfo() buildInfo {
 	return buildInfo{Version: "v0.1.0", Commit: "a1b2c3d", Date: "2026-06-07T00:00:00Z"}
 }
 
+func TestRunsJSONIncludesFailureTriage(t *testing.T) {
+	var out bytes.Buffer
+	github := &cliGitHub{
+		runs: []model.Run{cliRun(911, "CI", model.StatusCompleted, model.ConclusionFailure)},
+		jobs: []model.Job{{
+			ID:         77,
+			Name:       "Lint, Test, Build",
+			Status:     model.StatusCompleted,
+			Conclusion: model.ConclusionFailure,
+			Steps: []model.Step{
+				{Name: "Set up job", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, Number: 1},
+				{Name: "Run CI", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure, Number: 7},
+			},
+		}},
+		jobLog: "--- FAIL: TestLexIdent (0.00s)\n##[error]Process completed with exit code 1",
+		annotations: []model.Annotation{{
+			Path:      "internal/parser/lexer.go",
+			StartLine: 142,
+			Level:     "failure",
+			Message:   "identifier mismatch",
+		}},
+	}
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: &bytes.Buffer{},
+		Env:    emptyEnv,
+		IsTTY:  false,
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--no-tui", "--json"})
+
+	code, err := executeCommand(cmd)
+	if err == nil {
+		t.Fatal("runs with a failed run should return an action-needed outcome")
+	}
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1", code)
+	}
+	var decoded struct {
+		Runs []struct {
+			Failed []struct {
+				Job         string `json:"job"`
+				Step        string `json:"step"`
+				ExitCode    int    `json:"exit_code"`
+				LogExcerpt  string `json:"log_excerpt"`
+				Annotations []struct {
+					Path    string `json:"path"`
+					Line    int    `json:"line"`
+					Level   string `json:"level"`
+					Message string `json:"message"`
+				} `json:"annotations"`
+			} `json:"failed"`
+		} `json:"runs"`
+	}
+	if jsonErr := json.Unmarshal(out.Bytes(), &decoded); jsonErr != nil {
+		t.Fatalf("invalid JSON: %v\n%s", jsonErr, out.String())
+	}
+	if len(decoded.Runs) != 1 || len(decoded.Runs[0].Failed) != 1 {
+		t.Fatalf("failed[] not populated for a real failed run:\n%s", out.String())
+	}
+	failure := decoded.Runs[0].Failed[0]
+	if failure.Job != "Lint, Test, Build" || failure.Step != "Run CI" {
+		t.Fatalf("failure identity = %q / %q", failure.Job, failure.Step)
+	}
+	if failure.ExitCode != 1 {
+		t.Fatalf("exit_code = %d, want 1", failure.ExitCode)
+	}
+	if !strings.Contains(failure.LogExcerpt, "--- FAIL: TestLexIdent") {
+		t.Fatalf("log_excerpt missing failure anchor: %q", failure.LogExcerpt)
+	}
+	if len(failure.Annotations) != 1 || failure.Annotations[0].Path != "internal/parser/lexer.go" || failure.Annotations[0].Line != 142 {
+		t.Fatalf("annotations = %#v", failure.Annotations)
+	}
+}
+
+func TestRunsJSONGreenRunsSkipTriageCalls(t *testing.T) {
+	var out bytes.Buffer
+	github := &cliGitHub{
+		runs: []model.Run{
+			cliRun(912, "CI", model.StatusCompleted, model.ConclusionSuccess),
+			cliRun(913, "Release", model.StatusCompleted, model.ConclusionSuccess),
+		},
+	}
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: &bytes.Buffer{},
+		Env:    emptyEnv,
+		IsTTY:  false,
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--no-tui", "--json"})
+
+	code, err := executeCommand(cmd)
+	if err != nil || code != 0 {
+		t.Fatalf("green runs exit = %d, err = %v", code, err)
+	}
+	if github.listJobs != 0 || github.fetchJobLog != 0 {
+		t.Fatalf("green runs must not trigger triage API calls: listJobs=%d fetchJobLog=%d", github.listJobs, github.fetchJobLog)
+	}
+}
+
 func emptyEnv(string) (string, bool) {
 	return "", false
 }
@@ -805,10 +909,12 @@ func (r *cliRepo) Current(context.Context) (usecase.RepositoryContext, error) {
 }
 
 type cliGitHub struct {
+	mu             sync.Mutex
 	runs           []model.Run
 	runBatches     [][]model.Run
 	jobs           []model.Job
 	jobLog         string
+	annotations    []model.Annotation
 	filters        []usecase.RunFilter
 	listJobs       int
 	fetchJobLog    int
@@ -835,6 +941,8 @@ func (g *cliGitHub) GetRun(context.Context, string, int64) (model.Run, error) {
 }
 
 func (g *cliGitHub) ListJobs(context.Context, string, int64) ([]model.Job, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	g.listJobs++
 	return g.jobs, nil
 }
@@ -858,10 +966,14 @@ func (g *cliGitHub) FetchWorkflowFile(_ context.Context, _ string, path string) 
 }
 
 func (g *cliGitHub) ListAnnotations(context.Context, string, model.Job) ([]model.Annotation, error) {
-	return nil, nil
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.annotations, nil
 }
 
 func (g *cliGitHub) FetchJobLog(context.Context, string, int64) (string, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	g.fetchJobLog++
 	return g.jobLog, nil
 }
