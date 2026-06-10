@@ -58,15 +58,15 @@ func (m Model) Update(msg KeyMsg) Model {
 			m = m.ClearRange()
 		}
 	case "j", "down":
-		m.Offset = min(m.Offset+1, max(1, len(m.Document.Lines)))
+		m.Offset = min(m.Offset+1, m.maxTop())
 	case "k", "up":
 		m.Offset = max(1, m.Offset-1)
 	case "g":
 		m.Offset = 1
 	case "G":
-		m.Offset = max(1, len(m.Document.Lines)-m.Height+1)
+		m.Offset = m.maxTop()
 	case "ctrl+d":
-		m.Offset = min(m.Offset+m.Height/2, max(1, len(m.Document.Lines)))
+		m.Offset = min(m.Offset+m.Height/2, m.maxTop())
 	case "ctrl+u":
 		m.Offset = max(1, m.Offset-m.Height/2)
 	case "/":
@@ -222,7 +222,7 @@ func (m *Model) jumpToTime(query string) {
 				break
 			}
 		}
-		if d == 0 && query < first {
+		if d == 0 && clockBefore(query, first) {
 			continue
 		}
 		for _, line := range lines {
@@ -237,10 +237,27 @@ func (m *Model) jumpToTime(query string) {
 	// predates the log, so land on the first stamped line. Multi-day
 	// logs reaching here mean the query is past every span -- no jump
 	// (a lexically-small query there is post-midnight, not earlier).
-	if day == 0 && query < lines[0].clock {
+	if day == 0 && clockBefore(query, lines[0].clock) {
 		m.Offset = lines[0].number
 		m.LastJump = query
 	}
+}
+
+// clockBefore reports query < clock with prefix semantics: a query
+// that is a prefix of the clock ("10:00" vs "10:00:00.000") is not
+// before it.
+func clockBefore(query, clock string) bool {
+	if len(clock) > len(query) {
+		clock = clock[:len(query)]
+	}
+	return query < clock
+}
+
+// maxTop is the highest top-of-viewport line that still fills the
+// screen (Height counts body rows; the header is budgeted by the
+// caller).
+func (m Model) maxTop() int {
+	return max(1, len(m.Document.Lines)-max(m.Height, 1)+1)
 }
 
 func (m Model) Collapsed(line int) bool {
@@ -308,7 +325,7 @@ func (m Model) visibleRows() []row {
 	for _, fold := range m.Document.Folds {
 		folds[fold.StartLine] = fold
 	}
-	for i := max(0, m.Offset-1); i < len(m.Document.Lines) && len(rows) < m.Height; i++ {
+	for i := max(0, m.Offset-1); i < len(m.Document.Lines) && len(rows) < max(m.Height, 1); i++ {
 		line := m.Document.Lines[i]
 		if m.RangeLabel != "" && (line.Number < m.RangeStart || line.Number > m.RangeEnd) {
 			if line.Number > m.RangeEnd {

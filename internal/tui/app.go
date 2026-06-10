@@ -92,6 +92,7 @@ type App struct {
 	build                     BuildInfo
 	theme                     theme.Theme
 	routes                    []Route
+	viewportHeight            int
 	overlays                  []Overlay
 	inputMode                 bool
 	quit                      bool
@@ -364,6 +365,9 @@ func (a App) ViewSize(width, height int) string {
 		}
 		if a.TopOverlay() == OverlayConfirm {
 			footer = "y confirm · enter/n/esc cancel"
+		}
+		if a.TopOverlay() == OverlayTimeJump {
+			footer = "j/k pick · type time · ⏎ go · ⎋ cancel"
 		}
 	} else {
 		body = toastLayer(a.theme, body, a.toasts, contentWidth(width))
@@ -927,7 +931,19 @@ func (a App) updateFailure(msg KeyMsg) (App, bool) {
 	return a, failureHandled(msg.Key) || a.failure.Intent.Kind != failure.IntentNone
 }
 
+// WithViewport records the terminal size so key handling (G, ctrl+d)
+// scrolls against the real viewport, not the resolver's default.
+func (a App) WithViewport(width, height int) App {
+	a.viewportHeight = height
+	return a
+}
+
 func (a App) updateLog(msg KeyMsg) (App, bool) {
+	if a.viewportHeight > 0 {
+		if rows := bodyHeight(a.viewportHeight) - 1; rows > 0 {
+			a.log.Height = rows
+		}
+	}
 	if msg.Key == "t" && !a.log.InputMode {
 		a.timeJump = timejump.New(a.log.Document)
 		a.overlays = append(a.overlays, OverlayTimeJump)

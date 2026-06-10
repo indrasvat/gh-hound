@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -1827,5 +1828,23 @@ func TestTimeJumpPickerAndRangeFlow(t *testing.T) {
 	app, _ = app.Update(KeyMsg{Key: "esc"})
 	if app.log.RangeLabel != "" || app.Route() != RouteLog {
 		t.Fatalf("first esc clears the range and stays on log: %q %s", app.log.RangeLabel, app.Route())
+	}
+}
+
+func TestGUsesRealViewportHeight(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{Config: cfg})
+	lines := make([]string, 60)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("00:%02d:00Z line content", i%60)
+	}
+	app.log = logscreen.NewModel(logs.Parse(strings.Join(lines, "\n")), 1, 6)
+	app.PushRoute(RouteLog)
+	app = app.WithViewport(120, 40)
+	app, _ = app.Update(KeyMsg{Key: "G"})
+	view := ansi.Strip(app.ViewSize(120, 40))
+	if !strings.Contains(view, "060 ") {
+		t.Fatalf("G with a 40-row viewport must reach the last line:\n%s", view)
 	}
 }

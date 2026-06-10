@@ -126,3 +126,41 @@ func TestViewRendersPickerAndInput(t *testing.T) {
 		}
 	}
 }
+
+func TestRangeDoesNotLeakAcrossMidnight(t *testing.T) {
+	doc := logs.Parse(strings.Join([]string{
+		"10:00:00.000Z day one work",
+		"10:05:00.000Z day one more",
+		"23:59:00.000Z day one end",
+		"00:01:00.000Z day two start",
+		"10:02:00.000Z day two mid",
+	}, "\n"))
+	m := New(doc)
+	for _, key := range []string{"1", "0", ":", "0", "0", "-", "1", "0", ":", "0", "5"} {
+		m = m.Update(key)
+	}
+	_, action := m.Commit()
+	if action.Kind != ActionRange {
+		t.Fatalf("expected range action: %#v", action)
+	}
+	if action.EndLine != 2 {
+		t.Fatalf("range 10:00-10:05 must end at line 2 (day one), not leak into day two: %#v", action)
+	}
+}
+
+func TestRangeCrossingMidnight(t *testing.T) {
+	doc := logs.Parse(strings.Join([]string{
+		"23:58:00.000Z before",
+		"23:59:00.000Z almost",
+		"00:01:00.000Z after wrap",
+		"00:30:00.000Z later",
+	}, "\n"))
+	m := New(doc)
+	for _, key := range []string{"2", "3", ":", "5", "9", "-", "0", "0", ":", "0", "5"} {
+		m = m.Update(key)
+	}
+	_, action := m.Commit()
+	if action.Kind != ActionRange || action.Line != 2 || action.EndLine != 3 {
+		t.Fatalf("23:59-00:05 must span the wrap (lines 2-3): %#v", action)
+	}
+}

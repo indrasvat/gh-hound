@@ -87,3 +87,17 @@ func TestJumpRelativeMovesByDelta(t *testing.T) {
 		t.Fatalf("relative jump past start clamps to first line, got %d", m.Offset)
 	}
 }
+
+func TestGReachesTheLastLine(t *testing.T) {
+	doc := logs.Parse("00:01:00Z l1\n00:02:00Z l2\n00:03:00Z l3\n00:04:00Z l4\n00:05:00Z l5")
+	m := NewModel(doc, 1, 3) // 3 body rows
+	m = m.Update(KeyMsg{Key: "G"})
+	rows := m.VisibleRowNumbers()
+	if rows[len(rows)-1] != 5 {
+		t.Fatalf("G must reach the final line, got rows %v", rows)
+	}
+	m = m.Update(KeyMsg{Key: "j"})
+	if got := m.VisibleRowNumbers(); got[len(got)-1] != 5 {
+		t.Fatalf("j past end must not overscroll, got rows %v", got)
+	}
+}

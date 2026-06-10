@@ -331,6 +331,7 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 		return err
 	}
 	width, height := terminalSize(runtime.Stdout)
+	app = app.WithViewport(width, height)
 	restore, err := rawInput(runtime.Stdin, runtime.IsTTY)
 	if err != nil {
 		return err
@@ -371,6 +372,7 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 			return ctx.Err()
 		case <-resizeEvents:
 			width, height = terminalSize(runtime.Stdout)
+			app = app.WithViewport(width, height)
 			if err := render(); err != nil {
 				return err
 			}

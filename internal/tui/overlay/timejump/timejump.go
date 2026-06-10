@@ -206,7 +206,7 @@ func resolveClock(timeline []logs.Stamp, query string) (int, bool) {
 				break
 			}
 		}
-		if day == 0 && query < first {
+		if day == 0 && clockBefore(query, first) {
 			continue
 		}
 		for _, stamp := range timeline {
@@ -215,20 +215,42 @@ func resolveClock(timeline []logs.Stamp, query string) (int, bool) {
 			}
 		}
 	}
-	if maxDay == 0 && query < timeline[0].Clock {
+	if maxDay == 0 && clockBefore(query, timeline[0].Clock) {
 		return timeline[0].LineNumber, true
 	}
 	return 0, false
 }
 
+// resolveRange works in day-aware effective seconds so multi-day logs
+// cannot leak later days into the window, while ranges that genuinely
+// cross midnight (end clock below start clock) still span the wrap.
 func (m Model) resolveRange(start, end string) (int, int, bool) {
 	startLine, ok := resolveClock(m.timeline, start)
 	if !ok {
 		return 0, 0, false
 	}
+	var startStamp logs.Stamp
+	for _, stamp := range m.timeline {
+		if stamp.LineNumber == startLine {
+			startStamp = stamp
+			break
+		}
+	}
+	endClock, ok := logs.ClockSeconds(end)
+	if !ok {
+		return 0, 0, false
+	}
+	// Minute-precision ends include the whole minute.
+	if len(strings.Split(end, ":")) == 2 {
+		endClock += 59.999
+	}
+	endSeconds := float64(startStamp.Day)*86400 + endClock
+	if endSeconds < startStamp.Seconds {
+		endSeconds += 86400 // range crosses midnight
+	}
 	last := 0
 	for _, stamp := range m.timeline {
-		if stamp.LineNumber >= startLine && stamp.Clock <= padClock(end) {
+		if stamp.LineNumber >= startLine && stamp.Seconds <= endSeconds {
 			last = stamp.LineNumber
 		}
 	}
@@ -238,13 +260,14 @@ func (m Model) resolveRange(start, end string) (int, int, bool) {
 	return startLine, last, true
 }
 
-// padClock widens a partial range end ("17:43" means up to 17:43:59…)
-// so the lexical comparison includes the whole minute.
-func padClock(clock string) string {
-	if len(strings.Split(clock, ":")) == 2 {
-		return clock + ":99"
+// clockBefore reports query < clock with prefix semantics: a query
+// that is a prefix of the clock ("10:00" vs "10:00:00.000") is not
+// before it.
+func clockBefore(query, clock string) bool {
+	if len(clock) > len(query) {
+		clock = clock[:len(query)]
 	}
-	return clock + "~"
+	return query < clock
 }
 
 func shortClock(clock string) string {
