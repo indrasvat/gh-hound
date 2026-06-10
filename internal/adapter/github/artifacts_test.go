@@ -100,3 +100,39 @@ func TestDownloadArtifactMapsGoneToExpiredError(t *testing.T) {
 		t.Fatalf("error should mention expiry: %v", err)
 	}
 }
+
+type alwaysAuthTransport struct{}
+
+func (alwaysAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	clone := req.Clone(req.Context())
+	clone.Header.Set("Authorization", "Bearer leaked-token")
+	return http.DefaultTransport.RoundTrip(clone)
+}
+
+func TestDownloadArtifactNeverForwardsAuthToBlobHost(t *testing.T) {
+	var blobAuth string
+	blob := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		blobAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte("zipbytes"))
+	}))
+	defer blob.Close()
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, blob.URL+"/signed", http.StatusFound)
+	}))
+	defer api.Close()
+
+	// Hostile injected client: adds auth to EVERY request regardless of
+	// host. The blob hop must still see no Authorization header.
+	client := NewClient(api.URL, &http.Client{Transport: alwaysAuthTransport{}})
+	body, err := client.DownloadArtifact(context.Background(), "indrasvat/gh-hound", 7)
+	if err != nil {
+		t.Fatalf("DownloadArtifact returned error: %v", err)
+	}
+	defer func() { _ = body.Close() }()
+	if _, err := io.ReadAll(body); err != nil {
+		t.Fatal(err)
+	}
+	if blobAuth != "" {
+		t.Fatalf("blob host received Authorization header: %q", blobAuth)
+	}
+}

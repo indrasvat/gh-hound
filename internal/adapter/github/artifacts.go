@@ -127,7 +127,14 @@ func (c *Client) fetchArtifactStream(ctx context.Context, rawURL string) (io.Rea
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.http.Do(req)
+	// The signed blob URL is self-authorizing. Use a bare client so an
+	// injected auth transport can never leak the GitHub token to the
+	// storage host, whatever its host-matching rules are.
+	bare := &http.Client{Transport: http.DefaultTransport}
+	if c.http != nil {
+		bare.Timeout = c.http.Timeout
+	}
+	resp, err := bare.Do(req)
 	if err != nil {
 		c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: "github-actions-artifact-download", Duration: time.Since(start), Err: err.Error()})
 		return nil, err
