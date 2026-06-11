@@ -101,6 +101,11 @@
         <p class="trail-a">Full log with <b>folds, search, line numbers</b> and highlights.</p>
       </div>
       <div class="trail-row reveal">
+        <p class="trail-q">Who broke main?</p>
+        <div class="keys"><span class="key">:diff</span></div>
+        <p class="trail-a">Walks run history to the <b>last green &rarr; first red</b> boundary and names the suspects. No bisect.</p>
+      </div>
+      <div class="trail-row reveal">
         <p class="trail-q">Can I retry safely?</p>
         <div class="keys"><span class="key">r</span><span class="key">R</span><span class="key">x</span></div>
         <p class="trail-a">Rerun, rerun failed, cancel: local, visible, <b>confirmation-gated</b>.</p>
@@ -131,7 +136,7 @@
   <section id="screens" class="wrap">
     <div class="section-head reveal">
       <h2>Best in show.</h2>
-      <p class="lede">One tab per trick: failure forensics, log time travel, a live watch, the palette, the deploy gate, the good ending. Every frame rendered by <span class="hound">gh-hound</span> itself &mdash; the full log is this repo's own CI, caught red-handed.</p>
+      <p class="lede">One tab per trick: failure forensics, log time travel, a live watch, the palette, the deploy gate, the trail, the good ending. Every frame rendered by <span class="hound">gh-hound</span> itself &mdash; the full log is this repo's own CI, caught red-handed.</p>
     </div>
     <div class="tabs reveal" role="tablist" aria-label="gh-hound screens">
       <button class="tab" role="tab" aria-selected="true" data-shot="shot-detail">run detail</button>
@@ -141,6 +146,7 @@
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-watch">watch</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-palette">palette</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-approvals">approvals</button>
+      <button class="tab" role="tab" aria-selected="false" data-shot="shot-diff">the trail</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-green">all green</button>
     </div>
     <div class="shot-stage reveal">
@@ -167,6 +173,10 @@
       <figure class="shot" id="shot-palette" role="tabpanel" hidden>
         <div class="term"><img src="/assets/shots/palette.png" alt="Command palette overlay listing jump targets like runs, failures, artifacts and dispatch" loading="lazy" width="2242" height="780"></div>
         <figcaption class="shot-caption">command palette · : jumps anywhere</figcaption>
+      </figure>
+      <figure class="shot" id="shot-diff" role="tabpanel" hidden>
+        <div class="term"><img src="/assets/shots/diff.png" alt="The trail screen: last-green and first-red runs flagged with a suspect commit list between them" loading="lazy" width="2242" height="820"></div>
+        <figcaption class="shot-caption">the trail · :diff walks history to whoever broke main</figcaption>
       </figure>
       <figure class="shot" id="shot-approvals" role="tabpanel" hidden>
         <div class="term"><img src="/assets/shots/approvals.png" alt="Deploy gate overlay: pickable pending environments with reviewers, a locked staging gate, and a review comment line" loading="lazy" width="2242" height="820"></div>
@@ -221,6 +231,7 @@
       <div class="reveal">
         <p style="color:var(--muted);font-size:0.97rem">Agents don&rsquo;t click dashboards &mdash; they read <span class="mono" style="color:var(--fg-soft)">stdout</span>. Point yours at <span class="sh"><span class="ps1">$</span>gh hound runs --no-tui --json</span> and branch on the exit code. Deterministic fake scenarios let your harness play fetch without ever touching the network.</p>
         <p style="color:var(--muted);font-size:0.97rem;margin-top:0.8rem">And the leash works both ways: <span class="sh"><span class="ps1">$</span>gh hound rerun --run &lt;id&gt; --failed-only --debug</span> sends the failures back out with debug logging &mdash; <span class="sh"><span class="ps1">$</span>gh hound cancel</span> calls them off. Same JSON, same exit codes, one API call each.</p>
+        <p style="color:var(--muted);font-size:0.97rem;margin-top:0.8rem">When main goes red, <span class="sh"><span class="ps1">$</span>gh hound diff --workflow CI --no-tui --json</span> returns the verdict as data: last good run, first bad run, suspect commits. Exit 1 means a culprit exists &mdash; no bisect, no blame archaeology.</p>
         <table class="exit-table">
           <caption>exit codes &middot; barks, translated</caption>
           <tbody>
