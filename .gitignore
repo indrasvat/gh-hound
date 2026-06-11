@@ -37,6 +37,7 @@ go.work.sum
 bin/
 dist/
 gh-ghent
+/gh-hound
 
 # Coverage
 coverage/

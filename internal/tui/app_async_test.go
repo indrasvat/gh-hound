@@ -435,6 +435,12 @@ func TestFailureOpenIsAsync(t *testing.T) {
 	if !strings.Contains(view, "fetching the failure") {
 		t.Fatalf("failure loading body missing:\n%s", view)
 	}
+	// The pending-load guard: the "failure unavailable" error must never
+	// flash during the fetch (QA round 17 gap — the loading body owns
+	// the screen until the failure lands).
+	if strings.Contains(view, "failure unavailable") {
+		t.Fatalf("the unavailable error flashed during the fetch:\n%s", view)
+	}
 	close(release)
 	app = settleApp(t, app)
 	settled := ansi.Strip(app.ViewSized(124))

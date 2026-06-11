@@ -25,22 +25,34 @@ func View(screen keys.Screen, width int) string {
 			views = append(views, text)
 		}
 	}
-	lines := []string{"help · gh hound", "Navigate"}
-	lines = append(lines, wrapEntries(nav, width)...)
-	lines = append(lines, "Actions")
-	lines = append(lines, wrapEntries(actions, width)...)
-	lines = append(lines, "View")
-	lines = append(lines, wrapEntries(views, width)...)
+	lines := []string{"help · gh hound"}
+	lines = append(lines, section("Navigate", nav, width)...)
+	lines = append(lines, section("Actions", actions, width)...)
+	lines = append(lines, section("View", views, width)...)
 	lines = append(lines, "Legend", icons.Success+" success · "+icons.Failure+" failure · "+icons.InProgress+" running")
 	return fitLines(lines, width)
 }
 
+// section renders a help heading and its wrapped entries — or nothing
+// at all when the screen binds no keys in that group, so action-less
+// screens (the scent check) don't show an empty "Actions" heading.
+func section(heading string, entries []string, width int) []string {
+	if len(entries) == 0 {
+		return nil
+	}
+	return append([]string{heading}, wrapEntries(entries, width)...)
+}
+
 // wrapEntries flows key entries into · -separated lines that fit the
 // width: a section with many bindings wraps instead of truncating its
-// tail entries into unreadability.
+// tail entries into unreadability. Callers guard against the empty
+// slice via section; defensively it returns nothing here too.
 func wrapEntries(entries []string, width int) []string {
 	if width <= 0 {
 		width = 80
+	}
+	if len(entries) == 0 {
+		return nil
 	}
 	lines := []string{}
 	current := ""

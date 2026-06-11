@@ -31,3 +31,25 @@ func TestHelpWrapsLongSectionsInsteadOfTruncating(t *testing.T) {
 		}
 	}
 }
+
+func TestHelpOmitsEmptyActionsSection(t *testing.T) {
+	// The scent check binds no rerun/cancel/dispatch keys: the help
+	// overlay must not render an "Actions" heading over a blank line.
+	view := View(keys.ScreenFlakes, 80)
+	if strings.Contains(view, "Actions") {
+		t.Fatalf("action-less screen rendered an empty Actions section:\n%s", view)
+	}
+	// The sections it DOES have still render.
+	for _, want := range []string{"Navigate", "Legend"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("help view missing %q:\n%s", want, view)
+		}
+	}
+	// No stray blank section lines (heading immediately followed by a
+	// blank then another heading).
+	for line := range strings.SplitSeq(view, "\n") {
+		if strings.TrimSpace(line) == "" {
+			t.Fatalf("help view has a blank line — empty section leaked:\n%s", view)
+		}
+	}
+}

@@ -800,6 +800,11 @@ func RenderFixtureSize(screen string, width, height int) string {
 		scentApp.flakes = flakesscreen.NewModel(sampleFlakeReport())
 		scentApp.routes = []Route{RouteRuns, RouteFlakes}
 		return scentApp.ViewSize(width, height)
+	case "flakes-clean":
+		scentApp := NewScenarioApp("green", BuildInfo{Version: "v0.1.0"})
+		scentApp.flakes = flakesscreen.NewModel(sampleCleanFlakeReport())
+		scentApp.routes = []Route{RouteRuns, RouteFlakes}
+		return scentApp.ViewSize(width, height)
 	case "failure-flaky":
 		scentApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
 		report := sampleFlakeReport()
@@ -4836,6 +4841,24 @@ func sampleFlakeReport() usecase.FlakeReport {
 			},
 		}},
 		Verdict: "seen this one before: it's a squirrel — build flaked 2 of the last 6 runs.",
+	}
+}
+
+// sampleCleanFlakeReport is the fresh-scent state — a full window with
+// nothing wobbling. The flaky scenario can never reach it (it always
+// flips), so this fixture is the only lens, human or screenshot, on
+// the clean verdict's ok-green header and "nothing wobbled" line.
+func sampleCleanFlakeReport() usecase.FlakeReport {
+	return usecase.FlakeReport{
+		Repo:             "indrasvat/gh-hound",
+		Workflow:         "ci.yml",
+		Branch:           "main",
+		Status:           usecase.FlakeStatusClean,
+		SampleSize:       8,
+		Window:           50,
+		RunsScanned:      8,
+		SignalsEvaluated: []string{"attempt_flips", "cross_run_flaps", "retry_masks"},
+		Verdict:          "fresh scent — worth chasing: no flake history in the last 8 runs.",
 	}
 }
 
