@@ -1624,3 +1624,57 @@ func TestResolveTargetForeignRepoDropsLocalBranch(t *testing.T) {
 		t.Fatalf("same repo lost local branch: %q", same.branch)
 	}
 }
+
+func TestDispatchSubcommandRefusesPipeMode(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: &bytes.Buffer{},
+		Env:    emptyEnv,
+		IsTTY:  false,
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"dispatch", "--no-tui", "--json", "-R", "x/y"})
+	code, err := executeCommand(cmd)
+	if code != 2 || err == nil {
+		t.Fatalf("pipe dispatch exit = %d err = %v, want 2", code, err)
+	}
+	if !strings.Contains(err.Error(), "dispatch is interactive") {
+		t.Fatalf("err = %v", err)
+	}
+	if strings.Contains(out.String(), `"runs"`) {
+		t.Fatalf("pipe dispatch still prints runs JSON:\n%s", out.String())
+	}
+}
+
+func TestDispatchSubcommandLaunchOpensForm(t *testing.T) {
+	github := &refAwareGitHub{
+		cliGitHub: &cliGitHub{
+			workflows: []model.Workflow{{ID: 99, Name: "Deploy", Path: ".github/workflows/deploy.yml", State: "active"}},
+			workflowFiles: map[string]string{
+				".github/workflows/deploy.yml": "on:\n  workflow_dispatch:\n",
+			},
+		},
+		defaultBranch: "trunk",
+		existingRefs:  map[string]bool{"trunk": true},
+	}
+	app, err := defaultTUIApp(context.Background(), commandRuntime{
+		Env:    mapEnv(map[string]string{"HOUND_WELCOME": "false"}),
+		IsTTY:  true,
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main", Actor: "indrasvat"}},
+	}, tui.BuildInfo{Version: "v0.1.0"}, cliOptions{Repo: "openclaw/openclaw", LaunchRoute: usecase.LaunchRouteDispatch})
+	if err != nil {
+		t.Fatalf("defaultTUIApp: %v", err)
+	}
+	app, settled := app.SettleLoads(2 * time.Second)
+	if !settled {
+		t.Fatal("dispatch launch load did not settle")
+	}
+	if app.Route() != tui.RouteDispatch {
+		t.Fatalf("route = %s, want dispatch", app.Route())
+	}
+	view := ansi.Strip(app.ViewSize(120, 32))
+	if !strings.Contains(view, "trunk") || !strings.Contains(view, "Deploy") {
+		t.Fatalf("dispatch launch form incomplete:\n%s", view)
+	}
+}

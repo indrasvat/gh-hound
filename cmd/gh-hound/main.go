@@ -100,6 +100,7 @@ type cliOptions struct {
 	Download      string
 	Dir           string
 	Force         bool
+	LaunchRoute   usecase.LaunchRoute
 }
 
 func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Command {
@@ -161,7 +162,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.AddCommand(newVQATUICommand(runtime, info))
 	cmd.AddCommand(newRunsCommand(runtime, &options))
 	cmd.AddCommand(newWatchCommand(runtime, &options))
-	cmd.AddCommand(newDispatchCommand(runtime, &options))
+	cmd.AddCommand(newDispatchCommand(runtime, info, &options))
 	cmd.AddCommand(newArtifactsCommand(runtime, &options))
 	cmd.AddCommand(newRerunCommand(runtime, &options))
 	cmd.AddCommand(newCancelCommand(runtime, &options))
@@ -448,13 +449,20 @@ func newWatchCommand(runtime commandRuntime, options *cliOptions) *cobra.Command
 	}
 }
 
-func newDispatchCommand(runtime commandRuntime, options *cliOptions) *cobra.Command {
+func newDispatchCommand(runtime commandRuntime, info buildInfo, options *cliOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:   "dispatch",
 		Short: "Trigger a workflow_dispatch workflow",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			options.NoTUI = true
-			return writeResult(cmd.Context(), runtime.Stdout, *options, runtime)
+			applyEnv(options, runtime.Env)
+			if options.NoTUI || options.JSON || !runtime.IsTTY {
+				// The dispatch form is interactive; a flag-driven pipe
+				// dispatch verb is planned (spec 240 conventions) but
+				// not built — refusing beats silently printing runs.
+				return errors.New("dispatch is interactive; run it in a terminal TUI (a flag-driven dispatch verb is planned)")
+			}
+			options.LaunchRoute = usecase.LaunchRouteDispatch
+			return runTUI(cmd.Context(), runtime, info, *options)
 		},
 	}
 }
@@ -642,6 +650,7 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 		Repo:    options.Repo,
 		Branch:  options.Branch,
 		All:     options.All,
+		Route:   options.LaunchRoute,
 		PerPage: cfg.PerPage,
 	})
 	return tui.NewApp(tui.Options{
@@ -757,16 +766,26 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 				if request.Workflow.ID == "" {
 					return usecase.ActionResult{}, fmt.Errorf("workflow is not loaded")
 				}
-				if validator, ok := githubClient.(usecase.RefValidator); ok {
-					exists, refErr := validator.RefExists(ctx, launch.Repo, request.Dispatch.Ref)
-					if refErr != nil {
-						return usecase.ActionResult{}, refErr
+				validator, ok := githubClient.(usecase.RefValidator)
+				if !ok {
+					// Validation is part of the dispatch contract, not
+					// an optional nicety: an adapter without it cannot
+					// dispatch (review-required hardening).
+					return usecase.ActionResult{}, usecase.ActionError{
+						Kind:    usecase.ActionErrorValidation,
+						Field:   "ref",
+						Message: "ref validation is unavailable for this adapter; dispatch refused",
 					}
-					if !exists {
-						return usecase.ActionResult{}, usecase.ActionError{
-							Kind:    usecase.ActionErrorValidation,
-							Message: fmt.Sprintf("ref %q isn't in this yard — pass an existing branch or tag", request.Dispatch.Ref),
-						}
+				}
+				exists, refErr := validator.RefExists(ctx, launch.Repo, request.Dispatch.Ref)
+				if refErr != nil {
+					return usecase.ActionResult{}, refErr
+				}
+				if !exists {
+					return usecase.ActionResult{}, usecase.ActionError{
+						Kind:    usecase.ActionErrorValidation,
+						Field:   "ref",
+						Message: fmt.Sprintf("ref %q isn't in this yard — pass an existing branch or tag", request.Dispatch.Ref),
 					}
 				}
 				return actionService.DispatchWorkflow(ctx, launch.Repo, request.Workflow.ID, request.Dispatch)

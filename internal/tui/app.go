@@ -282,7 +282,7 @@ func NewApp(options Options) App {
 			runsMeta = meta
 		}
 	}
-	return App{
+	app := App{
 		config:                    cfg,
 		build:                     options.Build,
 		theme:                     theme.ForMode(theme.Mode(cfg.Theme)),
@@ -311,6 +311,15 @@ func NewApp(options Options) App {
 		openURL:                   options.OpenURL,
 		copyText:                  options.CopyText,
 	}
+	if route == RouteDispatch {
+		// A dispatch launch (gh hound dispatch) must start the async
+		// workflows fetch like the D key does: open from a runs base
+		// so the 0/1/many decision routes identically.
+		app.routes = []Route{RouteRuns}
+		app.launchRoute = RouteRuns
+		app = app.openDispatch()
+	}
+	return app
 }
 
 func NewScenarioApp(scenario string, build BuildInfo) App {

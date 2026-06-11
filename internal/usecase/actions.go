@@ -45,8 +45,11 @@ const (
 )
 
 type ActionError struct {
-	Kind       ActionErrorKind
-	Message    string
+	Kind    ActionErrorKind
+	Message string
+	// Field names the offending input for validation refusals (e.g.
+	// "run", "job", "ref") so agents can correct programmatically.
+	Field      string
 	Status     int
 	RetryAfter time.Duration
 	ResetAt    time.Time
