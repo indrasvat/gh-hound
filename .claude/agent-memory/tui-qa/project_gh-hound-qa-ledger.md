@@ -1,6 +1,6 @@
 ---
 name: gh-hound-qa-ledger
-description: Running QA failure/verification ledger for gh-hound TUI audits (rounds 4-9; tasks 220, 240, 230, 250 approvals — round 9 PASS, space key fix verified live)
+description: Running QA failure/verification ledger for gh-hound TUI audits (rounds 4-10; tasks 220-260 — round 10 PASS, the trail verified live + fixtures)
 metadata:
   type: project
 ---
@@ -111,6 +111,29 @@ displays the comment text — by design, the overlay comment line is the
 source of truth. Waiting-scenario nav note: `A`'s wait-for needle must
 be overlay-specific ("space pick"), since "production" matches the
 runs row text. 253 unit tests green; 12 screenshots in .shux/out/r9-*.
+
+Round 10 (feat/260-first-bad-run, dd9da86, 2026-06-10): PASS — the
+trail (diff) screen. Fixtures diff/diff-inconclusive clean at
+80/120/200; runs/palette/approvals unregressed; palette has BOTH
+`approvals` and `diff · who broke main? · the trail` (rebase
+coexistence OK), footer `workflows · watch · diff · theme`. Live
+`__vqa-tui --scenario regression`: `:` → diff → enter flips route
+instantly (immediate snapshot shows trail skeleton + "sniffing…" title
+meta — 220 invariant holds; fake is zero-latency so "picking up the
+scent" body is grace-window-skipped, label confirmed in binary via
+strings); located trail shows verdict line, ✔ #572 attempt 2, ✗ #573,
+full-width selected-row fill (applied by app-level wrapper, NOT in
+screens/diff/view.go commitRow — fill lives outside the screen pkg),
+j/k AND arrows move, enter opens detail for #573/d3c4b5a (not stale),
+esc returns to trail with selection preserved, esc again → runs.
+Accepted P3s (do not re-file): diff footer static in trail-cold state
+(⏎/o/j/k inert but guarded no-ops, model.go; contract+assertion pin
+one footer per screen); docs/gh-hound-design.html:900 and PRD:568
+still say `diff (v2)` (stale mock text; visual-contract.md is
+updated and is the operative truth); runs fixture Age values sit
+under Duration header (pre-existing, renderer untouched in 260).
+No HTML mock exists for the trail — visual-contract row ⑪ is the
+mock reference. Evidence: .shux/out/r10-*.png.
 
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.
