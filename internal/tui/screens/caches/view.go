@@ -112,11 +112,31 @@ func sortLabel(by usecase.CacheSort) string {
 	return colorize(sgrSubtle, "s sort: size · biggest first")
 }
 
+// cachesHeader derives its columns from the SAME width math as row()
+// so headers can never drift from the values beneath them.
 func cachesHeader(width int) string {
+	keyWidth, refWidth := columnWidths(width)
+	header := "  " +
+		pad("Key", keyWidth) + "  " +
+		pad("Ref", refWidth) + " " +
+		fmt.Sprintf("%8s", "Size") + "  " +
+		"Last used"
+	return dimLine(header, width)
+}
+
+// columnWidths is the single source of column truth for header and rows.
+func columnWidths(width int) (keyWidth, refWidth int) {
 	if width >= 100 {
-		return dimLine("  Key                                                          Ref                     Size  Last used", width)
+		return 60, 22
 	}
-	return dimLine("  Key                                      Ref               Size  Last used", width)
+	return 40, 16
+}
+
+func pad(value string, width int) string {
+	if len(value) >= width {
+		return value
+	}
+	return value + strings.Repeat(" ", width-len(value))
 }
 
 func row(cache model.Cache, selected bool, width int, now time.Time) string {
@@ -124,10 +144,7 @@ func row(cache model.Cache, selected bool, width int, now time.Time) string {
 	if selected {
 		prefix = colorize(sgrOK, icons.Cursor)
 	}
-	keyWidth, refWidth := 40, 16
-	if width >= 100 {
-		keyWidth, refWidth = 60, 22
-	}
+	keyWidth, refWidth := columnWidths(width)
 	key := colorize(sgrFGSoft, truncate(cache.Key, keyWidth))
 	ref := colorize(sgrSubtle, truncate(shortRef(cache.Ref), refWidth))
 	size := colorize(sgrMuted, fmt.Sprintf("%8s", humanSize(cache.SizeInBytes)))

@@ -1407,7 +1407,11 @@ func cacheDeleteConfirmMessage(request CacheDeleteRequest, key string, matches i
 		}
 		return fmt.Sprintf("dig up 1 cache — %q (%s)?", label, size)
 	}
-	return fmt.Sprintf("dig up %d caches keyed %q (%s)?", matches, label, caches.HumanSize(m.KeyBytes(key)))
+	noun := "caches"
+	if matches == 1 {
+		noun = "cache"
+	}
+	return fmt.Sprintf("dig up %d %s keyed %q (%s)?", matches, noun, label, caches.HumanSize(m.KeyBytes(key)))
 }
 
 // cacheKeyLabel keeps hash-suffixed cache keys readable in the

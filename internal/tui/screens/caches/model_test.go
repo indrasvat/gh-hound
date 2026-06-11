@@ -123,6 +123,62 @@ func TestViewEmptyKennelSpeaksHound(t *testing.T) {
 	}
 }
 
+// TestViewHeaderColumnsAlignWithRows pins the QA round-11 P2: the
+// header must be derived from the same column math as the rows, so
+// "Ref", "Size", and "Last used" sit exactly over their values.
+func TestViewHeaderColumnsAlignWithRows(t *testing.T) {
+	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	m := NewModel("indrasvat/gh-hound", testData())
+	for _, width := range []int{80, 120, 200} {
+		view := View(m, width, now)
+		lines := strings.Split(view, "\n")
+		var header, firstRow string
+		for i, line := range lines {
+			plain := stripANSI(line)
+			if strings.Contains(plain, "Key") && strings.Contains(plain, "Last used") {
+				header = plain
+				firstRow = stripANSI(lines[i+1])
+				break
+			}
+		}
+		if header == "" {
+			t.Fatalf("no header at width %d:\n%s", width, view)
+		}
+		keyWidth, refWidth := columnWidths(width)
+		refCol := 2 + keyWidth + 2
+		sizeEnd := refCol + refWidth + 1 + 8
+		if got := strings.Index(header, "Ref"); got != refCol {
+			t.Fatalf("width %d: header Ref at %d, rows at %d\nheader: %q\nrow:    %q", width, got, refCol, header, firstRow)
+		}
+		if got := strings.Index(header, "Size"); got != sizeEnd-4 {
+			t.Fatalf("width %d: header Size ends at %d, want %d (right-aligned %%8s)\nheader: %q", width, got+4, sizeEnd, header)
+		}
+		if got := strings.Index(header, "Last used"); got != sizeEnd+2 {
+			t.Fatalf("width %d: header Last used at %d, want %d\nheader: %q\nrow:    %q", width, got, sizeEnd+2, header, firstRow)
+		}
+		// And the row's ref value really does start at the ref column
+		// (rune-indexed: the cursor glyph is multi-byte).
+		rowRunes := []rune(firstRow)
+		if rowRunes[refCol-1] != ' ' || rowRunes[refCol] == ' ' {
+			t.Fatalf("width %d: row ref column misaligned at %d\nrow: %q", width, refCol, firstRow)
+		}
+	}
+}
+
+// TestModelFilterAcceptsSpaceKeyName pins the QA round-11 P2: the
+// production decoder emits the symbolic "space", which text inputs
+// must append as a literal space.
+func TestModelFilterAcceptsSpaceKeyName(t *testing.T) {
+	m := NewModel("indrasvat/gh-hound", testData())
+	m = m.Update(KeyMsg{Key: "/"})
+	for _, key := range []string{"g", "o", "space", "m"} {
+		m = m.Update(KeyMsg{Key: key})
+	}
+	if m.Filter != "go m" {
+		t.Fatalf("filter = %q, want %q", m.Filter, "go m")
+	}
+}
+
 func TestViewTruncatesLongKeysWithinWidth(t *testing.T) {
 	data := testData()
 	data.Caches[0].Key = strings.Repeat("setup-go-Linux-x64-ubuntu24-", 8)
