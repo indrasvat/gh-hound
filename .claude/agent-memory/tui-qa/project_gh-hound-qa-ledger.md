@@ -7,15 +7,22 @@ metadata:
 
 Round 4 (branch feat/220-async-loading, 2026-06-10):
 
-- P1 found: detail screen at width < 100 cols renders steps-pane-only
-  (`internal/tui/screens/detail/view.go` `if width < 100` branch), so the
-  shared loading line ("fetching jobs…" + spinner, injected only into the
-  Jobs pane via `Model.LoadingLine`) is dropped at 80x24. Only static dim
-  "the hound is on its way back…" shows. Live-confirmed in built binary.
-- VQA assertion `.claude/automations/assertions/detail-loading.json`
-  asserts the placeholder text, NOT the loading line — vqa stays green
-  while the documented treatment is missing at 80x24. Check assertion
-  needles against the visual-contract wording every audit.
+- P1 found, FIXED in 956bb2f (round-5 re-audit PASS): detail at
+  width < 100 dropped the shared loading line; now
+  `renderStepsPane(..., standalone)` carries `m.LoadingLine` in the
+  stacked layout — verified at 80/120/200 via fixture (same `ViewSize`
+  path as live). Live at 80x24 the fake fetch resolves inside the 100ms
+  grace, so only the skeleton placeholder frame is observable — correct
+  no-flash behavior, not a regression.
+- VQA weakness FIXED in 956bb2f: detail-loading.json now asserts
+  "fetching jobs…" as wait+verify needle, and vqa.sh loops every screen
+  at all 3 breakpoints, so an F1 regression fails the suite. Lesson
+  stands: check assertion needles against visual-contract wording.
+- Stale title-bar meta during failure/log loading FIXED in 956bb2f:
+  right slot shows "fetching…" instead of old line counts.
+- Accepted P3 pre-existing (do not re-file as new): runs footer
+  truncation at 80 cols; filter input keeps generic footer; palette/help
+  repeat their title inside the body.
 - Verified fixed/working in round 4: SIGWINCH live resize works
   (f2b85a7) — the round-3 "terminal size read once" note is STALE;
   esc pops exactly one layer (modal→log→failure→detail→runs); esc
