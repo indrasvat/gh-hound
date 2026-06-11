@@ -466,6 +466,9 @@ func (a App) ViewSize(width, height int) string {
 		}
 		if a.TopOverlay() == OverlayConfirm {
 			footer = "y confirm · enter/n/esc cancel"
+			if pending := a.pendingAction; pending != nil && rerunFamily(pending.request.Action) {
+				footer = "y confirm · d debug · enter/n/esc cancel"
+			}
 		}
 		if a.TopOverlay() == OverlayTimeJump {
 			footer = "j/k pick · type time · ⏎ go · ⎋ cancel"
@@ -515,6 +518,11 @@ func RenderFixtureSize(screen string, width, height int) string {
 		loadingApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
 		loadingApp.routes = []Route{RouteRuns, RouteLog}
 		loadingApp.load = &pendingLoad{kind: loadKindLog, label: "fetching log", started: time.Now().Add(-250 * time.Millisecond), read: 2202009, total: 5033165}
+		return loadingApp.ViewSize(width, height)
+	case "rerun-confirm":
+		loadingApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		run, _ := loadingApp.runs.SelectedRun()
+		loadingApp = loadingApp.openConfirm(RouteRuns, ActionRequest{Action: usecase.ActionRerunRun, Run: run, Debug: true})
 		return loadingApp.ViewSize(width, height)
 	case "rate_limit_toast":
 		app.runs = sampleRunsModel()
@@ -1149,7 +1157,33 @@ func (a App) updateDispatch(msg KeyMsg) (App, bool) {
 	return a, dispatchHandled(msg.Key) || beforeFocused != a.dispatch.Focused || a.dispatch.Intent.Kind != dispatch.IntentNone
 }
 
+// debugNose renders the rerun confirm's debug-logging state. Hound
+// voice: the debug nose sniffs out runner diagnostics.
+func debugNose(on bool) string {
+	if on {
+		return " · debug nose: on"
+	}
+	return " · debug nose: off"
+}
+
+// rerunFamily reports whether an action supports debug logging.
+func rerunFamily(action usecase.Action) bool {
+	switch action {
+	case usecase.ActionRerunRun, usecase.ActionRerunFailedJobs, usecase.ActionRerunJob:
+		return true
+	default:
+		return false
+	}
+}
+
 func (a App) updateConfirm(msg KeyMsg) (App, bool) {
+	if msg.Key == "d" {
+		if pending := a.pendingAction; pending != nil && rerunFamily(pending.request.Action) {
+			pending.request.Debug = !pending.request.Debug
+			a.confirm = confirm.New(confirmMessage(pending.request))
+			return a, true
+		}
+	}
 	a.confirm = a.confirm.Update(confirm.KeyMsg{Key: msg.Key})
 	switch a.confirm.Intent.Kind {
 	case confirm.IntentConfirm:
@@ -1962,11 +1996,11 @@ func actionRequiresConfirmation(action usecase.Action) bool {
 func confirmMessage(request ActionRequest) string {
 	switch request.Action {
 	case usecase.ActionRerunRun:
-		return "rerun " + runTarget(request.Run)
+		return "rerun " + runTarget(request.Run) + debugNose(request.Debug)
 	case usecase.ActionRerunFailedJobs:
-		return "rerun failed jobs for " + runTarget(request.Run)
+		return "rerun failed jobs for " + runTarget(request.Run) + debugNose(request.Debug)
 	case usecase.ActionRerunJob:
-		return "rerun " + jobTarget(request.Job)
+		return "rerun " + jobTarget(request.Job) + debugNose(request.Debug)
 	case usecase.ActionCancelRun:
 		return "cancel " + runTarget(request.Run)
 	case usecase.ActionForceCancelRun:

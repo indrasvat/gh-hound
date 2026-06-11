@@ -680,3 +680,48 @@ func TestSameKindLoadStillSupersedes(t *testing.T) {
 	}
 	app = settleApp(t, app)
 }
+
+func TestRerunConfirmDebugToggle(t *testing.T) {
+	app := asyncTestApp()
+	var got ActionRequest
+	app.actionHandler = func(request ActionRequest) (usecase.ActionResult, error) {
+		got = request
+		return usecase.ActionResult{Action: request.Action, Message: "accepted"}, nil
+	}
+	app, _ = app.Update(KeyMsg{Key: "r"}) // rerun confirm opens
+	if app.TopOverlay() != OverlayConfirm {
+		t.Fatalf("overlay = %v, want confirm", app.TopOverlay())
+	}
+	view := ansi.Strip(app.ViewSized(124))
+	if !strings.Contains(view, "debug nose: off") {
+		t.Fatalf("confirm missing debug-nose state:\n%s", view)
+	}
+	if !strings.Contains(view, "d debug") {
+		t.Fatalf("confirm footer missing d hint:\n%s", view)
+	}
+	app, handled := app.Update(KeyMsg{Key: "d"})
+	if !handled {
+		t.Fatal("d not handled in rerun confirm")
+	}
+	view = ansi.Strip(app.ViewSized(124))
+	if !strings.Contains(view, "debug nose: on") {
+		t.Fatalf("debug toggle not reflected:\n%s", view)
+	}
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	if got.Action != usecase.ActionRerunRun || !got.Debug {
+		t.Fatalf("confirmed request = %+v, want rerun with debug", got)
+	}
+	_ = app
+}
+
+func TestCancelConfirmHasNoDebugToggle(t *testing.T) {
+	app := asyncTestApp()
+	app, _ = app.Update(KeyMsg{Key: "x"}) // cancel confirm
+	if app.TopOverlay() != OverlayConfirm {
+		t.Fatalf("overlay = %v, want confirm", app.TopOverlay())
+	}
+	view := ansi.Strip(app.ViewSized(124))
+	if strings.Contains(view, "debug nose") || strings.Contains(view, "d debug") {
+		t.Fatalf("cancel confirm offers debug:\n%s", view)
+	}
+}
