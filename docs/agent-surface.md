@@ -27,6 +27,7 @@ gh hound rerun --run <run-id> --job <job-id> --no-tui --json
 gh hound cancel --run <run-id> --no-tui --json
 gh hound cancel --run <run-id> --force --no-tui --json
 gh hound diff --workflow <name|file|id> [--branch <b>] --no-tui --json
+gh hound flakes [--workflow <name|file|id>] [--branch <b>] --no-tui --json
 gh hound workflows --no-tui --json
 gh hound workflows --enable <id|path> --no-tui --json
 gh hound workflows --disable <id|path> --no-tui --json
@@ -130,6 +131,32 @@ Diff exit codes: `1` boundary located (a regression exists — action needed), `
 
 Scan rules agents can rely on: a run counts by its latest attempt's conclusion (a failure rerun to green is green); cancelled, skipped, neutral, stale, and still-running runs carry no signal and are stepped over. API spend is bounded by `diff_max_pages` (default 10 pages of 100 runs, env `HOUND_DIFF_MAX_PAGES`); hitting the cap yields `inconclusive`, never a hang. Rehearse deterministically with `--fake-scenario regression` (a seeded boundary: exit `1`, suspects included).
 
+## Flake Verdict (flakes)
+
+The most expensive triage question — "real failure or flake?" — gets a scored, evidenced answer instead of a gut-feeling rerun. `gh hound flakes` walks the workflow's recent history (default window 50 runs, `flake_window`/`HOUND_FLAKE_WINDOW`) and scores every job that wobbled.
+
+```bash
+gh hound flakes --workflow CI --no-tui --json
+gh hound flakes -R owner/repo --no-tui --json    # --workflow omitted: follows the latest run
+```
+
+Verdict envelope (`$defs.flakes_result` in schema.json): `{repo, workflow, branch, status, sample_size, window, runs_scanned, signals_evaluated[], jobs[], verdict}`.
+
+- `status` is the field to branch on: `flaky` | `suspect` | `clean` | `insufficient_data`. It is always the WORST job verdict — an underfilled window with clear attempt flips is still `flaky`. `insufficient_data` means only that fewer than 5 signal-bearing runs exist AND no evidence was found; evidence is never discarded.
+- Each `jobs[]` entry: `{job, flake_score, verdict, attempt_flips, cross_run_flaps, retry_masks, flaked_runs, evidence[]}` with `evidence[]` rows `{run_id, run_number, attempt, kind, detail}` (`kind`: `attempt_flip` | `cross_run_flap` | `retry_mask`).
+- Documented thresholds: each attempt flip adds **0.45**, each cross-run flap **0.30**, each retry mask **0.20**, capped at 1.0. A job at or past **0.6** is `flaky` (two flips, two flaps, or a flip plus any second signal); any evidence at all is `suspect`.
+- The three signals: **attempt flips** (a job failed on attempt N and passed on a later attempt of the same run — the strongest signal; a rerun of a green run is NOT a flip), **cross-run flapping** (the same `head_sha` mixing fail and pass across runs, plus red→green→red alternation across adjacent commits — the commit range between the reds is shown as a compare URL, never interpreted), and **retry masks** (known retry wrappers like `nick-fields/retry` or `Retrying in N…` loops hiding instability inside an eventually-green step).
+- `jobs[].job` is normally the job name; cross-run flaps observed without attempt-level job data land on an entry named after the workflow.
+
+Flakes exit codes: `1` when `status` is `flaky` or `suspect` (action needed — `verdict=flaky` means rerun is reasonable, `suspect` means look closer; the JSON distinguishes them), `0` for `clean` AND `insufficient_data` (no action derivable), `2` typed `error: {kind, message}` (`validation | auth | permission | not_found | rate_limit | network | unknown`). Exit `3` is never used.
+
+Caveats agents must know:
+
+- **Annotations are only retrievable for the latest attempt** (GitHub community #103026), so flake evidence comes from attempt job conclusions and step logs — never annotations.
+- The API budget is pinned: at most `ceil(flake_window / 100)` history-list calls, attempt-jobs calls only for runs in the window with more than one attempt, and log calls only for jobs that flipped. Retry-wrapper masking in runs that never had a failed attempt is therefore NOT detected — `signals_evaluated` says exactly what was checked.
+
+Rehearse deterministically with `--fake-scenario flaky` (two seeded attempt flips plus a retry-masked step: exit `1`, `status: "flaky"`).
+
 ## Workflow State (workflows)
 
 "My cron workflow stopped running" has a one-field answer: scheduled workflows are disabled automatically after 60 days of repo inactivity (`disabled_inactivity`), and the only sign is a state field buried in the web UI. The `workflows` verb surfaces it and flips it back.
@@ -155,7 +182,7 @@ Rehearse deterministically with `--fake-scenario green` (the fake fleet covers a
 
 ## JSON Contract
 
-The JSON schema lives at `internal/render/testdata/schema.json` (mutation envelope under `$defs.mutation_result`, approvals envelope under `$defs.approvals_result`, regression verdict under `$defs.diff_result`, caches envelope under `$defs.caches_result`, workflows envelope under `$defs.workflows_result`, pack stream under `$defs.watch_group_event` / `$defs.watch_group_summary`); the canonical failure fixture lives at `internal/render/testdata/failure.golden.json`.
+The JSON schema lives at `internal/render/testdata/schema.json` (mutation envelope under `$defs.mutation_result`, approvals envelope under `$defs.approvals_result`, regression verdict under `$defs.diff_result`, caches envelope under `$defs.caches_result`, workflows envelope under `$defs.workflows_result`, pack stream under `$defs.watch_group_event` / `$defs.watch_group_summary`, flake verdict under `$defs.flakes_result`); the canonical failure fixture lives at `internal/render/testdata/failure.golden.json`.
 
 
 Each run includes:
@@ -192,7 +219,7 @@ For local tests and docs, use fake scenarios:
 ./bin/gh-hound watch --json --fake-scenario failure
 ```
 
-Accepted aliases: `ok`, `green`, `success`; `failure`, `failed`, `failing`; `pending`, `running`, `in_progress`, `queued`; `api_error`, `network_error`, `rate_limited`; `waiting`, `gated`. The `regression` scenario seeds a deterministic last-green → first-red boundary for `diff`; `pack` seeds the staggered multi-run group for `watch --group`.
+Accepted aliases: `ok`, `green`, `success`; `failure`, `failed`, `failing`; `pending`, `running`, `in_progress`, `queued`; `api_error`, `network_error`, `rate_limited`; `waiting`, `gated`. The `regression` scenario seeds a deterministic last-green → first-red boundary for `diff`; `pack` seeds the staggered multi-run group for `watch --group`; `flaky` seeds attempt flips and a retry-masked step for `flakes`.
 
 ## Guardrails
 

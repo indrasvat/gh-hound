@@ -22,6 +22,7 @@ gh hound artifacts --run <id> --download <name> --dir <path> --no-tui --json
 gh hound approvals --run <id> --no-tui --json    # pending deploy gates (exit 1 = awaiting review)
 gh hound approvals --run <id> --approve --env production --comment "lgtm" --no-tui --json
 gh hound diff --workflow CI --no-tui --json      # who broke main? last green vs first bad
+gh hound flakes --workflow CI --no-tui --json    # flaky or real? scored flake verdict
 gh hound caches --no-tui --json                  # cache kennel vs the eviction cap
 gh hound caches --delete-key <key> --ref <ref> --no-tui --json
 gh hound workflows --no-tui --json               # workflow states (why did my cron stop?)
@@ -65,6 +66,25 @@ Branch on `status`: `located` (exit `1`) means a regression exists — `last_goo
 
 Rehearse with `--fake-scenario regression` (deterministic boundary, exit `1`).
 
+## Flaky or Real? (flakes)
+
+Before burning time on a red run, ask whether the failure is a known squirrel:
+
+```bash
+gh hound flakes --workflow CI --no-tui --json    # --workflow omitted follows the latest run
+```
+
+Branch on `status` (always the worst job verdict): `flaky` (exit `1`) — the failure pattern is established, `rerun --failed-only` is the rational first move; `suspect` (exit `1`) — one wobble on record, look at `jobs[].evidence[]` before deciding; `clean` (exit `0`) — fresh scent, this failure is worth chasing as real; `insufficient_data` (exit `0`) — under 5 signal runs and no evidence, treat as real. The decision recipe:
+
+1. `runs --json` exits `1` -> `flakes --workflow <w> --json`.
+2. `status == "flaky"` -> `rerun --run <id> --failed-only --no-tui --json` -> `watch --json`.
+3. `status == "clean"` (or `insufficient_data`) -> investigate `failed[]` for real; do not rerun blindly.
+4. `status == "suspect"` -> read `evidence[]` (`attempt_flip` beats `cross_run_flap` beats `retry_mask`) and decide.
+
+Scoring is documented and stable: 0.45 per attempt flip + 0.30 per cross-run flap + 0.20 per retry mask, capped at 1.0; >= 0.6 is `flaky`, any evidence is `suspect`. `sample_size`/`window`/`runs_scanned` size the claim; `signals_evaluated` lists what was checked (retry masking is only detectable in runs that had a failed attempt — the call budget never blanket-downloads logs). Evidence comes from attempt job conclusions and logs, never annotations (the API only serves annotations for the latest attempt). An underfilled-but-flaky window still exits `1` — trust `status`, not `sample_size`.
+
+Rehearse with `--fake-scenario flaky` (seeded flips + retry mask, exit `1`).
+
 ## Mutations
 
 After diagnosing with `runs --json`, act without leaving the surface:
@@ -94,10 +114,10 @@ gh hound workflows --enable ci.yml --no-tui --json
 For testing agent behavior without live CI:
 
 ```bash
-gh hound runs --no-tui --json --fake-scenario failure   # also: green, pending, empty, api_error, waiting, regression
+gh hound runs --no-tui --json --fake-scenario failure   # also: green, pending, empty, api_error, waiting, regression, flaky
 ```
 
-The JSON schema lives at `internal/render/testdata/schema.json` in the gh-hound repo; the mutation envelope is under `$defs.mutation_result`, the approvals envelope under `$defs.approvals_result`, the regression verdict under `$defs.diff_result`, the caches envelope under `$defs.caches_result`, the workflows envelope under `$defs.workflows_result`, and the pack stream under `$defs.watch_group_event` / `$defs.watch_group_summary`.
+The JSON schema lives at `internal/render/testdata/schema.json` in the gh-hound repo; the mutation envelope is under `$defs.mutation_result`, the approvals envelope under `$defs.approvals_result`, the regression verdict under `$defs.diff_result`, the caches envelope under `$defs.caches_result`, the workflows envelope under `$defs.workflows_result`, the pack stream under `$defs.watch_group_event` / `$defs.watch_group_summary`, and the flake verdict under `$defs.flakes_result`.
 
 ## Guardrails
 
