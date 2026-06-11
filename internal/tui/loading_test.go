@@ -28,7 +28,7 @@ func TestSpinnerGlyphCyclesFrames(t *testing.T) {
 
 func TestSpinnerFramesAreTextPresentation(t *testing.T) {
 	for i, frame := range icons.SpinnerFrames {
-		if strings.Contains(frame, "️") {
+		if strings.Contains(frame, "\ufe0f") {
 			t.Fatalf("frame %d contains VS16 emoji selector", i)
 		}
 	}

@@ -38,6 +38,11 @@ func renderRuns(m Model, width, height int, now time.Time) string {
 	if notice != "" {
 		fixedRows++
 	}
+	if m.Loading && m.LoadingLine != "" {
+		// The loading line needs its own row or exact-fit heights
+		// would push it past the frame.
+		fixedRows++
+	}
 	showFilter := m.InputMode || strings.TrimSpace(m.Filter) != ""
 	rowCapacity := runRowCapacity(height, fixedRows, showFilter, len(runs))
 	start, end := viewport(selected, len(runs), rowCapacity)
@@ -86,6 +91,9 @@ func renderAllGreen(m Model, width, height int, now time.Time) string {
 	fixedRows := 5
 	notice := visibleNotice(m)
 	if notice != "" {
+		fixedRows++
+	}
+	if m.Loading && m.LoadingLine != "" {
 		fixedRows++
 	}
 	showFilter := m.InputMode || strings.TrimSpace(m.Filter) != ""

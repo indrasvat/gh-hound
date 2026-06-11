@@ -465,6 +465,30 @@ func RenderFixtureSize(screen string, width, height int) string {
 		return frameViewSize(app.theme, "hound", "⎇ branch main · @indrasvat", "◔ 4,981/5k live", runs.View(sampleAllGreenModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenAllGreen), width, height, true)
 	case "runs":
 		return frameViewSize(app.theme, "hound", "⎇ branch fix/parser · @indrasvat", "◔ 4,981/5k live 304", runs.View(sampleRunsModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
+	case "runs-loading":
+		// Deterministic loading states: started is pinned 250ms back so
+		// the spinner sits stably on frame 2 and the grace window has
+		// passed.
+		loadingApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		loadingApp.load = &pendingLoad{kind: loadKindRuns, label: "sniffing out failing runs", started: time.Now().Add(-250 * time.Millisecond)}
+		return loadingApp.ViewSize(width, height)
+	case "detail-loading":
+		loadingApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		run := loadingApp.runs.Context.Runs[0]
+		loadingApp.detail = DetailModelForRun(run).WithRepo(loadingApp.runs.Context.Repo)
+		loadingApp.routes = []Route{RouteRuns, RouteDetail}
+		loadingApp.load = &pendingLoad{kind: loadKindDetail, label: "fetching jobs", started: time.Now().Add(-250 * time.Millisecond)}
+		return loadingApp.ViewSize(width, height)
+	case "failure-loading":
+		loadingApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		loadingApp.routes = []Route{RouteRuns, RouteDetail, RouteFailure}
+		loadingApp.load = &pendingLoad{kind: loadKindFailure, label: "fetching the failure", started: time.Now().Add(-250 * time.Millisecond)}
+		return loadingApp.ViewSize(width, height)
+	case "log-progress":
+		loadingApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		loadingApp.routes = []Route{RouteRuns, RouteLog}
+		loadingApp.load = &pendingLoad{kind: loadKindLog, label: "fetching log", started: time.Now().Add(-250 * time.Millisecond), read: 2202009, total: 5033165}
+		return loadingApp.ViewSize(width, height)
 	case "rate_limit_toast":
 		app.runs = sampleRunsModel()
 		app.routes = []Route{RouteRuns}

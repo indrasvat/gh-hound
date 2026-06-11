@@ -60,6 +60,18 @@ Pre-commit runs formatting, `go fix` verification, lint, and short tests. Pre-pu
 
 Generated artifacts are under `.claude/automations/screenshots/` and are ignored except for the directory policy files.
 
+## Async Loading Pattern
+
+Every server-backed fetch in the TUI goes through `App.startLoad` /
+`startLoadProgress` (internal/tui/loading.go): work runs in a
+goroutine, the result applies on a poll-tick drain, supersession and
+esc-cancel work by pointer identity, and `PollInterval` drops to the
+spinner frame rate while a load is pending. Never call a resolver on
+the keypress path. Tests and fixtures settle async state with
+`App.SettleLoads(timeout)` — the interactive loop must never call it.
+See docs/visual-contract.md "Loading States" for the user-facing
+contract.
+
 ## Agent Surface QA
 
 Use deterministic fake scenarios:
