@@ -163,7 +163,134 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.AddCommand(newWatchCommand(runtime, &options))
 	cmd.AddCommand(newDispatchCommand(runtime, &options))
 	cmd.AddCommand(newArtifactsCommand(runtime, &options))
+	cmd.AddCommand(newRerunCommand(runtime, &options))
+	cmd.AddCommand(newCancelCommand(runtime, &options))
 	return cmd
+}
+
+func newRerunCommand(runtime commandRuntime, options *cliOptions) *cobra.Command {
+	var failedOnly, debug bool
+	var jobID int64
+	cmd := &cobra.Command{
+		Use:   "rerun",
+		Short: "Send a run (or job) back out, optionally with debug logging",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			applyEnv(options, runtime.Env)
+			options.NoTUI = true
+			if options.RunID == 0 {
+				return errors.New("--run <run-id> is required")
+			}
+			if jobID != 0 && failedOnly {
+				return errors.New("--job and --failed-only are mutually exclusive")
+			}
+			return writeMutationResult(cmd.Context(), runtime.Stdout, *options, runtime, mutationRequest{
+				runID:      options.RunID,
+				jobID:      jobID,
+				failedOnly: failedOnly,
+				debug:      debug,
+			})
+		},
+	}
+	cmd.Flags().Int64Var(&options.RunID, "run", 0, "run ID to rerun")
+	cmd.Flags().Int64Var(&jobID, "job", 0, "rerun a single job by ID")
+	cmd.Flags().BoolVar(&failedOnly, "failed-only", false, "rerun only the failed jobs")
+	cmd.Flags().BoolVar(&debug, "debug", false, "enable runner diagnostic and step debug logging")
+	return cmd
+}
+
+func newCancelCommand(runtime commandRuntime, options *cliOptions) *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "cancel",
+		Short: "Call a run off",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			applyEnv(options, runtime.Env)
+			options.NoTUI = true
+			if options.RunID == 0 {
+				return errors.New("--run <run-id> is required")
+			}
+			return writeMutationResult(cmd.Context(), runtime.Stdout, *options, runtime, mutationRequest{
+				runID:  options.RunID,
+				cancel: true,
+				force:  force,
+			})
+		},
+	}
+	cmd.Flags().Int64Var(&options.RunID, "run", 0, "run ID to cancel")
+	cmd.Flags().BoolVar(&force, "force", false, "force-cancel a run stuck in cancellation")
+	return cmd
+}
+
+// mutationRequest is the resolved intent of a rerun/cancel invocation.
+type mutationRequest struct {
+	runID      int64
+	jobID      int64
+	failedOnly bool
+	debug      bool
+	cancel     bool
+	force      bool
+}
+
+// writeMutationResult performs exactly one mutation API call and emits
+// the schema-stable envelope. Exit codes follow the global contract:
+// 0 accepted, 2 anything else (agents branch on error.kind upstream).
+func writeMutationResult(ctx context.Context, w io.Writer, options cliOptions, runtime commandRuntime, request mutationRequest) error {
+	var githubClient usecase.GitHub
+	var repo string
+	if options.Fake != "" {
+		scenario := normalizedScenario(options)
+		if scenario == "api_error" || scenario == "network_error" || scenario == "rate_limited" {
+			return errors.New("github api unavailable")
+		}
+		githubClient = fake.New(fakeScenarioFor(scenario))
+		repo = firstNonEmpty(options.Repo, "indrasvat/gh-hound")
+	} else {
+		target, err := resolveTarget(ctx, options, runtime)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			_ = target.close()
+		}()
+		githubClient = target.github
+		repo = target.repo
+	}
+
+	service := usecase.ActionService{
+		GitHub:  githubClient,
+		Limiter: &usecase.MutationLimiter{MinSpacing: time.Second},
+	}
+	var action string
+	var err error
+	switch {
+	case request.cancel && request.force:
+		action = "force_cancel"
+		_, err = service.ForceCancelRun(ctx, repo, request.runID)
+	case request.cancel:
+		action = "cancel"
+		_, err = service.CancelRun(ctx, repo, request.runID)
+	case request.jobID != 0:
+		action = "rerun_job"
+		_, err = service.RerunJob(ctx, repo, request.jobID, request.debug)
+	case request.failedOnly:
+		action = "rerun_failed"
+		_, err = service.RerunFailedJobs(ctx, repo, request.runID, request.debug)
+	default:
+		action = "rerun"
+		_, err = service.RerunRun(ctx, repo, request.runID, request.debug)
+	}
+	if err != nil {
+		return err
+	}
+	result := render.MutationResult{
+		Repo:     repo,
+		RunID:    request.runID,
+		JobID:    request.jobID,
+		Action:   action,
+		Accepted: true,
+		HTMLURL:  fmt.Sprintf("https://github.com/%s/actions/runs/%d", repo, request.runID),
+	}
+	return render.WriteMutation(w, render.Format(options.Format), result)
 }
 
 func newScreenCommand(stdout io.Writer) *cobra.Command {
