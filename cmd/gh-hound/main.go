@@ -1832,10 +1832,6 @@ func defaultConfig(lookup ...func(string) (string, bool)) (config.Config, error)
 	return config.Load(config.LoadOptions{LookupEnv: env})
 }
 
-func ttyView(view string) string {
-	return strings.ReplaceAll(strings.TrimRight(view, "\n"), "\n", "\r\n")
-}
-
 func executeCommand(cmd *cobra.Command) (int, error) {
 	err := cmd.Execute()
 	if err == nil {

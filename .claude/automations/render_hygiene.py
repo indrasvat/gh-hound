@@ -15,7 +15,10 @@ the log screen, and asserts the raw output stream:
      rewrite whole frames).
 
 Wired into `make vqa`. Negative-controlled 2026-06-11: the v0.5.0
-renderer fails all three (5 erases / ~42KB for one scroll burst).
+renderer fails all three (26 erases / ~218KB for one scroll burst).
+The flaky scenario drives a 6-row list so j/k moves real content
+(QA round 18: the failing scenario's 1-row list made the size check
+near-vacuous).
 """
 
 import os
@@ -54,7 +57,7 @@ def main() -> int:
 
     fcntl.ioctl(follower, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, 0, 0))
     proc = subprocess.Popen(
-        ["./bin/gh-hound", "__vqa-tui", "--scenario", "failing"],
+        ["./bin/gh-hound", "__vqa-tui", "--scenario", "flaky"],
         stdin=follower,
         stdout=follower,
         stderr=subprocess.DEVNULL,

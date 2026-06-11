@@ -1,6 +1,6 @@
 ---
 name: gh-hound-qa-ledger
-description: Running QA failure/verification ledger for gh-hound TUI audits (rounds 4-17; tasks 220-300 — round 17 PASS, flake forensics verified in binary; P3s: pre-existing failure-fetch error-body transient, thin-trail plural slip, clean verdict fake-unreachable)
+description: Running QA failure/verification ledger for gh-hound TUI audits (rounds 4-18; tasks 220-300 + flicker fix — round 18 PASS, frameRenderer byte-contract + pixel-parity verified; P3: render_hygiene.py burst near-no-op in failing scenario)
 metadata:
   type: project
 ---
@@ -410,6 +410,32 @@ evidence rows (retry_mask per flip run) vs fixture's 3 — different
 datasets by design; fake retry_mask details render identical text for
 both runs (shared fake log). Evidence: .shux/out/r17-*.png (23) +
 regenerated .claude/automations/screenshots.
+
+Round 18 (fix/tui-flicker-free-rendering == main b52a556, 2026-06-11):
+PASS — flicker fix (frameRenderer, cmd/gh-hound/render.go). Official
+render_hygiene.sh PASS (4,723B / 0 erases / guards); negative control
+re-run independently against pre-fix 196a080 binary (untracked at
+gh-hound-darwin-arm64/gh-hound) fails all 3 checks with the commit's
+exact numbers (26 erases / 218,197B / no guards) — harness not vacuous.
+Own pty probe: 1049h+25l at startup, first paint sync-guarded, 25h
+before 1049l at exit, guards balanced, zero 2J anywhere. shux emulator:
+diffed frames pixel-IDENTICAL to forced full repaints (resize-wiggle
+N±1-and-back) at 80x24/120x40/200x60 on runs selection movement, on
+scrolled log (80x12), post-resize roundtrip, and after 3x palette +
+3x help open/close churn (cmp byte-equal PNGs). SIGWINCH 80→200→120
+repaints fully, no residue. q restores prompt + cursor, leaves alt.
+Esc layering + selected-run detail (#566) unregressed. make vqa exit 0
+(vqa.sh + interaction_audit + render_hygiene); regenerated PNGs
+byte-identical to committed (git clean). 5 renderer unit pins green.
+KNOWN WEAKNESS (P3, reported): render_hygiene.py's burst in the
+failing scenario exercises near-zero content change — failing runs
+list has 1 ROW (branch scope) and the fake log is 9 lines, fitting
+even 80x24; checks 1-2 (no-2J, guards) sound regardless, but check 3
+(line-diffed sizes) barely sees real movement. Flaky-scenario variant
+(6 rows): 21,108B, 0 erases, still passes. NO fake-lens log overflows
+a 24-row pane — real viewport scrolling rehearsable only by shrinking
+the pane (80x12 works). Recommend flaky scenario + a long-log fixture
+for the harness.
 
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.

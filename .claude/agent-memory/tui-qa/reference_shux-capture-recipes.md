@@ -21,6 +21,16 @@ metadata:
   catch "fetching jobs…" live with an immediate post-keystroke snapshot.
 - `__screen --screen <bogus-name>` silently falls back to the empty
   screen instead of erroring.
+- Diff-vs-full-repaint pixel parity: snapshot the diffed state, then
+  `pane set-size` to cols±1 and back (two SIGWINCH invalidates → full
+  repaints), snapshot again, `cmp` the PNGs — shux snapshots are
+  byte-deterministic for identical screens. Launch inside a plain
+  `bash --noprofile --norc` pane so exit hygiene (prompt back, cursor
+  restored, alt screen left) is observable after `q`.
+- Fake-lens depth limits for scroll tests: failing scenario runs list
+  has 1 row on branch scope; no fake log overflows a 24-row pane even
+  unfolded — force real viewport scroll with an 80x12 pane, or use
+  flaky scenario (6 rows) for selection movement.
 
 **How to apply:** reuse these in every gh-hound audit capture loop.
 Related: [[gh-hound-qa-ledger]].
