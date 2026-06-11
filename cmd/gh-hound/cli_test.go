@@ -1434,6 +1434,39 @@ func TestMutationAPIErrorExitsTwoWithTypedError(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("api error exit = %d, want 2\n%s", code, out.String())
 	}
+	var decoded map[string]any
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("api error wrote no envelope: %v\n%s", err, out.String())
+	}
+	if decoded["accepted"] != false || decoded["action"] != "rerun" {
+		t.Fatalf("api error envelope = %#v", decoded)
+	}
+	errObj, ok := decoded["error"].(map[string]any)
+	if !ok || errObj["kind"] != "network" {
+		t.Fatalf("api error kind = %#v, want network", decoded["error"])
+	}
+}
+
+func TestMutationValidationEmitsEnvelope(t *testing.T) {
+	for name, args := range map[string][]string{
+		"missing run":   {"rerun"},
+		"negative run":  {"rerun", "--run", "-5"},
+		"job+failed":    {"rerun", "--run", "571", "--job", "399", "--failed-only"},
+		"negative job":  {"rerun", "--run", "571", "--job", "-1"},
+		"cancel no run": {"cancel"},
+	} {
+		code, decoded, _ := runMutationCommand(t, args...)
+		if code != 2 {
+			t.Fatalf("%s: exit = %d, want 2", name, code)
+		}
+		errObj, ok := decoded["error"].(map[string]any)
+		if !ok || errObj["kind"] != "validation" {
+			t.Fatalf("%s: error = %#v, want validation kind", name, decoded["error"])
+		}
+		if decoded["accepted"] != false {
+			t.Fatalf("%s: accepted = %v", name, decoded["accepted"])
+		}
+	}
 }
 
 func TestMutationConflictEmitsTypedErrorEnvelope(t *testing.T) {

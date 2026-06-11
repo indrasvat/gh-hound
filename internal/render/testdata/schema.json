@@ -1,165 +1,225 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/indrasvat/gh-hound/internal/render/testdata/schema.json",
-  "title": "gh-hound agent result",
-  "type": "object",
-  "required": [
-    "repo",
-    "branch",
-    "runs"
-  ],
-  "properties": {
-    "repo": {
-      "type": "string",
-      "pattern": "^[^/]+/[^/]+$"
-    },
-    "branch": {
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://github.com/indrasvat/gh-hound/internal/render/testdata/schema.json",
+ "title": "gh-hound agent result",
+ "type": "object",
+ "required": [
+  "repo",
+  "branch",
+  "runs"
+ ],
+ "properties": {
+  "repo": {
+   "type": "string",
+   "pattern": "^[^/]+/[^/]+$"
+  },
+  "branch": {
+   "type": "string"
+  },
+  "runs": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "id",
+     "workflow",
+     "run_number",
+     "event",
+     "head_branch",
+     "head_sha",
+     "status",
+     "conclusion",
+     "created_at",
+     "html_url",
+     "failed"
+    ],
+    "properties": {
+     "id": {
+      "type": "integer"
+     },
+     "workflow": {
       "type": "string"
-    },
-    "runs": {
+     },
+     "run_number": {
+      "type": "integer"
+     },
+     "event": {
+      "type": "string"
+     },
+     "head_branch": {
+      "type": "string"
+     },
+     "head_sha": {
+      "type": "string"
+     },
+     "status": {
+      "type": "string"
+     },
+     "conclusion": {
+      "type": "string"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "html_url": {
+      "type": "string",
+      "format": "uri"
+     },
+     "failed": {
       "type": "array",
       "items": {
-        "type": "object",
-        "required": [
-          "id",
-          "workflow",
-          "run_number",
-          "event",
-          "head_branch",
-          "head_sha",
-          "status",
-          "conclusion",
-          "created_at",
-          "html_url",
-          "failed"
-        ],
-        "properties": {
-          "id": {
+       "type": "object",
+       "required": [
+        "job",
+        "step",
+        "exit_code",
+        "annotations",
+        "log_excerpt"
+       ],
+       "properties": {
+        "job": {
+         "type": "string"
+        },
+        "step": {
+         "type": "string"
+        },
+        "exit_code": {
+         "type": "integer"
+        },
+        "annotations": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "required": [
+           "path",
+           "line",
+           "level",
+           "message"
+          ],
+          "properties": {
+           "path": {
+            "type": "string"
+           },
+           "line": {
             "type": "integer"
-          },
-          "workflow": {
+           },
+           "level": {
             "type": "string"
-          },
-          "run_number": {
-            "type": "integer"
-          },
-          "event": {
+           },
+           "message": {
             "type": "string"
-          },
-          "head_branch": {
-            "type": "string"
-          },
-          "head_sha": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "conclusion": {
-            "type": "string"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "html_url": {
-            "type": "string",
-            "format": "uri"
-          },
-          "failed": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": [
-                "job",
-                "step",
-                "exit_code",
-                "annotations",
-                "log_excerpt"
-              ],
-              "properties": {
-                "job": {
-                  "type": "string"
-                },
-                "step": {
-                  "type": "string"
-                },
-                "exit_code": {
-                  "type": "integer"
-                },
-                "annotations": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "required": [
-                      "path",
-                      "line",
-                      "level",
-                      "message"
-                    ],
-                    "properties": {
-                      "path": {
-                        "type": "string"
-                      },
-                      "line": {
-                        "type": "integer"
-                      },
-                      "level": {
-                        "type": "string"
-                      },
-                      "message": {
-                        "type": "string"
-                      }
-                    }
-                  }
-                },
-                "log_excerpt": {
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "artifacts": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": [
-                "id",
-                "name",
-                "size_in_bytes",
-                "expired",
-                "created_at",
-                "expires_at"
-              ],
-              "properties": {
-                "id": {
-                  "type": "integer"
-                },
-                "name": {
-                  "type": "string"
-                },
-                "size_in_bytes": {
-                  "type": "integer"
-                },
-                "expired": {
-                  "type": "boolean"
-                },
-                "created_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "expires_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "digest": {
-                  "type": "string"
-                }
-              }
-            }
+           }
           }
+         }
+        },
+        "log_excerpt": {
+         "type": "string"
         }
+       }
       }
+     },
+     "artifacts": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "id",
+        "name",
+        "size_in_bytes",
+        "expired",
+        "created_at",
+        "expires_at"
+       ],
+       "properties": {
+        "id": {
+         "type": "integer"
+        },
+        "name": {
+         "type": "string"
+        },
+        "size_in_bytes": {
+         "type": "integer"
+        },
+        "expired": {
+         "type": "boolean"
+        },
+        "created_at": {
+         "type": "string",
+         "format": "date-time"
+        },
+        "expires_at": {
+         "type": "string",
+         "format": "date-time"
+        },
+        "digest": {
+         "type": "string"
+        }
+       }
+      }
+     }
     }
+   }
   }
+ },
+ "$defs": {
+  "mutation_result": {
+   "type": "object",
+   "required": [
+    "repo",
+    "run_id",
+    "action",
+    "accepted",
+    "html_url"
+   ],
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "run_id": {
+     "type": "integer"
+    },
+    "job_id": {
+     "type": "integer"
+    },
+    "action": {
+     "enum": [
+      "rerun",
+      "rerun_failed",
+      "rerun_job",
+      "cancel",
+      "force_cancel"
+     ]
+    },
+    "accepted": {
+     "type": "boolean"
+    },
+    "html_url": {
+     "type": "string"
+    },
+    "error": {
+     "type": "object",
+     "required": [
+      "kind",
+      "message"
+     ],
+     "properties": {
+      "kind": {
+       "enum": [
+        "validation",
+        "permission",
+        "conflict",
+        "rate_limit",
+        "network",
+        "unknown"
+       ]
+      },
+      "message": {
+       "type": "string"
+      }
+     }
+    }
+   }
+  }
+ }
 }

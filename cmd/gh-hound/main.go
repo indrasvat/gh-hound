@@ -177,12 +177,6 @@ func newRerunCommand(runtime commandRuntime, options *cliOptions) *cobra.Command
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyEnv(options, runtime.Env)
 			options.NoTUI = true
-			if options.RunID == 0 {
-				return errors.New("--run <run-id> is required")
-			}
-			if jobID != 0 && failedOnly {
-				return errors.New("--job and --failed-only are mutually exclusive")
-			}
 			return writeMutationResult(cmd.Context(), runtime.Stdout, *options, runtime, mutationRequest{
 				runID:      options.RunID,
 				jobID:      jobID,
@@ -206,9 +200,6 @@ func newCancelCommand(runtime commandRuntime, options *cliOptions) *cobra.Comman
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyEnv(options, runtime.Env)
 			options.NoTUI = true
-			if options.RunID == 0 {
-				return errors.New("--run <run-id> is required")
-			}
 			return writeMutationResult(cmd.Context(), runtime.Stdout, *options, runtime, mutationRequest{
 				runID:  options.RunID,
 				cancel: true,
@@ -234,75 +225,103 @@ type mutationRequest struct {
 // writeMutationResult performs exactly one mutation API call and emits
 // the schema-stable envelope. Exit codes follow the global contract:
 // 0 accepted, 2 anything else (agents branch on error.kind upstream).
+// mutationAction names the request's path in the result enum.
+func mutationAction(request mutationRequest) string {
+	switch {
+	case request.cancel && request.force:
+		return "force_cancel"
+	case request.cancel:
+		return "cancel"
+	case request.jobID != 0:
+		return "rerun_job"
+	case request.failedOnly:
+		return "rerun_failed"
+	default:
+		return "rerun"
+	}
+}
+
 func writeMutationResult(ctx context.Context, w io.Writer, options cliOptions, runtime commandRuntime, request mutationRequest) error {
+	format := render.Format(options.Format)
+	result := render.MutationResult{
+		Repo:    firstNonEmpty(options.Repo, ""),
+		RunID:   request.runID,
+		JobID:   request.jobID,
+		Action:  mutationAction(request),
+		HTMLURL: fmt.Sprintf("https://github.com/%s/actions/runs/%d", firstNonEmpty(options.Repo, ""), request.runID),
+	}
+	// Every refusal writes the envelope: agents branch on error.kind
+	// on stdout and exit 2 is never a bare stderr message (the silent
+	// outcomeError suppresses duplicate printing in main).
+	refuse := func(err error) error {
+		kind, message := "unknown", err.Error()
+		if actionErr, ok := usecase.AsActionError(err); ok {
+			kind, message = string(actionErr.Kind), actionErr.Message
+		}
+		result.Accepted = false
+		result.Error = &render.MutationError{Kind: kind, Message: message}
+		if writeErr := render.WriteMutation(w, format, result); writeErr != nil {
+			return writeErr
+		}
+		return outcomeError{code: render.ExitError}
+	}
+	if request.runID <= 0 {
+		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Message: "--run <run-id> (a positive ID) is required"})
+	}
+	if request.jobID < 0 {
+		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Message: "--job must be a positive job ID"})
+	}
+	if request.jobID != 0 && request.failedOnly {
+		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Message: "--job and --failed-only are mutually exclusive"})
+	}
+
 	var githubClient usecase.GitHub
-	var repo string
 	if options.Fake != "" {
 		scenario := normalizedScenario(options)
-		if scenario == "api_error" || scenario == "network_error" || scenario == "rate_limited" {
-			return errors.New("github api unavailable")
+		if scenario == "api_error" {
+			kind := usecase.ActionErrorNetwork
+			if strings.Contains(strings.ToLower(options.Fake), "rate") {
+				kind = usecase.ActionErrorRateLimit
+			}
+			return refuse(usecase.ActionError{Kind: kind, Message: "github api unavailable"})
 		}
 		githubClient = fake.New(fakeScenarioFor(scenario))
-		repo = firstNonEmpty(options.Repo, "indrasvat/gh-hound")
+		result.Repo = firstNonEmpty(options.Repo, "indrasvat/gh-hound")
 	} else {
 		target, err := resolveTarget(ctx, options, runtime)
 		if err != nil {
-			return err
+			return refuse(err)
 		}
 		defer func() {
 			_ = target.close()
 		}()
 		githubClient = target.github
-		repo = target.repo
+		result.Repo = target.repo
 	}
+	result.HTMLURL = fmt.Sprintf("https://github.com/%s/actions/runs/%d", result.Repo, request.runID)
 
 	service := usecase.ActionService{
 		GitHub:  githubClient,
 		Limiter: &usecase.MutationLimiter{MinSpacing: time.Second},
 	}
-	var action string
 	var err error
-	switch {
-	case request.cancel && request.force:
-		action = "force_cancel"
-		_, err = service.ForceCancelRun(ctx, repo, request.runID)
-	case request.cancel:
-		action = "cancel"
-		_, err = service.CancelRun(ctx, repo, request.runID)
-	case request.jobID != 0:
-		action = "rerun_job"
-		_, err = service.RerunJob(ctx, repo, request.jobID, request.debug)
-	case request.failedOnly:
-		action = "rerun_failed"
-		_, err = service.RerunFailedJobs(ctx, repo, request.runID, request.debug)
+	switch result.Action {
+	case "force_cancel":
+		_, err = service.ForceCancelRun(ctx, result.Repo, request.runID)
+	case "cancel":
+		_, err = service.CancelRun(ctx, result.Repo, request.runID)
+	case "rerun_job":
+		_, err = service.RerunJob(ctx, result.Repo, request.jobID, request.debug)
+	case "rerun_failed":
+		_, err = service.RerunFailedJobs(ctx, result.Repo, request.runID, request.debug)
 	default:
-		action = "rerun"
-		_, err = service.RerunRun(ctx, repo, request.runID, request.debug)
-	}
-	result := render.MutationResult{
-		Repo:     repo,
-		RunID:    request.runID,
-		JobID:    request.jobID,
-		Action:   action,
-		Accepted: err == nil,
-		HTMLURL:  fmt.Sprintf("https://github.com/%s/actions/runs/%d", repo, request.runID),
+		_, err = service.RerunRun(ctx, result.Repo, request.runID, request.debug)
 	}
 	if err != nil {
-		// Agents branch on error.kind; the envelope still writes so
-		// exit 2 is never a bare stderr message.
-		kind := "unknown"
-		message := err.Error()
-		if actionErr, ok := usecase.AsActionError(err); ok {
-			kind = string(actionErr.Kind)
-			message = actionErr.Message
-		}
-		result.Error = &render.MutationError{Kind: kind, Message: message}
-		if writeErr := render.WriteMutation(w, render.Format(options.Format), result); writeErr != nil {
-			return writeErr
-		}
-		return err
+		return refuse(err)
 	}
-	return render.WriteMutation(w, render.Format(options.Format), result)
+	result.Accepted = true
+	return render.WriteMutation(w, format, result)
 }
 
 func newScreenCommand(stdout io.Writer) *cobra.Command {

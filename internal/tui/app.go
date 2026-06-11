@@ -1179,8 +1179,12 @@ func rerunFamily(action usecase.Action) bool {
 func (a App) updateConfirm(msg KeyMsg) (App, bool) {
 	if msg.Key == "d" {
 		if pending := a.pendingAction; pending != nil && rerunFamily(pending.request.Action) {
-			pending.request.Debug = !pending.request.Debug
-			a.confirm = confirm.New(confirmMessage(pending.request))
+			// Clone before mutating: App copies share the pointer, and
+			// in-place edits would leak into historical values.
+			toggled := *pending
+			toggled.request.Debug = !toggled.request.Debug
+			a.pendingAction = &toggled
+			a.confirm = confirm.New(confirmMessage(toggled.request))
 			return a, true
 		}
 	}

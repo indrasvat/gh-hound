@@ -60,7 +60,7 @@ For testing agent behavior without live CI:
 gh hound runs --no-tui --json --fake-scenario failure   # also: green, pending, empty, api_error
 ```
 
-The JSON schema lives at `internal/render/testdata/schema.json` in the gh-hound repo.
+The JSON schema lives at `internal/render/testdata/schema.json` in the gh-hound repo; the mutation envelope is under `$defs.mutation_result`.
 
 ## Guardrails
 

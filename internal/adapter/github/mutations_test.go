@@ -41,12 +41,15 @@ func TestMutationEndpointsUseExpectedMethodPathAndBodies(t *testing.T) {
 			}
 			w.WriteHeader(http.StatusCreated)
 		case "/repos/indrasvat/gh-hound/actions/jobs/399/rerun":
+			// Live-verified 2026-06-10: job rerun accepts the debug body
+			// (201 on job 80701207312) — pin debug=true here so the
+			// "--debug combines with all rerun forms" claim has teeth.
 			var body map[string]bool
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Fatalf("decode job rerun body: %v", err)
 			}
-			if body["enable_debug_logging"] {
-				t.Fatalf("job rerun body = %#v, want debug false", body)
+			if !body["enable_debug_logging"] {
+				t.Fatalf("job rerun body = %#v, want debug true", body)
 			}
 			w.WriteHeader(http.StatusCreated)
 		case "/repos/indrasvat/gh-hound/actions/runs/571/cancel",
@@ -72,7 +75,7 @@ func TestMutationEndpointsUseExpectedMethodPathAndBodies(t *testing.T) {
 	calls := []func() error{
 		func() error { _, err := client.RerunRun(ctx, "indrasvat/gh-hound", 571, true); return err },
 		func() error { _, err := client.RerunFailedJobs(ctx, "indrasvat/gh-hound", 571, true); return err },
-		func() error { _, err := client.RerunJob(ctx, "indrasvat/gh-hound", 399, false); return err },
+		func() error { _, err := client.RerunJob(ctx, "indrasvat/gh-hound", 399, true); return err },
 		func() error { _, err := client.CancelRun(ctx, "indrasvat/gh-hound", 571); return err },
 		func() error { _, err := client.ForceCancelRun(ctx, "indrasvat/gh-hound", 571); return err },
 		func() error {
