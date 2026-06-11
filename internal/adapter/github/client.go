@@ -89,12 +89,33 @@ func (c *Client) ListRuns(ctx context.Context, filter usecase.RunFilter) ([]mode
 	if filter.Page > 0 {
 		values.Set("page", strconv.Itoa(filter.Page))
 	}
+	if created := createdQualifier(filter); created != "" {
+		values.Set("created", created)
+	}
 
 	var decoded runsResponse
 	if err := c.getJSON(ctx, resourcePath(filter.Repo, "actions/runs"), values, &decoded); err != nil {
 		return nil, err
 	}
 	return mapRuns(decoded.WorkflowRuns)
+}
+
+// createdQualifier renders the runs-list `created` search qualifier:
+// `>=t` fences discovery freshness, `<=t` anchors paginated walks,
+// both bound a range. Live-verified 2026-06-11 on /actions/runs and
+// the workflow-scoped runs endpoint.
+func createdQualifier(filter usecase.RunFilter) string {
+	after, before := filter.CreatedAfter, filter.CreatedBefore
+	switch {
+	case !after.IsZero() && !before.IsZero():
+		return after.UTC().Format(time.RFC3339) + ".." + before.UTC().Format(time.RFC3339)
+	case !after.IsZero():
+		return ">=" + after.UTC().Format(time.RFC3339)
+	case !before.IsZero():
+		return "<=" + before.UTC().Format(time.RFC3339)
+	default:
+		return ""
+	}
 }
 
 func (c *Client) GetRun(ctx context.Context, repo string, runID int64) (model.Run, error) {

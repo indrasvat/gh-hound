@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/usecase"
@@ -29,16 +28,20 @@ func (c *Client) ListWorkflowRuns(ctx context.Context, repo, workflow string, fi
 	if filter.Status != "" {
 		values.Set("status", filter.Status)
 	}
+	if filter.Event != "" {
+		values.Set("event", filter.Event)
+	}
 	if filter.PerPage > 0 {
 		values.Set("per_page", strconv.Itoa(filter.PerPage))
 	}
 	if filter.Page > 0 {
 		values.Set("page", strconv.Itoa(filter.Page))
 	}
-	if !filter.CreatedBefore.IsZero() {
-		// Anchor the walk: pin the result set to runs that existed when
-		// the scan started so page seams cannot drift mid-walk.
-		values.Set("created", "<="+filter.CreatedBefore.UTC().Format(time.RFC3339))
+	// created anchors paginated walks (<=, page seams cannot drift
+	// mid-scan) and fences dispatch discovery (>=, only runs created
+	// after the dispatch count).
+	if created := createdQualifier(filter); created != "" {
+		values.Set("created", created)
 	}
 	var decoded runsResponse
 	resource := resourcePath(repo, "actions/workflows/"+workflow+"/runs")
