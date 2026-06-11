@@ -119,6 +119,12 @@
        }
       }
      },
+     "pending_environments": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
      "artifacts": {
       "type": "array",
       "items": {
@@ -163,6 +169,120 @@
   }
  },
  "$defs": {
+  "approvals_result": {
+   "type": "object",
+   "required": [
+    "repo",
+    "run_id",
+    "pending"
+   ],
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "run_id": {
+     "type": "integer"
+    },
+    "pending": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "environment_id",
+       "environment",
+       "wait_timer",
+       "current_user_can_approve",
+       "reviewers"
+      ],
+      "properties": {
+       "environment_id": {
+        "type": "integer"
+       },
+       "environment": {
+        "type": "string"
+       },
+       "wait_timer": {
+        "type": "integer"
+       },
+       "current_user_can_approve": {
+        "type": "boolean"
+       },
+       "reviewers": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "required": [
+          "type",
+          "name"
+         ],
+         "properties": {
+          "type": {
+           "enum": [
+            "User",
+            "Team"
+           ]
+          },
+          "name": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    "accepted": {
+     "type": "boolean"
+    },
+    "reviewed": {
+     "type": "object",
+     "required": [
+      "state",
+      "environments",
+      "comment"
+     ],
+     "properties": {
+      "state": {
+       "enum": [
+        "approved",
+        "rejected"
+       ]
+      },
+      "environments": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "comment": {
+       "type": "string"
+      }
+     }
+    },
+    "error": {
+     "type": "object",
+     "required": [
+      "kind",
+      "message"
+     ],
+     "properties": {
+      "kind": {
+       "enum": [
+        "validation",
+        "permission",
+        "conflict",
+        "rate_limit",
+        "network",
+        "unknown"
+       ]
+      },
+      "message": {
+       "type": "string"
+      }
+     }
+    }
+   }
+  },
   "mutation_result": {
    "type": "object",
    "required": [

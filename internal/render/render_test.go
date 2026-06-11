@@ -191,3 +191,108 @@ func TestWriteMutationFormats(t *testing.T) {
 		t.Fatalf("xml output = %s", xmlOut.String())
 	}
 }
+
+func TestWriteApprovalsFormats(t *testing.T) {
+	pendingResult := ApprovalsResult{
+		Repo:  "indrasvat/gh-hound",
+		RunID: 30433655,
+		Pending: []PendingDeployment{{
+			EnvironmentID:         7301,
+			Environment:           "production",
+			WaitTimer:             0,
+			CurrentUserCanApprove: true,
+			Reviewers:             []DeploymentReviewer{{Type: "User", Name: "indrasvat"}},
+		}},
+	}
+	var jsonOut bytes.Buffer
+	if err := WriteApprovals(&jsonOut, FormatJSON, pendingResult); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatalf("json decode: %v", err)
+	}
+	for _, key := range []string{"repo", "run_id", "pending"} {
+		if _, ok := decoded[key]; !ok {
+			t.Fatalf("json missing %q: %s", key, jsonOut.String())
+		}
+	}
+	if _, ok := decoded["accepted"]; ok {
+		t.Fatalf("list form must not carry accepted: %s", jsonOut.String())
+	}
+	pending := decoded["pending"].([]any)[0].(map[string]any)
+	for _, key := range []string{"environment_id", "environment", "wait_timer", "current_user_can_approve", "reviewers"} {
+		if _, ok := pending[key]; !ok {
+			t.Fatalf("pending entry missing %q: %s", key, jsonOut.String())
+		}
+	}
+
+	accepted := true
+	reviewed := pendingResult
+	reviewed.Pending = []PendingDeployment{}
+	reviewed.Accepted = &accepted
+	reviewed.Reviewed = &DeploymentReview{
+		State:        "approved",
+		Environments: []string{"production"},
+		Comment:      "reviewed from gh-hound",
+	}
+	var reviewedOut bytes.Buffer
+	if err := WriteApprovals(&reviewedOut, FormatJSON, reviewed); err != nil {
+		t.Fatalf("json reviewed: %v", err)
+	}
+	if !strings.Contains(reviewedOut.String(), `"accepted": true`) || !strings.Contains(reviewedOut.String(), `"state": "approved"`) {
+		t.Fatalf("reviewed envelope = %s", reviewedOut.String())
+	}
+
+	refusedFlag := false
+	refused := ApprovalsResult{
+		Repo:     "indrasvat/gh-hound",
+		RunID:    30433655,
+		Accepted: &refusedFlag,
+		Error:    &MutationError{Kind: "permission", Message: "not yours to open"},
+	}
+	var refusedOut bytes.Buffer
+	if err := WriteApprovals(&refusedOut, FormatJSON, refused); err != nil {
+		t.Fatalf("json refused: %v", err)
+	}
+	if !strings.Contains(refusedOut.String(), `"accepted": false`) || !strings.Contains(refusedOut.String(), `"kind": "permission"`) {
+		t.Fatalf("refusal envelope must carry accepted:false and typed error: %s", refusedOut.String())
+	}
+
+	var mdOut bytes.Buffer
+	if err := WriteApprovals(&mdOut, FormatMarkdown, pendingResult); err != nil {
+		t.Fatalf("md: %v", err)
+	}
+	if !strings.Contains(mdOut.String(), "production") || !strings.Contains(mdOut.String(), "# gh-hound approvals") {
+		t.Fatalf("md output = %s", mdOut.String())
+	}
+
+	var xmlOut bytes.Buffer
+	if err := WriteApprovals(&xmlOut, FormatXML, pendingResult); err != nil {
+		t.Fatalf("xml: %v", err)
+	}
+	if !strings.Contains(xmlOut.String(), "<approvals_result") || !strings.Contains(xmlOut.String(), `environment="production"`) {
+		t.Fatalf("xml output = %s", xmlOut.String())
+	}
+}
+
+func TestRunPendingEnvironmentsAreOptIn(t *testing.T) {
+	var out bytes.Buffer
+	if err := Write(&out, FormatJSON, fixtureResult()); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if strings.Contains(out.String(), "pending_environments") {
+		t.Fatalf("default runs must omit pending_environments: %s", out.String())
+	}
+
+	enriched := fixtureResult()
+	enriched.Runs[0].Status = "waiting"
+	enriched.Runs[0].PendingEnvironments = []string{"production"}
+	out.Reset()
+	if err := Write(&out, FormatJSON, enriched); err != nil {
+		t.Fatalf("json enriched: %v", err)
+	}
+	if !strings.Contains(out.String(), `"pending_environments": [`) {
+		t.Fatalf("enriched run must carry pending_environments: %s", out.String())
+	}
+}
