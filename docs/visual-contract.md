@@ -165,3 +165,19 @@ Approve and reject are both confirm-gated ("open the gate for …?" /
 "keep the gate shut for …?"); verdict toasts: "gate's open." and
 "gate stays shut.". Fixture screens: `runs-waiting`, `approvals`,
 `detail-pending`.
+
+## Render Hygiene (the flicker contract)
+
+The TTY renderer diffs each frame against the previous one and flushes
+the update as ONE write wrapped in synchronized-output guards
+(`ESC[?2026h` … `ESC[?2026l`). After the first paint it never erases
+the whole screen — `ESC[2J` between frames is the blank-flash flicker
+this contract exists to prevent. Changed lines reposition absolutely
+and erase their own tails (`ESC[K`); shrinking frames erase below
+(`ESC[J`); resizes invalidate the diff for one full repaint. The app
+lives on the alternate screen with the cursor hidden.
+
+Enforced three ways: renderer unit pins (`cmd/gh-hound/render_test.go`),
+the `render_hygiene.sh` PTY stream audit in `make vqa` (scroll burst →
+raw bytes → no 2J, guards present), and the tui-qa agent's mandatory
+render-hygiene check.

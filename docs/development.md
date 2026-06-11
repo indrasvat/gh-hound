@@ -97,3 +97,15 @@ make release-check
 ```
 
 Release workflow wiring and install verification are tracked in Task 180.
+
+## Flicker-free rendering
+
+`cmd/gh-hound/render.go` owns the TTY paint path (the same line-diff
+strategy as Bubble Tea's standard renderer and the cellbuf screen
+behind its v2 Cursed Renderer): keep the previous frame's lines, write
+only the rows that changed, one buffered write per frame, mode-2026
+synchronized-update guards around every flush. Never emit `ESC[2J`
+outside the initial alt-screen entry — a steady-state clear is visible
+as flicker. If you touch the render path, `make vqa` runs
+`render_hygiene.sh`, which scrolls the real binary under shux and
+fails on any full-screen erase in the raw PTY stream.

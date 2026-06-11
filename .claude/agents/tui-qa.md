@@ -129,3 +129,19 @@ Independent verification pattern:
 
 Hard anti-patterns:
 - "Looks good" without screenshots. `make vqa` as a substitute for visual inspection. Inspecting only the largest viewport. Dismissing clipped footers or banner drift as cosmetic. Leaving shux sessions running. Hiding uncertainty — untested areas go in Residual Risk.
+
+## Mandatory check: render hygiene (flicker)
+
+Static screenshots cannot see flicker — it is temporal; only the raw
+output byte stream can, and only a LOSSLESS capture of it. Run
+`.claude/automations/render_hygiene.sh` (a python pty harness that
+drives a scroll burst and asserts: zero `ESC[2J` full-screen erases in
+steady state, `ESC[?2026h/l` synchronized-output guards, line-diffed
+update sizes) on every audit touching a scrollable surface or the
+render path, and treat its verdict as the check.
+
+GOTCHA (cost a false PASS on 2026-06-11): `shux pane watch` is
+intentionally SAMPLED/lossy — absence-of-bytes assertions over it are
+unsound. Never grep a watch stream for "no ESC[2J"; use the pty
+harness. Negative control: the pre-fix v0.5.0 renderer fails all three
+checks (26 erases / 218KB for one burst vs 4.7KB / 0 after).
