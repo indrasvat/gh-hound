@@ -1,6 +1,6 @@
 ---
 name: gh-hound-qa-ledger
-description: Running QA failure/verification ledger for gh-hound TUI audits (rounds 4-14; tasks 220-290 — round 14 PASS, task 280 fixes verified; palette j/k typing is unpinned by tests)
+description: Running QA failure/verification ledger for gh-hound TUI audits (rounds 4-16; tasks 220-290 — round 16 PASS, 270 hunt-voice + codex fixes verified in binary; P3 docs residue "Pack board/Pack size" remains)
 metadata:
   type: project
 ---
@@ -279,6 +279,86 @@ directions). Remaining F3 unreachables from round 13 still stand
 unregressed (badged picker entries ◌/⊘ intact). 519 unit tests green.
 Evidence: .shux/out/r14-*.png (8) + regenerated
 .claude/automations/screenshots.
+
+Round 15 (feat/270-multi-watch, d8beceb, 2026-06-11): FAIL — the hunt
+(multi-run watch board). P2: post-build rename (5dcedc2 "toasts …
+all speak 'the hunt' now") MISSED the zero-lost settled toast — app.go
+zero-lost branch said Title "pack's home." in the audited commit
+(strings-verified in the tested binary), and "pack watch refresh
+failed: " route error; the all-green settle is the COMMON real case
+and is unreachable in the fake (pack scenario always loses Docs) —
+fixture-fidelity gap, the buggy copy can never be rehearsed. Docs
+residue: README:217 "Pack board", configuration.md:19/26/38 "pack
+board", agent-surface.md:71-72, visual-contract.md:138 "pack board
+open". MID-AUDIT DRIFT: working tree went dirty during the audit
+(~02:18) with unaudited fixes for exactly these strings PLUS a
+handoff-fence semantics change (handoffQuerySkew moved client→server
+query only; strict client fence) and pack Tick Branch filter +
+diff.go url.PathEscape — none built into any audited binary; gate the
+NEXT commit fresh. Everything else VERIFIED on d8beceb: watch-board
+fixture EXACT column math at 80/120/200 (hdr #@49/89/169 == rows,
+ElapsedEnd@79/119/199, measured); all 27 vqa screens regenerated this
+audit + passed; palette lists runs/--all/run:failed/watch("the hunt ·
+watch the run's event group")/artifacts/approvals/diff/caches/
+workflows("the pack")/dispatch; w on sibling run → board paints
+INSTANTLY from on-screen rows (frame0: 3 running, queued rows "—")
+before first pack tick (220 invariant; "rounding up the hunt"
+grace-skipped in zero-latency fake, string confirmed in binary);
+aggregate header matches rows; j/k+arrows move; f pins cursor to first
+lost + follow ●; manual move drops follow; enter drills into THAT run
+(Docs #603, watch footer); esc back with selection+follow kept; x →
+"cancel run #603" confirm on blank base (established style) with
+dedicated truthful footer; esc pops exactly one layer
+(confirm→board→runs); settled toast fires ONCE at running→settled,
+warn ▲ "the hunt's home — 1 run lost." (singular correct), TTL ~7s,
+no re-fire; single-run group (Deploy Pages workflow_run) degrades to
+classic watch; live resize 80/200 clean; help contextual to board;
+pipe watch --group NDJSON: run-level transitions only, chained
+workflow_run excluded, summary closes stream, exit 1. Fake-lens
+unreachables: zero-lost toast, board error state, empty-hunt line,
+elapsed wobble across two running ticks (settles too fast; column
+edge stable across all 10 frames). 566 unit tests green. Evidence:
+.shux/out/r15-*.png (22) + regenerated screenshots/watch-board.
+NOTE: task doc 270 voice section still says "pack"/"pack's home." —
+superseded by 5dcedc2's recorded rename, doc not updated.
+
+Round 16 (feat/270-multi-watch, 4be4511, 2026-06-11): PASS — targeted
+re-audit of round-15 findings + codex round-1 fixes, fresh build
+gated. F1 FIXED IN BINARY: strings show "the hunt's home." (zero-lost)
++ "the hunt's home — " (lost) + "hunt refresh failed: "; ZERO hits for
+"pack's home"/"pack watch refresh failed". Live __vqa-tui --scenario
+pack at 120x40: settled warn toast "▲ the hunt's home — 1 run lost. ·
+0 running · 2 home · 1 lost" captured in pixels; no re-fire after TTL
+(~7s) across further refresh ticks; drill-in opens Docs #603 (correct
+run), esc pops one layer. Zero-lost branch still fake-unreachable
+(pack always loses Docs) — gated via strings + pin
+TestRefreshPackPushesTheSettledToastOnce (real app.Refresh→refreshPack
+→ViewSized path, asserts new string; no-repeat check greps "hunt's
+home" — meaningful). Codex fixes verified on REAL paths: (a)
+diff.go:47 url.PathEscape(workflow) in ListWorkflowRuns; workflow ids
+ARE full file paths in prod (app.go:1220-1233 workflow.Path → main.go
+:1266 DiscoverDispatchedRun); pin asserts EscapedPath
+".../workflows/.github%2Fworkflows%2Fci.yml/runs" via real
+Client+httptest. (b) handoff.go: handoffQuerySkew (5s) widens ONLY the
+server CreatedAfter; newestRunSince keeps the strict client fence
+(CreatedAt.Before(since) skip); pin feeds an inside-skew stale run
+(since-2s) that must not attach. (c) pack.go:134 Tick filter carries
+Branch: state.Branch; app packState() (app.go:2194) populates
+board.Branch; pin asserts filter.Branch=="main" through real Tick.
+Fixture watch-board UNCHANGED at 3 breakpoints: hdr#==rows at cell
+48/88/169 (border-stripped), line widths 78/118/200 flush. 566 tests
+green. PACK SCENARIO TIMING GOTCHA: packRuns() advances one tick PER
+RUNS LISTING (fake.go:497, cap 4) — the runs screen's own poll burns
+ticks, so idling on welcome/runs settles the pack before w; press w
+within ~5s of the runs list to catch the live→settle transition.
+FIXTURE SCROLL GOTCHA: __screen at 200x60 scrolls the top rows off
+after the final newline — text captures race it; snapshot right after
+wait-for (PNG fine), measure columns from __screen stdout instead.
+RESIDUE (P3, unfiled — parent's "docs all speak hunt" claim partially
+false): configuration.md:38 env-table still "Pack board size cap";
+agent-surface.md "Pack size is capped by watch_group_max". Task doc
+carries the post-build voice note (F4 closed). Evidence:
+.shux/out/r16-*.png (6).
 
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.
