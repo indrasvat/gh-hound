@@ -121,6 +121,26 @@ type PendingDeployment struct {
 type DeploymentReviewer struct {
 	Type string `json:"type"`
 	Name string `json:"name"`
+// Cache is one GitHub Actions cache entry (the kennel's contents).
+// Shape pinned against the live API 2026-06-10: the wire payload also
+// carries a version hash, deliberately dropped — it names the cache
+// internals, not anything a user can act on.
+type Cache struct {
+	ID             int64     `json:"id"`
+	Key            string    `json:"key"`
+	Ref            string    `json:"ref"`
+	SizeInBytes    int64     `json:"size_in_bytes"`
+	LastAccessedAt time.Time `json:"last_accessed_at"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// CacheUsage is the repo-level Actions cache footprint. The API does
+// not expose the eviction cap on github.com (the usage-policy endpoint
+// is GHES-only — verified live 2026-06-10, 404), so callers compare
+// against the documented 10 GB fallback.
+type CacheUsage struct {
+	ActiveSizeInBytes int64 `json:"active_size_in_bytes"`
+	ActiveCount       int   `json:"active_count"`
 }
 
 type Workflow struct {

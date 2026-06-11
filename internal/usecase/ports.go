@@ -60,6 +60,29 @@ type GitHub interface {
 	DispatchWorkflow(context.Context, string, string, DispatchRequest) (ActionResult, error)
 }
 
+// CacheFilter narrows a cache listing server-side. Key matches an
+// explicit key or prefix, Ref a full git ref (refs/heads/...); Sort
+// and Direction follow the API enums (created_at | last_accessed_at |
+// size_in_bytes, asc | desc).
+type CacheFilter struct {
+	Key       string
+	Ref       string
+	Sort      string
+	Direction string
+}
+
+// GitHubCaches is an optional adapter capability: Actions cache
+// listing, usage-vs-cap, and eviction. Separate from GitHub so
+// existing adapters and test doubles stay compile-compatible, and so
+// the default runs path can never accidentally grow cache calls.
+// Deletes return the number of caches dug up.
+type GitHubCaches interface {
+	ListCaches(ctx context.Context, repo string, filter CacheFilter) ([]model.Cache, error)
+	CacheUsage(ctx context.Context, repo string) (model.CacheUsage, error)
+	DeleteCacheByID(ctx context.Context, repo string, id int64) (int, error)
+	DeleteCachesByKey(ctx context.Context, repo, key, ref string) (int, error)
+}
+
 type GitHubDiagnostics interface {
 	LastRequestMeta(resource string) (RequestMeta, bool)
 }
