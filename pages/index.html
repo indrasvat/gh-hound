@@ -188,8 +188,8 @@
         <p>Calls and mutations are paced to stay clear of secondary rate-limit spikes.</p>
       </div>
       <div class="eng reveal">
-        <h3>cache-first paint</h3>
-        <p>The TUI renders from local state. Network work returns through messages, never blocking a keystroke.</p>
+        <h3>no keystroke waits</h3>
+        <p>Every fetch is async behind one spinner: dimmed reloads, instant skeletons, byte-progress bars on fat logs. esc cancels the work itself.</p>
       </div>
       <div class="eng reveal">
         <h3>viewport-only logs</h3>
@@ -210,6 +210,7 @@
     <div class="agents-split">
       <div class="reveal">
         <p style="color:var(--muted);font-size:0.97rem">Agents don&rsquo;t click dashboards &mdash; they read <span class="mono" style="color:var(--fg-soft)">stdout</span>. Point yours at <span class="sh"><span class="ps1">$</span>gh hound runs --no-tui --json</span> and branch on the exit code. Deterministic fake scenarios let your harness play fetch without ever touching the network.</p>
+        <p style="color:var(--muted);font-size:0.97rem;margin-top:0.8rem">And the leash works both ways: <span class="sh"><span class="ps1">$</span>gh hound rerun --run &lt;id&gt; --failed-only --debug</span> sends the failures back out with debug logging &mdash; <span class="sh"><span class="ps1">$</span>gh hound cancel</span> calls them off. Same JSON, same exit codes, one API call each.</p>
         <table class="exit-table">
           <caption>exit codes &middot; barks, translated</caption>
           <tbody>

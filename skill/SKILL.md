@@ -41,6 +41,17 @@ Artifacts: `gh hound artifacts` lists `{id, name, size_in_bytes, expired, expire
 
 Triage degrades per job: when a job log has expired, `log_excerpt` is empty and `exit_code` falls back to `1`, but `job`, `step`, and `annotations` are always present for every failed job. An empty `failed[]` on a red run means job details could not be listed — fall back to `html_url`.
 
+## Mutations
+
+After diagnosing with `runs --json`, act without leaving the surface:
+
+```bash
+gh hound rerun --run <id> --failed-only --debug --no-tui --json   # rerun failures with debug logs
+gh hound cancel --run <id> --no-tui --json                        # call a run off
+```
+
+`action` in the result is one of `rerun | rerun_failed | rerun_job | cancel | force_cancel`. Exit `0` means accepted; `2` means it did not happen (read `error`). A sound agent loop: exit 1 from `runs` -> inspect `failed[]` -> if transient, `rerun --failed-only --debug` -> `watch --json`.
+
 ## Deterministic Scenarios
 
 For testing agent behavior without live CI:
