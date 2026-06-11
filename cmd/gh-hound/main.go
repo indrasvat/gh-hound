@@ -279,16 +279,28 @@ func writeMutationResult(ctx context.Context, w io.Writer, options cliOptions, r
 		action = "rerun"
 		_, err = service.RerunRun(ctx, repo, request.runID, request.debug)
 	}
-	if err != nil {
-		return err
-	}
 	result := render.MutationResult{
 		Repo:     repo,
 		RunID:    request.runID,
 		JobID:    request.jobID,
 		Action:   action,
-		Accepted: true,
+		Accepted: err == nil,
 		HTMLURL:  fmt.Sprintf("https://github.com/%s/actions/runs/%d", repo, request.runID),
+	}
+	if err != nil {
+		// Agents branch on error.kind; the envelope still writes so
+		// exit 2 is never a bare stderr message.
+		kind := "unknown"
+		message := err.Error()
+		if actionErr, ok := usecase.AsActionError(err); ok {
+			kind = string(actionErr.Kind)
+			message = actionErr.Message
+		}
+		result.Error = &render.MutationError{Kind: kind, Message: message}
+		if writeErr := render.WriteMutation(w, render.Format(options.Format), result); writeErr != nil {
+			return writeErr
+		}
+		return err
 	}
 	return render.WriteMutation(w, render.Format(options.Format), result)
 }
@@ -1361,6 +1373,10 @@ func fakeScenarioFor(scenario string) fake.Scenario {
 		return fake.ScenarioRunning
 	case "empty":
 		return fake.ScenarioEmpty
+	case "conflict":
+		return fake.ScenarioConflict
+	case "permission":
+		return fake.ScenarioPermission
 	default:
 		return fake.ScenarioGreen
 	}
@@ -1605,6 +1621,9 @@ func normalizedScenario(options cliOptions) string {
 		return "empty"
 	case "api_error", "network_error", "rate_limited", "error":
 		return "api_error"
+	case "conflict", "permission":
+		// Mutation-refusal scenarios: typed errors for agent harnesses.
+		return raw
 	}
 	status := strings.ToLower(strings.TrimSpace(options.Status))
 	switch status {

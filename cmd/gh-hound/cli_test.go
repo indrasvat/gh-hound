@@ -1435,3 +1435,31 @@ func TestMutationAPIErrorExitsTwoWithTypedError(t *testing.T) {
 		t.Fatalf("api error exit = %d, want 2\n%s", code, out.String())
 	}
 }
+
+func TestMutationConflictEmitsTypedErrorEnvelope(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: &bytes.Buffer{},
+		Env:    emptyEnv,
+		IsTTY:  true,
+	}, testBuildInfo())
+	// The fake adapter refuses to cancel a completed run with a typed
+	// conflict — agents must see error.kind in the JSON envelope.
+	cmd.SetArgs([]string{"cancel", "--run", "569", "--no-tui", "--json", "--fake-scenario", "conflict", "-R", "indrasvat/gh-hound"})
+	code, _ := executeCommand(cmd)
+	if code != 2 {
+		t.Fatalf("conflict exit = %d, want 2\n%s", code, out.String())
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("error path emitted no JSON envelope: %v\n%s", err, out.String())
+	}
+	if decoded["accepted"] != false {
+		t.Fatalf("accepted = %v, want false", decoded["accepted"])
+	}
+	errObj, ok := decoded["error"].(map[string]any)
+	if !ok || errObj["kind"] == "" || errObj["kind"] == nil {
+		t.Fatalf("missing typed error: %#v", decoded)
+	}
+}

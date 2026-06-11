@@ -93,13 +93,22 @@ type Download struct {
 // reconstructed from repo + run id, never fetched (the mutation
 // endpoints return no body and the one-call budget holds).
 type MutationResult struct {
-	XMLName  xml.Name `json:"-" xml:"mutation_result"`
-	Repo     string   `json:"repo" xml:"repo,attr"`
-	RunID    int64    `json:"run_id" xml:"run_id,attr"`
-	JobID    int64    `json:"job_id,omitempty" xml:"job_id,attr,omitempty"`
-	Action   string   `json:"action" xml:"action,attr"`
-	Accepted bool     `json:"accepted" xml:"accepted,attr"`
-	HTMLURL  string   `json:"html_url" xml:"html_url,attr"`
+	XMLName  xml.Name       `json:"-" xml:"mutation_result"`
+	Repo     string         `json:"repo" xml:"repo,attr"`
+	RunID    int64          `json:"run_id" xml:"run_id,attr"`
+	JobID    int64          `json:"job_id,omitempty" xml:"job_id,attr,omitempty"`
+	Action   string         `json:"action" xml:"action,attr"`
+	Accepted bool           `json:"accepted" xml:"accepted,attr"`
+	HTMLURL  string         `json:"html_url" xml:"html_url,attr"`
+	Error    *MutationError `json:"error,omitempty" xml:"error,omitempty"`
+}
+
+// MutationError is the typed refusal agents branch on when a mutation
+// is not accepted (exit 2): kind mirrors the ActionError taxonomy
+// (validation, permission, conflict, rate_limit, network, unknown).
+type MutationError struct {
+	Kind    string `json:"kind" xml:"kind,attr"`
+	Message string `json:"message" xml:"message,attr"`
 }
 
 func WriteMutation(w io.Writer, format Format, result MutationResult) error {

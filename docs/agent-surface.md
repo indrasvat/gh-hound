@@ -48,6 +48,8 @@ Result envelope: `{repo, run_id, job_id?, action, accepted, html_url}` where `ac
 
 Mutation exit codes: `0` accepted, `2` anything else (validation such as `--job` with `--failed-only`, permission, conflict like cancelling a completed run, API). Exit `1` stays reserved for actionable CI state and is never returned by mutation verbs. Mutations are paced at one per second through the same serial queue as reads.
 
+On exit `2` the envelope still writes with `accepted: false` and a typed refusal: `error: {kind, message}` where `kind` is one of `validation | permission | conflict | rate_limit | network | unknown`. Harnesses can rehearse refusals deterministically with `--fake-scenario conflict` or `--fake-scenario permission`.
+
 ## JSON Contract
 
 The JSON schema lives at `internal/render/testdata/schema.json`; the canonical failure fixture lives at `internal/render/testdata/failure.golden.json`.
