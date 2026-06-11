@@ -1,7 +1,7 @@
 # Task 250: deployment approvals — review waiting runs from the terminal
 
 ## Status
-PLANNED
+IN PROGRESS — implementation complete on feat/250-deployment-approvals; live POST verification + landing pass pending (orchestrator).
 
 ## Ownership Boundary
 - **Primary area:** pending-deployment review: surface `waiting` runs' gated environments, approve/reject from TUI and pipe.
@@ -20,6 +20,10 @@ PLANNED
   - `GET /repos/{o}/{r}/actions/runs/{run_id}/pending_deployments` → `[{environment{id,name}, wait_timer, current_user_can_approve, reviewers[]}]`
   - `POST` same path, body `{environment_ids: [..], state: "approved"|"rejected", comment}` → 200 with deployments.
 - Competitive fact: `gh` CLI has **no** approval command — this is an unfilled gap in the entire terminal ecosystem.
+- **API verification record (2026-06-10):**
+  - `GET .../pending_deployments` live-verified against indrasvat/gh-hound run `27319423642`: `200` with `[]` on a non-waiting run (endpoint path, auth, and empty-list envelope confirmed live).
+  - No reachable repo had a `waiting` run, so the full GET payload and the POST body are pinned from the official REST reference (docs.github.com/en/rest/actions/workflow-runs, 2022-11-28 example payloads) in `internal/adapter/github/testdata/pending_deployments.json` and the adapter httptest suite. Confirmed: POST requires `environment_ids` (int64 ids), `state` (`approved`|`rejected`), AND `comment` — all three required; gh-hound always sends a comment, defaulting to `reviewed from gh-hound`.
+  - **Live verification of the POST (approve AND reject through a scratch gated environment on indrasvat/gh-hound) is deferred to the PR's live-verification phase** — creating it requires pushing a workflow targeting the environment, which is not done from this branch.
 
 ## Problem
 A run gated on an environment sits in `waiting` and gh-hound can see it but not act — the single remaining triage verdict that forces a browser tab. "Fetch happens" must include the deploy gate.

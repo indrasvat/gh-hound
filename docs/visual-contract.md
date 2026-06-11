@@ -10,11 +10,13 @@ Source of truth: `docs/gh-hound-design.html`. Re-read the matching mock before e
 | ① | all_green | green summary band; large success glyph; dim recent rows; footer biases watch and dispatch |
 | ② | runs_list | focused panel; breadcrumb; rate/cache/live header; selected row uses surface-2 fill plus green left bar; f cycles status filter (all/failing/running/passed) through the server filter line |
 | ③ | detail | side-by-side jobs and step timeline; failed step gets fail-tinted fill plus fail left bar; Tab moves focus across jobs, steps, and artifacts; artifacts block lists name, size, and expired badge with selected-row fill |
+| ③b | detail (waiting run) | Deploy gate panel above artifacts: per environment the ◫ glyph, approvability ("you can open this gate" in ok / "not yours to open" in warn), wait timer, and reviewers right-aligned |
 | ④ | failure | breadcrumb header; annotations first; de-noised colored error window with line count and expand affordance |
 | ⑤ | watch | streaming badge; follow marker; completed steps colored; active step shows running cursor and append-only tail |
 | ⑥ | log | line-number gutter; fold rows; search hit tint; ANSI plus syntax accents; decorative scrollbar; t opens a time-jump input (header echoes t→HH:MM:SS) |
 | ⑦ | toasts_dispatch | toast layer over dimmed base and dispatch form with typed inputs |
 | ⑧ | palette | centered overlay; prompt row; filtered list; selected row surface-2 fill plus green left bar |
+| ⑨ | approvals | deploy-gate overlay over the runs screen: env multi-pick rows ([x]/[ ]/[-] checkboxes, ◫ glyph, reviewers line), comment line with documented default, notice line for refusals; opened by A on a waiting run after the shared "checking the gate" load |
 | ⑩ | help | three-column contextual keymap; legend; Canvas/Layer overlay |
 
 ## Theme Tokens
@@ -59,6 +61,7 @@ All glyphs are text presentation only. Do not append emoji variation selectors. 
 | Name | Glyph |
 |---|---|
 | success | ✔ |
+| gate (waiting run) | ◫ |
 | failure | ✗ |
 | in_progress | ⠹ |
 | queued | ◌ |
@@ -95,6 +98,7 @@ Footer text must be generated from keymap data, not copied into renderers.
 | palette | workflows · watch · diff (v2) · theme |
 | help | : palette · ? close · ⎋ close |
 | toasts | ⎋ dismiss · g dismiss all · r retry · ? help |
+| approvals overlay | j/k move · space pick · y open gate · n keep shut · c comment · ⎋ close |
 
 ## Breakpoints
 
@@ -136,3 +140,13 @@ keystroke would violate the invariant.
 Spinner: braille cycle (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`), ~120ms/frame, run color;
 labels are hound-voiced and passed per context. Fixture screens:
 `runs-loading`, `detail-loading`, `failure-loading`, `log-progress`.
+
+Approvals: `A` on a waiting run fetches the gate list through the
+shared loader (kind `approvals`, label "checking the gate") before the
+overlay opens; the runs list shows the standard loading line meanwhile.
+Waiting runs wear the ◫ gate badge in the status column and the summary
+line advertises `◫ N gated · A review` only while one is on screen.
+Approve and reject are both confirm-gated ("open the gate for …?" /
+"keep the gate shut for …?"); verdict toasts: "gate's open." and
+"gate stays shut.". Fixture screens: `runs-waiting`, `approvals`,
+`detail-pending`.
