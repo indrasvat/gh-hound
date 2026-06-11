@@ -52,7 +52,7 @@ On exit `2` the envelope still writes with `accepted: false` and a typed refusal
 
 ## JSON Contract
 
-The JSON schema lives at `internal/render/testdata/schema.json`; the canonical failure fixture lives at `internal/render/testdata/failure.golden.json`.
+The JSON schema lives at `internal/render/testdata/schema.json` (mutation envelope under `$defs.mutation_result`); the canonical failure fixture lives at `internal/render/testdata/failure.golden.json`.
 
 Each run includes:
 
