@@ -787,7 +787,7 @@ func newWatchCommand(runtime commandRuntime, options *cliOptions) *cobra.Command
 			return writeResult(cmd.Context(), runtime.Stdout, *options, runtime)
 		},
 	}
-	cmd.Flags().BoolVar(&group, "group", false, "watch the whole event group (same head_sha + event) as NDJSON until the pack settles")
+	cmd.Flags().BoolVar(&group, "group", false, "watch the whole event group (same head_sha + event) as NDJSON until the hunt settles")
 	cmd.Flags().Int64Var(&options.RunID, "run", 0, "anchor the group on a specific run ID (default: the newest run in scope)")
 	return cmd
 }

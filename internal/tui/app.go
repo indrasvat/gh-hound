@@ -2173,7 +2173,7 @@ func (a App) openPackWatch(run model.Run) App {
 	}
 	resolver := a.packResolver
 	state := a.packState()
-	return a.startLoad(loadKindPack, "rounding up the pack", func(ctx context.Context) func(App) App {
+	return a.startLoad(loadKindPack, "rounding up the hunt", func(ctx context.Context) func(App) App {
 		next, err := resolver(ctx, state)
 		return func(app App) App {
 			if err != nil {
@@ -2270,7 +2270,7 @@ func (a *App) pushPackSettledToast(summary usecase.PackSummary) {
 	}
 	a.pushToast("pack-settled", usecase.Resilience{
 		Severity: usecase.SeverityWarn,
-		Title:    fmt.Sprintf("the pack's back — %d %s lost.", summary.Lost, noun),
+		Title:    fmt.Sprintf("the hunt's home — %d %s lost.", summary.Lost, noun),
 		Message:  summary.String(),
 	})
 }
@@ -3310,7 +3310,7 @@ func (a App) chromeParts() (string, string, string) {
 // packContext names the board's scent in the chrome: the shared sha
 // and event the pack is running on.
 func packContext(b watch.Board) string {
-	context := "the pack"
+	context := "the hunt"
 	if strings.TrimSpace(b.HeadSHA) != "" {
 		context += " " + icons.Breadcrumb + " " + shortSHA(b.HeadSHA)
 		if strings.TrimSpace(b.Event) != "" {
@@ -3469,7 +3469,7 @@ func paletteItems(workflows []dispatch.Workflow) []palette.Item {
 		{Name: "runs", Description: "workflow runs · this branch", Tag: "default", Route: "runs"},
 		{Name: "runs --all", Description: "runs across all branches", Route: "runs --all"},
 		{Name: "run:failed", Description: "filtered to failures", Route: "run:failed"},
-		{Name: "watch", Description: "watch the pack · selected run's event group", Route: string(RouteWatch)},
+		{Name: "watch", Description: "the hunt · watch the run's event group", Route: string(RouteWatch)},
 		{Name: "artifacts", Description: "selected run's artifacts", Route: "artifacts"},
 		{Name: "approvals", Description: "review the deploy gate", Route: "approvals"},
 		{Name: "diff", Description: "who broke main? · the trail", Route: string(RouteDiff)},

@@ -13,7 +13,7 @@ Source of truth: `docs/gh-hound-design.html`. Re-read the matching mock before e
 | ③b | detail (waiting run) | Deploy gate panel above artifacts: per environment the ◫ glyph, approvability ("you can open this gate" in ok / "not yours to open" in warn), wait timer, and reviewers right-aligned |
 | ④ | failure | breadcrumb header; annotations first; de-noised colored error window with line count and expand affordance |
 | ⑤ | watch | streaming badge; follow marker; completed steps colored; active step shows running cursor and append-only tail |
-| ⑤b | watch_board (the pack) | aggregate header `the pack: N running · N home · N lost`; scent + follow state right-aligned; one row per run (glyph, workflow, #, state, fixed-width elapsed); header and rows share one column math; cursor bar; follow-worst pins the cursor to the first lost/running row |
+| ⑤b | watch_board (the hunt) | aggregate header `the hunt: N running · N home · N lost`; scent + follow state right-aligned; one row per run (glyph, workflow, #, state, fixed-width elapsed); header and rows share one column math; cursor bar; follow-worst pins the cursor to the first lost/running row |
 | ⑥ | log | line-number gutter; fold rows; search hit tint; ANSI plus syntax accents; decorative scrollbar; t opens a time-jump input (header echoes t→HH:MM:SS) |
 | ⑦ | toasts_dispatch | toast layer over dimmed base and dispatch form with typed inputs |
 | ⑧ | palette | centered overlay; prompt row; filtered list; selected row surface-2 fill plus green left bar |

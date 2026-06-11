@@ -47,12 +47,12 @@ gh hound runs --no-tui --format xml
 
 `watch --json` is fail-fast: if the watched run becomes red, it exits `1` and includes the failure object immediately.
 
-## Multi-run Watch (the pack)
+## Multi-run Watch (the hunt)
 
 A push usually triggers several workflows. `watch --group` watches the whole event group — every run sharing the anchor's `head_sha` AND `event` — as one stream:
 
 ```bash
-gh hound watch --group --no-tui              # newest still-live run anchors the pack
+gh hound watch --group --no-tui              # newest still-live run anchors the hunt
 gh hound watch --group --run <run-id> --no-tui
 ```
 
@@ -67,7 +67,7 @@ The stream is NDJSON: one compact JSON object per line, a line per run **state t
 Contract rules agents can rely on (`$defs.watch_group_event` / `$defs.watch_group_summary` in schema.json):
 
 - Group events are **run-level only** (`type, ts, run_id, workflow, status, conclusion`). `job`/`step` fields appear ONLY in single-run `watch` output — the group poll budget never fetches jobs (one runs-list call per tick covers the whole pack).
-- Runs sharing the sha on a different event (e.g. a chained `workflow_run` deploy) are NOT part of the pack and never appear on the stream.
+- Runs sharing the sha on a different event (e.g. a chained `workflow_run` deploy) are NOT part of the hunt and never appear on the stream.
 - Pack size is capped by `watch_group_max` (default 10, env `HOUND_WATCH_GROUP_MAX`).
 - Exit code = worst outcome with the existing semantics: `1` if any run is lost (failure/action_required/timed_out at settle), `0` when the whole pack comes home, `2` on API/validation errors. `--format md/xml` refuse up front — the stream is NDJSON by contract.
 

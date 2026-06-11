@@ -42,7 +42,7 @@ func BoardViewSize(b Board, width, height int, now time.Time) string {
 		boardHeader(width),
 	}
 	if len(b.Runs) == 0 {
-		lines = append(lines, fitANSI(colorize(sgrDim, "  the pack is empty — nothing to watch on this scent."), width))
+		lines = append(lines, fitANSI(colorize(sgrDim, "  the hunt is empty — nothing to watch on this scent."), width))
 		return strings.Join(lines, "\n")
 	}
 	for index, run := range b.Runs {
@@ -62,11 +62,11 @@ func BoardViewSize(b Board, width, height int, now time.Time) string {
 }
 
 // boardHeadline is the aggregate header in the hound voice:
-// `the pack: 3 running · 1 home · 0 lost` with the scent and follow
+// `the hunt: 3 running · 1 home · 0 lost` with the scent and follow
 // state on the right.
 func boardHeadline(b Board, width int) string {
 	summary := b.Summary()
-	left := colorize(sgrFGSoft, "the pack: ") +
+	left := colorize(sgrFGSoft, "the hunt: ") +
 		colorize(sgrRun, fmt.Sprintf("%d running", summary.Running)) +
 		colorize(sgrDim, " · ") +
 		colorize(sgrOK, fmt.Sprintf("%d home", summary.Home)) +

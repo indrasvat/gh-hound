@@ -116,7 +116,7 @@ func TestBoardViewHeaderAndRowsShareColumnMath(t *testing.T) {
 	plain := ansi.Strip(view)
 	lines := strings.Split(plain, "\n")
 
-	if !strings.Contains(lines[0], "the pack: 1 running · 1 home · 1 lost") {
+	if !strings.Contains(lines[0], "the hunt: 1 running · 1 home · 1 lost") {
 		t.Fatalf("aggregate header missing, got %q", lines[0])
 	}
 	if !strings.Contains(lines[0], "9f8e7d6 push") || !strings.Contains(lines[0], "follow ○") {
@@ -155,7 +155,7 @@ func TestBoardViewHeaderAndRowsShareColumnMath(t *testing.T) {
 func TestBoardViewEmptyPack(t *testing.T) {
 	board := watch.Board{Repo: "indrasvat/gh-hound"}
 	view := ansi.Strip(watch.BoardView(board, 80, time.Now()))
-	if !strings.Contains(view, "the pack is empty") {
+	if !strings.Contains(view, "the hunt is empty") {
 		t.Fatalf("empty pack view = %q", view)
 	}
 }

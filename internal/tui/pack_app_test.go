@@ -96,7 +96,7 @@ func TestWatchKeyOpensThePackBoardForAnEventGroup(t *testing.T) {
 		t.Fatalf("pack resolver calls = %d, want 1 open tick", packCalls.Load())
 	}
 	view := ansi.Strip(app.ViewSized(100))
-	if !strings.Contains(view, "the pack: 3 running · 0 home · 0 lost") {
+	if !strings.Contains(view, "the hunt: 3 running · 0 home · 0 lost") {
 		t.Fatalf("board view missing aggregate header:\n%s", view)
 	}
 }

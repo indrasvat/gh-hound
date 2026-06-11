@@ -114,7 +114,7 @@ The local gate includes race-enabled Go tests, large-log performance tests, and 
 - **Failure diagnosis**: annotations, failing step, exit code, and de-noised failure excerpts.
 - **Full log viewer**: line-number gutter, fold rows, search, match count, wrap toggle, scrollbar, and syntax-aware highlighting.
 - **Watch mode**: active-run frame with follow, debug toggle, cancel, and detach.
-- **The pack**: `w` watches the selected run's whole event group — one row per workflow, `the pack: 3 running · 1 home · 0 lost` header, drill into any run, follow-worst mode — on one runs-list call per poll. `watch --group` streams the same pack as NDJSON for agents, and dispatch/rerun can hand off straight into watch (`auto_watch`).
+- **The hunt**: `w` watches the selected run's whole event group — one row per workflow, `the hunt: 3 running · 1 home · 0 lost` header, drill into any run, follow-worst mode — on one runs-list call per poll. `watch --group` streams the same hunt as NDJSON for agents, and dispatch/rerun can hand off straight into watch (`auto_watch`).
 - **Actions**: rerun failed, rerun run/job, cancel, force-cancel, and dispatch with confirmation where appropriate.
 - **Dispatch form**: `workflow_dispatch` workflows and inputs rendered as a keyboard-driven form. Foreign `-R` targets pre-fill their own default branch (never your local checkout's), and refs are validated as a real branch or tag before anything fires.
 - **Overlays**: command palette, contextual help, confirm modals, and rate-limit/error toasts.
