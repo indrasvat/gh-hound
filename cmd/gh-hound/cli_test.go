@@ -1710,3 +1710,241 @@ func TestDispatchSubcommandLaunchOpensForm(t *testing.T) {
 		t.Fatalf("dispatch launch form incomplete:\n%s", view)
 	}
 }
+
+func approvalsRuntime(out *bytes.Buffer, github *cliGitHub) commandRuntime {
+	return commandRuntime{
+		Stdout: out,
+		Stderr: &bytes.Buffer{},
+		Env:    emptyEnv,
+		IsTTY:  false,
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}
+}
+
+func cliPendingDeployments() []model.PendingDeployment {
+	return []model.PendingDeployment{
+		{
+			EnvironmentID:         7301,
+			EnvironmentName:       "production",
+			CurrentUserCanApprove: true,
+			Reviewers:             []model.DeploymentReviewer{{Type: "User", Name: "indrasvat"}},
+		},
+		{
+			EnvironmentID:         7302,
+			EnvironmentName:       "staging",
+			WaitTimer:             1800,
+			CurrentUserCanApprove: false,
+			Reviewers:             []model.DeploymentReviewer{{Type: "Team", Name: "deploy-keys"}},
+		},
+	}
+}
+
+func TestApprovalsListExitsActionableWhenGatesAwaitReview(t *testing.T) {
+	var out bytes.Buffer
+	github := &cliGitHub{pendingList: cliPendingDeployments()}
+	cmd := newRootCommandWithRuntime(approvalsRuntime(&out, github), testBuildInfo())
+	cmd.SetArgs([]string{"approvals", "--run", "30433655", "--no-tui", "--json"})
+
+	code, _ := executeCommand(cmd)
+	if code != 1 {
+		t.Fatalf("approvals list exit = %d, want 1 (gates awaiting review)\n%s", code, out.String())
+	}
+	var decoded struct {
+		RunID   int64 `json:"run_id"`
+		Pending []struct {
+			Environment           string `json:"environment"`
+			CurrentUserCanApprove bool   `json:"current_user_can_approve"`
+		} `json:"pending"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
+	}
+	if decoded.RunID != 30433655 || len(decoded.Pending) != 2 || decoded.Pending[0].Environment != "production" {
+		t.Fatalf("approvals list envelope = %s", out.String())
+	}
+}
+
+func TestApprovalsListExitsZeroWhenNothingPending(t *testing.T) {
+	var out bytes.Buffer
+	github := &cliGitHub{}
+	cmd := newRootCommandWithRuntime(approvalsRuntime(&out, github), testBuildInfo())
+	cmd.SetArgs([]string{"approvals", "--run", "30433655", "--no-tui", "--json"})
+
+	code, err := executeCommand(cmd)
+	if err != nil || code != 0 {
+		t.Fatalf("empty approvals exit = %d, err = %v\n%s", code, err, out.String())
+	}
+	if !strings.Contains(out.String(), `"pending": []`) {
+		t.Fatalf("empty list must render pending: []\n%s", out.String())
+	}
+}
+
+func TestApprovalsApproveReviewsAllApprovableEnvironments(t *testing.T) {
+	var out bytes.Buffer
+	github := &cliGitHub{pendingList: cliPendingDeployments()}
+	cmd := newRootCommandWithRuntime(approvalsRuntime(&out, github), testBuildInfo())
+	cmd.SetArgs([]string{"approvals", "--run", "30433655", "--approve", "--no-tui", "--json"})
+
+	code, err := executeCommand(cmd)
+	if err != nil || code != 0 {
+		t.Fatalf("approve exit = %d, err = %v\n%s", code, err, out.String())
+	}
+	if len(github.reviews) != 1 {
+		t.Fatalf("review calls = %d, want 1", len(github.reviews))
+	}
+	review := github.reviews[0]
+	if len(review.EnvironmentIDs) != 1 || review.EnvironmentIDs[0] != 7301 {
+		t.Fatalf("no --env must review only approvable environments, got %#v", review.EnvironmentIDs)
+	}
+	if review.Comment != usecase.DefaultReviewComment {
+		t.Fatalf("comment = %q, want documented default", review.Comment)
+	}
+	var decoded struct {
+		Accepted *bool `json:"accepted"`
+		Reviewed *struct {
+			State        string   `json:"state"`
+			Environments []string `json:"environments"`
+			Comment      string   `json:"comment"`
+		} `json:"reviewed"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
+	}
+	if decoded.Accepted == nil || !*decoded.Accepted || decoded.Reviewed == nil || decoded.Reviewed.State != "approved" {
+		t.Fatalf("approve envelope = %s", out.String())
+	}
+	if len(decoded.Reviewed.Environments) != 1 || decoded.Reviewed.Environments[0] != "production" {
+		t.Fatalf("reviewed environments = %#v", decoded.Reviewed.Environments)
+	}
+}
+
+func TestApprovalsRejectCarriesEnvAndComment(t *testing.T) {
+	var out bytes.Buffer
+	github := &cliGitHub{pendingList: cliPendingDeployments()}
+	cmd := newRootCommandWithRuntime(approvalsRuntime(&out, github), testBuildInfo())
+	cmd.SetArgs([]string{"approvals", "--run", "30433655", "--reject", "--env", "production", "--comment", "not on a friday", "--no-tui", "--json"})
+
+	code, err := executeCommand(cmd)
+	if err != nil || code != 0 {
+		t.Fatalf("reject exit = %d, err = %v\n%s", code, err, out.String())
+	}
+	review := github.reviews[0]
+	if review.State != usecase.DeploymentRejected || review.Comment != "not on a friday" {
+		t.Fatalf("reject review = %#v", review)
+	}
+	if !strings.Contains(out.String(), `"state": "rejected"`) {
+		t.Fatalf("reject envelope = %s", out.String())
+	}
+}
+
+func TestApprovalsRefusalsWriteTypedEnvelopes(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		kind string
+	}{
+		{"missing run", []string{"approvals", "--no-tui", "--json"}, "validation"},
+		{"approve and reject", []string{"approvals", "--run", "1", "--approve", "--reject", "--no-tui", "--json"}, "validation"},
+		{"env without verb", []string{"approvals", "--run", "1", "--env", "production", "--no-tui", "--json"}, "validation"},
+		{"unknown env", []string{"approvals", "--run", "30433655", "--approve", "--env", "mars", "--no-tui", "--json"}, "validation"},
+		{"not approvable", []string{"approvals", "--run", "30433655", "--approve", "--env", "staging", "--no-tui", "--json"}, "permission"},
+	}
+	for _, tt := range tests {
+		var out bytes.Buffer
+		github := &cliGitHub{pendingList: cliPendingDeployments()}
+		cmd := newRootCommandWithRuntime(approvalsRuntime(&out, github), testBuildInfo())
+		cmd.SetArgs(tt.args)
+		code, _ := executeCommand(cmd)
+		if code != 2 {
+			t.Fatalf("%s exit = %d, want 2\n%s", tt.name, code, out.String())
+		}
+		var decoded struct {
+			Accepted *bool `json:"accepted"`
+			Error    *struct {
+				Kind string `json:"kind"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+			t.Fatalf("%s: invalid JSON: %v\n%s", tt.name, err, out.String())
+		}
+		if decoded.Accepted == nil || *decoded.Accepted {
+			t.Fatalf("%s: refusal must carry accepted:false\n%s", tt.name, out.String())
+		}
+		if decoded.Error == nil || decoded.Error.Kind != tt.kind {
+			t.Fatalf("%s: error kind = %v, want %s\n%s", tt.name, decoded.Error, tt.kind, out.String())
+		}
+		if len(github.reviews) != 0 {
+			t.Fatalf("%s: refusal must not reach the review API", tt.name)
+		}
+	}
+}
+
+func TestApprovalsFakeScenariosCoverWaitingAndRefusals(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{Stdout: &out, Stderr: &bytes.Buffer{}, Env: emptyEnv}, testBuildInfo())
+	cmd.SetArgs([]string{"approvals", "--run", "30433655", "--fake-scenario", "waiting", "--no-tui", "--json"})
+	code, _ := executeCommand(cmd)
+	if code != 1 {
+		t.Fatalf("fake waiting list exit = %d, want 1\n%s", code, out.String())
+	}
+	if !strings.Contains(out.String(), `"environment": "production"`) {
+		t.Fatalf("fake waiting envelope = %s", out.String())
+	}
+
+	out.Reset()
+	cmd = newRootCommandWithRuntime(commandRuntime{Stdout: &out, Stderr: &bytes.Buffer{}, Env: emptyEnv}, testBuildInfo())
+	cmd.SetArgs([]string{"approvals", "--run", "30433655", "--approve", "--fake-scenario", "permission", "--no-tui", "--json"})
+	code, _ = executeCommand(cmd)
+	if code != 2 || !strings.Contains(out.String(), `"kind": "permission"`) {
+		t.Fatalf("fake permission exit = %d\n%s", code, out.String())
+	}
+}
+
+func TestRunsApprovalsFlagIsOptIn(t *testing.T) {
+	waiting := cliRun(909, "Deploy", model.StatusWaiting, model.ConclusionNone)
+	green := cliRun(908, "CI", model.StatusCompleted, model.ConclusionSuccess)
+	var out bytes.Buffer
+	github := &cliGitHub{
+		runs:        []model.Run{waiting, green},
+		pendingList: cliPendingDeployments(),
+	}
+	runtime := approvalsRuntime(&out, github)
+
+	cmd := newRootCommandWithRuntime(runtime, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--no-tui", "--json"})
+	if code, _ := executeCommand(cmd); code != 3 {
+		t.Fatalf("runs with waiting exit = %d, want 3 (pending)", code)
+	}
+	if github.listPending != 0 {
+		t.Fatalf("default runs path must make zero pending-deployment calls, got %d", github.listPending)
+	}
+
+	out.Reset()
+	cmd = newRootCommandWithRuntime(runtime, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--approvals", "--no-tui", "--json"})
+	if code, _ := executeCommand(cmd); code != 3 {
+		t.Fatalf("runs --approvals exit = %d, want 3", code)
+	}
+	if github.listPending != 1 {
+		t.Fatalf("runs --approvals must call pending deployments once (waiting runs only), got %d", github.listPending)
+	}
+	var decoded struct {
+		Runs []struct {
+			ID                  int64    `json:"id"`
+			PendingEnvironments []string `json:"pending_environments"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
+	}
+	if len(decoded.Runs) != 2 {
+		t.Fatalf("runs = %d", len(decoded.Runs))
+	}
+	if len(decoded.Runs[0].PendingEnvironments) != 2 || decoded.Runs[0].PendingEnvironments[0] != "production" {
+		t.Fatalf("waiting run pending_environments = %#v", decoded.Runs[0].PendingEnvironments)
+	}
+	if len(decoded.Runs[1].PendingEnvironments) != 0 {
+		t.Fatalf("completed run must not gain pending_environments: %#v", decoded.Runs[1])
+	}
+}
