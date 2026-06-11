@@ -53,6 +53,12 @@ type ActionResult struct {
 	JobID      int64
 	WorkflowID string
 	Message    string
+	// WorkflowRunID, RunURL, and HTMLURL carry the dispatch 200 body
+	// (API v2026-03-10 returns the created run inline). Zero on 204
+	// hosts — callers fall back to bounded discovery.
+	WorkflowRunID int64
+	RunURL        string
+	HTMLURL       string
 }
 
 type DispatchRequest struct {
