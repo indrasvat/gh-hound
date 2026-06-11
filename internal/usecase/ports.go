@@ -77,6 +77,20 @@ type RefValidator interface {
 	RefExists(ctx context.Context, repo, ref string) (bool, error)
 }
 
+// WorkflowRunHistory is an optional adapter capability: a workflow's
+// run history (newest first), scoped server-side so the regression
+// scan never pays for other workflows' runs.
+type WorkflowRunHistory interface {
+	ListWorkflowRuns(ctx context.Context, repo, workflow string, filter RunFilter) ([]model.Run, error)
+}
+
+// CommitComparer is an optional adapter capability: the commit range
+// between two SHAs via the compare API — the suspects between the last
+// clean run and the first dirty one.
+type CommitComparer interface {
+	CompareCommits(ctx context.Context, repo, base, head string) (model.CommitRange, error)
+}
+
 // LogProgressFetcher is an optional adapter capability: log download
 // with byte-progress reporting (read, total; total <= 0 when the size
 // is unknown). Adapters without it fall back to plain FetchJobLog and

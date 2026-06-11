@@ -1,0 +1,22 @@
+{
+ "status": "ahead",
+ "ahead_by": 1,
+ "behind_by": 0,
+ "total_commits": 1,
+ "html_url": "https://github.com/indrasvat/gh-hound/compare/9d3b3e5...f2b85a7",
+ "permalink_url": "https://github.com/indrasvat/gh-hound/compare/indrasvat:9d3b3e5...indrasvat:f2b85a7",
+ "commits": [
+  {
+   "sha": "f2b85a73d866512fa76484ee2034d46e28ab9de1",
+   "commit": {
+    "message": "fix: terminal resize, filtered-view columns, palette dispatch toast (#16)\n\nCloses #11: runTUI now listens for SIGWINCH (unix build tag; no-op\nstub elsewhere), re-reads the terminal size, and re-renders --\nresizing no longer leaves a stale-geometry quarter-screen app.\n\nCloses #12: filter results always render the standard runs table;\nthe all-green celebration is reserved for the unfiltered home\nstate, so Event/Duration columns survive filtering. The run-number\ncolumn widened to 8 so six-digit openclaw run numbers stop\nshifting the workflow column, and the all-green header's Age label\nright-aligns with its values.\n\nCloses #13: opening the command palette no longer surfaces\ndispatch-resolution errors as toasts in repo-wide sessions; the\ngeneric dispatch entry stays, and the error surfaces as a route\nerror only when dispatch is actually selected.\n\nRed-first tests for all three, including a SIGWINCH delivery test\nand rune-aware column-parity pins.",
+    "author": {
+     "name": "\u0907\u0928\u094d\u0926\u094d\u0930\u0938\u094d\u0935\u0924\u094d"
+    }
+   },
+   "author": {
+    "login": "indrasvat"
+   }
+  }
+ ]
+}
