@@ -790,9 +790,16 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 	}
 	githubClient := githubClientForRuntime(runtime)
 	repoProvider := repoProviderForRuntime(runtime)
+	// One limiter paces every mutation the TUI can fire — reruns,
+	// cancels, and deployment reviews share the same budget.
+	mutationLimiter := &usecase.MutationLimiter{MinSpacing: time.Second}
 	actionService := usecase.ActionService{
 		GitHub:  githubClient,
-		Limiter: &usecase.MutationLimiter{MinSpacing: time.Second},
+		Limiter: mutationLimiter,
+	}
+	approvalsService := usecase.ApprovalsService{
+		GitHub:  githubClient,
+		Limiter: mutationLimiter,
 	}
 	failureService := usecase.FailureService{GitHub: githubClient}
 	watchService := usecase.WatchService{GitHub: githubClient, MinPoll: cfg.PollMin, MaxPoll: cfg.PollMax}
@@ -836,7 +843,15 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			if err != nil {
 				return detail.Model{}, err
 			}
-			return detail.NewModel(run, jobs).WithRepo(launch.Repo), nil
+			resolved := detail.NewModel(run, jobs).WithRepo(launch.Repo)
+			if run.Status == model.StatusWaiting {
+				// The gate panel is auxiliary: a pending-deployments
+				// failure must not take the whole detail screen down.
+				if pending, pendingErr := approvalsService.List(loadCtx, launch.Repo, run.ID); pendingErr == nil {
+					resolved = resolved.WithPendingDeployments(pending)
+				}
+			}
+			return resolved, nil
 		},
 		FailureResolver: func(loadCtx context.Context, run model.Run, selected model.Job) (failurescreen.Model, logscreen.Model, error) {
 			job, err := resolveJobForRun(loadCtx, githubClient, launch.Repo, run, selected)
@@ -943,9 +958,22 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 					}
 				}
 				return actionService.DispatchWorkflow(ctx, launch.Repo, request.Workflow.ID, request.Dispatch)
+			case usecase.ActionApproveDeployment, usecase.ActionRejectDeployment:
+				outcome, err := approvalsService.Review(ctx, launch.Repo, request.Run.ID, usecase.DeploymentReviewRequest{
+					Environments: request.Environments,
+					Approve:      request.Action == usecase.ActionApproveDeployment,
+					Comment:      request.Comment,
+				})
+				if err != nil {
+					return usecase.ActionResult{}, err
+				}
+				return outcome.Result, nil
 			default:
 				return usecase.ActionResult{}, fmt.Errorf("unsupported action %q", request.Action)
 			}
+		},
+		ApprovalsResolver: func(loadCtx context.Context, run model.Run) ([]model.PendingDeployment, error) {
+			return approvalsService.List(loadCtx, launch.Repo, run.ID)
 		},
 		ArtifactsResolver: func(run model.Run) ([]model.Artifact, error) {
 			return usecase.ArtifactsService{GitHub: githubClient}.List(ctx, launch.Repo, run.ID)

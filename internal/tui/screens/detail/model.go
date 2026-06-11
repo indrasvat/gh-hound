@@ -43,15 +43,18 @@ type Intent struct {
 }
 
 type Model struct {
-	Repo             string
-	Run              model.Run
-	Jobs             []model.Job
-	Artifacts        []model.Artifact
-	SelectedJob      int
-	SelectedStep     int
-	SelectedArtifact int
-	Focus            Focus
-	Intent           Intent
+	Repo      string
+	Run       model.Run
+	Jobs      []model.Job
+	Artifacts []model.Artifact
+	// PendingDeployments holds the gate state for a waiting run; the
+	// detail view renders the pending-environments panel from it.
+	PendingDeployments []model.PendingDeployment
+	SelectedJob        int
+	SelectedStep       int
+	SelectedArtifact   int
+	Focus              Focus
+	Intent             Intent
 
 	// Loading state is transient render input set by the app from its
 	// pending load each frame — never persisted, so a cancelled load
@@ -77,6 +80,11 @@ func (m Model) WithArtifacts(artifacts []model.Artifact) Model {
 	if len(m.Artifacts) == 0 && m.Focus == FocusArtifacts {
 		m.Focus = FocusJobs
 	}
+	return m
+}
+
+func (m Model) WithPendingDeployments(pending []model.PendingDeployment) Model {
+	m.PendingDeployments = append([]model.PendingDeployment(nil), pending...)
 	return m
 }
 

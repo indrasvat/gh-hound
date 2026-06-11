@@ -27,12 +27,13 @@ const (
 type loadKind string
 
 const (
-	loadKindRuns     loadKind = "runs"
-	loadKindDetail   loadKind = "detail"
-	loadKindFailure  loadKind = "failure"
-	loadKindLog      loadKind = "log"
-	loadKindDispatch loadKind = "dispatch"
-	loadKindWatch    loadKind = "watch"
+	loadKindRuns      loadKind = "runs"
+	loadKindDetail    loadKind = "detail"
+	loadKindFailure   loadKind = "failure"
+	loadKindLog       loadKind = "log"
+	loadKindDispatch  loadKind = "dispatch"
+	loadKindWatch     loadKind = "watch"
+	loadKindApprovals loadKind = "approvals"
 )
 
 // pendingLoad is the app's single in-flight fetch. Supersession and

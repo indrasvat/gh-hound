@@ -1948,3 +1948,87 @@ func TestRunsApprovalsFlagIsOptIn(t *testing.T) {
 		t.Fatalf("completed run must not gain pending_environments: %#v", decoded.Runs[1])
 	}
 }
+
+func TestDefaultTUIAppWiresApprovalsThroughGitHubPort(t *testing.T) {
+	waiting := cliRun(909, "Deploy", model.StatusWaiting, model.ConclusionNone)
+	github := &cliGitHub{
+		runs:        []model.Run{waiting},
+		pendingList: cliPendingDeployments(),
+	}
+	app, err := defaultTUIApp(context.Background(), commandRuntime{
+		Env:    mapEnv(map[string]string{"HOUND_WELCOME": "false"}),
+		IsTTY:  true,
+		GitHub: github,
+		Repo: &cliRepo{context: usecase.RepositoryContext{
+			Repo:   "indrasvat/gh-hound",
+			Branch: "main",
+			Actor:  "indrasvat",
+		}},
+	}, tui.BuildInfo{Version: "v0.1.0"}, cliOptions{})
+	if err != nil {
+		t.Fatalf("defaultTUIApp returned error: %v", err)
+	}
+
+	app, handled := app.Update(tui.KeyMsg{Key: "A"})
+	if !handled {
+		t.Fatal("A was not handled on a waiting run")
+	}
+	app, settled := app.SettleLoads(2 * time.Second)
+	if !settled {
+		t.Fatal("approvals load did not settle")
+	}
+	if app.TopOverlay() != tui.OverlayApprovals {
+		t.Fatalf("overlay = %q, want approvals", app.TopOverlay())
+	}
+	if github.listPending == 0 {
+		t.Fatal("approvals overlay did not fetch through the GitHub port")
+	}
+	view := app.ViewSize(120, 40)
+	if !strings.Contains(view, "production") {
+		t.Fatalf("overlay missing live gate data:\n%s", view)
+	}
+
+	// Approve through confirm: the review must hit the port with the
+	// approvable environment only.
+	app, _ = app.Update(tui.KeyMsg{Key: "y"})
+	_, _ = app.Update(tui.KeyMsg{Key: "y"})
+	if len(github.reviews) != 1 {
+		t.Fatalf("review calls = %d, want 1", len(github.reviews))
+	}
+	if github.reviews[0].State != usecase.DeploymentApproved || len(github.reviews[0].EnvironmentIDs) != 1 || github.reviews[0].EnvironmentIDs[0] != 7301 {
+		t.Fatalf("review = %#v", github.reviews[0])
+	}
+}
+
+func TestDefaultTUIAppDetailCarriesPendingEnvironmentsForWaitingRun(t *testing.T) {
+	waiting := cliRun(909, "Deploy", model.StatusWaiting, model.ConclusionNone)
+	github := &cliGitHub{
+		runs:        []model.Run{waiting},
+		jobs:        []model.Job{},
+		pendingList: cliPendingDeployments(),
+	}
+	app, err := defaultTUIApp(context.Background(), commandRuntime{
+		Env:    mapEnv(map[string]string{"HOUND_WELCOME": "false"}),
+		IsTTY:  true,
+		GitHub: github,
+		Repo: &cliRepo{context: usecase.RepositoryContext{
+			Repo:   "indrasvat/gh-hound",
+			Branch: "main",
+			Actor:  "indrasvat",
+		}},
+	}, tui.BuildInfo{Version: "v0.1.0"}, cliOptions{})
+	if err != nil {
+		t.Fatalf("defaultTUIApp returned error: %v", err)
+	}
+	app, _ = app.Update(tui.KeyMsg{Key: "enter"})
+	app, settled := app.SettleLoads(2 * time.Second)
+	if !settled {
+		t.Fatal("detail load did not settle")
+	}
+	view := app.ViewSize(120, 40)
+	for _, want := range []string{"Deploy gate (2)", "production", "not yours to open"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("detail view missing %q:\n%s", want, view)
+		}
+	}
+}

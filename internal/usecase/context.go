@@ -206,6 +206,12 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 		return result
 	}
 
+	// A branch whose newest run holds at a deployment gate surfaces the
+	// gate immediately: the hound waits at the door.
+	if result.Scope == LaunchScopeBranch && len(runs) > 0 && runs[0].Status == model.StatusWaiting {
+		result.Notice = "deploy gate ahead — newest run is waiting on review · A review"
+	}
+
 	if (request.Route == LaunchRouteWatch || cfg.AutoWatch) && hasInProgress(runs) {
 		result.State = LaunchStateWatch
 		return result

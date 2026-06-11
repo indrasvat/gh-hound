@@ -28,6 +28,7 @@ const (
 	IntentForceCancel IntentKind = "force_cancel"
 	IntentFilter      IntentKind = "filter"
 	IntentLoadMore    IntentKind = "load_more"
+	IntentApprovals   IntentKind = "approvals"
 )
 
 type Intent struct {
@@ -40,6 +41,10 @@ type Summary struct {
 	Failing int
 	Running int
 	Passed  int
+	// Gated counts runs waiting on a deployment review. They are also
+	// part of Running (the run is live) — Gated only adds the gate
+	// affordance to the summary line.
+	Gated int
 }
 
 type Model struct {
@@ -132,6 +137,8 @@ func (m Model) Update(msg KeyMsg) Model {
 		m.Intent = m.intentFor(IntentCancel)
 	case "X":
 		m.Intent = m.intentFor(IntentForceCancel)
+	case "A":
+		m.Intent = m.intentFor(IntentApprovals)
 	}
 	return m
 }
@@ -159,6 +166,9 @@ func (m Model) updateInput(msg KeyMsg) Model {
 func (m Model) Summary() Summary {
 	var summary Summary
 	for _, run := range m.filteredRuns() {
+		if run.Status == model.StatusWaiting {
+			summary.Gated++
+		}
 		if isRunning(run) {
 			summary.Running++
 			continue

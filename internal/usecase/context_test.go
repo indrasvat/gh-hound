@@ -204,6 +204,33 @@ func (f fakeRepository) Current(context.Context) (usecase.RepositoryContext, err
 	return f.context, nil
 }
 
+func TestLaunchSurfacesGateWhenNewestBranchRunIsWaiting(t *testing.T) {
+	waiting := greenRun(572, "main")
+	waiting.Status = model.StatusWaiting
+	waiting.Conclusion = model.ConclusionNone
+	gh := &launchGitHub{
+		runsByBranch: map[string][]model.Run{
+			"main": {waiting, greenRun(571, "main")},
+			"":     {waiting, greenRun(571, "main")},
+		},
+		workflows: []model.Workflow{{ID: 1, Name: "CI", State: "active"}},
+	}
+	service := usecase.LaunchService{
+		Config:     config.Default(),
+		GitHub:     gh,
+		Repository: fakeRepository{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main", Actor: "indrasvat"}},
+	}
+
+	got := service.Resolve(context.Background(), usecase.LaunchRequest{})
+
+	if got.State != usecase.LaunchStateRuns {
+		t.Fatalf("launch state = %s, want runs (the gate must stay visible)", got.State)
+	}
+	if !strings.Contains(got.Notice, "gate") || !strings.Contains(got.Notice, "A") {
+		t.Fatalf("launch notice must surface the deploy gate, got %q", got.Notice)
+	}
+}
+
 type launchGitHub struct {
 	runsByBranch map[string][]model.Run
 	workflows    []model.Workflow

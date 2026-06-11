@@ -42,6 +42,10 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "l", Action: "logs", Help: "log", ShowInFooter: true},
 		{Key: "w", Action: "watch", Help: "watch", ShowInFooter: true},
 		{Key: "f", Action: "status_cycle", Help: "status", ShowInFooter: true},
+		// The summary line advertises A contextually when a gated run
+		// is on screen; the static footer stays truthful for lists
+		// without waiting runs (artifacts precedent on detail).
+		{Key: "A", Action: "approvals", Help: "approvals (waiting runs)", ShowInFooter: false},
 		{Key: "/", Action: "filter", Help: "filter", ShowInFooter: true},
 		{Key: "?", Action: "help", Help: "", ShowInFooter: true},
 	},
