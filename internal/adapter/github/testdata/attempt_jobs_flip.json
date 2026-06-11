@@ -1,0 +1,90 @@
+{
+ "total_count": 1,
+ "jobs": [
+  {
+   "id": 80670824786,
+   "run_id": 27308012916,
+   "run_attempt": 1,
+   "status": "completed",
+   "conclusion": "failure",
+   "started_at": "2026-06-10T21:37:41Z",
+   "completed_at": "2026-06-10T21:38:05Z",
+   "name": "preview",
+   "html_url": "https://github.com/indrasvat/gh-hound/actions/runs/27308012916/job/80670824786",
+   "check_run_url": "https://api.github.com/repos/indrasvat/gh-hound/check-runs/80670824786",
+   "labels": [
+    "ubuntu-latest"
+   ],
+   "runner_name": "GitHub Actions 1000013965",
+   "runner_group_name": "GitHub Actions",
+   "workflow_name": "Deploy Pages Preview",
+   "head_branch": "feat/site-hero-refresh",
+   "steps": [
+    {
+     "name": "Set up job",
+     "status": "completed",
+     "conclusion": "success",
+     "number": 1,
+     "started_at": "2026-06-10T21:37:42Z",
+     "completed_at": "2026-06-10T21:37:43Z"
+    },
+    {
+     "name": "Run actions/checkout@v4",
+     "status": "completed",
+     "conclusion": "success",
+     "number": 2,
+     "started_at": "2026-06-10T21:37:43Z",
+     "completed_at": "2026-06-10T21:37:43Z"
+    },
+    {
+     "name": "Stage pages content",
+     "status": "completed",
+     "conclusion": "success",
+     "number": 3,
+     "started_at": "2026-06-10T21:37:43Z",
+     "completed_at": "2026-06-10T21:37:43Z"
+    },
+    {
+     "name": "Stage install script + version marker",
+     "status": "completed",
+     "conclusion": "success",
+     "number": 4,
+     "started_at": "2026-06-10T21:37:43Z",
+     "completed_at": "2026-06-10T21:37:46Z"
+    },
+    {
+     "name": "Deploy preview to Cloudflare Pages",
+     "status": "completed",
+     "conclusion": "failure",
+     "number": 5,
+     "started_at": "2026-06-10T21:37:46Z",
+     "completed_at": "2026-06-10T21:38:03Z"
+    },
+    {
+     "name": "Comment preview URL",
+     "status": "completed",
+     "conclusion": "skipped",
+     "number": 6,
+     "started_at": "2026-06-10T21:38:03Z",
+     "completed_at": "2026-06-10T21:38:03Z"
+    },
+    {
+     "name": "Post Run actions/checkout@v4",
+     "status": "completed",
+     "conclusion": "success",
+     "number": 12,
+     "started_at": "2026-06-10T21:38:03Z",
+     "completed_at": "2026-06-10T21:38:04Z"
+    },
+    {
+     "name": "Complete job",
+     "status": "completed",
+     "conclusion": "success",
+     "number": 13,
+     "started_at": "2026-06-10T21:38:04Z",
+     "completed_at": "2026-06-10T21:38:04Z"
+    }
+   ]
+  }
+ ]
+}
