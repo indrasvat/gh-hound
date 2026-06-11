@@ -358,11 +358,66 @@ func TestKeyNameDecodesANSIArrowsAndShiftTab(t *testing.T) {
 		"\x15":   "ctrl+u",
 		"\r":     "enter",
 		"\x7f":   "backspace",
+		" ":      "space",
 	}
 	for input, want := range tests {
 		if got := keyName([]byte(input)); got != want {
 			t.Fatalf("keyName(%q) = %q, want %q", input, got, want)
 		}
+	}
+}
+
+// TestSpaceByteTogglesApprovalsPickThroughRealDecoder drives the
+// literal byte a terminal sends through the production key decoder
+// into the app — guarding against handlers that match a symbolic key
+// name the decoder never produces (the round-8 QA finding).
+func TestSpaceByteTogglesApprovalsPickThroughRealDecoder(t *testing.T) {
+	decoder := keyDecoder{}
+	scratch := make([]byte, 8)
+	spaceKey, err := decoder.Next(strings.NewReader(" "), scratch)
+	if err != nil {
+		t.Fatalf("decoder: %v", err)
+	}
+
+	waiting := model.Run{
+		ID: 9001, RunNumber: 572, Name: "Deploy", Status: model.StatusWaiting,
+		HeadBranch: "main", Event: "push",
+	}
+	github := &cliGitHub{
+		runs: []model.Run{waiting},
+		pendingList: []model.PendingDeployment{{
+			EnvironmentID: 1, EnvironmentName: "production", CurrentUserCanApprove: true,
+			Reviewers: []model.DeploymentReviewer{{Type: "User", Name: "indrasvat"}},
+		}},
+	}
+	app, err := defaultTUIApp(context.Background(), commandRuntime{
+		Env:    mapEnv(map[string]string{"HOUND_WELCOME": "false"}),
+		IsTTY:  true,
+		GitHub: github,
+		Repo: &cliRepo{context: usecase.RepositoryContext{
+			Repo: "indrasvat/gh-hound", Branch: "main", Actor: "indrasvat",
+		}},
+	}, tui.BuildInfo{Version: "v0.1.0"}, cliOptions{})
+	if err != nil {
+		t.Fatalf("defaultTUIApp: %v", err)
+	}
+	app, _ = app.Update(tui.KeyMsg{Key: "A"})
+	app, settled := app.SettleLoads(2 * time.Second)
+	if !settled {
+		t.Fatal("approvals load did not settle")
+	}
+
+	before := ansi.Strip(app.ViewSize(120, 32))
+	if !strings.Contains(before, "[x]") {
+		t.Fatalf("overlay must open with production picked:\n%s", before)
+	}
+	app, handled := app.Update(tui.KeyMsg{Key: spaceKey})
+	if !handled {
+		t.Fatalf("decoded space key %q was not handled by the overlay", spaceKey)
+	}
+	after := ansi.Strip(app.ViewSize(120, 32))
+	if !strings.Contains(after, "[ ]") || strings.Contains(after, "[x]") {
+		t.Fatalf("decoded space key %q did not unpick production:\n%s", spaceKey, after)
 	}
 }
 

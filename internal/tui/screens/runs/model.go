@@ -155,6 +155,8 @@ func (m Model) updateInput(msg KeyMsg) Model {
 		if len(m.Filter) > 0 {
 			m.Filter = m.Filter[:len(m.Filter)-1]
 		}
+	case "space":
+		m.Filter += " "
 	default:
 		if len([]rune(msg.Key)) == 1 {
 			m.Filter += msg.Key

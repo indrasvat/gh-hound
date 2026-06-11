@@ -1340,6 +1340,10 @@ func keyName(input []byte) string {
 		return "tab"
 	case 0x7f, '\b':
 		return "backspace"
+	case ' ':
+		// The symbolic name every Update handler matches on; text
+		// inputs append " " from their explicit space cases.
+		return "space"
 	case 0x1b:
 		return "esc"
 	default:
