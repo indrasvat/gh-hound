@@ -34,3 +34,24 @@ func TestPaletteSelectionCarriesStableRouteValue(t *testing.T) {
 		t.Fatalf("intent = %#v", m.Intent)
 	}
 }
+
+// TestQueryTypingAcceptsJAndK pins the round-13 P1 fix: the query is
+// a TEXT INPUT, so every printable letter — including j and k, which
+// once doubled as navigation and were silently swallowed — must
+// append. Reintroducing `case "j", "down":` turns this red.
+func TestQueryTypingAcceptsJAndK(t *testing.T) {
+	m := New(DefaultItems())
+	for _, key := range []string{"w", "o", "r", "k", "f", "l", "o", "w", "s"} {
+		m = m.Update(KeyMsg{Key: key})
+	}
+	if m.Query != "workflows" {
+		t.Fatalf("query = %q, want %q (j/k must type, not navigate)", m.Query, "workflows")
+	}
+	m = New(DefaultItems())
+	for _, key := range []string{"j", "u", "m", "k"} {
+		m = m.Update(KeyMsg{Key: key})
+	}
+	if m.Query != "jumk" {
+		t.Fatalf("query = %q, want %q", m.Query, "jumk")
+	}
+}
