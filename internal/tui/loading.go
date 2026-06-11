@@ -33,6 +33,7 @@ const (
 	loadKindLog       loadKind = "log"
 	loadKindDispatch  loadKind = "dispatch"
 	loadKindWatch     loadKind = "watch"
+	loadKindPack      loadKind = "pack"
 	loadKindApprovals loadKind = "approvals"
 	loadKindDiff      loadKind = "diff"
 	loadKindCaches    loadKind = "caches"

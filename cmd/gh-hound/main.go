@@ -1084,6 +1084,26 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 				Elapsed: elapsedRun(state.Run),
 			}), nil
 		},
+		PackResolver: func(loadCtx context.Context, state usecase.PackState) (usecase.PackState, error) {
+			// One head_sha-filtered list call per tick covers the whole
+			// board (usecase.PackWatchService budget).
+			service := usecase.PackWatchService{Runs: githubClient, MinPoll: cfg.PollMin, MaxPoll: cfg.PollMax}
+			return service.Tick(loadCtx, state)
+		},
+		DispatchAttachResolver: func(loadCtx context.Context, workflowID, ref string, since time.Time) (model.Run, error) {
+			// 204-fallback ONLY: modern hosts hand the run id back in the
+			// dispatch body and never reach this resolver.
+			history, ok := githubClient.(usecase.WorkflowRunHistory)
+			if !ok {
+				return model.Run{}, fmt.Errorf("run discovery is unavailable for this adapter")
+			}
+			service := usecase.HandoffService{History: history}
+			return service.DiscoverDispatchedRun(loadCtx, launch.Repo, workflowID, ref, since)
+		},
+		RerunAttachResolver: func(loadCtx context.Context, run model.Run) (model.Run, error) {
+			service := usecase.HandoffService{Runs: githubClient}
+			return service.AwaitRerunStart(loadCtx, launch.Repo, run.ID, run.RunAttempt)
+		},
 		DispatchResolver: func(loadCtx context.Context) (dispatch.Model, error) {
 			workflows, err := dispatchWorkflowModels(loadCtx, githubClient, launch)
 			if err != nil {

@@ -42,16 +42,17 @@ type BuildInfo = banner.BuildInfo
 type Route string
 
 const (
-	RouteWelcome   Route = "welcome"
-	RouteRuns      Route = "runs"
-	RouteDetail    Route = "detail"
-	RouteFailure   Route = "failure"
-	RouteLog       Route = "log"
-	RouteWatch     Route = "watch"
-	RouteDispatch  Route = "dispatch"
-	RouteDiff      Route = "diff"
-	RouteCaches    Route = "caches"
-	RouteWorkflows Route = "workflows"
+	RouteWelcome    Route = "welcome"
+	RouteRuns       Route = "runs"
+	RouteDetail     Route = "detail"
+	RouteFailure    Route = "failure"
+	RouteLog        Route = "log"
+	RouteWatch      Route = "watch"
+	RouteWatchBoard Route = "watch_board"
+	RouteDispatch   Route = "dispatch"
+	RouteDiff       Route = "diff"
+	RouteCaches     Route = "caches"
+	RouteWorkflows  Route = "workflows"
 )
 
 type Overlay string
@@ -78,6 +79,9 @@ type Options struct {
 	FailureResolver           func(context.Context, model.Run, model.Job) (failure.Model, logscreen.Model, error)
 	LogResolver               func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error)
 	WatchResolver             func(context.Context, model.Run) (watch.Model, error)
+	PackResolver              func(context.Context, usecase.PackState) (usecase.PackState, error)
+	DispatchAttachResolver    func(ctx context.Context, workflowID, ref string, since time.Time) (model.Run, error)
+	RerunAttachResolver       func(context.Context, model.Run) (model.Run, error)
 	DispatchResolver          func(context.Context) (dispatch.Model, error)
 	DispatchWorkflowsResolver func(context.Context) ([]dispatch.Workflow, error)
 	DiffResolver              func(context.Context, model.Run) (usecase.RegressionVerdict, error)
@@ -132,6 +136,7 @@ type App struct {
 	failure                   failure.Model
 	log                       logscreen.Model
 	watch                     watch.Model
+	board                     watch.Board
 	dispatch                  dispatch.Model
 	diff                      diffscreen.Model
 	workflows                 workflowsscreen.Model
@@ -148,6 +153,9 @@ type App struct {
 	failureResolver           func(context.Context, model.Run, model.Job) (failure.Model, logscreen.Model, error)
 	logResolver               func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error)
 	watchResolver             func(context.Context, model.Run) (watch.Model, error)
+	packResolver              func(context.Context, usecase.PackState) (usecase.PackState, error)
+	dispatchAttachResolver    func(ctx context.Context, workflowID, ref string, since time.Time) (model.Run, error)
+	rerunAttachResolver       func(context.Context, model.Run) (model.Run, error)
 	dispatchResolver          func(context.Context) (dispatch.Model, error)
 	dispatchWorkflowsResolver func(context.Context) ([]dispatch.Workflow, error)
 	diffResolver              func(context.Context, model.Run) (usecase.RegressionVerdict, error)
@@ -337,6 +345,9 @@ func NewApp(options Options) App {
 		failureResolver:           options.FailureResolver,
 		logResolver:               options.LogResolver,
 		watchResolver:             options.WatchResolver,
+		packResolver:              options.PackResolver,
+		dispatchAttachResolver:    options.DispatchAttachResolver,
+		rerunAttachResolver:       options.RerunAttachResolver,
 		dispatchResolver:          options.DispatchResolver,
 		dispatchWorkflowsResolver: options.DispatchWorkflowsResolver,
 		diffResolver:              options.DiffResolver,
@@ -631,6 +642,11 @@ func RenderFixtureSize(screen string, width, height int) string {
 		return frameViewSize(app.theme, "hound", "build › failed step", "exit 1", failure.View(sampleFailureModel(), bodyWidth), keys.FooterForScreen(keys.ScreenFailure), width, height, true)
 	case "watch":
 		return frameViewSize(app.theme, "hound", "CI #570", "streaming · follow ●", watch.View(sampleWatchModel(), bodyWidth), keys.FooterForScreen(keys.ScreenWatch), width, height, true)
+	case "watch-board":
+		boardApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		boardApp.board = sampleBoardModel()
+		boardApp.routes = []Route{RouteRuns, RouteWatchBoard}
+		return boardApp.ViewSize(width, height)
 	case "log":
 		m := sampleLogModel()
 		if rows := bodyHeight(height) - 1; rows > 0 {
@@ -844,6 +860,9 @@ func (a App) Refresh() (App, bool) {
 	case RouteWatch:
 		next, refreshed := a.refreshWatch()
 		return next, refreshed || changed
+	case RouteWatchBoard:
+		next, refreshed := a.refreshPack()
+		return next, refreshed || changed
 	default:
 		return a, changed
 	}
@@ -1051,6 +1070,8 @@ func (a App) updateRoute(msg KeyMsg) (App, bool) {
 		return a.updateLog(msg)
 	case RouteWatch:
 		return a.updateWatch(msg)
+	case RouteWatchBoard:
+		return a.updateWatchBoard(msg)
 	case RouteDispatch:
 		return a.updateDispatch(msg)
 	case RouteDiff:
@@ -1233,13 +1254,11 @@ func (a App) updateRuns(msg KeyMsg) (App, bool) {
 		}
 		a.PushRoute(RouteLog)
 	case runs.IntentWatch:
-		if a.loadBlocked(loadKindWatch) {
-			break
-		}
+		// w watches the selected run's whole event group: a single-run
+		// group degrades to the classic single-run watch.
 		if run, ok := a.runs.SelectedRun(); ok {
-			a = a.loadWatch(run)
+			a = a.openPackWatch(run)
 		}
-		a.PushRoute(RouteWatch)
 	case runs.IntentDispatch:
 		if a.loadBlocked(loadKindDispatch) {
 			break
@@ -1758,6 +1777,11 @@ func (a App) handlePaletteIntent(intent palette.Intent) App {
 		if run, ok := a.runs.SelectedRun(); ok {
 			a = a.openApprovals(run)
 		}
+	case string(RouteWatch):
+		a.PopOverlay()
+		if run, ok := a.runs.SelectedRun(); ok {
+			a = a.openPackWatch(run)
+		}
 	case string(RouteCaches):
 		a.PopOverlay()
 		a = a.openCaches()
@@ -2120,6 +2144,135 @@ func (a App) refreshWatch() (App, bool) {
 	a.watch = resolved
 	a.pollInterval = nextPollIntervalForRuns([]model.Run{resolved.State.Run}, a.pollInterval, a.config)
 	return a, true
+}
+
+// openPackWatch is the w entry point: watch the selected run's whole
+// event group as one board. A single-run group degrades to the
+// classic single-run watch — zero regression. The board paints
+// immediately from the rows already on screen; a pack tick starts off
+// the keypress path (Task 220 invariant) so out-of-band state changes
+// fold in right away.
+func (a App) openPackWatch(run model.Run) App {
+	pack := usecase.PackForRun(a.runs.Context.Runs, run, a.config.WatchGroupMax)
+	if len(pack) <= 1 {
+		if a.loadBlocked(loadKindWatch) {
+			return a
+		}
+		a = a.loadWatch(run)
+		a.PushRoute(RouteWatch)
+		return a
+	}
+	if a.loadBlocked(loadKindPack) {
+		return a
+	}
+	a.clearRouteError(RouteWatchBoard)
+	a.board = watch.NewBoard(a.runs.Context.Repo, a.runs.Context.Branch, run, pack)
+	a.PushRoute(RouteWatchBoard)
+	if a.packResolver == nil {
+		return a
+	}
+	resolver := a.packResolver
+	state := a.packState()
+	return a.startLoad(loadKindPack, "rounding up the pack", func(ctx context.Context) func(App) App {
+		next, err := resolver(ctx, state)
+		return func(app App) App {
+			if err != nil {
+				app.pushErrorToast("pack-fetch-failed", usecase.ResilienceFor(err, usecase.ErrorContext{}))
+				return app
+			}
+			app.board = app.board.WithRuns(next.Runs)
+			return app
+		}
+	})
+}
+
+func (a App) packState() usecase.PackState {
+	return usecase.PackState{
+		Repo:    a.board.Repo,
+		HeadSHA: a.board.HeadSHA,
+		Event:   a.board.Event,
+		Branch:  a.board.Branch,
+		Max:     a.config.WatchGroupMax,
+		Runs:    a.board.Runs,
+	}
+}
+
+func (a App) updateWatchBoard(msg KeyMsg) (App, bool) {
+	before := a.board
+	a.board = a.board.Update(watch.KeyMsg{Key: msg.Key})
+	switch a.board.Intent.Kind {
+	case watch.BoardIntentDrill:
+		if a.loadBlocked(loadKindWatch) {
+			break
+		}
+		if run, ok := a.board.SelectedRun(); ok {
+			a = a.loadWatch(run)
+			a.PushRoute(RouteWatch)
+		}
+	case watch.BoardIntentCancel:
+		if run, ok := a.board.SelectedRun(); ok {
+			a = a.handleAction(RouteWatchBoard, ActionRequest{Action: usecase.ActionCancelRun, Run: run})
+		}
+	case watch.BoardIntentBack:
+		a.PopRoute()
+	}
+	return a, watchBoardHandled(msg.Key) || before.Selected != a.board.Selected || before.Follow != a.board.Follow || a.board.Intent.Kind != watch.BoardIntentNone
+}
+
+func watchBoardHandled(key string) bool {
+	switch key {
+	case "j", "k", "down", "up", "enter", "x", "f", "esc":
+		return true
+	default:
+		return false
+	}
+}
+
+// refreshPack polls the board on the shared tick: one runs-list call
+// covers every member (PackWatchService budget). Settling pushes the
+// hound's verdict toast exactly once, at the transition.
+func (a App) refreshPack() (App, bool) {
+	if a.packResolver == nil || len(a.board.Runs) == 0 {
+		return a, false
+	}
+	before := a.board.Summary()
+	next, err := a.packResolver(context.Background(), a.packState())
+	if err != nil {
+		a.setRouteError(RouteWatchBoard, "pack watch refresh failed: "+err.Error())
+		a.refreshCount++
+		return a, true
+	}
+	a.clearRouteError(RouteWatchBoard)
+	a.refreshCount++
+	a.board = a.board.WithRuns(next.Runs)
+	after := a.board.Summary()
+	if before.Running > 0 && after.Settled() {
+		a.pushPackSettledToast(after)
+	}
+	a.pollInterval = nextPollIntervalForRuns(next.Runs, a.pollInterval, a.config)
+	return a, true
+}
+
+// pushPackSettledToast announces settlement in the hound voice. The
+// body carries the counts so the title never echoes into it.
+func (a *App) pushPackSettledToast(summary usecase.PackSummary) {
+	if summary.Lost == 0 {
+		a.pushToast("pack-settled", usecase.Resilience{
+			Severity: usecase.SeverityOK,
+			Title:    "pack's home.",
+			Message:  summary.String(),
+		})
+		return
+	}
+	noun := "runs"
+	if summary.Lost == 1 {
+		noun = "run"
+	}
+	a.pushToast("pack-settled", usecase.Resilience{
+		Severity: usecase.SeverityWarn,
+		Title:    fmt.Sprintf("the pack's back — %d %s lost.", summary.Lost, noun),
+		Message:  summary.String(),
+	})
 }
 
 func initialPollInterval(cfg config.Config) time.Duration {
@@ -2585,6 +2738,10 @@ func (a App) executeAction(route Route, request ActionRequest) (App, bool) {
 		a.setRouteError(route, "action unavailable: live GitHub mutation handler is not configured")
 		return a, false
 	}
+	// Captured BEFORE the mutation: the dispatched run's created_at is
+	// stamped by GitHub the moment the POST lands, so the discovery
+	// fence must predate it.
+	started := time.Now()
 	result, err := a.actionHandler(request)
 	if err != nil {
 		a.pushErrorToast("action-failed", usecase.ResilienceFor(err, usecase.ErrorContext{}))
@@ -2597,7 +2754,130 @@ func (a App) executeAction(route Route, request ActionRequest) (App, bool) {
 		resilience.Message = "workflow " + request.Workflow.Name
 	}
 	a.pushToast("action-ok", resilience)
+	a = a.attachHandoffWatch(request, result, started)
 	return a, true
+}
+
+// attachHandoffWatch drops straight into watch after a dispatch or a
+// run-level rerun, honoring config auto_watch (off by default — the
+// toast alone is today's behavior).
+func (a App) attachHandoffWatch(request ActionRequest, result usecase.ActionResult, started time.Time) App {
+	if !a.config.AutoWatch || a.watchResolver == nil {
+		return a
+	}
+	switch request.Action {
+	case usecase.ActionDispatch:
+		return a.attachDispatchWatch(request, result, started)
+	case usecase.ActionRerunRun, usecase.ActionRerunFailedJobs:
+		return a.attachRerunWatch(request.Run)
+	default:
+		return a
+	}
+}
+
+// handoffClockSkew widens the discovery fence: created_at comes from
+// GitHub's clock, the fence from ours.
+const handoffClockSkew = 5 * time.Second
+
+// attachDispatchWatch attaches the watch to the dispatched run. The
+// 200 body carries the run id directly (API v2026-03-10); ONLY a 204
+// host (no id) earns the bounded discovery poll.
+func (a App) attachDispatchWatch(request ActionRequest, result usecase.ActionResult, started time.Time) App {
+	if a.loadBlocked(loadKindWatch) {
+		return a
+	}
+	if result.WorkflowRunID != 0 {
+		a = a.loadWatch(model.Run{ID: result.WorkflowRunID, Name: request.Workflow.Name, HTMLURL: result.HTMLURL})
+		return a.routeToWatchFromDispatch()
+	}
+	if a.dispatchAttachResolver == nil {
+		return a
+	}
+	resolver := a.dispatchAttachResolver
+	watchResolver := a.watchResolver
+	workflowID := request.Workflow.ID
+	ref := request.Dispatch.Ref
+	since := started.Add(-handoffClockSkew)
+	a = a.startLoad(loadKindWatch, "picking up the scent", func(ctx context.Context) func(App) App {
+		run, err := resolver(ctx, workflowID, ref, since)
+		if err != nil {
+			return func(app App) App { return app.dropDispatchScent(err) }
+		}
+		resolved, err := watchResolver(ctx, run)
+		return func(app App) App {
+			if err != nil {
+				return app.dropDispatchScent(err)
+			}
+			app.watch = resolved
+			return app
+		}
+	})
+	return a.routeToWatchFromDispatch()
+}
+
+func (a App) routeToWatchFromDispatch() App {
+	if a.Route() == RouteDispatch {
+		a.PopRoute()
+	}
+	if a.Route() != RouteWatch {
+		a.PushRoute(RouteWatch)
+	}
+	return a
+}
+
+// dropDispatchScent returns the user to the runs list gracefully when
+// the dispatched run never surfaced (or the first tick failed).
+func (a App) dropDispatchScent(err error) App {
+	if a.Route() == RouteWatch {
+		a.PopRoute()
+	}
+	if errors.Is(err, usecase.ErrScentLost) {
+		a.pushToast("dispatch-scent-lost", usecase.Resilience{
+			Severity: usecase.SeverityWarn,
+			Title:    "couldn't pick up the scent.",
+			Message:  "the dispatched run hasn't surfaced yet — it'll show in the runs list when it lands",
+		})
+		return a
+	}
+	a.pushErrorToast("dispatch-watch-failed", usecase.ResilienceFor(err, usecase.ErrorContext{}))
+	return a
+}
+
+// attachRerunWatch reattaches the watch to the rerun's EXISTING run
+// id — no discovery — waiting (bounded) for the attempt counter to
+// advance so the board never shows the stale completed attempt.
+func (a App) attachRerunWatch(run model.Run) App {
+	if run.ID == 0 || a.loadBlocked(loadKindWatch) {
+		return a
+	}
+	attach := a.rerunAttachResolver
+	watchResolver := a.watchResolver
+	a = a.startLoad(loadKindWatch, "back on the trail", func(ctx context.Context) func(App) App {
+		fresh := run
+		if attach != nil {
+			updated, err := attach(ctx, run)
+			if err != nil {
+				return func(app App) App {
+					app.setRouteError(RouteWatch, "watch unavailable: "+err.Error())
+					return app
+				}
+			}
+			fresh = updated
+		}
+		resolved, err := watchResolver(ctx, fresh)
+		return func(app App) App {
+			if err != nil {
+				app.setRouteError(RouteWatch, "watch unavailable: "+err.Error())
+				return app
+			}
+			app.watch = resolved
+			return app
+		}
+	})
+	if a.Route() != RouteWatch {
+		a.PushRoute(RouteWatch)
+	}
+	return a
 }
 
 func (a App) openConfirm(route Route, request ActionRequest) App {
@@ -2925,6 +3205,8 @@ func (a App) footerScreen() keys.Screen {
 		return keys.ScreenLog
 	case RouteWatch:
 		return keys.ScreenWatch
+	case RouteWatchBoard:
+		return keys.ScreenWatchBoard
 	case RouteDispatch:
 		return keys.ScreenDispatch
 	case RouteDiff:
@@ -2993,8 +3275,13 @@ func (a App) chromeParts() (string, string, string) {
 		}
 		return "hound", "full log", logRight(a.log)
 	case RouteWatch:
+		if load := a.load; load != nil && load.kind == loadKindWatch {
+			return "hound", "watch", "chasing…"
+		}
 		run := a.watch.State.Run
 		return "hound", runChromeTitle(run), "streaming · follow ●"
+	case RouteWatchBoard:
+		return "hound", packContext(a.board), a.board.Summary().String()
 	case RouteDispatch:
 		return "hound", "workflow_dispatch", firstNonEmpty(a.dispatch.Workflow.Name, a.dispatch.Workflow.ID)
 	case RouteDiff:
@@ -3018,6 +3305,19 @@ func (a App) chromeParts() (string, string, string) {
 		}
 		return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), runsRight(a.runs, a.refreshCount, a.runsMeta)
 	}
+}
+
+// packContext names the board's scent in the chrome: the shared sha
+// and event the pack is running on.
+func packContext(b watch.Board) string {
+	context := "the pack"
+	if strings.TrimSpace(b.HeadSHA) != "" {
+		context += " " + icons.Breadcrumb + " " + shortSHA(b.HeadSHA)
+		if strings.TrimSpace(b.Event) != "" {
+			context += " " + strings.TrimSpace(b.Event)
+		}
+	}
+	return context
 }
 
 func diffContext(verdict usecase.RegressionVerdict) string {
@@ -3169,6 +3469,7 @@ func paletteItems(workflows []dispatch.Workflow) []palette.Item {
 		{Name: "runs", Description: "workflow runs · this branch", Tag: "default", Route: "runs"},
 		{Name: "runs --all", Description: "runs across all branches", Route: "runs --all"},
 		{Name: "run:failed", Description: "filtered to failures", Route: "run:failed"},
+		{Name: "watch", Description: "watch the pack · selected run's event group", Route: string(RouteWatch)},
 		{Name: "artifacts", Description: "selected run's artifacts", Route: "artifacts"},
 		{Name: "approvals", Description: "review the deploy gate", Route: "approvals"},
 		{Name: "diff", Description: "who broke main? · the trail", Route: string(RouteDiff)},
@@ -3267,6 +3568,13 @@ func (a App) screenBody(width, height int) string {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())
 		}
 		return watch.View(a.watch, bodyWidth)
+	case RouteWatchBoard:
+		boardModel := a.board
+		if load := a.load; load != nil && load.kind == loadKindPack {
+			boardModel.Loading = true
+			boardModel.LoadingLine = loadingLine(a.theme, load, bodyWidth, time.Now())
+		}
+		return watch.BoardViewSize(boardModel, bodyWidth, bodyHeight(height), time.Now())
 	case RouteDispatch:
 		if load := a.load; load != nil && load.kind == loadKindDispatch {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())
@@ -3320,7 +3628,8 @@ func (a App) unloadedRouteBody(route Route, width int) (string, bool) {
 			message = "log unavailable: select a job with live GitHub logs loaded"
 		}
 	case RouteWatch:
-		if a.watch.State.Run.ID == 0 {
+		pendingWatch := a.load != nil && a.load.kind == loadKindWatch
+		if a.watch.State.Run.ID == 0 && !pendingWatch {
 			message = "watch unavailable: select a live run first"
 		}
 	case RouteDispatch:
@@ -3766,6 +4075,21 @@ func sampleWatchModel() watch.Model {
 		},
 		Lines: doc.Lines,
 	})
+}
+
+// sampleBoardModel is the pack board fixture: one running, one home,
+// one lost, follow-worst engaged so the cursor pins the lost row.
+// Elapsed offsets are now-relative so the clock column renders stably.
+func sampleBoardModel() watch.Board {
+	now := time.Now().UTC().Truncate(time.Second)
+	sha := "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432"
+	runs := []model.Run{
+		{ID: 30433701, Name: "CI", DisplayTitle: "feat: tighten the leash", Event: "push", HeadSHA: sha, HeadBranch: "main", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 601, RunStartedAt: now.Add(-4 * time.Minute), UpdatedAt: now.Add(-94 * time.Second)},
+		{ID: 30433702, Name: "Release", DisplayTitle: "feat: tighten the leash", Event: "push", HeadSHA: sha, HeadBranch: "main", Status: model.StatusInProgress, Conclusion: model.ConclusionNone, RunNumber: 602, RunStartedAt: now.Add(-48 * time.Second), UpdatedAt: now},
+		{ID: 30433703, Name: "Docs", DisplayTitle: "feat: tighten the leash", Event: "push", HeadSHA: sha, HeadBranch: "main", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure, RunNumber: 603, RunStartedAt: now.Add(-3 * time.Minute), UpdatedAt: now.Add(-108 * time.Second)},
+	}
+	board := watch.NewBoard("indrasvat/gh-hound", "main", runs[0], runs)
+	return board.Update(watch.KeyMsg{Key: "f"})
 }
 
 func sampleDiffVerdict() usecase.RegressionVerdict {
