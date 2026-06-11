@@ -3068,8 +3068,13 @@ func (a App) executeAction(route Route, request ActionRequest) (App, bool) {
 	}
 	if rerunFamily(request.Action) {
 		// New attempts are about to land: cached verdicts would lie.
-		// Fresh map — App copies share the old one.
+		// Fresh map — App copies share the old one — and the DERIVED
+		// state goes with it: badges and the failure panel must not
+		// keep showing a verdict the rerun just invalidated (ghent
+		// Codex P2).
 		a.flakeReports = map[string]usecase.FlakeReport{}
+		a.runs.FlakyRuns = nil
+		a.failure.Flake = nil
 	}
 	resilience := usecase.ResilienceForSuccess(result)
 	if resilience.Message == "" && request.Workflow.Name != "" {

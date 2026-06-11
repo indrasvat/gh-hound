@@ -237,6 +237,10 @@ func TestRerunInvalidatesFlakeVerdictCache(t *testing.T) {
 		t.Fatalf("resolver calls = %d, want 1", got)
 	}
 	app, _ = app.Update(KeyMsg{Key: "esc"})
+	// Seed derived state the rerun must also clear (ghent Codex P2):
+	// stale badges and a stale failure panel would outlive the cache.
+	app.runs.FlakyRuns = map[int64]bool{570: true}
+	app.failure.Flake = &sampleFlakeReport().Jobs[0]
 
 	// Confirmed rerun on the selected run.
 	app, _ = app.Update(KeyMsg{Key: "r"})
@@ -244,6 +248,12 @@ func TestRerunInvalidatesFlakeVerdictCache(t *testing.T) {
 		t.Fatalf("overlay = %q, want confirm", app.TopOverlay())
 	}
 	app, _ = app.Update(KeyMsg{Key: "y"})
+	if app.runs.FlakyRuns != nil {
+		t.Fatal("rerun must clear the stale flake badges")
+	}
+	if app.failure.Flake != nil {
+		t.Fatal("rerun must clear the stale failure panel verdict")
+	}
 
 	app = paletteJumpToFlakes(t, app)
 	app = settleFlakes(t, app)
