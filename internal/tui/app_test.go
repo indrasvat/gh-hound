@@ -1033,17 +1033,21 @@ func TestRefreshBacksOffIdleRunsAndResetsWhenRunning(t *testing.T) {
 	if got := app.PollInterval(); got != time.Second {
 		t.Fatalf("initial poll interval = %s, want 1s", got)
 	}
+	// Assert the adaptive backoff field directly: PollInterval() now
+	// returns the time remaining until the next poll is due, which is
+	// fractionally below the base right after a drain — the backoff
+	// itself lives in a.pollInterval.
 	app, _ = pollCycle(t, app)
-	if got := app.PollInterval(); got != 2*time.Second {
-		t.Fatalf("first idle poll interval = %s, want 2s", got)
+	if got := app.pollInterval; got != 2*time.Second {
+		t.Fatalf("first idle backoff = %s, want 2s", got)
 	}
 	app, _ = pollCycle(t, app)
-	if got := app.PollInterval(); got != 4*time.Second {
-		t.Fatalf("second idle poll interval = %s, want 4s", got)
+	if got := app.pollInterval; got != 4*time.Second {
+		t.Fatalf("second idle backoff = %s, want 4s", got)
 	}
 	app, _ = pollCycle(t, app)
-	if got := app.PollInterval(); got != time.Second {
-		t.Fatalf("running poll interval = %s, want reset to 1s", got)
+	if got := app.pollInterval; got != time.Second {
+		t.Fatalf("running backoff = %s, want reset to 1s", got)
 	}
 }
 

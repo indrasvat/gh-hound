@@ -1066,6 +1066,17 @@ func (a App) PollInterval() time.Duration {
 		if base > time.Second {
 			return time.Second
 		}
+		return base
+	}
+	// A poll just drained before its interval elapsed (a fast fetch on
+	// a long base): sleep only the time remaining until the next poll
+	// is due, not a fresh full interval — otherwise the pre-due drain
+	// tick would push the next poll out by nearly a whole interval and
+	// roughly double the effective cadence.
+	if !a.lastPollStart.IsZero() {
+		if remaining := a.pollDueInterval() - time.Since(a.lastPollStart); remaining > 0 && remaining < base {
+			return remaining
+		}
 	}
 	return base
 }

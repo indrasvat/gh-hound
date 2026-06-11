@@ -326,3 +326,33 @@ func TestShutdownCancelsInflightPoll(t *testing.T) {
 		t.Fatal("Shutdown did not cancel the in-flight poll")
 	}
 }
+
+// codex r3 #1: a poll that drains before its interval elapsed must not
+// push the next poll out by a full fresh interval — PollInterval sleeps
+// only the time remaining until due, so cadence stays at the base, not
+// nearly double it.
+func TestPollIntervalSleepsOnlyUntilDueAfterPreDueDrain(t *testing.T) {
+	app := runsPollApp(t, func(context.Context, usecase.RunFilter) ([]model.Run, error) {
+		return nil, nil
+	})
+	app.pollInterval = 2 * time.Second
+	// A poll that started 1.9s ago just drained (slot now empty).
+	app.lastPollStart = time.Now().Add(-1900 * time.Millisecond)
+	got := app.PollInterval()
+	if got <= 0 || got >= 2*time.Second {
+		t.Fatalf("pre-due drain PollInterval = %v, want the ~100ms remaining (0 < got < base)", got)
+	}
+
+	// A fresh app (never polled) waits the full base.
+	app.lastPollStart = time.Time{}
+	if got := app.PollInterval(); got != 2*time.Second {
+		t.Fatalf("never-polled PollInterval = %v, want base 2s", got)
+	}
+
+	// An overdue poll (well past due) does not return a stale/negative
+	// value — it falls back to the base.
+	app.lastPollStart = time.Now().Add(-10 * time.Second)
+	if got := app.PollInterval(); got != 2*time.Second {
+		t.Fatalf("overdue PollInterval = %v, want base 2s", got)
+	}
+}
