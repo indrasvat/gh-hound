@@ -965,7 +965,7 @@ func TestRefreshReloadsVisibleRunsWithoutKeypress(t *testing.T) {
 		},
 	})
 
-	app, changed := app.Refresh()
+	app, changed := pollCycle(t, app)
 	if !changed || calls != 1 {
 		t.Fatalf("refresh changed=%v calls=%d", changed, calls)
 	}
@@ -1033,15 +1033,15 @@ func TestRefreshBacksOffIdleRunsAndResetsWhenRunning(t *testing.T) {
 	if got := app.PollInterval(); got != time.Second {
 		t.Fatalf("initial poll interval = %s, want 1s", got)
 	}
-	app, _ = app.Refresh()
+	app, _ = pollCycle(t, app)
 	if got := app.PollInterval(); got != 2*time.Second {
 		t.Fatalf("first idle poll interval = %s, want 2s", got)
 	}
-	app, _ = app.Refresh()
+	app, _ = pollCycle(t, app)
 	if got := app.PollInterval(); got != 4*time.Second {
 		t.Fatalf("second idle poll interval = %s, want 4s", got)
 	}
-	app, _ = app.Refresh()
+	app, _ = pollCycle(t, app)
 	if got := app.PollInterval(); got != time.Second {
 		t.Fatalf("running poll interval = %s, want reset to 1s", got)
 	}
@@ -1088,7 +1088,7 @@ func TestRunsChromeShowsRealRateAndCacheMetadata(t *testing.T) {
 	if strings.Contains(before, "4998/5k") || strings.Contains(before, "304") {
 		t.Fatalf("header invented metadata before refresh:\n%s", before)
 	}
-	app, _ = app.Refresh()
+	app, _ = pollCycle(t, app)
 	after := ansi.Strip(app.ViewSize(120, 20))
 	for _, want := range []string{"1 runs loaded", "live", "4998/5k", "304"} {
 		if !strings.Contains(after, want) {
@@ -1136,7 +1136,7 @@ func TestRefreshErrorKeepsCachedRunsAndShowsToast(t *testing.T) {
 		},
 	})
 
-	app, changed := app.Refresh()
+	app, changed := pollCycle(t, app)
 	if !changed {
 		t.Fatal("refresh error should repaint cached rows with toast")
 	}
@@ -1182,7 +1182,7 @@ func TestRefreshRateLimitToastShowsAutoResumeMetadata(t *testing.T) {
 		},
 	})
 
-	app, changed := app.Refresh()
+	app, changed := pollCycle(t, app)
 	if !changed {
 		t.Fatal("rate-limit refresh should repaint cached rows with toast")
 	}

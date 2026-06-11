@@ -297,6 +297,27 @@ func settleApp(t *testing.T, app App) App {
 	return app
 }
 
+// pollCycle drives one background route-poll to completion: the tick
+// that starts the fetch, then the drain that applies it. Route polls
+// are async since Task 28, so a single Refresh only starts the work —
+// tests that assert on the applied result settle the cycle here.
+// Returns whether the applied poll reported a repaint.
+func pollCycle(t *testing.T, app App) (App, bool) {
+	t.Helper()
+	app, _ = app.Refresh()
+	if app.tickPoll == nil {
+		t.Fatal("Refresh started no background poll on a pollable route")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for !app.tickPoll.ready() {
+		if time.Now().After(deadline) {
+			t.Fatal("background route poll never completed")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return app.drainTickPoll()
+}
+
 func TestDetailOpenPaintsSkeletonImmediately(t *testing.T) {
 	app := asyncTestApp()
 	release := make(chan struct{})

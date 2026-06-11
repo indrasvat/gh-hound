@@ -208,7 +208,7 @@ func TestRefreshPackPushesTheSettledToastOnce(t *testing.T) {
 	// refresh transition is observable.
 	app.board = app.board.WithRuns(packTestRuns()[:3])
 
-	app, changed := app.Refresh()
+	app, changed := pollCycle(t, app)
 	if !changed {
 		t.Fatal("refresh reported no change")
 	}
@@ -219,7 +219,7 @@ func TestRefreshPackPushesTheSettledToastOnce(t *testing.T) {
 
 	// A second refresh of the already-settled pack must not re-toast.
 	app.toasts.Toasts = nil
-	app, _ = app.Refresh()
+	app, _ = pollCycle(t, app)
 	view = ansi.Strip(app.ViewSized(100))
 	if strings.Contains(view, "hunt's home") {
 		t.Fatal("settled toast repeated after settle")

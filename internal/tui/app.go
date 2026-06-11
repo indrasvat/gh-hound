@@ -199,6 +199,7 @@ type App struct {
 	openURL              func(string) error
 	copyText             func(string) error
 	load                 *pendingLoad
+	tickPoll             *tickPollState
 }
 
 // startLoad runs work off the paint path and records the app's single
@@ -281,7 +282,82 @@ func (a App) SettleLoads(timeout time.Duration) (App, bool) {
 		}
 		time.Sleep(time.Millisecond)
 	}
+	for a.tickPoll != nil {
+		if a.tickPoll.ready() {
+			a, _ = a.drainTickPoll()
+			continue
+		}
+		if time.Now().After(deadline) {
+			return a, false
+		}
+		time.Sleep(time.Millisecond)
+	}
 	return a, true
+}
+
+// tickPollState carries a background route poll — the runs list, the
+// single-run watch, or the hunt board — off the event loop. Before
+// Task 28 these resolvers ran synchronously inside Refresh, so a slow
+// poll stalled the very next keystroke; now the fetch runs in a
+// goroutine and its apply closure folds in on a later tick or keypress
+// drain. Pointer-held so goroutine completion survives App value
+// copies. One poll at a time: startTickPoll refuses to start a second.
+type tickPollState struct {
+	mu    sync.Mutex
+	route Route
+	apply func(App) App
+	done  bool
+}
+
+func (s *tickPollState) ready() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.done
+}
+
+// startTickPoll runs fetch in the background and parks the resulting
+// apply closure for a later drain. fetch runs OFF the event loop and
+// must not touch App; it returns the closure that folds its result in
+// at drain time, against whatever App state is current then (so a
+// selection moved mid-poll still wins). A poll already in flight is
+// left alone — the one-poll-at-a-time budget.
+func (a App) startTickPoll(route Route, fetch func() func(App) App) App {
+	if a.tickPoll != nil {
+		return a
+	}
+	state := &tickPollState{route: route}
+	a.tickPoll = state
+	go func() {
+		apply := fetch()
+		state.mu.Lock()
+		state.apply = apply
+		state.done = true
+		state.mu.Unlock()
+	}()
+	return a
+}
+
+// drainTickPoll applies a completed background poll. A result whose
+// route no longer matches the foreground (the user navigated away
+// while it was in flight) is dropped, freeing the slot — never folded
+// into the wrong screen.
+func (a App) drainTickPoll() (App, bool) {
+	poll := a.tickPoll
+	if poll == nil {
+		return a, false
+	}
+	poll.mu.Lock()
+	done := poll.done
+	apply := poll.apply
+	poll.mu.Unlock()
+	if !done {
+		return a, false
+	}
+	a.tickPoll = nil
+	if apply == nil || a.Route() != poll.route {
+		return a, false
+	}
+	return apply(a), true
 }
 
 // artifactsFetchState carries an async artifacts listing for the
@@ -480,6 +556,11 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 		}
 	}
 	if next, ok := a.drainFlakesFetch(); ok {
+		a = next
+	}
+	// A completed route poll applies before the key routes, so a
+	// keystroke acts on the freshest list the background fetch produced.
+	if next, ok := a.drainTickPoll(); ok {
 		a = next
 	}
 	if load := a.load; load != nil {
@@ -930,16 +1011,22 @@ func (a App) Refresh() (App, bool) {
 		a = next
 		changed = true
 	}
+	// A completed route poll applies here; then a fresh one starts in
+	// the background. The fetch never runs on this goroutine, so a slow
+	// poll cannot stall the next keystroke (Task 28). One poll rides at
+	// a time, so the cadence follows the adaptive interval — a tick
+	// that lands while a poll is still in flight just waits.
+	if next, ok := a.drainTickPoll(); ok {
+		a = next
+		changed = true
+	}
 	switch a.Route() {
 	case RouteRuns:
-		next, refreshed := a.refreshRuns()
-		return next, refreshed || changed
+		return a.startRunsPoll(), changed
 	case RouteWatch:
-		next, refreshed := a.refreshWatch()
-		return next, refreshed || changed
+		return a.startWatchPoll(), changed
 	case RouteWatchBoard:
-		next, refreshed := a.refreshPack()
-		return next, refreshed || changed
+		return a.startPackPoll(), changed
 	default:
 		return a, changed
 	}
@@ -2548,9 +2635,12 @@ func (a App) loadMoreRuns() App {
 	})
 }
 
-func (a App) refreshRuns() (App, bool) {
+// startRunsPoll snapshots the current filter and fetches the runs list
+// in the background. The result folds in via applyRunsRefresh at drain
+// time — never synchronously on the event loop.
+func (a App) startRunsPoll() App {
 	if a.runsResolver == nil {
-		return a, false
+		return a
 	}
 	filter := baseRunsFilter(a.runs.Context, a.config.PerPage)
 	if strings.TrimSpace(a.runs.Filter) != "" {
@@ -2559,16 +2649,28 @@ func (a App) refreshRuns() (App, bool) {
 		}
 	}
 	filter.Page = 1
-	selectedID := int64(0)
-	if selected, ok := a.runs.SelectedRun(); ok {
-		selectedID = selected.ID
-	}
-	resolved, err := a.runsResolver(context.Background(), filter)
+	resolver := a.runsResolver
+	return a.startTickPoll(RouteRuns, func() func(App) App {
+		resolved, err := resolver(context.Background(), filter)
+		return func(app App) App {
+			return app.applyRunsRefresh(resolved, err)
+		}
+	})
+}
+
+// applyRunsRefresh folds a completed runs poll into the app. Selection
+// is re-read here, not at fetch time, so a cursor moved while the poll
+// was in flight is preserved.
+func (a App) applyRunsRefresh(resolved []model.Run, err error) App {
 	if err != nil {
 		a = a.handleRunsError(RouteRuns, "runs-refresh", "refresh failed: "+err.Error(), err)
 		a.pollInterval = nextPollIntervalForRuns(nil, a.pollInterval, a.config)
 		a.refreshCount++
-		return a, true
+		return a
+	}
+	selectedID := int64(0)
+	if selected, ok := a.runs.SelectedRun(); ok {
+		selectedID = selected.ID
 	}
 	a.clearRouteError(RouteRuns)
 	a.refreshCount++
@@ -2591,24 +2693,42 @@ func (a App) refreshRuns() (App, bool) {
 		}
 	}
 	a.pollInterval = nextPollIntervalForRuns(resolved, a.pollInterval, a.config)
-	return a, true
+	return a
 }
 
-func (a App) refreshWatch() (App, bool) {
+// startWatchPoll fetches the single-run watch in the background; the
+// result folds in via applyWatchRefresh at drain time.
+func (a App) startWatchPoll() App {
 	if a.watchResolver == nil || a.watch.State.Run.ID == 0 {
-		return a, false
+		return a
 	}
-	resolved, err := a.watchResolver(context.Background(), a.watch.State.Run)
+	resolver := a.watchResolver
+	run := a.watch.State.Run
+	return a.startTickPoll(RouteWatch, func() func(App) App {
+		resolved, err := resolver(context.Background(), run)
+		return func(app App) App {
+			return app.applyWatchRefresh(run, resolved, err)
+		}
+	})
+}
+
+// applyWatchRefresh folds a completed watch poll in. A result for a run
+// the user has since left behind (drilled elsewhere) is ignored so the
+// board never flips to a stale single-run view.
+func (a App) applyWatchRefresh(run model.Run, resolved watch.Model, err error) App {
+	if a.watch.State.Run.ID != run.ID {
+		return a
+	}
 	if err != nil {
 		a.setRouteError(RouteWatch, "watch refresh failed: "+err.Error())
 		a.refreshCount++
-		return a, true
+		return a
 	}
 	a.clearRouteError(RouteWatch)
 	a.refreshCount++
 	a.watch = resolved
 	a.pollInterval = nextPollIntervalForRuns([]model.Run{resolved.State.Run}, a.pollInterval, a.config)
-	return a, true
+	return a
 }
 
 // openPackWatch is the w entry point: watch the selected run's whole
@@ -2696,20 +2816,36 @@ func watchBoardHandled(key string) bool {
 	}
 }
 
-// refreshPack polls the board on the shared tick: one runs-list call
-// covers every member (PackWatchService budget). Settling pushes the
-// hound's verdict toast exactly once, at the transition.
-func (a App) refreshPack() (App, bool) {
+// startPackPoll polls the board on the shared tick: one runs-list call
+// covers every member (PackWatchService budget). The fetch runs in the
+// background; applyPackRefresh folds it in at drain.
+func (a App) startPackPoll() App {
 	if a.packResolver == nil || len(a.board.Runs) == 0 {
-		return a, false
+		return a
 	}
-	before := a.board.Summary()
-	next, err := a.packResolver(context.Background(), a.packState())
+	resolver := a.packResolver
+	state := a.packState()
+	return a.startTickPoll(RouteWatchBoard, func() func(App) App {
+		next, err := resolver(context.Background(), state)
+		return func(app App) App {
+			return app.applyPackRefresh(next, err)
+		}
+	})
+}
+
+// applyPackRefresh folds a completed pack poll in. The settled-toast
+// transition is computed against the board state at drain time, so it
+// still fires exactly once even though the fetch ran earlier.
+func (a App) applyPackRefresh(next usecase.PackState, err error) App {
+	if len(a.board.Runs) == 0 {
+		return a
+	}
 	if err != nil {
 		a.setRouteError(RouteWatchBoard, "hunt refresh failed: "+err.Error())
 		a.refreshCount++
-		return a, true
+		return a
 	}
+	before := a.board.Summary()
 	a.clearRouteError(RouteWatchBoard)
 	a.refreshCount++
 	a.board = a.board.WithRuns(next.Runs)
@@ -2718,7 +2854,7 @@ func (a App) refreshPack() (App, bool) {
 		a.pushPackSettledToast(after)
 	}
 	a.pollInterval = nextPollIntervalForRuns(next.Runs, a.pollInterval, a.config)
-	return a, true
+	return a
 }
 
 // pushPackSettledToast announces settlement in the hound voice. The

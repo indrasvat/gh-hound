@@ -126,11 +126,22 @@ For each screen at `80x24`, `120x40`, and `200x60`: verify alignment, color mapp
 
 ## Loading States (the Task 220 invariant)
 
-> **No keystroke may block on the network.** The UI repaints within
-> 50ms of the keystroke (previous content dimmed, or a skeleton). If
-> the fetch is still in flight after a 100ms grace window, the shared
-> loading indicator appears. Every fetch is esc-cancellable and stale
-> results are dropped.
+> **No keystroke may block on the network** — and neither may a poll
+> tick. The UI repaints within 50ms of the keystroke (previous content
+> dimmed, or a skeleton). If the fetch is still in flight after a 100ms
+> grace window, the shared loading indicator appears. Every fetch is
+> esc-cancellable and stale results are dropped.
+
+The invariant extends to the periodic tick path: the runs list, the
+single-run watch, and the hunt board poll their resolvers in a
+background goroutine (`tickPoll`), never inline in `Refresh`. A slow
+poll therefore cannot stall the next keystroke. One poll rides at a
+time; its result folds in on the following tick or keypress drain, and
+a result whose route the user has left behind is dropped, never folded
+into the wrong screen. These background polls are silent — no spinner,
+the current data stays on screen until the fresh data quietly replaces
+it (unlike keystroke-initiated loads, which show the dimmed/skeleton
+treatment above).
 
 There is exactly **one** loading indicator in gh-hound
 (`internal/tui/loading.go` + `icons.SpinnerFrames`). A bespoke
