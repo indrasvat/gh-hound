@@ -454,3 +454,41 @@ func TestDispatchOpenIsAsync(t *testing.T) {
 		t.Fatalf("dispatch form missing after settle:\n%s", settled)
 	}
 }
+
+func TestRefreshSkipsRoutePollingWhileLoading(t *testing.T) {
+	app := asyncTestApp()
+	var pollCalls atomic.Int32
+	release := make(chan struct{})
+	defer close(release)
+	app.runsResolver = func(usecase.RunFilter) ([]model.Run, error) {
+		if pollCalls.Add(1) == 1 {
+			<-release // the load's own fetch holds the queue
+		}
+		return nil, nil
+	}
+	app, _ = app.Update(KeyMsg{Key: "f"})
+	if app.load == nil {
+		t.Fatal("no pending load")
+	}
+	// Wait until the load's goroutine has actually entered the resolver.
+	deadline := time.Now().Add(time.Second)
+	for pollCalls.Load() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("load fetch never started")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	app.load.started = time.Now().Add(-200 * time.Millisecond)
+	// Five animation ticks must not fire route polls: the pending load
+	// owns the queue and frames must keep flowing.
+	for range 5 {
+		var changed bool
+		app, changed = app.Refresh()
+		if !changed {
+			t.Fatal("Refresh did not animate while spinner visible")
+		}
+	}
+	if got := pollCalls.Load(); got != 1 {
+		t.Fatalf("route polls during load = %d, want 1 (the load's own fetch)", got)
+	}
+}

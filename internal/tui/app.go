@@ -672,6 +672,12 @@ func (a App) Refresh() (App, bool) {
 		a = next
 		changed = true
 	}
+	if a.load != nil {
+		// A pending load owns the serial queue: route polling here
+		// would block the loop (starving spinner frames) and double-
+		// fetch the same surface. Drain + animate only.
+		return a, changed
+	}
 	if a.TopOverlay() != OverlayNone || a.routeInputMode() {
 		return a, changed
 	}
