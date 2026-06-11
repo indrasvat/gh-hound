@@ -239,3 +239,18 @@ func TestDispatchPickerBadgesAndRefusesNonActiveWorkflows(t *testing.T) {
 		t.Fatalf("refusal toast must point at the kennel:\n%s", view)
 	}
 }
+
+func TestWorkflowsFixturesRender(t *testing.T) {
+	kennel := RenderFixtureSize("workflows", 80, 24)
+	for _, want := range []string{"the kennel", "✔ active", "◌ asleep", "⊘ muzzled", "⊘ fork-disabled", "✗ deleted", "e wake/muzzle"} {
+		if !strings.Contains(kennel, want) {
+			t.Fatalf("workflows fixture missing %q:\n%s", want, kennel)
+		}
+	}
+	picker := RenderFixtureSize("dispatch-picker", 80, 24)
+	for _, want := range []string{"jump to…", "dispatch: CI", "dispatch: Nightly Sweep", "◌ asleep", "⊘ muzzled"} {
+		if !strings.Contains(picker, want) {
+			t.Fatalf("dispatch-picker fixture missing %q:\n%s", want, picker)
+		}
+	}
+}

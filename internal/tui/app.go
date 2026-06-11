@@ -657,6 +657,17 @@ func RenderFixtureSize(screen string, width, height int) string {
 	case "caches-empty":
 		m := caches.NewModel("indrasvat/gh-hound", caches.Data{})
 		return frameViewSize(app.theme, "hound", "the kennel · caches", caches.UsageLine(m.Usage, m.Cap), caches.ViewSize(m, bodyWidth, bodyHeight(height), time.Now()), keys.FooterForScreen(keys.ScreenCaches), width, height, true)
+	case "workflows":
+		kennelApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		kennelApp.workflows = workflowsscreen.NewModel("indrasvat/gh-hound", sampleWorkflows())
+		kennelApp.routes = []Route{RouteRuns, RouteWorkflows}
+		return kennelApp.ViewSize(width, height)
+	case "dispatch-picker":
+		pickerApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		pickerApp.dispatchWorkflows = sampleDispatchPickerWorkflows()
+		pickerApp.palette = palette.New(dispatchPaletteItems(pickerApp.dispatchWorkflows))
+		pickerApp.overlays = append(pickerApp.overlays, OverlayPalette)
+		return pickerApp.ViewSize(width, height)
 	case "palette":
 		app, _ = app.Update(KeyMsg{Key: ":"})
 		return app.ViewSize(width, height)
@@ -3134,7 +3145,9 @@ func dispatchPaletteItems(workflows []dispatch.Workflow) []palette.Item {
 		if workflow.State != "" && workflow.State != model.WorkflowStateActive {
 			// Non-active workflows stay visible — the badge answers
 			// "where did my workflow go" — but selection is refused.
-			description += " · " + workflowsscreen.BadgeText(workflow.State)
+			// The badge replaces the redundant trigger prefix so it
+			// survives the 80-column overlay untruncated.
+			description = workflowValue(workflow) + " · " + workflowsscreen.BadgeText(workflow.State)
 		}
 		items = append(items, palette.Item{
 			Name:        "dispatch: " + name,
@@ -3744,6 +3757,17 @@ func sampleWorkflows() []model.Workflow {
 		{ID: 125, Name: "Stale Patrol", Path: ".github/workflows/stale.yml", State: model.WorkflowStateDisabledManually, HTMLURL: "https://github.com/indrasvat/gh-hound/actions/workflows/stale.yml"},
 		{ID: 126, Name: "Fork Gate", Path: ".github/workflows/fork-gate.yml", State: model.WorkflowStateDisabledFork, HTMLURL: "https://github.com/indrasvat/gh-hound/actions/workflows/fork-gate.yml"},
 		{ID: 127, Name: "Old Patrol", Path: ".github/workflows/old-patrol.yml", State: model.WorkflowStateDeleted, HTMLURL: "https://github.com/indrasvat/gh-hound/actions/workflows/old-patrol.yml"},
+	}
+}
+
+// sampleDispatchPickerWorkflows seeds the badged dispatch chooser:
+// two on duty, one asleep, one muzzled.
+func sampleDispatchPickerWorkflows() []dispatch.Workflow {
+	return []dispatch.Workflow{
+		{Name: "CI", ID: "ci.yml", Ref: "main", State: model.WorkflowStateActive},
+		{Name: "Release", ID: "release.yml", Ref: "main", State: model.WorkflowStateActive},
+		{Name: "Nightly Sweep", ID: "nightly.yml", Ref: "main", State: model.WorkflowStateDisabledInactivity},
+		{Name: "Stale Patrol", ID: "stale.yml", Ref: "main", State: model.WorkflowStateDisabledManually},
 	}
 }
 
