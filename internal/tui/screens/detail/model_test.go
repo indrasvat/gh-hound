@@ -279,3 +279,76 @@ func TestViewSizeKeepsSelectedStepVisible(t *testing.T) {
 		t.Fatalf("selected step must stay in the window:\n%s", view)
 	}
 }
+
+func TestContextualOpenAndCopyOnDownloadedArtifact(t *testing.T) {
+	m := NewModel(model.Run{ID: 1}, nil).WithArtifacts([]model.Artifact{{ID: 901, Name: "coverage"}})
+	m.Focus = FocusArtifacts
+
+	// Not downloaded: o/y keep their browser/copy-URL meanings.
+	if got := m.Update(KeyMsg{Key: "o"}).Intent.Kind; got != IntentBrowser {
+		t.Fatalf("o on a non-downloaded artifact = %q, want browser", got)
+	}
+	if got := m.Update(KeyMsg{Key: "y"}).Intent.Kind; got != IntentCopyURL {
+		t.Fatalf("y on a non-downloaded artifact = %q, want copy URL", got)
+	}
+
+	m = m.WithDownload(901, DownloadStatus{State: DownloadStateDone, Path: "/tmp/coverage"})
+	next := m.Update(KeyMsg{Key: "o"})
+	if next.Intent.Kind != IntentOpenArtifactDir || next.Intent.ArtifactID != 901 {
+		t.Fatalf("o on a downloaded artifact = %+v, want open_artifact_dir for 901", next.Intent)
+	}
+	next = m.Update(KeyMsg{Key: "y"})
+	if next.Intent.Kind != IntentCopyArtifactPath || next.Intent.ArtifactID != 901 {
+		t.Fatalf("y on a downloaded artifact = %+v, want copy_artifact_path for 901", next.Intent)
+	}
+
+	// Outside the artifacts pane the download must not hijack o/y.
+	m.Focus = FocusJobs
+	if got := m.Update(KeyMsg{Key: "o"}).Intent.Kind; got != IntentBrowser {
+		t.Fatalf("o outside the artifacts pane = %q, want browser", got)
+	}
+}
+
+func TestWithDownloadKeepsValueSemantics(t *testing.T) {
+	m := NewModel(model.Run{ID: 1}, nil).WithArtifacts([]model.Artifact{{ID: 901, Name: "coverage"}})
+	frozen := m.WithDownload(901, DownloadStatus{State: DownloadStateDownloading})
+	mutated := frozen.WithDownload(901, DownloadStatus{State: DownloadStateDone, Path: "/x"})
+	if frozen.Download(901).State != DownloadStateDownloading {
+		t.Fatal("WithDownload mutated the prior model value")
+	}
+	if mutated.Download(901).State != DownloadStateDone {
+		t.Fatal("WithDownload failed to record the new status")
+	}
+	if mutated.DownloadedCount() != 1 {
+		t.Fatalf("DownloadedCount = %d, want 1", mutated.DownloadedCount())
+	}
+}
+
+// The height budget and the rendered artifacts block must agree in
+// every selection/window/download state (codex r1 finding 5: the old
+// count added an overflow line even when the window hid rows above,
+// not below).
+func TestArtifactsBlockLinesMatchesRenderedBlock(t *testing.T) {
+	artifacts := make([]model.Artifact, 8)
+	for i := range artifacts {
+		artifacts[i] = model.Artifact{ID: int64(900 + i), Name: "artifact", SizeInBytes: 1024}
+	}
+	for _, count := range []int{1, 4, 5, 6, 8} {
+		m := NewModel(model.Run{ID: 1}, nil).WithArtifacts(artifacts[:count])
+		m.Focus = FocusArtifacts
+		for selected := range count {
+			m.SelectedArtifact = selected
+			for _, downloaded := range []bool{false, true} {
+				probe := m
+				if downloaded {
+					probe = m.WithDownload(artifacts[selected].ID, DownloadStatus{State: DownloadStateDone, Path: "/tmp/x"})
+				}
+				rendered := len(renderArtifactsBlock(probe, 80))
+				budget := artifactsBlockLines(probe)
+				if rendered != budget {
+					t.Fatalf("count=%d selected=%d downloaded=%v: rendered %d lines, budget %d", count, selected, downloaded, rendered, budget)
+				}
+			}
+		}
+	}
+}

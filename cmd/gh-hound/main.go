@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	goruntime "runtime"
 	"strconv"
 	"strings"
@@ -1406,9 +1407,10 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 		ArtifactsResolver: func(run model.Run) ([]model.Artifact, error) {
 			return usecase.ArtifactsService{GitHub: githubClient}.List(ctx, launch.Repo, run.ID)
 		},
-		ArtifactDownloader: func(artifact model.Artifact, destDir string) (usecase.DownloadResult, error) {
-			return usecase.ArtifactsService{GitHub: githubClient}.Download(ctx, launch.Repo, artifact, destDir, false)
+		ArtifactDownloader: func(artifact model.Artifact, destDir string, force bool, onProgress func(usecase.DownloadProgress)) (usecase.DownloadResult, error) {
+			return usecase.ArtifactsService{GitHub: githubClient}.Download(ctx, launch.Repo, artifact, destDir, force, onProgress)
 		},
+		ArtifactDir: artifactDownloadRoot(runtime.Env),
 		CachesResolver: func(loadCtx context.Context) (caches.Data, error) {
 			service, err := cachesServiceFor(githubClient, mutationLimiter)
 			if err != nil {
@@ -1478,6 +1480,27 @@ func openBrowser(rawURL string) error {
 		return err
 	}
 	return cmd.Process.Release()
+}
+
+// artifactDownloadRoot resolves where TUI artifact downloads extract:
+// $GH_HOUND_ARTIFACT_DIR when set, else the working directory — always
+// absolute, because the TUI shows this path in confirms and rows and a
+// relative "." would hide the one fact the user needs. env is the
+// runtime's injected lookup so tests stay hermetic.
+func artifactDownloadRoot(env func(string) (string, bool)) string {
+	root := ""
+	if env != nil {
+		if value, ok := env("GH_HOUND_ARTIFACT_DIR"); ok {
+			root = strings.TrimSpace(value)
+		}
+	}
+	if root == "" {
+		root = "."
+	}
+	if abs, err := filepath.Abs(root); err == nil {
+		return abs
+	}
+	return root
 }
 
 func copyToClipboard(value string) error {
@@ -2100,7 +2123,7 @@ func writeArtifactsResult(ctx context.Context, w io.Writer, options cliOptions, 
 		if !ok {
 			return fmt.Errorf("artifact %q not found in run %d", options.Download, runID)
 		}
-		outcome, err := service.Download(ctx, repo, artifact, firstNonEmpty(options.Dir, "."), options.Force)
+		outcome, err := service.Download(ctx, repo, artifact, firstNonEmpty(options.Dir, "."), options.Force, nil)
 		if err != nil {
 			var destErr usecase.DestinationExistsError
 			if errors.As(err, &destErr) {

@@ -38,7 +38,7 @@ func TestArtifactsDownloadExtractsZipIntoNamedDir(t *testing.T) {
 	dest := t.TempDir()
 	artifact := model.Artifact{ID: 901, Name: "coverage"}
 
-	result, err := service.Download(context.Background(), "indrasvat/gh-hound", artifact, dest, false)
+	result, err := service.Download(context.Background(), "indrasvat/gh-hound", artifact, dest, false, nil)
 	if err != nil {
 		t.Fatalf("Download returned error: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestArtifactsDownloadRejectsExpiredWithoutNetworkCall(t *testing.T) {
 	service := usecase.ArtifactsService{GitHub: github}
 	artifact := model.Artifact{ID: 902, Name: "old-report", Expired: true}
 
-	_, err := service.Download(context.Background(), "indrasvat/gh-hound", artifact, t.TempDir(), false)
+	_, err := service.Download(context.Background(), "indrasvat/gh-hound", artifact, t.TempDir(), false, nil)
 	var expired usecase.ArtifactExpiredError
 	if !errors.As(err, &expired) {
 		t.Fatalf("error = %v, want ArtifactExpiredError", err)
@@ -84,10 +84,10 @@ func TestArtifactsDownloadRefusesExistingDestinationUnlessForced(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := service.Download(context.Background(), "indrasvat/gh-hound", artifact, dest, false); err == nil {
+	if _, err := service.Download(context.Background(), "indrasvat/gh-hound", artifact, dest, false, nil); err == nil {
 		t.Fatal("existing destination must error without force")
 	}
-	if _, err := service.Download(context.Background(), "indrasvat/gh-hound", artifact, dest, true); err != nil {
+	if _, err := service.Download(context.Background(), "indrasvat/gh-hound", artifact, dest, true, nil); err != nil {
 		t.Fatalf("force download failed: %v", err)
 	}
 }
@@ -109,7 +109,7 @@ func TestArtifactsDownloadBlocksZipSlip(t *testing.T) {
 	service := usecase.ArtifactsService{GitHub: github}
 	dest := t.TempDir()
 
-	_, err = service.Download(context.Background(), "indrasvat/gh-hound", model.Artifact{ID: 903, Name: "evil"}, dest, false)
+	_, err = service.Download(context.Background(), "indrasvat/gh-hound", model.Artifact{ID: 903, Name: "evil"}, dest, false, nil)
 	if err == nil {
 		t.Fatal("zip-slip entry must be rejected")
 	}
@@ -136,7 +136,7 @@ func TestArtifactsDownloadRejectsHostileName(t *testing.T) {
 	github := &countingArtifactGitHub{Adapter: fake.New(fake.ScenarioFailing)}
 	service := usecase.ArtifactsService{GitHub: github}
 	for _, name := range []string{"../evil", "a/b", "..", ".", ""} {
-		_, err := service.Download(context.Background(), "indrasvat/gh-hound", model.Artifact{ID: 1, Name: name}, t.TempDir(), false)
+		_, err := service.Download(context.Background(), "indrasvat/gh-hound", model.Artifact{ID: 1, Name: name}, t.TempDir(), false, nil)
 		if err == nil {
 			t.Fatalf("hostile artifact name %q must be rejected", name)
 		}
@@ -158,11 +158,52 @@ func TestArtifactsDownloadCleansPartialExtractionOnFailure(t *testing.T) {
 	service := usecase.ArtifactsService{GitHub: github}
 	dest := t.TempDir()
 
-	_, err := service.Download(context.Background(), "indrasvat/gh-hound", model.Artifact{ID: 9, Name: "partial"}, dest, false)
+	_, err := service.Download(context.Background(), "indrasvat/gh-hound", model.Artifact{ID: 9, Name: "partial"}, dest, false, nil)
 	if err == nil {
 		t.Fatal("extraction must fail on the zip-slip entry")
 	}
 	if _, statErr := os.Stat(filepath.Join(dest, "partial")); !os.IsNotExist(statErr) {
 		t.Fatal("failed extraction must not leave a partial destination behind")
+	}
+}
+
+func TestArtifactsDownloadReportsProgressPhases(t *testing.T) {
+	service := usecase.ArtifactsService{GitHub: fake.New(fake.ScenarioFailing)}
+	var updates []usecase.DownloadProgress
+	_, err := service.Download(context.Background(), "indrasvat/gh-hound", model.Artifact{ID: 901, Name: "coverage"}, t.TempDir(), false, func(p usecase.DownloadProgress) {
+		updates = append(updates, p)
+	})
+	if err != nil {
+		t.Fatalf("Download returned error: %v", err)
+	}
+	if len(updates) < 2 {
+		t.Fatalf("progress updates = %d, want at least transfer + extract", len(updates))
+	}
+	last := int64(0)
+	sawExtract := false
+	for i, update := range updates {
+		switch update.Phase {
+		case usecase.DownloadPhaseTransfer:
+			if sawExtract {
+				t.Fatalf("transfer update %d arrived after the extract phase", i)
+			}
+			if update.Bytes < last {
+				t.Fatalf("transfer bytes regressed: %d after %d", update.Bytes, last)
+			}
+			last = update.Bytes
+		case usecase.DownloadPhaseExtract:
+			sawExtract = true
+			if update.Bytes < last {
+				t.Fatalf("extract fired with %d bytes, below the %d transferred", update.Bytes, last)
+			}
+		default:
+			t.Fatalf("unknown progress phase %q", update.Phase)
+		}
+	}
+	if !sawExtract {
+		t.Fatal("the extract phase never fired")
+	}
+	if last == 0 {
+		t.Fatal("no transfer bytes were ever reported")
 	}
 }

@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,7 +15,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
-func artifactsTestApp(t *testing.T, downloader func(model.Artifact, string) (usecase.DownloadResult, error)) App {
+func artifactsTestApp(t *testing.T, downloader func(model.Artifact, string, bool, func(usecase.DownloadProgress)) (usecase.DownloadResult, error)) App {
 	t.Helper()
 	cfg := config.Default()
 	cfg.Welcome = false
@@ -27,7 +28,7 @@ func artifactsTestApp(t *testing.T, downloader func(model.Artifact, string) (use
 			Runs:  []model.Run{run},
 		},
 		DetailResolver: func(_ context.Context, run model.Run) (detail.Model, error) {
-			return detail.NewModel(run, []model.Job{{ID: 7001, Name: "build", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess}}), nil
+			return detail.NewModel(run, []model.Job{{ID: 7001, Name: "build", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess}}).WithRepo("indrasvat/gh-hound"), nil
 		},
 		ArtifactsResolver: func(run model.Run) ([]model.Artifact, error) {
 			return []model.Artifact{
@@ -78,10 +79,13 @@ func TestDetailArtifactsLoadAsyncAndRender(t *testing.T) {
 
 func TestArtifactDownloadConfirmsThenToasts(t *testing.T) {
 	var calls atomic.Int32
-	app := artifactsTestApp(t, func(artifact model.Artifact, destDir string) (usecase.DownloadResult, error) {
+	app := artifactsTestApp(t, func(artifact model.Artifact, destDir string, force bool, _ func(usecase.DownloadProgress)) (usecase.DownloadResult, error) {
 		calls.Add(1)
 		if artifact.ID != 901 || destDir != "." {
 			t.Errorf("downloader got artifact %d dir %q", artifact.ID, destDir)
+		}
+		if force {
+			t.Error("first download attempt must not force")
 		}
 		return usecase.DownloadResult{Path: "./coverage", FileCount: 3}, nil
 	})
@@ -124,7 +128,7 @@ func TestArtifactDownloadConfirmsThenToasts(t *testing.T) {
 }
 
 func TestExpiredArtifactDownloadRefusedUpFront(t *testing.T) {
-	app := artifactsTestApp(t, func(model.Artifact, string) (usecase.DownloadResult, error) {
+	app := artifactsTestApp(t, func(model.Artifact, string, bool, func(usecase.DownloadProgress)) (usecase.DownloadResult, error) {
 		t.Error("downloader must not be called for an expired artifact")
 		return usecase.DownloadResult{}, nil
 	})
@@ -148,7 +152,7 @@ func TestExpiredArtifactDownloadRefusedUpFront(t *testing.T) {
 func TestSecondDownloadRefusedWhileOneIsActive(t *testing.T) {
 	block := make(chan struct{})
 	var calls atomic.Int32
-	app := artifactsTestApp(t, func(model.Artifact, string) (usecase.DownloadResult, error) {
+	app := artifactsTestApp(t, func(model.Artifact, string, bool, func(usecase.DownloadProgress)) (usecase.DownloadResult, error) {
 		calls.Add(1)
 		<-block
 		return usecase.DownloadResult{Path: "./coverage", FileCount: 1}, nil
@@ -191,5 +195,400 @@ func TestToastTTLActuallyExpires(t *testing.T) {
 	app, changed := app.Refresh()
 	if !changed || len(app.toasts.Toasts) != 0 {
 		t.Fatalf("toast must expire after its TTL: changed=%v remaining=%d", changed, len(app.toasts.Toasts))
+	}
+}
+
+// artifactsTestAppFull wires opener/copier doubles alongside the
+// downloader so the post-download o/y actions are observable.
+func artifactsTestAppFull(t *testing.T, downloader func(model.Artifact, string, bool, func(usecase.DownloadProgress)) (usecase.DownloadResult, error), opener, copier func(string) error) App {
+	t.Helper()
+	app := artifactsTestApp(t, downloader)
+	app.openURL = opener
+	app.copyText = copier
+	return app
+}
+
+func refreshUntil(t *testing.T, app App, want func(App) bool) App {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		app, _ = app.Refresh()
+		if want(app) {
+			return app
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("condition never reached\n%s", ansi.Strip(app.ViewSize(120, 40)))
+	return app
+}
+
+func TestDownloadConfirmShowsAbsoluteDestination(t *testing.T) {
+	app := artifactsTestApp(t, nil)
+	app.artifactDir = "/tmp/hound-dl"
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = waitForArtifacts(t, app)
+	app, _ = app.Update(KeyMsg{Key: "a"})
+	app, _ = app.Update(KeyMsg{Key: "d"})
+	if app.TopOverlay() != OverlayConfirm {
+		t.Fatalf("d should open the download confirm: top=%s", app.TopOverlay())
+	}
+	view := ansi.Strip(app.ViewSize(120, 40))
+	if !strings.Contains(view, "→ /tmp/hound-dl/coverage/") {
+		t.Fatalf("confirm must show the absolute destination\n%s", view)
+	}
+}
+
+func TestDownloadLifecycleProgressPathAndActions(t *testing.T) {
+	transfer := make(chan struct{})
+	finish := make(chan struct{})
+	var opened, copied atomic.Value
+	app := artifactsTestAppFull(t,
+		func(artifact model.Artifact, destDir string, force bool, onProgress func(usecase.DownloadProgress)) (usecase.DownloadResult, error) {
+			onProgress(usecase.DownloadProgress{Phase: usecase.DownloadPhaseTransfer, Bytes: 4096})
+			close(transfer)
+			<-finish
+			return usecase.DownloadResult{Path: "/tmp/hound-dl/coverage", FileCount: 3}, nil
+		},
+		func(path string) error { opened.Store(path); return nil },
+		func(text string) error { copied.Store(text); return nil },
+	)
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = waitForArtifacts(t, app)
+	app, _ = app.Update(KeyMsg{Key: "a"})
+	app, _ = app.Update(KeyMsg{Key: "d"})
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	<-transfer
+
+	// The row must carry the live byte counter while transferring.
+	app = refreshUntil(t, app, func(a App) bool {
+		return strings.Contains(ansi.Strip(a.ViewSize(120, 40)), "↓ 4.0 KB")
+	})
+	if got := app.PollInterval(); got != loadFrameInterval {
+		t.Fatalf("a live download must tick at frame rate, got %v", got)
+	}
+	close(finish)
+
+	// Done: header chip, row verdict, selected-row path subline.
+	app = refreshUntil(t, app, func(a App) bool {
+		view := ansi.Strip(a.ViewSize(120, 40))
+		return strings.Contains(view, "3 files") && strings.Contains(view, "↳ /tmp/hound-dl/coverage")
+	})
+	view := ansi.Strip(app.ViewSize(120, 40))
+	for _, want := range []string{"Artifacts (2 · 1 ✔)", "o open", "y copy path", "o open folder", "d re-download"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("post-download view missing %q\n%s", want, view)
+		}
+	}
+
+	// o opens the extracted folder, not the browser.
+	app, _ = app.Update(KeyMsg{Key: "o"})
+	if got, _ := opened.Load().(string); got != "/tmp/hound-dl/coverage" {
+		t.Fatalf("o opened %q, want the extraction path", got)
+	}
+	if !strings.Contains(ansi.Strip(app.ViewSize(120, 40)), "Opened folder") {
+		t.Fatal("opening the folder must toast 'Opened folder'")
+	}
+
+	// y copies the path, not the run URL.
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	if !strings.Contains(ansi.Strip(app.ViewSize(120, 40)), "Copied") {
+		t.Fatal("copying the path must toast 'Copied'")
+	}
+	if got, _ := copied.Load().(string); got != "/tmp/hound-dl/coverage" {
+		t.Fatalf("y copied %q, want the extraction path", got)
+	}
+}
+
+func TestOpenAndCopyKeepBrowserMeaningsWithoutDownload(t *testing.T) {
+	var opened, copied atomic.Value
+	app := artifactsTestAppFull(t, nil,
+		func(path string) error { opened.Store(path); return nil },
+		func(text string) error { copied.Store(text); return nil },
+	)
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = waitForArtifacts(t, app)
+	app, _ = app.Update(KeyMsg{Key: "a"})
+	app, _ = app.Update(KeyMsg{Key: "o"})
+	if got, _ := opened.Load().(string); !strings.HasPrefix(got, "https://") {
+		t.Fatalf("o without a download must open the browser URL, got %q", got)
+	}
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	if !strings.Contains(ansi.Strip(app.ViewSize(120, 40)), "Copied") {
+		t.Fatal("copy-URL must toast 'Copied'")
+	}
+	if got, _ := copied.Load().(string); !strings.HasPrefix(got, "https://") {
+		t.Fatalf("y without a download must copy the run URL, got %q", got)
+	}
+}
+
+func TestDestinationExistsOffersOverwriteAndRetriesWithForce(t *testing.T) {
+	var mu sync.Mutex
+	var forces []bool
+	app := artifactsTestApp(t, func(artifact model.Artifact, destDir string, force bool, _ func(usecase.DownloadProgress)) (usecase.DownloadResult, error) {
+		mu.Lock()
+		forces = append(forces, force)
+		mu.Unlock()
+		if !force {
+			return usecase.DownloadResult{}, usecase.DestinationExistsError{Path: "./coverage"}
+		}
+		return usecase.DownloadResult{Path: "/tmp/hound-dl/coverage", FileCount: 2}, nil
+	})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = waitForArtifacts(t, app)
+	app, _ = app.Update(KeyMsg{Key: "a"})
+	app, _ = app.Update(KeyMsg{Key: "d"})
+	app, _ = app.Update(KeyMsg{Key: "y"})
+
+	// The exists outcome must surface as an overwrite question.
+	app = refreshUntil(t, app, func(a App) bool { return a.TopOverlay() == OverlayConfirm })
+	view := ansi.Strip(app.ViewSize(120, 40))
+	if !strings.Contains(view, "Destination exists") || !strings.Contains(view, "Overwrite and re-download") {
+		t.Fatalf("overwrite confirm wording missing\n%s", view)
+	}
+	// And the row must not be stranded mid-"downloading".
+	if state := app.DetailModel().Download(901).State; state != detail.DownloadStateNone {
+		t.Fatalf("row state after exists = %q, want pre-attempt state", state)
+	}
+
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	app = refreshUntil(t, app, func(a App) bool {
+		return a.DetailModel().Download(901).State == detail.DownloadStateDone
+	})
+	if !strings.Contains(ansi.Strip(app.ViewSize(120, 40)), "Artifacts (2 · 1 ✔)") {
+		t.Fatal("forced re-download must land the downloaded chip")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(forces) != 2 || forces[0] || !forces[1] {
+		t.Fatalf("downloader force sequence = %v, want [false true]", forces)
+	}
+}
+
+func TestOverwriteCancelLeavesRowUntouched(t *testing.T) {
+	app := artifactsTestApp(t, func(model.Artifact, string, bool, func(usecase.DownloadProgress)) (usecase.DownloadResult, error) {
+		return usecase.DownloadResult{}, usecase.DestinationExistsError{Path: "./coverage"}
+	})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = waitForArtifacts(t, app)
+	app, _ = app.Update(KeyMsg{Key: "a"})
+	app, _ = app.Update(KeyMsg{Key: "d"})
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	app = refreshUntil(t, app, func(a App) bool { return a.TopOverlay() == OverlayConfirm })
+	app, _ = app.Update(KeyMsg{Key: "esc"})
+	if app.TopOverlay() == OverlayConfirm {
+		t.Fatal("esc must close the overwrite confirm")
+	}
+	if state := app.DetailModel().Download(901).State; state != detail.DownloadStateNone {
+		t.Fatalf("cancelled overwrite stranded the row in %q", state)
+	}
+}
+
+func TestDownloadVerdictSurvivesRunNavigation(t *testing.T) {
+	app := artifactsTestApp(t, func(model.Artifact, string, bool, func(usecase.DownloadProgress)) (usecase.DownloadResult, error) {
+		return usecase.DownloadResult{Path: "/tmp/hound-dl/coverage", FileCount: 1}, nil
+	})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = waitForArtifacts(t, app)
+	app, _ = app.Update(KeyMsg{Key: "a"})
+	app, _ = app.Update(KeyMsg{Key: "d"})
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	app = refreshUntil(t, app, func(a App) bool {
+		return a.DetailModel().Download(901).State == detail.DownloadStateDone
+	})
+	// Leave detail and come back: the verdict must survive the
+	// skeleton + resolver round trip.
+	app, _ = app.Update(KeyMsg{Key: "esc"})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = refreshUntil(t, app, func(a App) bool {
+		return len(a.DetailModel().Artifacts) > 0 && a.load == nil
+	})
+	if state := app.DetailModel().Download(901).State; state != detail.DownloadStateDone {
+		t.Fatalf("download verdict lost across navigation: %q", state)
+	}
+}
+
+// codex r1 finding 1: a destination-exists outcome arriving while an
+// unrelated confirm is open must not clobber it — the user's queued y
+// would force an overwrite they never saw.
+func TestOverwriteConfirmDefersWhileAnotherConfirmIsOpen(t *testing.T) {
+	release := make(chan struct{})
+	app := artifactsTestApp(t, func(model.Artifact, string, bool, func(usecase.DownloadProgress)) (usecase.DownloadResult, error) {
+		<-release
+		return usecase.DownloadResult{}, usecase.DestinationExistsError{Path: "./coverage"}
+	})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = waitForArtifacts(t, app)
+	app, _ = app.Update(KeyMsg{Key: "a"})
+	app, _ = app.Update(KeyMsg{Key: "d"})
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	// Open an unrelated confirm (R = rerun failed) while the download
+	// is in flight, then let it land with the exists outcome.
+	app, _ = app.Update(KeyMsg{Key: "R"})
+	if app.TopOverlay() != OverlayConfirm {
+		t.Fatal("R should open the rerun confirm")
+	}
+	close(release)
+	waitForDownloadDone(t, app)
+	rerunView := ansi.Strip(app.ViewSize(120, 40))
+	if strings.Contains(rerunView, "Destination exists") {
+		t.Fatalf("overwrite must not hijack the rerun confirm\n%s", rerunView)
+	}
+	// Ticks while the rerun confirm is open must keep deferring.
+	app, _ = app.Refresh()
+	view := ansi.Strip(app.ViewSize(120, 40))
+	if strings.Contains(view, "Destination exists") {
+		t.Fatalf("overwrite question surfaced under an unrelated confirm\n%s", view)
+	}
+	// Decline the rerun; the parked overwrite question now surfaces.
+	app, _ = app.Update(KeyMsg{Key: "n"})
+	app = refreshUntil(t, app, func(a App) bool {
+		return strings.Contains(ansi.Strip(a.ViewSize(120, 40)), "Destination exists")
+	})
+	if app.TopOverlay() != OverlayConfirm {
+		t.Fatal("the parked overwrite confirm should be open now")
+	}
+}
+
+// codex r1 finding 4: the completion toast advertises o/y only when
+// those keys would act on the downloaded artifact right now.
+func TestDownloadToastDropsActionHintsWhenSelectionMoved(t *testing.T) {
+	release := make(chan struct{})
+	app := artifactsTestApp(t, func(model.Artifact, string, bool, func(usecase.DownloadProgress)) (usecase.DownloadResult, error) {
+		<-release
+		return usecase.DownloadResult{Path: "/tmp/hound-dl/coverage", FileCount: 2}, nil
+	})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = waitForArtifacts(t, app)
+	app, _ = app.Update(KeyMsg{Key: "a"})
+	app, _ = app.Update(KeyMsg{Key: "d"})
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	// Move the selection off the downloading artifact mid-flight.
+	app, _ = app.Update(KeyMsg{Key: "j"})
+	close(release)
+	app = refreshUntil(t, app, func(a App) bool {
+		return a.DetailModel().Download(901).State == detail.DownloadStateDone
+	})
+	view := ansi.Strip(app.ViewSize(120, 40))
+	if !strings.Contains(view, "artifact downloaded") {
+		t.Fatalf("completion toast missing\n%s", view)
+	}
+	if strings.Contains(view, "· o open · y copy path") {
+		t.Fatalf("toast must not advertise o/y while another row is selected\n%s", view)
+	}
+}
+
+func waitForDownloadDone(t *testing.T, app App) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if download := app.artifactDownload; download != nil {
+			download.mu.Lock()
+			done := download.done
+			download.mu.Unlock()
+			if done {
+				return
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("download never reached done")
+}
+
+// codex r2 finding 1: a completed download must land on the keypress
+// path too — y right after completion (no Refresh tick in between)
+// must copy the extraction path, not the run URL.
+func TestKeypressDrainsCompletedDownloadBeforeRouting(t *testing.T) {
+	var copied atomic.Value
+	app := artifactsTestAppFull(t,
+		func(model.Artifact, string, bool, func(usecase.DownloadProgress)) (usecase.DownloadResult, error) {
+			return usecase.DownloadResult{Path: "/tmp/hound-dl/coverage", FileCount: 1}, nil
+		},
+		func(string) error { return nil },
+		func(text string) error { copied.Store(text); return nil },
+	)
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = waitForArtifacts(t, app)
+	app, _ = app.Update(KeyMsg{Key: "a"})
+	app, _ = app.Update(KeyMsg{Key: "d"})
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	waitForDownloadDone(t, app)
+	// No Refresh: the next keypress itself must see the done state.
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	if got, _ := copied.Load().(string); got != "/tmp/hound-dl/coverage" {
+		t.Fatalf("y after completion copied %q, want the extraction path", got)
+	}
+	_ = app
+}
+
+// codex r2 finding 1 (second half): when the keypress drain itself
+// surfaces the overwrite confirm, that key is consumed — it must not
+// answer the question that appeared the same instant.
+func TestKeypressSurfacingOverwriteConfirmIsConsumed(t *testing.T) {
+	var mu sync.Mutex
+	var forces []bool
+	app := artifactsTestApp(t, func(_ model.Artifact, _ string, force bool, _ func(usecase.DownloadProgress)) (usecase.DownloadResult, error) {
+		mu.Lock()
+		forces = append(forces, force)
+		mu.Unlock()
+		if !force {
+			return usecase.DownloadResult{}, usecase.DestinationExistsError{Path: "./coverage"}
+		}
+		return usecase.DownloadResult{Path: "/tmp/hound-dl/coverage", FileCount: 1}, nil
+	})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = waitForArtifacts(t, app)
+	app, _ = app.Update(KeyMsg{Key: "a"})
+	app, _ = app.Update(KeyMsg{Key: "d"})
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	waitForDownloadDone(t, app)
+	// This y arrives exactly as the overwrite confirm surfaces: it
+	// must be swallowed, NOT auto-confirm the overwrite.
+	app, handled := app.Update(KeyMsg{Key: "y"})
+	if !handled || app.TopOverlay() != OverlayConfirm {
+		t.Fatalf("the overwrite confirm should have surfaced and consumed the key: top=%s", app.TopOverlay())
+	}
+	mu.Lock()
+	attempts := len(forces)
+	mu.Unlock()
+	if attempts != 1 {
+		t.Fatalf("the same-instant y must not start the force retry: %d attempts", attempts)
+	}
+	// An explicit y now confirms the visible question.
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	refreshUntil(t, app, func(a App) bool {
+		return a.DetailModel().Download(901).State == detail.DownloadStateDone
+	})
+}
+
+// codex r2 finding 2: a parked done-download must not hold the loop at
+// spinner cadence — frame rate is for animation only. The park only
+// arises when the unrelated confirm opens while the download is still
+// in flight (afterwards the keypress drain surfaces the overwrite
+// before any other confirm can open).
+func TestParkedDownloadDoesNotTickAtFrameRate(t *testing.T) {
+	release := make(chan struct{})
+	app := artifactsTestApp(t, func(model.Artifact, string, bool, func(usecase.DownloadProgress)) (usecase.DownloadResult, error) {
+		<-release
+		return usecase.DownloadResult{}, usecase.DestinationExistsError{Path: "./coverage"}
+	})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = waitForArtifacts(t, app)
+	app, _ = app.Update(KeyMsg{Key: "a"})
+	app, _ = app.Update(KeyMsg{Key: "d"})
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	// Open the unrelated confirm while the download is in flight,
+	// then let it complete with the exists outcome.
+	app, _ = app.Update(KeyMsg{Key: "R"})
+	if app.TopOverlay() != OverlayConfirm {
+		t.Fatal("R should open the rerun confirm")
+	}
+	close(release)
+	waitForDownloadDone(t, app)
+	app, _ = app.Refresh()
+	if app.artifactDownload == nil {
+		t.Fatal("the exists-download should stay parked under the confirm")
+	}
+	if got := app.PollInterval(); got == loadFrameInterval {
+		t.Fatalf("parked download must not tick at frame rate, got %v", got)
 	}
 }

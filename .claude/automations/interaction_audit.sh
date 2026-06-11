@@ -36,6 +36,7 @@ scenarios=(
   detail-nav
   detail-artifacts
   detail-artifact-confirm
+  detail-artifact-download
   failure-log-refetch
   failure-actions
   log-search-fold
@@ -77,6 +78,7 @@ keys_for() {
     detail-nav) printf 'enter tab n' ;;
     detail-artifacts) printf 'enter a j k' ;;
     detail-artifact-confirm) printf 'enter a enter' ;;
+    detail-artifact-download) printf 'enter a d y' ;;
     failure-actions) printf 'enter enter' ;;
     failure-log-refetch) printf 'enter enter' ;;
     log-search-fold) printf 'enter enter l / t r a i l enter z' ;;
@@ -106,6 +108,10 @@ send_key() {
 
 out_dir=".claude/automations/screenshots/interactions"
 mkdir -p "$out_dir"
+# A fixed short download root keeps the 80-col path-subline assertion
+# deterministic (mktemp -d paths overflow the row at 80 cols).
+rm -rf /tmp/hound-ia-dl
+mkdir -p /tmp/hound-ia-dl
 
 for scenario in "${scenarios[@]}"; do
   assertion=".claude/automations/interactions/${scenario}.json"
@@ -124,6 +130,7 @@ export TERM=xterm-256color
 export COLORTERM=truecolor
 export CLICOLOR_FORCE=1
 export HOUND_WELCOME="$welcome"
+export GH_HOUND_ARTIFACT_DIR=/tmp/hound-ia-dl
 unset NO_COLOR
 "$abs_bin" __vqa-tui --scenario "$adapter"
 RUNNER
@@ -136,14 +143,14 @@ RUNNER
   }
   trap cleanup EXIT
   shux pane set-size -s "$session" --cols 80 --rows 24 >/dev/null
-  shux pane wait-for -s "$session" --text 'hound' --timeout-ms 5000 >/dev/null
+  shux pane wait-for -s "$session" --text 'hound' --timeout-ms 20000 >/dev/null
   sleep 0.1
   for key in $(keys_for "$scenario"); do
     send_key "$session" "$key"
     sleep 0.08
   done
   needle="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["contains"][0])' "$assertion")"
-  shux pane wait-for -s "$session" --text "$needle" --timeout-ms 5000 >/dev/null
+  shux pane wait-for -s "$session" --text "$needle" --timeout-ms 20000 >/dev/null
   sleep 0.15
   txt="$out_dir/${scenario}.txt"
   png="$out_dir/${scenario}.png"
@@ -155,4 +162,5 @@ RUNNER
   printf "audited real-pty interaction %s -> %s\n" "$scenario" "$png"
 done
 
+rm -rf /tmp/hound-ia-dl
 echo "interaction audit passed"

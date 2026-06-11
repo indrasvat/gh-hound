@@ -63,6 +63,8 @@ var footerByScreen = map[Screen][]Binding{
 		// footer stays truthful for runs without artifacts.
 		{Key: "a", Action: "artifacts", Help: "artifacts (when present)", ShowInFooter: false},
 		{Key: "d", Action: "download", Help: "download artifact", ShowInFooter: false},
+		{Key: "o", Action: "open_artifact_dir", Help: "open artifact folder / browser", ShowInFooter: false},
+		{Key: "y", Action: "copy_artifact_path", Help: "copy artifact path / run URL", ShowInFooter: false},
 		{Key: "esc", Display: "⎋", Action: "back", Help: "back", ShowInFooter: true},
 		{Key: "?", Action: "help", Help: "", ShowInFooter: true},
 	},

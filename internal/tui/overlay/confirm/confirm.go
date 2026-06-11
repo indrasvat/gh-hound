@@ -42,12 +42,17 @@ func View(m Model, width int) string {
 	if width <= 0 {
 		width = 80
 	}
-	lines := []string{
-		fit(m.Message, width),
+	// Multi-line messages carry paths (artifact destinations) that
+	// must not truncate the question away: each line fits separately.
+	lines := make([]string, 0, 6)
+	for line := range strings.SplitSeq(m.Message, "\n") {
+		lines = append(lines, fit(line, width))
+	}
+	lines = append(lines,
 		"",
 		fit("This will call the GitHub Actions API.", width),
 		fit("Default is no. Press y to confirm, Enter/n/Esc to cancel.", width),
-	}
+	)
 	return strings.Join(lines, "\n")
 }
 

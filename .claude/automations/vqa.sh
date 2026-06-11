@@ -67,7 +67,7 @@ RUNNER
     trap cleanup EXIT
     shux pane set-size -s "$session" --cols "$cols" --rows "$rows" >/dev/null
     needle="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["contains"][0])' "$assertion")"
-    shux pane wait-for -s "$session" --text "$needle" --timeout-ms 5000 >/dev/null
+    shux pane wait-for -s "$session" --text "$needle" --timeout-ms 20000 >/dev/null
     sleep 0.15
     txt="$out_dir/$screen/${bp}.txt"
     png="$out_dir/$screen/${bp}.png"

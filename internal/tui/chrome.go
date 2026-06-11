@@ -75,7 +75,10 @@ func renderFooter(th theme.Theme, footer string, width int) string {
 		Render(fitPlain(footer, width))
 }
 
-func overlayBox(th theme.Theme, title, body string, width int) string {
+// overlayInnerWidth mirrors overlayBox's sizing so content that wraps
+// to a width (the help overlay) can wrap to the width the box will
+// actually render, not a guess the box then truncates.
+func overlayInnerWidth(width int) int {
 	if width < minFrameWidth {
 		width = minFrameWidth
 	}
@@ -86,7 +89,15 @@ func overlayBox(th theme.Theme, title, body string, width int) string {
 	if boxWidth > 82 {
 		boxWidth = 82
 	}
-	inner := max(boxWidth-2, 1)
+	return max(boxWidth-2, 1)
+}
+
+func overlayBox(th theme.Theme, title, body string, width int) string {
+	if width < minFrameWidth {
+		width = minFrameWidth
+	}
+	inner := overlayInnerWidth(width)
+	boxWidth := inner + 2
 	header := lipgloss.NewStyle().Foreground(lipgloss.Color(th.OK)).Bold(true).Render(title)
 	border := lipgloss.NewStyle().Foreground(lipgloss.Color(th.OK)).Render
 	lines := []string{

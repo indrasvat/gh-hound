@@ -103,7 +103,7 @@ The local gate includes race-enabled Go tests, large-log performance tests, and 
 
 - **Runs home**: branch or repo-wide list, all-green state, status glyphs, run numbers, filters, summary counts, and rate/cache metadata.
 - **Run detail**: master-detail job/step view with responsive collapse at narrow terminal sizes.
-- **Artifacts**: list a run's artifacts in detail view, download and auto-extract with confirmation; expired artifacts are flagged and refused up front.
+- **Artifacts**: list a run's artifacts in detail view, download and auto-extract with confirmation; expired artifacts are flagged and refused up front. The confirm shows the absolute destination (`$GH_HOUND_ARTIFACT_DIR` or the working directory), the row streams live progress (byte counter, then `extracting…`), and a finished download keeps a ✔ verdict with its path inline — `o` opens the extracted folder, `y` copies its path, and re-downloading into an existing destination offers a guarded overwrite instead of a dead-end error.
 - **Deployment approvals**: waiting runs wear a gate badge; `A` opens the gate overlay — pick environments, approve or reject with confirmation — and the `approvals` pipe verb does the same for agents. The `gh` CLI has no equivalent.
 - **Cache kennel**: the `caches` verb and palette screen show Actions cache pressure against the 10 GB eviction cap — themed gauge, sortable list (biggest or stalest first), key filter, and confirm-gated deletes by ID or key with the match count shown before anything is dug up. Past 90% the kennel warns before GitHub starts evicting.
 - **Time navigation**: a `t` modal on the log screen with a landmark picker (step boundaries, the failure window, the slowest gaps), typed jumps (`17:43`, `+30s`, `-2m`), and `A-B` range filtering.
@@ -212,7 +212,7 @@ Fixture scenarios are intentionally restricted to non-interactive/test paths. Th
 | Global | `?` help, `:` palette, `T` theme, `q`/`Ctrl+C` quit, `Esc` back |
 | Runs | `j/k` or arrows move, `g/G` top/bottom, `s` scope, `Enter` open, `f` status cycle, `/` filter, `l` logs, `w` watch, `A` approvals (waiting runs) |
 | Actions | `r` rerun, `R` rerun failed, `x` cancel, `X` force cancel, `D` dispatch |
-| Detail | `Tab` focus, `n` next failure, `l` logs, `a` artifacts, `d` download, `J/K` next/previous run |
+| Detail | `Tab` focus, `n` next failure, `l` logs, `a` artifacts, `d` download (overwrite-guarded re-download), `o`/`y` open folder / copy path on a downloaded artifact (browser / run URL otherwise), `J/K` next/previous run |
 | Failure | `l` full log, `o` browser, `y` copy excerpt, `r` rerun job |
 | Log | `/` search, `t` time jump/range, `n/N` matches, `z/Z` fold, `w` wrap, `g/G` top/bottom |
 | Watch | `f` follow, `d` debug, `x` cancel, `Esc` detach |

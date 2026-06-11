@@ -43,11 +43,43 @@ type DownloadResult struct {
 	FileCount int
 }
 
+// DownloadProgress reports a download's life signs to the caller.
+// Phase "download" fires as archive bytes arrive (Bytes is cumulative);
+// phase "extract" fires once when extraction begins. Bytes counts the
+// transferred archive, deliberately not a percentage: the API's
+// size_in_bytes is the artifact's stored size, not the transfer size,
+// so a ratio against it would lie.
+type DownloadProgress struct {
+	Phase string
+	Bytes int64
+}
+
+const (
+	DownloadPhaseTransfer = "download"
+	DownloadPhaseExtract  = "extract"
+)
+
+// progressWriter invokes onProgress with the cumulative byte count as
+// the archive streams to disk.
+type progressWriter struct {
+	total      int64
+	onProgress func(DownloadProgress)
+}
+
+func (w *progressWriter) Write(p []byte) (int, error) {
+	w.total += int64(len(p))
+	w.onProgress(DownloadProgress{Phase: DownloadPhaseTransfer, Bytes: w.total})
+	return len(p), nil
+}
+
 func (s ArtifactsService) List(ctx context.Context, repo string, runID int64) ([]model.Artifact, error) {
 	return s.GitHub.ListArtifacts(ctx, repo, runID)
 }
 
-func (s ArtifactsService) Download(ctx context.Context, repo string, artifact model.Artifact, destDir string, force bool) (DownloadResult, error) {
+// Download fetches and extracts one artifact. onProgress is optional;
+// when non-nil it receives DownloadProgress updates (see the type for
+// phase semantics) and must be safe to call from this goroutine.
+func (s ArtifactsService) Download(ctx context.Context, repo string, artifact model.Artifact, destDir string, force bool, onProgress func(DownloadProgress)) (DownloadResult, error) {
 	if artifact.Expired {
 		return DownloadResult{}, ArtifactExpiredError{Name: artifact.Name}
 	}
@@ -85,7 +117,11 @@ func (s ArtifactsService) Download(ctx context.Context, repo string, artifact mo
 		_ = temp.Close()
 		_ = os.Remove(temp.Name())
 	}()
-	size, err := io.Copy(temp, body)
+	var sink io.Writer = temp
+	if onProgress != nil {
+		sink = io.MultiWriter(temp, &progressWriter{onProgress: onProgress})
+	}
+	size, err := io.Copy(sink, body)
 	if err != nil {
 		return DownloadResult{}, fmt.Errorf("download artifact %q: %w", artifact.Name, err)
 	}
@@ -93,6 +129,9 @@ func (s ArtifactsService) Download(ctx context.Context, repo string, artifact mo
 	reader, err := zip.NewReader(temp, size)
 	if err != nil {
 		return DownloadResult{}, fmt.Errorf("artifact %q is not a valid zip archive: %w", artifact.Name, err)
+	}
+	if onProgress != nil {
+		onProgress(DownloadProgress{Phase: DownloadPhaseExtract, Bytes: size})
 	}
 	count, err := extractZip(reader, target, extractionBudget(size))
 	if err != nil {
