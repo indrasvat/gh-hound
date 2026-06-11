@@ -500,17 +500,27 @@ func (a *Adapter) packRuns() []model.Run {
 	tick := min(a.packTicks, 4)
 	a.packMu.Unlock()
 
+	// Now-relative clocks keep the board's elapsed column reading
+	// sanely in PTY rehearsals (fixed dates would show day-scale
+	// elapsed for live rows).
+	now := time.Now().UTC()
 	stage := func(member int, run model.Run) model.Run {
 		switch {
 		case tick > member:
 			run.Status = model.StatusCompleted
 			run.Conclusion = model.ConclusionSuccess
+			run.RunStartedAt = now.Add(-4 * time.Minute)
+			run.UpdatedAt = now.Add(-2 * time.Minute)
 		case tick == member:
 			run.Status = model.StatusInProgress
 			run.Conclusion = model.ConclusionNone
+			run.RunStartedAt = now.Add(-time.Minute)
+			run.UpdatedAt = now
 		default:
 			run.Status = model.StatusQueued
 			run.Conclusion = model.ConclusionNone
+			run.RunStartedAt = time.Time{}
+			run.UpdatedAt = now
 		}
 		return run
 	}

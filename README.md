@@ -114,6 +114,7 @@ The local gate includes race-enabled Go tests, large-log performance tests, and 
 - **Failure diagnosis**: annotations, failing step, exit code, and de-noised failure excerpts.
 - **Full log viewer**: line-number gutter, fold rows, search, match count, wrap toggle, scrollbar, and syntax-aware highlighting.
 - **Watch mode**: active-run frame with follow, debug toggle, cancel, and detach.
+- **The pack**: `w` watches the selected run's whole event group — one row per workflow, `the pack: 3 running · 1 home · 0 lost` header, drill into any run, follow-worst mode — on one runs-list call per poll. `watch --group` streams the same pack as NDJSON for agents, and dispatch/rerun can hand off straight into watch (`auto_watch`).
 - **Actions**: rerun failed, rerun run/job, cancel, force-cancel, and dispatch with confirmation where appropriate.
 - **Dispatch form**: `workflow_dispatch` workflows and inputs rendered as a keyboard-driven form. Foreign `-R` targets pre-fill their own default branch (never your local checkout's), and refs are validated as a real branch or tag before anything fires.
 - **Overlays**: command palette, contextual help, confirm modals, and rate-limit/error toasts.
@@ -177,6 +178,7 @@ gh hound watch
 gh hound runs --no-tui --json
 gh hound runs --status failure --no-tui --json
 gh hound watch --json
+gh hound watch --group --no-tui
 gh hound rerun --run <id> --failed-only --debug --no-tui --json
 gh hound cancel --run <id> --no-tui --json
 gh hound diff --workflow CI --no-tui --json            # who broke main?
@@ -196,6 +198,7 @@ Local deterministic scenarios are available for docs, tests, and agent harnesses
 ./bin/gh-hound runs --no-tui --json --fake-scenario pending
 ./bin/gh-hound watch --json --fake-scenario failure
 ./bin/gh-hound diff --workflow CI --no-tui --json --fake-scenario regression
+./bin/gh-hound watch --group --no-tui --fake-scenario pack   # staggered 3-run pack
 ```
 
 Fixture scenarios are intentionally restricted to non-interactive/test paths. The real TUI does not fall back to sample data.
@@ -211,6 +214,7 @@ Fixture scenarios are intentionally restricted to non-interactive/test paths. Th
 | Failure | `l` full log, `o` browser, `y` copy excerpt, `r` rerun job |
 | Log | `/` search, `t` time jump/range, `n/N` matches, `z/Z` fold, `w` wrap, `g/G` top/bottom |
 | Watch | `f` follow, `d` debug, `x` cancel, `Esc` detach |
+| Pack board | `j/k` move, `Enter` drill into one run, `f` follow worst, `x` cancel, `Esc` back |
 | Dispatch | `Tab` next, arrows/select controls, `Enter` run, `Esc` cancel |
 | Trail (diff) | `j/k` move suspects, `Enter` open first bad run, `o` compare in browser, `Esc` back |
 | Kennel (workflows) | `j/k` move, `e` wake/muzzle (confirm-gated), `o` browser, `Esc` back |
@@ -224,6 +228,7 @@ default_scope = "branch"
 auto_watch = false
 per_page = 30
 diff_max_pages = 10
+watch_group_max = 10
 theme = "bramble"
 log_level = "info"
 ```

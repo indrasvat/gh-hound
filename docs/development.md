@@ -54,7 +54,7 @@ Pre-commit runs formatting, `go fix` verification, lint, and short tests. Pre-pu
 
 `make vqa` uses shux to capture:
 
-- `welcome`, `all_green`, `runs`, `detail`, `failure`, `watch`, `log`, `dispatch`, `dispatch-picker`, `workflows`, `diff`, `diff-inconclusive`, `palette`, and `help`.
+- `welcome`, `all_green`, `runs`, `detail`, `failure`, `watch`, `watch-board`, `log`, `dispatch`, `dispatch-picker`, `workflows`, `diff`, `diff-inconclusive`, `palette`, and `help`.
 - Breakpoints: `80x24`, `120x40`, `200x60`.
 - Interaction frames for global overlays and screen-specific key paths.
 
