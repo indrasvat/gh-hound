@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1624,8 +1625,20 @@ func (a App) updateConfirm(msg KeyMsg) (App, bool) {
 			a, accepted = a.executeAction(pending.route, pending.request)
 			if accepted && workflowToggleFamily(pending.request.Action) {
 				// The landing state is derived, never re-fetched: the
-				// toggle stays exactly one API call.
-				a.workflows = a.workflows.WithToggled(pending.request.Workflow.ID, pending.request.Action == usecase.ActionEnableWorkflow)
+				// toggle stays exactly one API call. The cached
+				// dispatch roster flips too so the picker's badge and
+				// refusal stay truthful without a refetch.
+				enabled := pending.request.Action == usecase.ActionEnableWorkflow
+				a.workflows = a.workflows.WithToggled(pending.request.Workflow.ID, enabled)
+				state := model.WorkflowStateDisabledManually
+				if enabled {
+					state = model.WorkflowStateActive
+				}
+				for i := range a.dispatchWorkflows {
+					if a.dispatchWorkflows[i].ID == pending.request.Workflow.ID {
+						a.dispatchWorkflows[i].State = state
+					}
+				}
 			}
 			if accepted && deploymentReviewFamily(pending.request.Action) && a.TopOverlay() == OverlayApprovals {
 				// The gate was acted on: the overlay beneath has
@@ -2382,6 +2395,38 @@ func (a App) openDispatch() App {
 	// route is pushed when the decision is known so esc-from-palette
 	// navigation matches the old synchronous behavior exactly.
 	if len(a.dispatchWorkflows) > 0 {
+		// States can change out from under the cache (a toggle in
+		// another terminal): refresh them with ONE list call so the
+		// picker badges and refusals stay truthful — the expensive
+		// per-file dispatchability probes stay cached.
+		if a.workflowsResolver != nil {
+			resolver := a.workflowsResolver
+			cached := append([]dispatch.Workflow(nil), a.dispatchWorkflows...)
+			return a.startLoad(loadKindDispatch, "fetching workflows", func(ctx context.Context) func(App) App {
+				roster, err := resolver(ctx)
+				return func(app App) App {
+					if err == nil {
+						// Roster entries identify by file path OR
+						// numeric ID (workflowToggleIdentifier
+						// convention) — index fresh states under both.
+						states := make(map[string]string, len(roster)*2)
+						for _, workflow := range roster {
+							states[strconv.FormatInt(workflow.ID, 10)] = workflow.State
+							if path := strings.TrimSpace(workflow.Path); path != "" {
+								states[path] = workflow.State
+							}
+						}
+						for i := range cached {
+							if state, ok := states[cached[i].ID]; ok {
+								cached[i].State = state
+							}
+						}
+					}
+					app.dispatchWorkflows = cached
+					return app.applyDispatchChoices(cached)
+				}
+			})
+		}
 		return a.applyDispatchChoices(a.dispatchWorkflows)
 	}
 	if a.dispatchWorkflowsResolver == nil {

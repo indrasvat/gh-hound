@@ -240,6 +240,56 @@ func TestDispatchPickerBadgesAndRefusesNonActiveWorkflows(t *testing.T) {
 	}
 }
 
+// TestDispatchPickerRefreshesStaleStatesFromCachedRoster pins the
+// live-sweep finding: a workflow muzzled OUTSIDE the app (pipe verb,
+// another terminal) must not slip through a roster cached while it
+// was active — reopening the picker refreshes states with one list
+// call and the refusal holds.
+func TestDispatchPickerRefreshesStaleStatesFromCachedRoster(t *testing.T) {
+	app := NewScenarioApp("failure", BuildInfo{Version: "test"})
+	// Roster cached while everything was active.
+	app.dispatchWorkflows = []dispatch.Workflow{
+		{Name: "CI", ID: "123", Ref: "main", State: model.WorkflowStateActive},
+		{Name: "Deploy", ID: "124", Ref: "main", State: model.WorkflowStateActive},
+	}
+	// The live list now reports Deploy muzzled.
+	app.workflowsResolver = func(context.Context) ([]model.Workflow, error) {
+		return []model.Workflow{
+			{ID: 123, Name: "CI", State: model.WorkflowStateActive},
+			{ID: 124, Name: "Deploy", State: model.WorkflowStateDisabledManually},
+		}, nil
+	}
+	app, _ = app.Update(KeyMsg{Key: "D"})
+	app, ok := app.SettleLoads(time.Second)
+	if !ok {
+		t.Fatal("picker state refresh never settled")
+	}
+	view := ansi.Strip(app.ViewSize(100, 30))
+	if !strings.Contains(view, "⊘ muzzled") {
+		t.Fatalf("picker must show the fresh muzzled badge:\n%s", view)
+	}
+	app, _ = app.Update(KeyMsg{Key: "down"})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	if app.Route() == RouteDispatch {
+		t.Fatal("stale-cached muzzled workflow must not open the dispatch form")
+	}
+}
+
+// In-app toggles keep the cached roster truthful without a refetch.
+func TestAcceptedToggleFlipsCachedDispatchRoster(t *testing.T) {
+	app := paletteJumpToWorkflows(t, kennelReadyApp(t, nil))
+	app, _ = app.SettleLoads(time.Second)
+	app.dispatchWorkflows = []dispatch.Workflow{
+		// Roster IDs follow workflowToggleIdentifier: path first.
+		{Name: "CI", ID: ".github/workflows/ci.yml", Ref: "main", State: model.WorkflowStateActive},
+	}
+	app, _ = app.Update(KeyMsg{Key: "e"})
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	if got := app.dispatchWorkflows[0].State; got != model.WorkflowStateDisabledManually {
+		t.Fatalf("cached roster state = %q, want disabled_manually after the in-app muzzle", got)
+	}
+}
+
 func TestWorkflowsFixturesRender(t *testing.T) {
 	roster := RenderFixtureSize("workflows", 80, 24)
 	for _, want := range []string{"the pack", "✔ active", "◌ asleep", "⊘ muzzled", "⊘ fork-disabled", "✗ deleted", "e wake/muzzle"} {
