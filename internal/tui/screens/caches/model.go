@@ -33,6 +33,9 @@ type Intent struct {
 type Data struct {
 	Caches []model.Cache
 	Usage  model.CacheUsage
+	// Cap is the resolved eviction limit; 0 means unknown and the
+	// model falls back to the documented 10 GB.
+	Cap int64
 }
 
 type Model struct {
@@ -53,10 +56,14 @@ type Model struct {
 }
 
 func NewModel(repo string, data Data) Model {
+	cap := data.Cap
+	if cap <= 0 {
+		cap = usecase.CacheCapFallbackBytes
+	}
 	return Model{
 		Repo:   repo,
 		Usage:  data.Usage,
-		Cap:    usecase.CacheCapFallbackBytes,
+		Cap:    cap,
 		Caches: data.Caches,
 		SortBy: usecase.CacheSortSize,
 	}

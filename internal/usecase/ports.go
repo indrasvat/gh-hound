@@ -83,6 +83,16 @@ type GitHubCaches interface {
 	DeleteCachesByKey(ctx context.Context, repo, key, ref string) (int, error)
 }
 
+// CacheCapProvider is an optional adapter capability: the repo's
+// configured Actions cache storage limit (GET …/actions/cache/
+// storage-limit, live on github.com). Adapters without it — or hosts
+// without the endpoint — fall back to the documented 10 GB cap, so a
+// custom 5 GB or 50 GB limit warns at the right pressure.
+type CacheCapProvider interface {
+	// CacheStorageLimit returns the cap in bytes; 0 means unknown.
+	CacheStorageLimit(ctx context.Context, repo string) (int64, error)
+}
+
 type GitHubDiagnostics interface {
 	LastRequestMeta(resource string) (RequestMeta, bool)
 }

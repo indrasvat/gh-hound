@@ -537,6 +537,16 @@ func (a *Adapter) CacheUsage(context.Context, string) (model.CacheUsage, error) 
 	return model.CacheUsage{ActiveSizeInBytes: total, ActiveCount: len(caches)}, nil
 }
 
+// CacheStorageLimit mirrors github.com's storage-limit endpoint with
+// the default 10 GB so fixtures and rehearsals exercise the provider
+// path instead of the fallback.
+func (a *Adapter) CacheStorageLimit(context.Context, string) (int64, error) {
+	if err := a.cachesScenarioError(); err != nil {
+		return 0, err
+	}
+	return int64(10) << 30, nil
+}
+
 func (a *Adapter) DeleteCacheByID(_ context.Context, _ string, id int64) (int, error) {
 	if err := a.cachesScenarioError(); err != nil {
 		return 0, err

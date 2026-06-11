@@ -734,7 +734,7 @@ func writeCachesResult(ctx context.Context, w io.Writer, options cliOptions, run
 	result.Usage = &render.CacheUsage{
 		ActiveSizeInBytes: usage.ActiveSizeInBytes,
 		ActiveCount:       usage.ActiveCount,
-		CapBytes:          usecase.CacheCapFallbackBytes,
+		CapBytes:          service.Cap(ctx, result.Repo),
 	}
 	result.Caches = mapRenderCaches(caches)
 	return render.WriteCaches(w, format, result)
@@ -1195,7 +1195,7 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			if err != nil {
 				return caches.Data{}, err
 			}
-			return caches.Data{Usage: usage, Caches: items}, nil
+			return caches.Data{Usage: usage, Caches: items, Cap: service.Cap(loadCtx, launch.Repo)}, nil
 		},
 		CacheDeleter: func(loadCtx context.Context, request tui.CacheDeleteRequest) (int, error) {
 			service, err := cachesServiceFor(githubClient, mutationLimiter)

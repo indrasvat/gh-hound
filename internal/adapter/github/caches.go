@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -89,6 +90,25 @@ func (c *Client) CacheUsage(ctx context.Context, repo string) (model.CacheUsage,
 		ActiveSizeInBytes: dto.ActiveCachesSizeInBytes,
 		ActiveCount:       dto.ActiveCachesCount,
 	}, nil
+}
+
+// CacheStorageLimit implements usecase.CacheCapProvider via GET
+// …/actions/cache/storage-limit (live-verified on github.com,
+// 2026-06-11: this repo answers max_cache_size_gb 10). Hosts without
+// the endpoint report unknown (0) so callers use the fallback cap
+// instead of failing the whole kennel.
+func (c *Client) CacheStorageLimit(ctx context.Context, repo string) (int64, error) {
+	var dto struct {
+		MaxCacheSizeGB int64 `json:"max_cache_size_gb"`
+	}
+	if err := c.getJSON(ctx, resourcePath(repo, "actions/cache/storage-limit"), nil, &dto); err != nil {
+		var apiErr usecase.APIError
+		if errors.As(err, &apiErr) && apiErr.Kind == usecase.APIErrorNotFound {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return dto.MaxCacheSizeGB << 30, nil
 }
 
 // DeleteCacheByID evicts one cache. The endpoint returns 204 with no

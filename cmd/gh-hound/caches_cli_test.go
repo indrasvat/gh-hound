@@ -28,6 +28,12 @@ func (g *cliGitHub) CacheUsage(context.Context, string) (model.CacheUsage, error
 	return g.cacheUsage, g.cachesErr
 }
 
+func (g *cliGitHub) CacheStorageLimit(context.Context, string) (int64, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.cacheCapBytes, nil
+}
+
 func (g *cliGitHub) DeleteCacheByID(_ context.Context, _ string, id int64) (int, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -111,6 +117,35 @@ func TestCachesJSONListsUsageAndCaches(t *testing.T) {
 	}
 	if github.listCaches != 1 || github.cacheUsageCalls != 1 {
 		t.Fatalf("list path must make exactly one list + one usage call, got %d/%d", github.listCaches, github.cacheUsageCalls)
+	}
+}
+
+// TestCachesHonorsConfiguredStorageLimit pins the ghent P2: a repo
+// with a configured cache limit must report and warn against THAT
+// cap, not the 10 GB default.
+func TestCachesHonorsConfiguredStorageLimit(t *testing.T) {
+	var out bytes.Buffer
+	github := &cliGitHub{
+		cacheList:     []model.Cache{cliCache(9001, "setup-go-Linux", 302526514)},
+		cacheUsage:    model.CacheUsage{ActiveSizeInBytes: 4 << 30, ActiveCount: 1},
+		cacheCapBytes: int64(5) << 30,
+	}
+	cmd := newRootCommandWithRuntime(cachesRuntime(github, &out), testBuildInfo())
+	cmd.SetArgs([]string{"caches", "--no-tui", "--json"})
+	code, err := executeCommand(cmd)
+	if err != nil || code != 0 {
+		t.Fatalf("caches exit = %d, err = %v\n%s", code, err, out.String())
+	}
+	var decoded struct {
+		Usage struct {
+			CapBytes int64 `json:"cap_bytes"`
+		} `json:"usage"`
+	}
+	if jsonErr := json.Unmarshal(out.Bytes(), &decoded); jsonErr != nil {
+		t.Fatalf("invalid JSON: %v\n%s", jsonErr, out.String())
+	}
+	if decoded.Usage.CapBytes != int64(5)<<30 {
+		t.Fatalf("cap_bytes = %d, want the configured 5 GiB", decoded.Usage.CapBytes)
 	}
 }
 

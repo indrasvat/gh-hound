@@ -1007,6 +1007,7 @@ type cliGitHub struct {
 
 	cacheList        []model.Cache
 	cacheUsage       model.CacheUsage
+	cacheCapBytes    int64
 	cachesErr        error
 	cacheKeyMatches  int
 	listCaches       int

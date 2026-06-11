@@ -122,6 +122,35 @@ func TestCacheUsageDecodesLivePinnedPayload(t *testing.T) {
 	}
 }
 
+// TestCacheStorageLimitReadsConfiguredCapAndFallsBackOn404 pins the
+// ghent P2: a configured 5 GB limit must drive the gauge, and hosts
+// without the endpoint report unknown instead of failing the kennel.
+func TestCacheStorageLimitReadsConfiguredCapAndFallsBackOn404(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/indrasvat/gh-hound/actions/cache/storage-limit" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"max_cache_size_gb": 5}`))
+	}))
+	defer server.Close()
+	client := NewClient(server.URL, server.Client())
+	limit, err := client.CacheStorageLimit(context.Background(), "indrasvat/gh-hound")
+	if err != nil || limit != int64(5)<<30 {
+		t.Fatalf("limit = %d, %v; want 5 GiB, nil", limit, err)
+	}
+
+	missing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message": "Not Found"}`))
+	}))
+	defer missing.Close()
+	client = NewClient(missing.URL, missing.Client())
+	limit, err = client.CacheStorageLimit(context.Background(), "indrasvat/gh-hound")
+	if err != nil || limit != 0 {
+		t.Fatalf("404 must report unknown (0, nil), got %d, %v", limit, err)
+	}
+}
+
 func TestDeleteCacheByIDUsesDeleteVerb(t *testing.T) {
 	var method, path string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

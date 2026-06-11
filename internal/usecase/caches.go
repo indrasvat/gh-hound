@@ -8,11 +8,11 @@ import (
 	"github.com/indrasvat/gh-hound/internal/model"
 )
 
-// CacheCapFallbackBytes is the documented per-repo Actions cache cap
-// (10 GB) at which GitHub starts LRU-evicting. The REST API does not
-// expose the cap on github.com — the usage-policy endpoint is
-// GHES-only (verified live 2026-06-10, 404) — so this fallback is the
-// effective cap everywhere gh-hound runs against github.com.
+// CacheCapFallbackBytes is the documented default per-repo Actions
+// cache cap (10 GB) at which GitHub starts LRU-evicting. The live cap
+// comes from the storage-limit endpoint via CacheCapProvider
+// (live-verified on github.com 2026-06-11); this fallback covers
+// adapters and hosts without it.
 const CacheCapFallbackBytes = int64(10) << 30
 
 // cacheWarnPressure is the gauge threshold past which the kennel
@@ -40,6 +40,22 @@ func (s CachesService) List(ctx context.Context, repo string, filter CacheFilter
 
 func (s CachesService) Usage(ctx context.Context, repo string) (model.CacheUsage, error) {
 	return s.GitHub.CacheUsage(ctx, repo)
+}
+
+// Cap resolves the effective eviction cap: the repo's configured
+// storage limit when the adapter exposes it, else the documented 10 GB
+// fallback. A lookup failure falls back too — the gauge must render
+// even when the cap endpoint is missing (older GHES) or denied.
+func (s CachesService) Cap(ctx context.Context, repo string) int64 {
+	provider, ok := s.GitHub.(CacheCapProvider)
+	if !ok {
+		return CacheCapFallbackBytes
+	}
+	limit, err := provider.CacheStorageLimit(ctx, repo)
+	if err != nil || limit <= 0 {
+		return CacheCapFallbackBytes
+	}
+	return limit
 }
 
 func (s CachesService) DeleteByID(ctx context.Context, repo string, id int64) (int, error) {
