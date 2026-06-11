@@ -1,6 +1,6 @@
 ---
 name: gh-hound-qa-ledger
-description: Running QA failure/verification ledger for gh-hound TUI audits (round 4, task 220 async loading)
+description: Running QA failure/verification ledger for gh-hound TUI audits (rounds 4-6; tasks 220 async loading, 240 rerun-confirm debug toggle)
 metadata:
   type: project
 ---
@@ -31,6 +31,16 @@ Round 4 (branch feat/220-async-loading, 2026-06-10):
   filtered view keeps Event/Duration/Age columns; palette cold-open
   shows only generic dispatch entry, warms to `dispatch: <name>` after
   D; dispatch route flips only after workflows resolve.
+
+Round 6 (branch feat/240-pipe-mutations, 3b4646b, 2026-06-10): PASS.
+`rerun-confirm` fixture clean at 80/120/200; live `r` confirm opens
+"debug nose: off" + `y confirm · d debug · enter/n/esc cancel` footer,
+`d` toggles on/off/on; `x` cancel confirm correctly shows no debug line
+and no d-footer, and `d` is inert there (overlay unchanged); esc and n
+close cleanly; `y` fires accepted toast (`✔ accepted · CI #… ·
+rerun_run`). Known style, not a 240 regression: accepted toast overlays
+the column-header right edge (truncates "Age" to "A…") — established
+toast placement.
 
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.
