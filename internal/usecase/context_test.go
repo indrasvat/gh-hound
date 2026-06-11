@@ -402,15 +402,16 @@ func TestLaunchEmptyStateNamesDisabledWorkflows(t *testing.T) {
 	if got.State != usecase.LaunchStateEmpty {
 		t.Fatalf("state = %s, want empty", got.State)
 	}
-	for _, want := range []string{"off duty", "1 asleep", "1 muzzled", ":workflows"} {
+	for _, want := range []string{"off duty (1 asleep, 1 muzzled)", "Nightly Sweep", "Stale Patrol", ":workflows"} {
 		if !strings.Contains(got.Notice, want) {
 			t.Fatalf("notice = %q, want substring %q", got.Notice, want)
 		}
 	}
 }
 
-// Singular when one workflow is asleep — "1 workflows" is a defect.
-func TestLaunchEmptyStateNoticeUsesSingular(t *testing.T) {
+// The notice NAMES the offenders (codex review: counts alone make the
+// empty screen answer "how many?" when the question is "which one?").
+func TestLaunchEmptyStateNoticeNamesDisabledWorkflows(t *testing.T) {
 	github := &launchGitHub{
 		runsByBranch: map[string][]model.Run{"main": {}, "": {}},
 		workflows: []model.Workflow{
@@ -424,14 +425,24 @@ func TestLaunchEmptyStateNoticeUsesSingular(t *testing.T) {
 		Repository: fakeRepository{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
 	}
 	got := service.Resolve(context.Background(), usecase.LaunchRequest{})
-	if !strings.Contains(got.Notice, "1 workflow asleep") || strings.Contains(got.Notice, "1 workflows") {
-		t.Fatalf("notice = %q, want singular '1 workflow asleep'", got.Notice)
+	if !strings.Contains(got.Notice, "asleep: Nightly Sweep") {
+		t.Fatalf("notice = %q, want the workflow named", got.Notice)
 	}
 	// fork-disabled and deleted are not actionable here; they must not
-	// inflate the off-duty count.
+	// appear in the notice.
 	github.workflows = append(github.workflows, model.Workflow{ID: 4, Name: "Fork Gate", State: model.WorkflowStateDisabledFork})
 	got = service.Resolve(context.Background(), usecase.LaunchRequest{})
-	if !strings.Contains(got.Notice, "1 workflow asleep") {
-		t.Fatalf("notice = %q, fork-disabled must not change the count", got.Notice)
+	if !strings.Contains(got.Notice, "asleep: Nightly Sweep") || strings.Contains(got.Notice, "Fork Gate") {
+		t.Fatalf("notice = %q, fork-disabled must stay out", got.Notice)
+	}
+	// More than three offenders fold into a +N more tail.
+	github.workflows = append(github.workflows,
+		model.Workflow{ID: 5, Name: "A", State: model.WorkflowStateDisabledManually},
+		model.Workflow{ID: 6, Name: "B", State: model.WorkflowStateDisabledManually},
+		model.Workflow{ID: 7, Name: "C", State: model.WorkflowStateDisabledManually},
+	)
+	got = service.Resolve(context.Background(), usecase.LaunchRequest{})
+	if !strings.Contains(got.Notice, "+1 more") {
+		t.Fatalf("notice = %q, want a +1 more fold past three names", got.Notice)
 	}
 }

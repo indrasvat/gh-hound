@@ -79,8 +79,10 @@ func ValidWorkflowTarget(target string) bool {
 	if target == "" {
 		return false
 	}
-	if _, err := strconv.ParseInt(target, 10, 64); err == nil {
-		return true
+	if id, err := strconv.ParseInt(target, 10, 64); err == nil {
+		// Zero and negative IDs are never real workflows; refusing
+		// here keeps the limiter and the wire untouched.
+		return id > 0
 	}
 	base := path.Base(target)
 	return strings.HasSuffix(base, ".yml") || strings.HasSuffix(base, ".yaml")

@@ -34,9 +34,9 @@ func TestViewSurfacesNoticeOnEmptyStates(t *testing.T) {
 			Kind:    kind,
 			Repo:    "indrasvat/gh-hound",
 			Branch:  "main",
-			Message: "no workflow runs yet for indrasvat/gh-hound · 1 workflow asleep — :workflows holds the leash",
+			Message: "no workflow runs yet for indrasvat/gh-hound · asleep: Nightly Sweep — :workflows holds the leash",
 		}, 100)
-		if !strings.Contains(view, "1 workflow asleep — :workflows holds the leash") {
+		if !strings.Contains(view, "asleep: Nightly Sweep — :workflows holds the leash") {
 			t.Fatalf("%s view missing the notice:\n%s", kind, view)
 		}
 	}

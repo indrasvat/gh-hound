@@ -235,31 +235,33 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 // and deleted workflows are not actionable from here and stay out of
 // the count.
 func disabledWorkflowsNotice(workflows []model.Workflow) string {
-	asleep, muzzled := 0, 0
+	var asleep, muzzled []string
 	for _, workflow := range workflows {
 		switch workflow.State {
 		case model.WorkflowStateDisabledInactivity:
-			asleep++
+			asleep = append(asleep, workflow.Name)
 		case model.WorkflowStateDisabledManually:
-			muzzled++
+			muzzled = append(muzzled, workflow.Name)
 		}
 	}
-	total := asleep + muzzled
+	total := len(asleep) + len(muzzled)
 	if total == 0 {
 		return ""
 	}
-	noun := "workflows"
-	if total == 1 {
-		noun = "workflow"
+	// Name up to three offenders so the empty screen answers "which
+	// one?", not just "how many?"; the rest fold into a count.
+	named := append(append([]string{}, asleep...), muzzled...)
+	if len(named) > 3 {
+		named = append(named[:3], fmt.Sprintf("+%d more", total-3))
 	}
 	var desc string
 	switch {
-	case muzzled == 0:
-		desc = fmt.Sprintf("%d %s asleep", asleep, noun)
-	case asleep == 0:
-		desc = fmt.Sprintf("%d %s muzzled", muzzled, noun)
+	case len(muzzled) == 0:
+		desc = fmt.Sprintf("asleep: %s", strings.Join(named, ", "))
+	case len(asleep) == 0:
+		desc = fmt.Sprintf("muzzled: %s", strings.Join(named, ", "))
 	default:
-		desc = fmt.Sprintf("%d %s off duty (%d asleep, %d muzzled)", total, noun, asleep, muzzled)
+		desc = fmt.Sprintf("off duty (%d asleep, %d muzzled): %s", len(asleep), len(muzzled), strings.Join(named, ", "))
 	}
 	return desc + " — :workflows holds the leash"
 }

@@ -101,7 +101,9 @@ func TestWorkflowsServiceRefusesNonAPISelectors(t *testing.T) {
 			t.Fatalf("Enable(%q) refused: %v", target, err)
 		}
 	}
-	refused := []string{"", "  ", "CI", "Nightly Sweep", "ci.txt"}
+	// Zero and negative IDs refuse too (codex review: they parsed as
+	// numeric and burned a real mutation call).
+	refused := []string{"", "  ", "CI", "Nightly Sweep", "ci.txt", "0", "-1"}
 	for _, target := range refused {
 		_, err := service.Enable(context.Background(), "indrasvat/gh-hound", target)
 		actionErr, ok := usecase.AsActionError(err)
