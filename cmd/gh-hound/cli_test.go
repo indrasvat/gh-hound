@@ -1600,3 +1600,27 @@ func TestDispatchInvalidRefRefusedBeforeMutation(t *testing.T) {
 		t.Fatalf("dispatch mutation fired despite invalid ref")
 	}
 }
+
+func TestResolveTargetForeignRepoDropsLocalBranch(t *testing.T) {
+	runtime := commandRuntime{
+		Env:    emptyEnv,
+		GitHub: &cliGitHub{},
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "fix/local-work"}},
+	}
+	target, err := resolveTarget(context.Background(), cliOptions{Repo: "openclaw/openclaw"}, runtime)
+	if err != nil {
+		t.Fatalf("resolveTarget: %v", err)
+	}
+	defer func() { _ = target.close() }()
+	if target.branch != "" {
+		t.Fatalf("foreign target inherited local branch %q", target.branch)
+	}
+	same, err := resolveTarget(context.Background(), cliOptions{Repo: "indrasvat/gh-hound"}, runtime)
+	if err != nil {
+		t.Fatalf("resolveTarget same: %v", err)
+	}
+	defer func() { _ = same.close() }()
+	if same.branch != "fix/local-work" {
+		t.Fatalf("same repo lost local branch: %q", same.branch)
+	}
+}

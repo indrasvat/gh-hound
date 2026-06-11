@@ -1234,7 +1234,13 @@ func resolveTarget(ctx context.Context, options cliOptions, runtime commandRunti
 		_ = closeTrace()
 		return resolvedTarget{}, errors.New("repository context could not be resolved; pass -R owner/repo or set GH_REPO")
 	}
-	branch := firstNonEmpty(options.Branch, repoCtx.Branch)
+	// The local checkout branch only applies to the local repo: a
+	// foreign -R target must not be filtered by a branch that likely
+	// does not exist there (issue #15, pipe path).
+	branch := strings.TrimSpace(options.Branch)
+	if branch == "" && (options.Repo == "" || strings.EqualFold(strings.TrimSpace(options.Repo), strings.TrimSpace(repoCtx.Repo))) {
+		branch = repoCtx.Branch
+	}
 	if options.All {
 		branch = ""
 	}
