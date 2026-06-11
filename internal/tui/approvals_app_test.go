@@ -171,6 +171,47 @@ func TestApprovalsRejectFlowCarriesCommentAndVoice(t *testing.T) {
 	}
 }
 
+func TestApprovalsRefusedReviewKeepsOverlayForRetry(t *testing.T) {
+	app, _ := waitingTestApp(t)
+	calls := 0
+	app.actionHandler = func(request ActionRequest) (usecase.ActionResult, error) {
+		calls++
+		if calls == 1 {
+			return usecase.ActionResult{}, usecase.ActionError{Kind: usecase.ActionErrorConflict, Message: "the gate moved"}
+		}
+		return usecase.ActionResult{Action: request.Action, RunID: request.Run.ID, Message: "gate's open."}, nil
+	}
+	app, _ = app.Update(KeyMsg{Key: "A"})
+	app, _ = app.SettleLoads(time.Second)
+
+	// Refused review: overlay must survive with picks and comment.
+	app, _ = app.Update(KeyMsg{Key: "c"})
+	app, _ = app.Update(KeyMsg{Key: "g"})
+	app, _ = app.Update(KeyMsg{Key: "o"})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	if app.TopOverlay() != OverlayApprovals {
+		t.Fatalf("refused review must keep the approvals overlay, got %q", app.TopOverlay())
+	}
+	if got := app.approvals.Comment; got != "go" {
+		t.Fatalf("refused review lost the comment, got %q", got)
+	}
+	if picked := app.approvals.PickedEnvironments(); len(picked) == 0 {
+		t.Fatal("refused review lost the picked environments")
+	}
+
+	// The retry succeeds and the overlay closes.
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	if app.TopOverlay() != OverlayNone {
+		t.Fatalf("accepted review must close the overlay, got %q", app.TopOverlay())
+	}
+	if calls != 2 {
+		t.Fatalf("handler calls = %d, want 2", calls)
+	}
+}
+
 func TestApprovalsCommentEscDiscardsEdit(t *testing.T) {
 	app, requests := waitingTestApp(t)
 	app, _ = app.Update(KeyMsg{Key: "A"})

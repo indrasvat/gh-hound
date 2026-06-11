@@ -1255,10 +1255,12 @@ func (a App) updateConfirm(msg KeyMsg) (App, bool) {
 			return a.startArtifactDownload(*pendingDownload), true
 		}
 		if pending != nil {
-			a = a.executeAction(pending.route, pending.request)
-			if deploymentReviewFamily(pending.request.Action) && a.TopOverlay() == OverlayApprovals {
+			var accepted bool
+			a, accepted = a.executeAction(pending.route, pending.request)
+			if accepted && deploymentReviewFamily(pending.request.Action) && a.TopOverlay() == OverlayApprovals {
 				// The gate was acted on: the overlay beneath has
-				// nothing left to offer.
+				// nothing left to offer. A refusal keeps it open with
+				// the picks and comment intact for a retry.
 				a.PopOverlay()
 				a.approvals = approvals.Model{}
 			}
@@ -2109,21 +2111,26 @@ func (a App) handleAction(route Route, request ActionRequest) App {
 	if actionRequiresConfirmation(request.Action) {
 		return a.openConfirm(route, request)
 	}
-	return a.executeAction(route, request)
+	a, _ = a.executeAction(route, request)
+	return a
 }
 
-func (a App) executeAction(route Route, request ActionRequest) App {
+// executeAction runs the mutation and reports whether it was accepted,
+// so callers can keep state (like the approvals overlay) alive on a
+// refusal and let the user retry.
+func (a App) executeAction(route Route, request ActionRequest) (App, bool) {
 	a.clearRouteError(route)
 	if a.actionHandler == nil {
 		a.setRouteError(route, "action unavailable: live GitHub mutation handler is not configured")
-		return a
+		return a, false
 	}
-	if result, err := a.actionHandler(request); err != nil {
+	result, err := a.actionHandler(request)
+	if err != nil {
 		a.pushErrorToast("action-failed", usecase.ResilienceFor(err, usecase.ErrorContext{}))
-	} else {
-		a.pushToast("action-ok", usecase.ResilienceForSuccess(result))
+		return a, false
 	}
-	return a
+	a.pushToast("action-ok", usecase.ResilienceForSuccess(result))
+	return a, true
 }
 
 func (a App) openConfirm(route Route, request ActionRequest) App {
