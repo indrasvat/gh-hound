@@ -15,6 +15,7 @@ const (
 	ScreenLog        Screen = "log"
 	ScreenDispatch   Screen = "dispatch"
 	ScreenDiff       Screen = "diff"
+	ScreenFlakes     Screen = "flakes"
 	ScreenCaches     Screen = "caches"
 	ScreenWorkflows  Screen = "workflows"
 	ScreenPalette    Screen = "palette"
@@ -71,6 +72,11 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "l", Action: "full_log", Help: "full log", ShowInFooter: true},
 		{Key: "o", Action: "browser", Help: "browser", ShowInFooter: true},
 		{Key: "y", Action: "copy_excerpt", Help: "copy excerpt", ShowInFooter: true},
+		// The in-pane hint advertises these contextually once the
+		// flake panel lands; the static footer stays truthful for
+		// failures without a scent (artifacts precedent on detail).
+		{Key: "tab", Display: "⇥", Action: "flake_panel", Help: "flake panel (when scented)", ShowInFooter: false},
+		{Key: "j/k", Action: "scroll", Help: "scroll excerpt / evidence", ShowInFooter: false},
 	},
 	ScreenWatch: {
 		{Key: "x", Display: "✗", Action: "cancel", Help: "cancel", ShowInFooter: true},
@@ -104,6 +110,11 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "j/k", Action: "move", Help: "move", ShowInFooter: true},
 		{Key: "enter", Display: "⏎", Action: "first_bad", Help: "first bad", ShowInFooter: true},
 		{Key: "o", Action: "compare", Help: "compare", ShowInFooter: true},
+		{Key: "esc", Display: "⎋", Action: "back", Help: "back", ShowInFooter: true},
+	},
+	ScreenFlakes: {
+		{Key: "j/k", Action: "move", Help: "move", ShowInFooter: true},
+		{Key: "enter", Display: "⏎", Action: "open_run", Help: "open run", ShowInFooter: true},
 		{Key: "esc", Display: "⎋", Action: "back", Help: "back", ShowInFooter: true},
 	},
 	ScreenCaches: {

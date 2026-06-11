@@ -36,6 +36,7 @@ const (
 	loadKindPack      loadKind = "pack"
 	loadKindApprovals loadKind = "approvals"
 	loadKindDiff      loadKind = "diff"
+	loadKindFlakes    loadKind = "flakes"
 	loadKindCaches    loadKind = "caches"
 	loadKindWorkflows loadKind = "workflows"
 )

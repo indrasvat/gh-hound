@@ -57,7 +57,7 @@ func renderRuns(m Model, width, height int, now time.Time) string {
 	}
 	for i, run := range runs[start:end] {
 		index := start + i
-		line := row(run, index == selected, width, now)
+		line := row(run, index == selected, m.FlakyRuns[run.ID], width, now)
 		if m.Loading {
 			// The previous list stays visible but dimmed while a
 			// reload is in flight.
@@ -135,7 +135,7 @@ func renderAllGreen(m Model, width, height int, now time.Time) string {
 	return strings.Join(lines, "\n")
 }
 
-func row(run model.Run, selected bool, width int, now time.Time) string {
+func row(run model.Run, selected, flaky bool, width int, now time.Time) string {
 	prefix := " "
 	if selected {
 		prefix = colorize(sgrOK, icons.Cursor)
@@ -143,6 +143,12 @@ func row(run model.Run, selected bool, width int, now time.Time) string {
 	number := colorize(sgrMuted, fmt.Sprintf("#%d", run.RunNumber))
 	status := colorize(statusColor(run), glyph(run))
 	label := runLabel(run, 30)
+	if flaky {
+		// The flake badge lives inside the label column so every
+		// column keeps its width math and the badge survives 80 cols;
+		// the glyph is plain ASCII by design.
+		label = colorize(sgrRun, icons.Flake) + " " + runLabel(run, 28)
+	}
 	event := colorize(eventColor(run), truncate(run.Event, 16))
 	duration := colorize(durationColor(run), sparkline.Render(sparkValues(run), 5))
 	runAge := colorize(sgrSubtle, age(run, now))

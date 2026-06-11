@@ -1304,6 +1304,26 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			// scans the right history (review-required hardening).
 			return service.LocateRegression(loadCtx, launch.Repo, workflow, firstNonEmptyString(run.HeadBranch, launch.Branch))
 		},
+		FlakesResolver: func(loadCtx context.Context, run model.Run) (usecase.FlakeReport, error) {
+			history, hasHistory := githubClient.(usecase.WorkflowRunHistory)
+			if !hasHistory {
+				return usecase.FlakeReport{}, fmt.Errorf("flake scan is unavailable for this adapter")
+			}
+			workflow := workflowSelectorForRun(run)
+			if workflow == "" {
+				return usecase.FlakeReport{}, fmt.Errorf("the selected run has no workflow identity to follow")
+			}
+			service := usecase.FlakesService{
+				History:  history,
+				Attempts: githubClient,
+				Logs:     githubClient,
+				Window:   cfg.FlakeWindow,
+				PerPage:  usecase.DiffPerPage,
+			}
+			// The scent is anchored to the SELECTED run: its branch wins
+			// over the launch branch (diff precedent).
+			return service.Scan(loadCtx, launch.Repo, workflow, firstNonEmptyString(run.HeadBranch, launch.Branch))
+		},
 		DispatchWorkflowsResolver: func(loadCtx context.Context) ([]dispatch.Workflow, error) {
 			workflows, err := dispatchWorkflowModels(loadCtx, githubClient, launch)
 			if err != nil {

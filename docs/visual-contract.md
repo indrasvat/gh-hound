@@ -101,6 +101,7 @@ Footer text must be generated from keymap data, not copied into renderers.
 | log | j/k scroll · g/G ends · / search · t time · n/N match · z/Z fold · w wrap · ⎋ back |
 | dispatch | ⏎ run · ⇥ next · ⎋ cancel |
 | diff | j/k move · ⏎ first bad · o compare · ⎋ back |
+| flakes | j/k move · ⏎ open run · ⎋ back |
 | caches | j/k move · s sort · / filter · d dig up · D dig up key · ⎋ back · ? |
 | workflows | j/k move · e wake/muzzle · o browser · ⎋ back |
 | palette | workflows · watch · diff · theme |
