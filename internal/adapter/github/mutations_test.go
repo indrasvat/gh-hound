@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -167,5 +168,86 @@ func TestSecondaryRateLimit403MapsToRateLimit(t *testing.T) {
 		if !ok || actionErr.Kind != tt.want {
 			t.Fatalf("%s: kind = %#v, want %s", tt.name, err, tt.want)
 		}
+	}
+}
+
+// Live-verified 2026-06-10: list-workflows carries `state` for every
+// workflow (indrasvat/gh-hound all active; indrasvat/vicaya holds a
+// real disabled_inactivity — pinned in testdata/workflows.json). The
+// enable/disable endpoints are documented PUTs with empty bodies and
+// 204 responses; mutation PUTs were NOT fired live in this session
+// (supervised round-trip happens at orchestrator level).
+func TestWorkflowToggleEndpointsUsePutWithEscapedIdentifier(t *testing.T) {
+	var seen []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Method+" "+r.URL.EscapedPath())
+		if r.Header.Get("X-GitHub-Api-Version") != APIVersion {
+			t.Fatalf("missing api version header")
+		}
+		if r.Method != http.MethodPut {
+			t.Fatalf("workflow toggle method = %s, want PUT", r.Method)
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if len(body) != 0 {
+			t.Fatalf("workflow toggle body = %q, want empty", body)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client())
+	ctx := context.Background()
+	enabled, err := client.EnableWorkflow(ctx, "indrasvat/gh-hound", "ci.yml")
+	if err != nil {
+		t.Fatalf("EnableWorkflow: %v", err)
+	}
+	if enabled.Action != usecase.ActionEnableWorkflow || enabled.WorkflowID != "ci.yml" {
+		t.Fatalf("enable result = %#v", enabled)
+	}
+	disabled, err := client.DisableWorkflow(ctx, "indrasvat/gh-hound", "290736476")
+	if err != nil {
+		t.Fatalf("DisableWorkflow: %v", err)
+	}
+	if disabled.Action != usecase.ActionDisableWorkflow {
+		t.Fatalf("disable result = %#v", disabled)
+	}
+	// The full workflow file path is a valid selector too (verified live
+	// via GET with %2F escaping); slashes must be escaped, not routed.
+	if _, err := client.DisableWorkflow(ctx, "indrasvat/gh-hound", ".github/workflows/ci.yml"); err != nil {
+		t.Fatalf("DisableWorkflow(path): %v", err)
+	}
+	want := []string{
+		"PUT /repos/indrasvat/gh-hound/actions/workflows/ci.yml/enable",
+		"PUT /repos/indrasvat/gh-hound/actions/workflows/290736476/disable",
+		"PUT /repos/indrasvat/gh-hound/actions/workflows/.github%2Fworkflows%2Fci.yml/disable",
+	}
+	if len(seen) != len(want) {
+		t.Fatalf("calls = %#v, want %#v", seen, want)
+	}
+	for i := range want {
+		if seen[i] != want[i] {
+			t.Fatalf("call %d = %q, want %q", i, seen[i], want[i])
+		}
+	}
+}
+
+func TestWorkflowToggleErrorsAreTyped(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message":"Resource not accessible by integration"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client())
+	_, err := client.EnableWorkflow(context.Background(), "indrasvat/gh-hound", "ci.yml")
+	actionErr, ok := usecase.AsActionError(err)
+	if !ok {
+		t.Fatalf("error %v is not an ActionError", err)
+	}
+	if actionErr.Kind != usecase.ActionErrorPermission {
+		t.Fatalf("kind = %q, want permission", actionErr.Kind)
 	}
 }

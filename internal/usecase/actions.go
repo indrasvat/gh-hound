@@ -19,6 +19,9 @@ const (
 
 	ActionApproveDeployment Action = "approve_deployment"
 	ActionRejectDeployment  Action = "reject_deployment"
+
+	ActionEnableWorkflow  Action = "enable_workflow"
+	ActionDisableWorkflow Action = "disable_workflow"
 )
 
 // DeploymentReviewState is the verdict posted to the pending

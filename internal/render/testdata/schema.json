@@ -379,6 +379,95 @@
     }
    }
   },
+  "workflows_result": {
+   "type": "object",
+   "required": [
+    "repo",
+    "workflows"
+   ],
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "workflows": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "id",
+       "name",
+       "path",
+       "state"
+      ],
+      "properties": {
+       "id": {
+        "type": "integer"
+       },
+       "name": {
+        "type": "string"
+       },
+       "path": {
+        "type": "string"
+       },
+       "state": {
+        "type": "string",
+        "description": "open string: active, disabled_manually, disabled_inactivity, disabled_fork, deleted are documented; unknown future values pass through verbatim"
+       }
+      }
+     }
+    },
+    "accepted": {
+     "type": "boolean"
+    },
+    "toggled": {
+     "type": "object",
+     "required": [
+      "target",
+      "action",
+      "state"
+     ],
+     "properties": {
+      "target": {
+       "type": "string"
+      },
+      "action": {
+       "enum": [
+        "enable",
+        "disable"
+       ]
+      },
+      "state": {
+       "type": "string"
+      }
+     }
+    },
+    "error": {
+     "type": "object",
+     "required": [
+      "kind",
+      "message"
+     ],
+     "properties": {
+      "kind": {
+       "enum": [
+        "validation",
+        "permission",
+        "conflict",
+        "rate_limit",
+        "network",
+        "unknown"
+       ]
+      },
+      "message": {
+       "type": "string"
+      },
+      "field": {
+       "type": "string"
+      }
+     }
+    }
+   }
+  },
   "mutation_result": {
    "type": "object",
    "required": [

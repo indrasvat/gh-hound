@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -360,3 +361,47 @@ const annotationsFixture = `[{
   "message": "identifier mismatch",
   "title": "go test"
 }]`
+
+// TestListWorkflowsParsesStateVerbatim pins the live list-workflows
+// shape in testdata/workflows.json: the CI (active) and PR Release
+// Cleanup (disabled_inactivity) entries were captured live 2026-06-10
+// from indrasvat/vicaya; the remaining entries are synthetic in the
+// identical shape, covering the other documented states plus an
+// unknown future state that must survive the adapter verbatim.
+func TestListWorkflowsParsesStateVerbatim(t *testing.T) {
+	pinned, err := os.ReadFile("testdata/workflows.json")
+	if err != nil {
+		t.Fatalf("read pinned payload: %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/indrasvat/vicaya/actions/workflows" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(pinned)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client())
+	workflows, err := client.ListWorkflows(context.Background(), "indrasvat/vicaya")
+	if err != nil {
+		t.Fatalf("ListWorkflows: %v", err)
+	}
+	states := map[string]string{}
+	for _, workflow := range workflows {
+		states[workflow.Name] = workflow.State
+	}
+	want := map[string]string{
+		"CI":                 "active",
+		"PR Release Cleanup": "disabled_inactivity",
+		"Muzzled Patrol":     "disabled_manually",
+		"Fork Gate":          "disabled_fork",
+		"Old Patrol":         "deleted",
+		"Future Hound":       "disabled_by_future_rule",
+	}
+	for name, state := range want {
+		if states[name] != state {
+			t.Fatalf("workflow %q state = %q, want %q (all: %#v)", name, states[name], state, states)
+		}
+	}
+}

@@ -133,17 +133,60 @@ func (a *Adapter) GetJob(context.Context, string, int64) (model.Job, error) {
 	return job(), nil
 }
 
+// ListWorkflows covers every documented workflow state so badge,
+// toggle, and why-line paths are rehearsable deterministically. Only
+// ci.yml carries workflow_dispatch (see FetchWorkflowFile), keeping
+// the dispatch launch single-form.
 func (a *Adapter) ListWorkflows(context.Context, string) ([]model.Workflow, error) {
-	return []model.Workflow{{
-		ID:      123,
-		Name:    "CI",
-		Path:    ".github/workflows/ci.yml",
-		State:   "active",
-		HTMLURL: "https://github.com/indrasvat/gh-hound/actions/workflows/ci.yml",
-	}}, nil
+	return []model.Workflow{
+		{
+			ID:      123,
+			Name:    "CI",
+			Path:    ".github/workflows/ci.yml",
+			State:   model.WorkflowStateActive,
+			HTMLURL: "https://github.com/indrasvat/gh-hound/actions/workflows/ci.yml",
+		},
+		{
+			ID:      124,
+			Name:    "Nightly Sweep",
+			Path:    ".github/workflows/nightly.yml",
+			State:   model.WorkflowStateDisabledInactivity,
+			HTMLURL: "https://github.com/indrasvat/gh-hound/actions/workflows/nightly.yml",
+		},
+		{
+			ID:      125,
+			Name:    "Stale Patrol",
+			Path:    ".github/workflows/stale.yml",
+			State:   model.WorkflowStateDisabledManually,
+			HTMLURL: "https://github.com/indrasvat/gh-hound/actions/workflows/stale.yml",
+		},
+		{
+			ID:      126,
+			Name:    "Fork Gate",
+			Path:    ".github/workflows/fork-gate.yml",
+			State:   model.WorkflowStateDisabledFork,
+			HTMLURL: "https://github.com/indrasvat/gh-hound/actions/workflows/fork-gate.yml",
+		},
+		{
+			ID:      127,
+			Name:    "Old Patrol",
+			Path:    ".github/workflows/old-patrol.yml",
+			State:   model.WorkflowStateDeleted,
+			HTMLURL: "https://github.com/indrasvat/gh-hound/actions/workflows/old-patrol.yml",
+		},
+	}, nil
 }
 
-func (a *Adapter) FetchWorkflowFile(context.Context, string, string) (string, error) {
+func (a *Adapter) FetchWorkflowFile(_ context.Context, _ string, workflowPath string) (string, error) {
+	if workflowPath != "" && workflowPath != ".github/workflows/ci.yml" {
+		// Non-CI fixtures are schedule-only: the classic cron that
+		// fell asleep. They must never enter the dispatch form.
+		return `name: Nightly Sweep
+on:
+  schedule:
+    - cron: "0 3 * * *"
+`, nil
+	}
 	return `name: CI
 on:
   workflow_dispatch:
@@ -336,6 +379,14 @@ func (a *Adapter) ForceCancelRun(ctx context.Context, repo string, runID int64) 
 
 func (a *Adapter) DispatchWorkflow(ctx context.Context, repo, workflowID string, request usecase.DispatchRequest) (usecase.ActionResult, error) {
 	return a.actionResult(usecase.ActionDispatch, repo, 0, 0, workflowID)
+}
+
+func (a *Adapter) EnableWorkflow(_ context.Context, repo, workflowID string) (usecase.ActionResult, error) {
+	return a.actionResult(usecase.ActionEnableWorkflow, repo, 0, 0, workflowID)
+}
+
+func (a *Adapter) DisableWorkflow(_ context.Context, repo, workflowID string) (usecase.ActionResult, error) {
+	return a.actionResult(usecase.ActionDisableWorkflow, repo, 0, 0, workflowID)
 }
 
 func (a *Adapter) actionResult(action usecase.Action, repo string, runID, jobID int64, workflowID string) (usecase.ActionResult, error) {

@@ -203,6 +203,11 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 		} else if result.Notice == "" {
 			result.Notice = fmt.Sprintf("no workflow runs yet for %s", result.Repo)
 		}
+		// The "why are there no runs" answer rides the workflows fetch
+		// this path already made — zero extra API calls.
+		if disabled := disabledWorkflowsNotice(workflows); disabled != "" {
+			result.Notice = result.Notice + " · " + disabled
+		}
 		return result
 	}
 
@@ -222,6 +227,43 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 	}
 	result.State = LaunchStateRuns
 	return result
+}
+
+// disabledWorkflowsNotice names the workflows that stopped working on
+// purpose-shaped states: asleep (disabled_inactivity — the 60-quiet-
+// days cron mystery) and muzzled (disabled_manually). Fork-disabled
+// and deleted workflows are not actionable from here and stay out of
+// the count.
+func disabledWorkflowsNotice(workflows []model.Workflow) string {
+	var asleep, muzzled []string
+	for _, workflow := range workflows {
+		switch workflow.State {
+		case model.WorkflowStateDisabledInactivity:
+			asleep = append(asleep, workflow.Name)
+		case model.WorkflowStateDisabledManually:
+			muzzled = append(muzzled, workflow.Name)
+		}
+	}
+	total := len(asleep) + len(muzzled)
+	if total == 0 {
+		return ""
+	}
+	// Name up to three offenders so the empty screen answers "which
+	// one?", not just "how many?"; the rest fold into a count.
+	named := append(append([]string{}, asleep...), muzzled...)
+	if len(named) > 3 {
+		named = append(named[:3], fmt.Sprintf("+%d more", total-3))
+	}
+	var desc string
+	switch {
+	case len(muzzled) == 0:
+		desc = fmt.Sprintf("asleep: %s", strings.Join(named, ", "))
+	case len(asleep) == 0:
+		desc = fmt.Sprintf("muzzled: %s", strings.Join(named, ", "))
+	default:
+		desc = fmt.Sprintf("off duty (%d asleep, %d muzzled): %s", len(asleep), len(muzzled), strings.Join(named, ", "))
+	}
+	return desc + " — :workflows holds the leash"
 }
 
 func launchErrorMessage(err error) string {

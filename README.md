@@ -110,6 +110,7 @@ The local gate includes race-enabled Go tests, large-log performance tests, and 
 - **Status cycle**: `f` on the runs screen cycles all / failing / running / passed through the server filter.
 - **Attempt forensics**: `runs --run <id> --attempt <n>` triages a specific attempt after a re-run -- failed jobs, clean excerpts, exit codes.
 - **The trail**: `diff` walks a workflow's history to the last-green → first-red boundary and names the suspect commits -- the answer `git bisect` re-runs builds for is already in the run history. TUI screen via `:diff`, JSON verdict for agents, `diff_max_pages` bounds the spend.
+- **The pack**: `:workflows` lists every workflow with its state badge -- `✔ active`, `◌ asleep` (fell asleep after 60 quiet days, the classic "my cron stopped" mystery), `⊘ muzzled` (disabled by hand), `⊘ fork-disabled`, `✗ deleted` -- and `e` wakes or muzzles the toggleable ones, confirm-gated. The `workflows` pipe verb lists states and flips them by id or file path. Disabled workflows are named on the empty screen, and the dispatch picker badges them instead of hiding them.
 - **Failure diagnosis**: annotations, failing step, exit code, and de-noised failure excerpts.
 - **Full log viewer**: line-number gutter, fold rows, search, match count, wrap toggle, scrollbar, and syntax-aware highlighting.
 - **Watch mode**: active-run frame with follow, debug toggle, cancel, and detach.
@@ -179,6 +180,9 @@ gh hound watch --json
 gh hound rerun --run <id> --failed-only --debug --no-tui --json
 gh hound cancel --run <id> --no-tui --json
 gh hound diff --workflow CI --no-tui --json            # who broke main?
+gh hound workflows --no-tui --json                     # every workflow + state (why did my cron stop?)
+gh hound workflows --enable ci.yml --no-tui --json     # wake it: back on duty
+gh hound workflows --disable 290736476 --no-tui --json # muzzle it (id or file path)
 gh hound artifacts --no-tui --json
 gh hound artifacts --run <run-id> --download <name> --dir <path> --no-tui --json
 gh hound runs --run <run-id> --attempt 2 --no-tui --json   # forensics on a re-run
@@ -209,6 +213,7 @@ Fixture scenarios are intentionally restricted to non-interactive/test paths. Th
 | Watch | `f` follow, `d` debug, `x` cancel, `Esc` detach |
 | Dispatch | `Tab` next, arrows/select controls, `Enter` run, `Esc` cancel |
 | Trail (diff) | `j/k` move suspects, `Enter` open first bad run, `o` compare in browser, `Esc` back |
+| Kennel (workflows) | `j/k` move, `e` wake/muzzle (confirm-gated), `o` browser, `Esc` back |
 
 ## Configuration
 

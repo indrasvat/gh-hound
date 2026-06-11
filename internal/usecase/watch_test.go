@@ -125,6 +125,14 @@ func (g *watchGitHub) DispatchWorkflow(context.Context, string, string, usecase.
 	return usecase.ActionResult{}, errors.New("not implemented")
 }
 
+func (g *watchGitHub) EnableWorkflow(context.Context, string, string) (usecase.ActionResult, error) {
+	return usecase.ActionResult{}, errors.New("not implemented")
+}
+
+func (g *watchGitHub) DisableWorkflow(context.Context, string, string) (usecase.ActionResult, error) {
+	return usecase.ActionResult{}, errors.New("not implemented")
+}
+
 func (g *watchGitHub) ListArtifacts(context.Context, string, int64) ([]model.Artifact, error) {
 	return nil, nil
 }

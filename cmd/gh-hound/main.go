@@ -176,6 +176,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.AddCommand(newRerunCommand(runtime, &options))
 	cmd.AddCommand(newCancelCommand(runtime, &options))
 	cmd.AddCommand(newDiffCommand(runtime, &options))
+	cmd.AddCommand(newWorkflowsCommand(runtime, &options))
 	return cmd
 }
 
@@ -981,6 +982,10 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 		GitHub:  githubClient,
 		Limiter: mutationLimiter,
 	}
+	workflowsService := usecase.WorkflowsService{
+		GitHub:  githubClient,
+		Limiter: mutationLimiter,
+	}
 	failureService := usecase.FailureService{GitHub: githubClient}
 	watchService := usecase.WatchService{GitHub: githubClient, MinPoll: cfg.PollMin, MaxPoll: cfg.PollMax}
 	launch := usecase.LaunchService{
@@ -1117,6 +1122,9 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			}
 			return workflows, nil
 		},
+		WorkflowsResolver: func(loadCtx context.Context) ([]model.Workflow, error) {
+			return workflowsService.List(loadCtx, launch.Repo)
+		},
 		ActionHandler: func(request tui.ActionRequest) (usecase.ActionResult, error) {
 			switch request.Action {
 			case usecase.ActionRerunRun:
@@ -1159,6 +1167,14 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 					}
 				}
 				return actionService.DispatchWorkflow(ctx, launch.Repo, request.Workflow.ID, request.Dispatch)
+			case usecase.ActionEnableWorkflow, usecase.ActionDisableWorkflow:
+				if request.Workflow.ID == "" {
+					return usecase.ActionResult{}, fmt.Errorf("workflow is not loaded")
+				}
+				if request.Action == usecase.ActionEnableWorkflow {
+					return workflowsService.Enable(ctx, launch.Repo, request.Workflow.ID)
+				}
+				return workflowsService.Disable(ctx, launch.Repo, request.Workflow.ID)
 			case usecase.ActionApproveDeployment, usecase.ActionRejectDeployment:
 				outcome, err := approvalsService.Review(ctx, launch.Repo, request.Run.ID, usecase.DeploymentReviewRequest{
 					Environments: request.Environments,
@@ -1323,7 +1339,11 @@ func resolveJobForRun(ctx context.Context, githubClient usecase.GitHub, repo str
 func chooseDispatchWorkflows(ctx context.Context, githubClient usecase.GitHub, repo string, workflows []model.Workflow) ([]model.Workflow, error) {
 	dispatchable := []model.Workflow{}
 	for _, workflow := range workflows {
-		if workflow.State != "" && workflow.State != "active" {
+		// Toggleable disabled workflows (asleep/muzzled) stay visible —
+		// the picker badges them and refuses selection with a pointer
+		// at :workflows. Fork-disabled, deleted, and unknown states can
+		// be neither dispatched nor woken from here.
+		if workflow.State != "" && !workflow.Toggleable() {
 			continue
 		}
 		if strings.TrimSpace(workflow.Path) == "" {
@@ -1392,6 +1412,7 @@ func dispatchWorkflowModels(ctx context.Context, githubClient usecase.GitHub, la
 			ID:     workflowID,
 			Ref:    ref,
 			Inputs: dispatchInputs(workflow.Inputs),
+			State:  workflow.State,
 		})
 	}
 	return out, nil

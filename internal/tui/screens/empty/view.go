@@ -54,20 +54,30 @@ func View(model Model, width int) string {
 func body(model Model) []string {
 	switch model.Kind {
 	case KindNoWorkflows:
-		return []string{
+		lines := []string{
 			fmt.Sprintf("Actions is not configured for %s.", model.Repo),
 			"Add a workflow under .github/workflows or enable GitHub Actions for this repository.",
 		}
+		if model.Message != "" {
+			lines = append(lines, model.Message)
+		}
+		return lines
 	case KindNoRepository:
 		return []string{
 			first(model.Message, "Not in a git repo / no resolvable remote."),
 			"Run gh hound -R owner/repo to choose a repository explicitly.",
 		}
 	case KindNoRuns:
-		return []string{
+		lines := []string{
 			fmt.Sprintf("No workflow runs were found for %s on %s.", model.Repo, model.Branch),
 			"Push the branch or use --all to show runs across every branch.",
 		}
+		// The launch notice carries the "why are there no runs" answer
+		// (disabled workflows included) — surface it, don't drop it.
+		if model.Message != "" {
+			lines = append(lines, model.Message)
+		}
+		return lines
 	case KindError:
 		return []string{
 			first(model.Message, "GitHub Actions runs could not be loaded."),

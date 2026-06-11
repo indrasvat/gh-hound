@@ -298,6 +298,14 @@ func (g *launchGitHub) DispatchWorkflow(context.Context, string, string, usecase
 	return usecase.ActionResult{}, errors.New("not implemented")
 }
 
+func (g *launchGitHub) EnableWorkflow(context.Context, string, string) (usecase.ActionResult, error) {
+	return usecase.ActionResult{}, errors.New("not implemented")
+}
+
+func (g *launchGitHub) DisableWorkflow(context.Context, string, string) (usecase.ActionResult, error) {
+	return usecase.ActionResult{}, errors.New("not implemented")
+}
+
 func greenRun(number int, branch string) model.Run {
 	return model.Run{
 		ID:         int64(number),
@@ -370,4 +378,71 @@ func (g *launchGitHub) ListPendingDeployments(context.Context, string, int64) ([
 
 func (g *launchGitHub) ReviewPendingDeployments(context.Context, string, int64, usecase.DeploymentReview) (usecase.ActionResult, error) {
 	return usecase.ActionResult{}, errors.New("not implemented")
+}
+
+// Task 280: the empty screen is where "why are there no runs" gets its
+// one-field answer — disabled workflows are named in the launch notice
+// with ZERO extra API calls (workflows were already fetched on this
+// path).
+func TestLaunchEmptyStateNamesDisabledWorkflows(t *testing.T) {
+	github := &launchGitHub{
+		runsByBranch: map[string][]model.Run{"main": {}, "": {}},
+		workflows: []model.Workflow{
+			{ID: 1, Name: "CI", State: model.WorkflowStateActive},
+			{ID: 2, Name: "Nightly Sweep", State: model.WorkflowStateDisabledInactivity},
+			{ID: 3, Name: "Stale Patrol", State: model.WorkflowStateDisabledManually},
+		},
+	}
+	service := usecase.LaunchService{
+		Config:     config.Default(),
+		GitHub:     github,
+		Repository: fakeRepository{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}
+	got := service.Resolve(context.Background(), usecase.LaunchRequest{})
+	if got.State != usecase.LaunchStateEmpty {
+		t.Fatalf("state = %s, want empty", got.State)
+	}
+	for _, want := range []string{"off duty (1 asleep, 1 muzzled)", "Nightly Sweep", "Stale Patrol", ":workflows"} {
+		if !strings.Contains(got.Notice, want) {
+			t.Fatalf("notice = %q, want substring %q", got.Notice, want)
+		}
+	}
+}
+
+// The notice NAMES the offenders (codex review: counts alone make the
+// empty screen answer "how many?" when the question is "which one?").
+func TestLaunchEmptyStateNoticeNamesDisabledWorkflows(t *testing.T) {
+	github := &launchGitHub{
+		runsByBranch: map[string][]model.Run{"main": {}, "": {}},
+		workflows: []model.Workflow{
+			{ID: 1, Name: "CI", State: model.WorkflowStateActive},
+			{ID: 2, Name: "Nightly Sweep", State: model.WorkflowStateDisabledInactivity},
+		},
+	}
+	service := usecase.LaunchService{
+		Config:     config.Default(),
+		GitHub:     github,
+		Repository: fakeRepository{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}
+	got := service.Resolve(context.Background(), usecase.LaunchRequest{})
+	if !strings.Contains(got.Notice, "asleep: Nightly Sweep") {
+		t.Fatalf("notice = %q, want the workflow named", got.Notice)
+	}
+	// fork-disabled and deleted are not actionable here; they must not
+	// appear in the notice.
+	github.workflows = append(github.workflows, model.Workflow{ID: 4, Name: "Fork Gate", State: model.WorkflowStateDisabledFork})
+	got = service.Resolve(context.Background(), usecase.LaunchRequest{})
+	if !strings.Contains(got.Notice, "asleep: Nightly Sweep") || strings.Contains(got.Notice, "Fork Gate") {
+		t.Fatalf("notice = %q, fork-disabled must stay out", got.Notice)
+	}
+	// More than three offenders fold into a +N more tail.
+	github.workflows = append(github.workflows,
+		model.Workflow{ID: 5, Name: "A", State: model.WorkflowStateDisabledManually},
+		model.Workflow{ID: 6, Name: "B", State: model.WorkflowStateDisabledManually},
+		model.Workflow{ID: 7, Name: "C", State: model.WorkflowStateDisabledManually},
+	)
+	got = service.Resolve(context.Background(), usecase.LaunchRequest{})
+	if !strings.Contains(got.Notice, "+1 more") {
+		t.Fatalf("notice = %q, want a +1 more fold past three names", got.Notice)
+	}
 }

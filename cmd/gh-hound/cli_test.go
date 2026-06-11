@@ -1003,6 +1003,10 @@ type cliGitHub struct {
 	listPending      int
 	reviews          []usecase.DeploymentReview
 	reviewErr        error
+	listWorkflows    int
+	enableTargets    []string
+	disableTargets   []string
+	toggleErr        error
 	err              error
 
 	cacheList        []model.Cache
@@ -1047,6 +1051,9 @@ func (g *cliGitHub) GetJob(context.Context, string, int64) (model.Job, error) {
 }
 
 func (g *cliGitHub) ListWorkflows(context.Context, string) ([]model.Workflow, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.listWorkflows++
 	return g.workflows, g.err
 }
 
@@ -1104,6 +1111,26 @@ func (g *cliGitHub) dispatches() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.dispatchCalls
+}
+
+func (g *cliGitHub) EnableWorkflow(_ context.Context, repo, workflowID string) (usecase.ActionResult, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.toggleErr != nil {
+		return usecase.ActionResult{}, g.toggleErr
+	}
+	g.enableTargets = append(g.enableTargets, workflowID)
+	return usecase.ActionResult{Action: usecase.ActionEnableWorkflow, Repo: repo, WorkflowID: workflowID, Message: "Workflow enabled"}, nil
+}
+
+func (g *cliGitHub) DisableWorkflow(_ context.Context, repo, workflowID string) (usecase.ActionResult, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.toggleErr != nil {
+		return usecase.ActionResult{}, g.toggleErr
+	}
+	g.disableTargets = append(g.disableTargets, workflowID)
+	return usecase.ActionResult{Action: usecase.ActionDisableWorkflow, Repo: repo, WorkflowID: workflowID, Message: "Workflow disabled"}, nil
 }
 
 func cliRun(id int64, workflow string, status model.Status, conclusion model.Conclusion) model.Run {

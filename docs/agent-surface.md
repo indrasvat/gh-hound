@@ -26,6 +26,9 @@ gh hound rerun --run <run-id> --job <job-id> --no-tui --json
 gh hound cancel --run <run-id> --no-tui --json
 gh hound cancel --run <run-id> --force --no-tui --json
 gh hound diff --workflow <name|file|id> [--branch <b>] --no-tui --json
+gh hound workflows --no-tui --json
+gh hound workflows --enable <id|path> --no-tui --json
+gh hound workflows --disable <id|path> --no-tui --json
 gh hound runs --no-tui --format md
 gh hound runs --no-tui --format xml
 ```
@@ -100,9 +103,32 @@ Diff exit codes: `1` boundary located (a regression exists — action needed), `
 
 Scan rules agents can rely on: a run counts by its latest attempt's conclusion (a failure rerun to green is green); cancelled, skipped, neutral, stale, and still-running runs carry no signal and are stepped over. API spend is bounded by `diff_max_pages` (default 10 pages of 100 runs, env `HOUND_DIFF_MAX_PAGES`); hitting the cap yields `inconclusive`, never a hang. Rehearse deterministically with `--fake-scenario regression` (a seeded boundary: exit `1`, suspects included).
 
+## Workflow State (workflows)
+
+"My cron workflow stopped running" has a one-field answer: scheduled workflows are disabled automatically after 60 days of repo inactivity (`disabled_inactivity`), and the only sign is a state field buried in the web UI. The `workflows` verb surfaces it and flips it back.
+
+```bash
+gh hound workflows --no-tui --json                       # list every workflow + state
+gh hound workflows --enable <id|path> --no-tui --json    # wake it ("back on duty.")
+gh hound workflows --disable <id|path> --no-tui --json   # muzzle it
+```
+
+Envelope (`$defs.workflows_result`): `{repo, workflows: [{id, name, path, state}]}`. Toggle attempts add `accepted` plus either `toggled: {target, action, state}` (the landing state — `active` after enable, `disabled_manually` after disable, derived rather than re-fetched) or the typed `error: {kind, field?, message}` refusal.
+
+State is an **open string**. Documented values: `active`, `disabled_manually` (muzzled by hand), `disabled_inactivity` (asleep after 60 quiet days), `disabled_fork`, `deleted`. Unknown future values pass through verbatim — branch on the ones you know, never reject the rest.
+
+Toggle rules agents can rely on:
+
+- The selector is what the API accepts: a **numeric workflow id or the workflow file path/name** (`ci.yml`, `.github/workflows/ci.yml`). Display names refuse as `validation` (field `workflow`) before any write — resolve names from the list you already have.
+- The list is one API call; a toggle is **exactly one** API call (no lookup, no state re-fetch). Toggles are paced through the same one-per-second mutation limiter as `rerun`/`cancel`.
+- Toggling is only valid between `active` and `disabled_manually`/`disabled_inactivity`. `disabled_fork` and `deleted` cannot be toggled — the API refusal comes back typed.
+- Exit codes: `0` ok (list or accepted toggle), `2` anything else with `error.kind` one of `validation | permission | conflict | rate_limit | network | unknown`. Exit `1` and `3` are never returned by this verb.
+
+Rehearse deterministically with `--fake-scenario green` (the fake fleet covers all five documented states) or `--fake-scenario api_error` (typed `network` refusal).
+
 ## JSON Contract
 
-The JSON schema lives at `internal/render/testdata/schema.json` (mutation envelope under `$defs.mutation_result`, approvals envelope under `$defs.approvals_result`, regression verdict under `$defs.diff_result`); the canonical failure fixture lives at `internal/render/testdata/failure.golden.json`.
+The JSON schema lives at `internal/render/testdata/schema.json` (mutation envelope under `$defs.mutation_result`, approvals envelope under `$defs.approvals_result`, regression verdict under `$defs.diff_result`, workflows envelope under `$defs.workflows_result`); the canonical failure fixture lives at `internal/render/testdata/failure.golden.json`.
 
 Each run includes:
 

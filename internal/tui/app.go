@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +32,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/tui/screens/runs"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/watch"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/welcome"
+	workflowsscreen "github.com/indrasvat/gh-hound/internal/tui/screens/workflows"
 	"github.com/indrasvat/gh-hound/internal/tui/toast"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
@@ -40,15 +42,16 @@ type BuildInfo = banner.BuildInfo
 type Route string
 
 const (
-	RouteWelcome  Route = "welcome"
-	RouteRuns     Route = "runs"
-	RouteDetail   Route = "detail"
-	RouteFailure  Route = "failure"
-	RouteLog      Route = "log"
-	RouteWatch    Route = "watch"
-	RouteDispatch Route = "dispatch"
-	RouteDiff     Route = "diff"
-	RouteCaches   Route = "caches"
+	RouteWelcome   Route = "welcome"
+	RouteRuns      Route = "runs"
+	RouteDetail    Route = "detail"
+	RouteFailure   Route = "failure"
+	RouteLog       Route = "log"
+	RouteWatch     Route = "watch"
+	RouteDispatch  Route = "dispatch"
+	RouteDiff      Route = "diff"
+	RouteCaches    Route = "caches"
+	RouteWorkflows Route = "workflows"
 )
 
 type Overlay string
@@ -78,6 +81,7 @@ type Options struct {
 	DispatchResolver          func(context.Context) (dispatch.Model, error)
 	DispatchWorkflowsResolver func(context.Context) ([]dispatch.Workflow, error)
 	DiffResolver              func(context.Context, model.Run) (usecase.RegressionVerdict, error)
+	WorkflowsResolver         func(context.Context) ([]model.Workflow, error)
 	RunsMetadata              func() (usecase.RequestMeta, bool)
 	LogRefetchNotice          func(int64) (usecase.LogRefetchNotice, bool)
 	ActionHandler             func(ActionRequest) (usecase.ActionResult, error)
@@ -130,6 +134,7 @@ type App struct {
 	watch                     watch.Model
 	dispatch                  dispatch.Model
 	diff                      diffscreen.Model
+	workflows                 workflowsscreen.Model
 	palette                   palette.Model
 	approvals                 approvals.Model
 	confirm                   confirm.Model
@@ -146,6 +151,7 @@ type App struct {
 	dispatchResolver          func(context.Context) (dispatch.Model, error)
 	dispatchWorkflowsResolver func(context.Context) ([]dispatch.Workflow, error)
 	diffResolver              func(context.Context, model.Run) (usecase.RegressionVerdict, error)
+	workflowsResolver         func(context.Context) ([]model.Workflow, error)
 	runsMetadata              func() (usecase.RequestMeta, bool)
 	logRefetchNotice          func(int64) (usecase.LogRefetchNotice, bool)
 	actionHandler             func(ActionRequest) (usecase.ActionResult, error)
@@ -334,6 +340,7 @@ func NewApp(options Options) App {
 		dispatchResolver:          options.DispatchResolver,
 		dispatchWorkflowsResolver: options.DispatchWorkflowsResolver,
 		diffResolver:              options.DiffResolver,
+		workflowsResolver:         options.WorkflowsResolver,
 		runsMetadata:              options.RunsMetadata,
 		logRefetchNotice:          options.LogRefetchNotice,
 		actionHandler:             options.ActionHandler,
@@ -393,6 +400,9 @@ func NewScenarioApp(scenario string, build BuildInfo) App {
 	}
 	app.diffResolver = func(context.Context, model.Run) (usecase.RegressionVerdict, error) {
 		return sampleDiffVerdict(), nil
+	}
+	app.workflowsResolver = func(context.Context) ([]model.Workflow, error) {
+		return sampleWorkflows(), nil
 	}
 	switch strings.ToLower(scenario) {
 	case "green", "ok", "success":
@@ -648,6 +658,17 @@ func RenderFixtureSize(screen string, width, height int) string {
 	case "caches-empty":
 		m := caches.NewModel("indrasvat/gh-hound", caches.Data{})
 		return frameViewSize(app.theme, "hound", "the kennel · caches", caches.UsageLine(m.Usage, m.Cap), caches.ViewSize(m, bodyWidth, bodyHeight(height), time.Now()), keys.FooterForScreen(keys.ScreenCaches), width, height, true)
+	case "workflows":
+		kennelApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		kennelApp.workflows = workflowsscreen.NewModel("indrasvat/gh-hound", sampleWorkflows())
+		kennelApp.routes = []Route{RouteRuns, RouteWorkflows}
+		return kennelApp.ViewSize(width, height)
+	case "dispatch-picker":
+		pickerApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		pickerApp.dispatchWorkflows = sampleDispatchPickerWorkflows()
+		pickerApp.palette = palette.New(dispatchPaletteItems(pickerApp.dispatchWorkflows))
+		pickerApp.overlays = append(pickerApp.overlays, OverlayPalette)
+		return pickerApp.ViewSize(width, height)
 	case "palette":
 		app, _ = app.Update(KeyMsg{Key: ":"})
 		return app.ViewSize(width, height)
@@ -1036,6 +1057,8 @@ func (a App) updateRoute(msg KeyMsg) (App, bool) {
 		return a.updateDiff(msg)
 	case RouteCaches:
 		return a.updateCaches(msg)
+	case RouteWorkflows:
+		return a.updateWorkflows(msg)
 	default:
 		return a, false
 	}
@@ -1102,6 +1125,91 @@ func diffScreenHandled(key string) bool {
 	default:
 		return false
 	}
+}
+
+// openWorkflows fetches the pack roster through startLoad — never
+// on the keypress path (Task 220 invariant) — and routes immediately
+// so the shared loading body holds the pane until the list lands.
+func (a App) openWorkflows() App {
+	if a.loadBlocked(loadKindWorkflows) {
+		return a
+	}
+	a.clearRouteError(RouteWorkflows)
+	a.workflows = workflowsscreen.Model{Repo: a.runs.Context.Repo}
+	if a.workflowsResolver == nil {
+		a.setRouteError(RouteWorkflows, "workflows unavailable: live workflow loader is not configured")
+		a.PushRoute(RouteWorkflows)
+		return a
+	}
+	resolver := a.workflowsResolver
+	repo := a.runs.Context.Repo
+	a = a.startLoad(loadKindWorkflows, "counting the pack", func(ctx context.Context) func(App) App {
+		workflows, err := resolver(ctx)
+		return func(app App) App {
+			if err != nil {
+				app.setRouteError(RouteWorkflows, "workflows unavailable: "+err.Error())
+				return app
+			}
+			app.workflows = workflowsscreen.NewModel(repo, workflows)
+			return app
+		}
+	})
+	a.PushRoute(RouteWorkflows)
+	return a
+}
+
+func (a App) updateWorkflows(msg KeyMsg) (App, bool) {
+	before := a.workflows
+	a.workflows = a.workflows.Update(workflowsscreen.KeyMsg{Key: msg.Key})
+	switch a.workflows.Intent.Kind {
+	case workflowsscreen.IntentToggle:
+		workflow := a.workflows.Intent.Workflow
+		action := usecase.ActionDisableWorkflow
+		if workflow.State != model.WorkflowStateActive {
+			action = usecase.ActionEnableWorkflow
+		}
+		a = a.handleAction(RouteWorkflows, ActionRequest{
+			Action: action,
+			Workflow: dispatch.Workflow{
+				Name:  workflowDisplayLabel(workflow),
+				ID:    workflowToggleIdentifier(workflow),
+				State: workflow.State,
+			},
+		})
+	case workflowsscreen.IntentBrowser:
+		a = a.openExternal(a.workflows.Intent.Workflow.HTMLURL)
+	case workflowsscreen.IntentBack:
+		a.PopRoute()
+	}
+	return a, workflowsScreenHandled(msg.Key) || before.Selected != a.workflows.Selected || a.workflows.Intent.Kind != workflowsscreen.IntentNone
+}
+
+func workflowsScreenHandled(key string) bool {
+	switch key {
+	case "j", "k", "down", "up", "g", "G", "e", "o", "esc":
+		return true
+	default:
+		return false
+	}
+}
+
+// workflowToggleIdentifier picks the selector the API accepts: the
+// workflow file path, else the numeric id.
+func workflowToggleIdentifier(workflow model.Workflow) string {
+	if strings.TrimSpace(workflow.Path) != "" {
+		return strings.TrimSpace(workflow.Path)
+	}
+	if workflow.ID != 0 {
+		return fmt.Sprintf("%d", workflow.ID)
+	}
+	return ""
+}
+
+func workflowDisplayLabel(workflow model.Workflow) string {
+	if strings.TrimSpace(workflow.Name) != "" {
+		return strings.TrimSpace(workflow.Name)
+	}
+	return strings.TrimSpace(workflow.Path)
 }
 
 func (a App) updateRuns(msg KeyMsg) (App, bool) {
@@ -1515,6 +1623,23 @@ func (a App) updateConfirm(msg KeyMsg) (App, bool) {
 		if pending != nil {
 			var accepted bool
 			a, accepted = a.executeAction(pending.route, pending.request)
+			if accepted && workflowToggleFamily(pending.request.Action) {
+				// The landing state is derived, never re-fetched: the
+				// toggle stays exactly one API call. The cached
+				// dispatch roster flips too so the picker's badge and
+				// refusal stay truthful without a refetch.
+				enabled := pending.request.Action == usecase.ActionEnableWorkflow
+				a.workflows = a.workflows.WithToggled(pending.request.Workflow.ID, enabled)
+				state := model.WorkflowStateDisabledManually
+				if enabled {
+					state = model.WorkflowStateActive
+				}
+				for i := range a.dispatchWorkflows {
+					if a.dispatchWorkflows[i].ID == pending.request.Workflow.ID {
+						a.dispatchWorkflows[i].State = state
+					}
+				}
+			}
 			if accepted && deploymentReviewFamily(pending.request.Action) && a.TopOverlay() == OverlayApprovals {
 				// The gate was acted on: the overlay beneath has
 				// nothing left to offer. A refusal keeps it open with
@@ -1641,6 +1766,9 @@ func (a App) handlePaletteIntent(intent palette.Intent) App {
 	case string(RouteDiff):
 		a.PopOverlay()
 		a = a.openDiff()
+	case string(RouteWorkflows):
+		a.PopOverlay()
+		a = a.openWorkflows()
 	}
 	return a
 }
@@ -1660,6 +1788,11 @@ func (a App) openPalette() App {
 func (a App) openDispatchFromPalette(value string) App {
 	if strings.TrimSpace(value) != "" {
 		if workflow, ok := a.dispatchWorkflowByValue(value); ok {
+			if refused, refusal := dispatchOffDutyRefusal(workflow); refused {
+				a.PopOverlay()
+				a.pushToast("dispatch-workflow-offduty", refusal)
+				return a
+			}
 			a.PopOverlay()
 			a.dispatch = dispatch.NewModel(workflow)
 			a.PushRoute(RouteDispatch)
@@ -1759,6 +1892,17 @@ func (a App) updateApprovals(msg KeyMsg) (App, bool) {
 		len(before.PickedEnvironments()) != len(a.approvals.PickedEnvironments()) ||
 		a.approvals.Intent.Kind != approvals.IntentNone
 	return a, changed || len([]rune(msg.Key)) == 1
+}
+
+// workflowToggleFamily reports whether an action is a workflow
+// enable/disable; confirming one flips the pack badge locally.
+func workflowToggleFamily(action usecase.Action) bool {
+	switch action {
+	case usecase.ActionEnableWorkflow, usecase.ActionDisableWorkflow:
+		return true
+	default:
+		return false
+	}
 }
 
 // deploymentReviewFamily reports whether an action is a deploy-gate
@@ -2251,6 +2395,38 @@ func (a App) openDispatch() App {
 	// route is pushed when the decision is known so esc-from-palette
 	// navigation matches the old synchronous behavior exactly.
 	if len(a.dispatchWorkflows) > 0 {
+		// States can change out from under the cache (a toggle in
+		// another terminal): refresh them with ONE list call so the
+		// picker badges and refusals stay truthful — the expensive
+		// per-file dispatchability probes stay cached.
+		if a.workflowsResolver != nil {
+			resolver := a.workflowsResolver
+			cached := append([]dispatch.Workflow(nil), a.dispatchWorkflows...)
+			return a.startLoad(loadKindDispatch, "fetching workflows", func(ctx context.Context) func(App) App {
+				roster, err := resolver(ctx)
+				return func(app App) App {
+					if err == nil {
+						// Roster entries identify by file path OR
+						// numeric ID (workflowToggleIdentifier
+						// convention) — index fresh states under both.
+						states := make(map[string]string, len(roster)*2)
+						for _, workflow := range roster {
+							states[strconv.FormatInt(workflow.ID, 10)] = workflow.State
+							if path := strings.TrimSpace(workflow.Path); path != "" {
+								states[path] = workflow.State
+							}
+						}
+						for i := range cached {
+							if state, ok := states[cached[i].ID]; ok {
+								cached[i].State = state
+							}
+						}
+					}
+					app.dispatchWorkflows = cached
+					return app.applyDispatchChoices(cached)
+				}
+			})
+		}
 		return a.applyDispatchChoices(a.dispatchWorkflows)
 	}
 	if a.dispatchWorkflowsResolver == nil {
@@ -2284,6 +2460,10 @@ func (a App) applyDispatchChoices(workflows []dispatch.Workflow) App {
 		a = a.loadDispatchFallback()
 		a.PushRoute(RouteDispatch)
 	case 1:
+		if refused, refusal := dispatchOffDutyRefusal(workflows[0]); refused {
+			a.pushToast("dispatch-workflow-offduty", refusal)
+			return a
+		}
 		a.dispatch = dispatch.NewModel(workflows[0])
 		a.PushRoute(RouteDispatch)
 	default:
@@ -2371,6 +2551,23 @@ func (a *App) dispatchWorkflowByValue(value string) (dispatch.Workflow, bool) {
 	return dispatch.Workflow{}, false
 }
 
+// dispatchOffDutyRefusal refuses dispatching a non-active workflow: a
+// doomed 422 is not a dispatch. The toast points at the pack roster.
+func dispatchOffDutyRefusal(workflow dispatch.Workflow) (bool, usecase.Resilience) {
+	if workflow.State == "" || workflow.State == model.WorkflowStateActive {
+		return false, usecase.Resilience{}
+	}
+	name := strings.TrimSpace(workflow.Name)
+	if name == "" {
+		name = workflow.ID
+	}
+	return true, usecase.Resilience{
+		Severity: usecase.SeverityWarn,
+		Title:    name + " is " + workflowsscreen.StateLabel(workflow.State),
+		Message:  "wake it in :workflows before dispatching",
+	}
+}
+
 func (a App) handleAction(route Route, request ActionRequest) App {
 	if actionRequiresConfirmation(request.Action) {
 		return a.openConfirm(route, request)
@@ -2393,7 +2590,13 @@ func (a App) executeAction(route Route, request ActionRequest) (App, bool) {
 		a.pushErrorToast("action-failed", usecase.ResilienceFor(err, usecase.ErrorContext{}))
 		return a, false
 	}
-	a.pushToast("action-ok", usecase.ResilienceForSuccess(result))
+	resilience := usecase.ResilienceForSuccess(result)
+	if resilience.Message == "" && request.Workflow.Name != "" {
+		// Run-less actions target a workflow: say WHICH one went back
+		// on duty (QA round 13).
+		resilience.Message = "workflow " + request.Workflow.Name
+	}
+	a.pushToast("action-ok", resilience)
 	return a, true
 }
 
@@ -2426,7 +2629,9 @@ func actionRequiresConfirmation(action usecase.Action) bool {
 		usecase.ActionCancelRun,
 		usecase.ActionForceCancelRun,
 		usecase.ActionApproveDeployment,
-		usecase.ActionRejectDeployment:
+		usecase.ActionRejectDeployment,
+		usecase.ActionEnableWorkflow,
+		usecase.ActionDisableWorkflow:
 		return true
 	default:
 		return false
@@ -2449,9 +2654,26 @@ func confirmMessage(request ActionRequest) string {
 		return "open the gate for " + environmentTarget(request.Environments) + "?"
 	case usecase.ActionRejectDeployment:
 		return "keep the gate shut for " + environmentTarget(request.Environments) + "?"
+	case usecase.ActionEnableWorkflow:
+		return "wake " + workflowConfirmTarget(request.Workflow) + "? it goes back on duty"
+	case usecase.ActionDisableWorkflow:
+		return "muzzle " + workflowConfirmTarget(request.Workflow) + "? no runs until it is woken"
 	default:
 		return string(request.Action)
 	}
+}
+
+// workflowConfirmTarget names exactly one workflow — toggles are
+// always singular, so the prompt is too.
+func workflowConfirmTarget(workflow dispatch.Workflow) string {
+	name := strings.TrimSpace(workflow.Name)
+	if name == "" {
+		name = strings.TrimSpace(workflow.ID)
+	}
+	if name == "" {
+		return "the selected workflow"
+	}
+	return "workflow " + name
 }
 
 func environmentTarget(environments []string) string {
@@ -2709,6 +2931,8 @@ func (a App) footerScreen() keys.Screen {
 		return keys.ScreenDiff
 	case RouteCaches:
 		return keys.ScreenCaches
+	case RouteWorkflows:
+		return keys.ScreenWorkflows
 	default:
 		if a.Route() == RouteRuns && a.runs.AllGreen() {
 			return keys.ScreenAllGreen
@@ -2783,6 +3007,11 @@ func (a App) chromeParts() (string, string, string) {
 			return "hound", "the kennel · caches", "fetching…"
 		}
 		return "hound", "the kennel · caches", caches.UsageLine(a.caches.Usage, a.caches.Cap)
+	case RouteWorkflows:
+		if load := a.load; load != nil && load.kind == loadKindWorkflows {
+			return "hound", "the pack · workflows", "counting…"
+		}
+		return "hound", "the pack · workflows", workflowsRight(a.workflows)
 	default:
 		if a.runs.AllGreen() {
 			return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), runsRight(a.runs, a.refreshCount, a.runsMeta)
@@ -2813,6 +3042,27 @@ func diffRight(verdict usecase.RegressionVerdict) string {
 	default:
 		return ""
 	}
+}
+
+func workflowsRight(m workflowsscreen.Model) string {
+	total := len(m.Workflows)
+	if total == 0 {
+		return ""
+	}
+	noun := "workflows"
+	if total == 1 {
+		noun = "workflow"
+	}
+	offDuty := 0
+	for _, workflow := range m.Workflows {
+		if workflow.State != model.WorkflowStateActive {
+			offDuty++
+		}
+	}
+	if offDuty == 0 {
+		return fmt.Sprintf("%d %s · all on duty", total, noun)
+	}
+	return fmt.Sprintf("%d %s · %d off duty", total, noun, offDuty)
 }
 
 func hasLaunchContext(ctx usecase.LaunchContext) bool {
@@ -2923,6 +3173,7 @@ func paletteItems(workflows []dispatch.Workflow) []palette.Item {
 		{Name: "approvals", Description: "review the deploy gate", Route: "approvals"},
 		{Name: "diff", Description: "who broke main? · the trail", Route: string(RouteDiff)},
 		{Name: "caches", Description: "the kennel · cache usage & eviction", Route: string(RouteCaches)},
+		{Name: "workflows", Description: "the pack · states, wake & muzzle", Route: string(RouteWorkflows)},
 	}
 	if len(workflows) == 0 {
 		items = append(items, palette.Item{Name: "dispatch", Description: "trigger workflow_dispatch", Route: string(RouteDispatch)})
@@ -2941,9 +3192,17 @@ func dispatchPaletteItems(workflows []dispatch.Workflow) []palette.Item {
 		if name == "" {
 			continue
 		}
+		description := "workflow_dispatch · " + workflowValue(workflow)
+		if workflow.State != "" && workflow.State != model.WorkflowStateActive {
+			// Non-active workflows stay visible — the badge answers
+			// "where did my workflow go" — but selection is refused.
+			// The badge replaces the redundant trigger prefix so it
+			// survives the 80-column overlay untruncated.
+			description = workflowValue(workflow) + " · " + workflowsscreen.BadgeText(workflow.State)
+		}
 		items = append(items, palette.Item{
 			Name:        "dispatch: " + name,
-			Description: "workflow_dispatch · " + workflowValue(workflow),
+			Description: description,
 			Route:       string(RouteDispatch),
 			Value:       workflowValue(workflow),
 		})
@@ -3023,6 +3282,11 @@ func (a App) screenBody(width, height int) string {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())
 		}
 		return caches.ViewSize(a.caches, bodyWidth, bodyHeight(height), time.Now())
+	case RouteWorkflows:
+		if load := a.load; load != nil && load.kind == loadKindWorkflows {
+			return loadingBody(a.theme, load, bodyWidth, time.Now())
+		}
+		return workflowsscreen.ViewSize(a.workflows, bodyWidth, bodyHeight(height))
 	default:
 		return string(a.Route())
 	}
@@ -3067,6 +3331,11 @@ func (a App) unloadedRouteBody(route Route, width int) (string, bool) {
 		pendingDiff := a.load != nil && a.load.kind == loadKindDiff
 		if a.diff.Verdict.Status == "" && !pendingDiff {
 			message = "the trail is empty: select a run and jump with :diff"
+		}
+	case RouteWorkflows:
+		pendingWorkflows := a.load != nil && a.load.kind == loadKindWorkflows
+		if len(a.workflows.Workflows) == 0 && !pendingWorkflows {
+			message = "the pack is empty: no workflows loaded"
 		}
 	}
 	if message == "" {
@@ -3527,6 +3796,30 @@ func sampleColdTrailVerdict() usecase.RegressionVerdict {
 		Status:      usecase.RegressionInconclusive,
 		RunsScanned: 1000,
 		Verdict:     "trail went cold after 1,000 runs.",
+	}
+}
+
+// sampleWorkflows covers every documented state plus an unknown one,
+// mirroring the fake adapter, for fixtures and scenario apps.
+func sampleWorkflows() []model.Workflow {
+	return []model.Workflow{
+		{ID: 123, Name: "CI", Path: ".github/workflows/ci.yml", State: model.WorkflowStateActive, HTMLURL: "https://github.com/indrasvat/gh-hound/actions/workflows/ci.yml"},
+		{ID: 124, Name: "Nightly Sweep", Path: ".github/workflows/nightly.yml", State: model.WorkflowStateDisabledInactivity, HTMLURL: "https://github.com/indrasvat/gh-hound/actions/workflows/nightly.yml"},
+		{ID: 125, Name: "Stale Patrol", Path: ".github/workflows/stale.yml", State: model.WorkflowStateDisabledManually, HTMLURL: "https://github.com/indrasvat/gh-hound/actions/workflows/stale.yml"},
+		{ID: 126, Name: "Fork Gate", Path: ".github/workflows/fork-gate.yml", State: model.WorkflowStateDisabledFork, HTMLURL: "https://github.com/indrasvat/gh-hound/actions/workflows/fork-gate.yml"},
+		{ID: 127, Name: "Old Patrol", Path: ".github/workflows/old-patrol.yml", State: model.WorkflowStateDeleted, HTMLURL: "https://github.com/indrasvat/gh-hound/actions/workflows/old-patrol.yml"},
+		{ID: 128, Name: "Mystery Cron", Path: ".github/workflows/mystery.yml", State: "disabled_quarantine", HTMLURL: "https://github.com/indrasvat/gh-hound/actions/workflows/mystery.yml"},
+	}
+}
+
+// sampleDispatchPickerWorkflows seeds the badged dispatch chooser:
+// two on duty, one asleep, one muzzled.
+func sampleDispatchPickerWorkflows() []dispatch.Workflow {
+	return []dispatch.Workflow{
+		{Name: "CI", ID: "ci.yml", Ref: "main", State: model.WorkflowStateActive},
+		{Name: "Release", ID: "release.yml", Ref: "main", State: model.WorkflowStateActive},
+		{Name: "Nightly Sweep", ID: "nightly.yml", Ref: "main", State: model.WorkflowStateDisabledInactivity},
+		{Name: "Stale Patrol", ID: "stale.yml", Ref: "main", State: model.WorkflowStateDisabledManually},
 	}
 }
 

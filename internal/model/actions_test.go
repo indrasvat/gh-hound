@@ -72,3 +72,26 @@ func TestConclusionJSONNullRoundTrip(t *testing.T) {
 		t.Fatalf("marshal none conclusion = %s", data)
 	}
 }
+
+func TestWorkflowToggleabilityCoversAllDocumentedStates(t *testing.T) {
+	cases := []struct {
+		state string
+		want  bool
+	}{
+		{WorkflowStateActive, true},
+		{WorkflowStateDisabledManually, true},
+		{WorkflowStateDisabledInactivity, true},
+		{WorkflowStateDisabledFork, false},
+		{WorkflowStateDeleted, false},
+		// Open-string semantics: unknown future states are rendered
+		// verbatim elsewhere and never guessed at here.
+		{"disabled_by_dependabot_v9", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		workflow := Workflow{ID: 1, Name: "CI", Path: ".github/workflows/ci.yml", State: tc.state}
+		if got := workflow.Toggleable(); got != tc.want {
+			t.Fatalf("Workflow{State: %q}.Toggleable() = %t, want %t", tc.state, got, tc.want)
+		}
+	}
+}

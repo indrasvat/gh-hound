@@ -1,6 +1,6 @@
 ---
 name: gh-hound-qa-ledger
-description: Running QA failure/verification ledger for gh-hound TUI audits (rounds 4-12; tasks 220-290 — round 12 PASS, kennel header/space/plural fixes verified)
+description: Running QA failure/verification ledger for gh-hound TUI audits (rounds 4-14; tasks 220-290 — round 14 PASS, task 280 fixes verified; palette j/k typing is unpinned by tests)
 metadata:
   type: project
 ---
@@ -199,6 +199,86 @@ ellipsized by cacheKeyLabel, then fit-truncated again. Toast overlays
 headline right edge ("… ✔ dug up…") — established placement, don't
 re-file. Evidence: .shux/out/r12-live-*.png + regenerated
 .claude/automations/screenshots/caches{,-pressure,-empty}.
+
+Round 13 (feat/280-workflow-state, audited 75161cc then HEAD moved
+mid-audit to 0c0175c — rebuilt + re-verified, 2026-06-11): FAIL — the
+pack (workflows). P1 ROOT-CAUSED, answers the orchestrator's "palette
+drops k" anomaly: palette.Update (overlay/palette/palette.go:51-58)
+intercepts "j"/"k" as selection moves BEFORE the default text-append,
+so those letters can NEVER be typed into the palette query. Burst
+"workflows" → "worflows" (0 matches, dead enter); per-key w-o-r-k-f →
+"worf". NOT shux, NOT keyDecoder (decoder verified byte-correct:
+pending buffer pops one key per Read, burst-safe). Pre-existing since
+c4dbfc5, but 280's own UX copy routes users into it: refusal toast
+"wake it in :workflows before dispatching" + launch notice ":workflows
+holds the leash" — and ":workflows" contains k. Arrows already cover
+palette navigation; fix is dropping the j/k cases. P2 (new in 280):
+toggle toasts stutter — usecase/workflow.go sets result.Message
+("back on duty."/"muzzled.") and ResilienceForSuccess (errors.go:228)
+uses Message for BOTH Title and Message when RunID==0 → "✔ back on
+duty. · back on duty."; also never names the workflow. P3 fake-lens
+unreachables: badged dispatch picker + off-duty refusal toast
+unreachable in __vqa-tui (fake makes only ci.yml dispatchable —
+deliberate per fake.go:138 comment; refusal pinned only by
+TestDispatchPickerBadgesAndRefusesNonActiveWorkflows driving real
+Update keys); workflows error/empty states unreachable (fake
+ListWorkflows never errors/empties in any scenario); unknown-state ◇
+badge absent from sampleWorkflows AND fake (app.go sampleWorkflows
+comment "plus an unknown one" lies — slice has 5 documented states).
+Everything else VERIFIED on 0c0175c: workflows + dispatch-picker
+fixtures clean at 3 breakpoints, header/value columns EXACT (shared
+columnWidths math, measured hdr State@64/104/184 == badges); palette
+lists approvals+diff+caches+workflows w/ correct kennel/pack
+descriptions; caches/approvals/diff fixtures unregressed; :→pac→enter
+opens pack via startLoad ("counting…" meta flips instantly, 220
+invariant; "counting the pack" grace-skipped in fake); badges ✔◌⊘⊘✗
+colored per state; e on asleep→"wake workflow Nightly Sweep? it goes
+back on duty"→y flips badge locally (summary recounts, no refetch);
+e on active→"muzzle workflow CI? no runs until it is woken"; e INERT
+on fork-disabled/deleted with why-lines ("the fork holds this
+leash…"/"the workflow file is gone…"); asleep why-line "fell asleep
+after 60 quiet days"; j/k+arrows+g/G all move; esc pops exactly one
+layer (confirm→pack→runs); footer "j/k move · e wake/muzzle · o
+browser · ⎋ back" truthful; help overlay contextual ("e wake/muzzle ·
+o browser"); live resize 80/200 clean; empty-launch notice (0c0175c
+names offenders: "off duty (1 asleep, 1 muzzled): Nightly Sweep,
+Stale Patrol — :workflows holds the leash") wraps cleanly at 80+120;
+pipe workflows --json exit 0, --disable 0 typed validation exit 2;
+309 unit tests green. Stateless-fake note: reopening the pack
+refetches the original roster (toggles don't persist in fake) — fresh
+fetch by design, NOT stale state. 'o' browser not pressed live (real
+`open` side effect); wiring verified in code. Evidence:
+.shux/out/r13-*.png + regenerated screenshots/workflows,
+dispatch-picker.
+
+Round 14 (feat/280-workflow-state, 74acdba, 2026-06-11): PASS —
+targeted re-audit of round-13 findings. F1 FIXED in binary: palette is
+arrows-only (palette.go:51-58 drops j/k cases); burst ":workflows" and
+":kennel" land every letter, items match, enter dispatches; arrows
+move selection both ways; typed 'k' appends + filters + resets
+selection to top. CAVEAT (P3, unfiled upstream): 23a491d's test
+changes only swap "j"→"down" in 3 nav tests — NO test types j/k into
+the palette query and asserts append; reintroducing `case "j",
+"down":` stays green. F2 FIXED: toasts read "✔ muzzled. · workflow CI"
+and "✔ back on duty. · workflow Nightly Sweep" — no stutter, workflow
+named (errors.go:228 blanks echoed message; app.go:2545 injects
+"workflow <name>"); badge+summary+e-verb flip locally, "5 off duty"
+recounts. F3 partial FIXED: fixture roster has 6th row "Mystery Cron ·
+◇ disabled_quarantine" (dim gray, real diamond glyph, no tofu);
+alignment EXACT at 80/120/200 — at 80 the state text ends flush inside
+the right border, no clip; summary has no "quarantined" bucket but
+off-duty count includes it (matches assertion, fine). Fix 4 (74acdba
+dispatch-picker stale-state refresh): code + both pinning tests
+verified (workflows_app_test.go:248,279); NOT live-verifiable in fake —
+the stateless fake's openDispatch refresh resurrects "active", so
+in-app muzzle of CI then D still opens the form in __vqa-tui (fake-lens
+artifact, NOT a build defect; orchestrator verified live both
+directions). Remaining F3 unreachables from round 13 still stand
+(refusal toast, workflows error/empty in fake). vqa.sh regenerated all
+26 screens this audit, passed; dispatch-picker + palette fixtures
+unregressed (badged picker entries ◌/⊘ intact). 519 unit tests green.
+Evidence: .shux/out/r14-*.png (8) + regenerated
+.claude/automations/screenshots.
 
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.

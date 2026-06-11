@@ -48,11 +48,14 @@ func New(items []Item) Model {
 func (m Model) Update(msg KeyMsg) Model {
 	m.Intent = Intent{}
 	switch msg.Key {
-	case "j", "down":
+	// Arrows only: the query is a TEXT INPUT, and j/k as navigation
+	// shadowed the default append — ":workflows" typed as ":worflows"
+	// and matched nothing (QA round 13, P1).
+	case "down":
 		if m.Selected < len(m.Visible())-1 {
 			m.Selected++
 		}
-	case "k", "up":
+	case "up":
 		if m.Selected > 0 {
 			m.Selected--
 		}

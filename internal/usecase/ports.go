@@ -58,6 +58,8 @@ type GitHub interface {
 	CancelRun(context.Context, string, int64) (ActionResult, error)
 	ForceCancelRun(context.Context, string, int64) (ActionResult, error)
 	DispatchWorkflow(context.Context, string, string, DispatchRequest) (ActionResult, error)
+	EnableWorkflow(context.Context, string, string) (ActionResult, error)
+	DisableWorkflow(context.Context, string, string) (ActionResult, error)
 }
 
 // CacheFilter narrows a cache listing server-side. Key matches an
