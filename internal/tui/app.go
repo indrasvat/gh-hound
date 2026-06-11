@@ -2988,6 +2988,7 @@ func sampleWaitingRunsModel() runs.Model {
 		Repo:   "indrasvat/gh-hound",
 		Branch: "main",
 		Actor:  "indrasvat",
+		Scope:  usecase.LaunchScopeBranch,
 		State:  usecase.LaunchStateRuns,
 		Runs: []model.Run{
 			{ID: 30433655, Name: "Deploy", DisplayTitle: "production rollout", Event: "push", Status: model.StatusWaiting, Conclusion: model.ConclusionNone, RunNumber: 572, Actor: "indrasvat", HeadBranch: "main", HeadSHA: "a1b2c3d", UpdatedAt: now.Add(-90 * time.Second), RunStartedAt: now.Add(-2 * time.Minute)},
