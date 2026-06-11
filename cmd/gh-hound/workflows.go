@@ -140,6 +140,10 @@ func workflowsErrorKind(err error) (string, string, string) {
 			return string(usecase.ActionErrorRateLimit), "", apiErr.Error()
 		case usecase.APIErrorNetwork:
 			return string(usecase.ActionErrorNetwork), "", apiErr.Error()
+		case usecase.APIErrorNotFound:
+			// A missing repo or workflow resource is actionable for
+			// agents — it must not collapse into unknown.
+			return string(usecase.ActionErrorNotFound), "", apiErr.Error()
 		}
 		return string(usecase.ActionErrorUnknown), "", apiErr.Error()
 	}

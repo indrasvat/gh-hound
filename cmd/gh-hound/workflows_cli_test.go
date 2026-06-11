@@ -172,6 +172,17 @@ func TestWorkflowsListFailureStaysTyped(t *testing.T) {
 	if !strings.Contains(out.String(), `"kind": "rate_limit"`) {
 		t.Fatalf("list failure must keep the typed kind:\n%s", out.String())
 	}
+
+	// A missing repo must surface as not_found, never unknown — agents
+	// branch on error.kind (ghent Codex P2).
+	out.Reset()
+	github.err = usecase.APIError{Kind: usecase.APIErrorNotFound, Status: http.StatusNotFound, Message: "Not Found"}
+	cmd = newRootCommandWithRuntime(approvalsRuntime(&out, github), testBuildInfo())
+	cmd.SetArgs([]string{"workflows", "--no-tui", "--json"})
+	code, _ = executeCommand(cmd)
+	if code != 2 || !strings.Contains(out.String(), `"kind": "not_found"`) {
+		t.Fatalf("missing repo must refuse not_found, exit = %d:\n%s", code, out.String())
+	}
 }
 
 func TestWorkflowsFakeScenarioCoversAllStates(t *testing.T) {
