@@ -599,3 +599,32 @@ func TestSupersededLoadContextIsCancelled(t *testing.T) {
 	app, _ = app.SettleLoads(2 * time.Second)
 	_ = app
 }
+
+func TestLoadMorePageForAbandonedScopeIsDropped(t *testing.T) {
+	app := asyncTestApp()
+	app.runs.Context.Scope = usecase.LaunchScopeBranch
+	app.runs.Context.BranchRuns = app.runs.Context.Runs
+	app.runs.Context.RepoRuns = append([]model.Run(nil), app.runs.Context.Runs...)
+	app.runs.Context.HasMore = true
+	release := make(chan struct{})
+	app.runsResolver = func(usecase.RunFilter) ([]model.Run, error) {
+		<-release
+		return []model.Run{{ID: 7777, Name: "CI", RunNumber: 7777, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess}}, nil
+	}
+	app, _ = app.Update(KeyMsg{Key: "G"})
+	if app.load == nil {
+		t.Fatal("G started no load")
+	}
+	before := len(app.runs.Context.RepoRuns)
+	app.runs = app.runs.Update(runs.KeyMsg{Key: "s"}) // flip to repo scope mid-flight
+	close(release)
+	app = settleApp(t, app)
+	if len(app.runs.Context.RepoRuns) != before {
+		t.Fatalf("stale branch page appended into repo listing: %d, want %d", len(app.runs.Context.RepoRuns), before)
+	}
+	for _, run := range app.runs.Context.Runs {
+		if run.ID == 7777 {
+			t.Fatal("stale branch page leaked into active runs")
+		}
+	}
+}

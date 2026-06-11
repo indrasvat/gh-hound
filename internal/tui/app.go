@@ -1388,11 +1388,18 @@ func (a App) loadMoreRuns() App {
 		return a
 	}
 	resolver := a.runsResolver
+	requestScope := a.runs.Context.Scope
 	return a.startLoad(loadKindRuns, "fetching more runs", func() func(App) App {
 		resolved, err := resolver(filter)
 		return func(app App) App {
 			if err != nil {
 				return app.handleRunsError(RouteRuns, "runs-page", "next page failed: "+err.Error(), err)
+			}
+			if app.runs.Context.Scope != requestScope {
+				// The page belongs to a scope the user already left;
+				// appending it would corrupt the active listing. Drop
+				// it — G in the new scope fetches its own pages.
+				return app
 			}
 			app.runs.Context.Page = nextPage
 			app.runs.Context.PerPage = perPage
