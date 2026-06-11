@@ -6,8 +6,10 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/tui"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -166,6 +168,55 @@ func TestDiffResolvesWorkflowNameThroughListWorkflows(t *testing.T) {
 	}
 	if github.gotBase != "good" || github.gotHead != "bad" {
 		t.Fatalf("compare = %s...%s", github.gotBase, github.gotHead)
+	}
+}
+
+// TestTUIDiffScansSelectedRunsBranchNotLaunchBranch pins the trail's
+// anchor (ghent Codex P2): from a repo-wide or all-branches list the
+// selected run's head branch must drive the scan, not the branch the
+// TUI was launched from.
+func TestTUIDiffScansSelectedRunsBranchNotLaunchBranch(t *testing.T) {
+	foreign := model.Run{
+		ID: 7, RunNumber: 70, Name: "CI",
+		Path:   ".github/workflows/ci.yml",
+		Status: model.StatusCompleted, Conclusion: model.ConclusionFailure,
+		HeadBranch: "feat/elsewhere", HeadSHA: "bad",
+	}
+	github := &diffGitHub{
+		cliGitHub: cliGitHub{runs: []model.Run{foreign}},
+		historyPages: map[int][]model.Run{1: {
+			foreign,
+			{ID: 6, RunNumber: 69, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, HeadBranch: "feat/elsewhere", HeadSHA: "good"},
+		}},
+		rangeInfo: model.CommitRange{TotalCommits: 1, Commits: []model.Commit{{SHA: "abc", Author: "x", Message: "m"}}},
+	}
+	app, err := defaultTUIApp(context.Background(), commandRuntime{
+		Env:    mapEnv(map[string]string{"HOUND_WELCOME": "false"}),
+		IsTTY:  true,
+		GitHub: github,
+		Repo: &cliRepo{context: usecase.RepositoryContext{
+			Repo: "indrasvat/gh-hound", Branch: "main", Actor: "indrasvat",
+		}},
+	}, tui.BuildInfo{Version: "v0.1.0"}, cliOptions{})
+	if err != nil {
+		t.Fatalf("defaultTUIApp: %v", err)
+	}
+	app, _ = app.Update(tui.KeyMsg{Key: ":"})
+	for _, key := range []string{"d", "i", "f", "f"} {
+		app, _ = app.Update(tui.KeyMsg{Key: key})
+	}
+	app, _ = app.Update(tui.KeyMsg{Key: "enter"})
+	_, settled := app.SettleLoads(2 * time.Second)
+	if !settled {
+		t.Fatal("trail load did not settle")
+	}
+	if len(github.gotFilters) == 0 {
+		t.Fatal("trail never hit the workflow history port")
+	}
+	for _, filter := range github.gotFilters {
+		if filter.Branch != "feat/elsewhere" {
+			t.Fatalf("history filter branch = %q, want the selected run's feat/elsewhere", filter.Branch)
+		}
 	}
 }
 

@@ -927,7 +927,10 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 				MaxPages: cfg.DiffMaxPages,
 				PerPage:  usecase.DiffPerPage,
 			}
-			return service.LocateRegression(loadCtx, launch.Repo, workflow, firstNonEmptyString(launch.Branch, run.HeadBranch))
+			// The trail is anchored to the SELECTED run: its branch wins
+			// over the launch branch so a repo-wide or all-branches list
+			// scans the right history (review-required hardening).
+			return service.LocateRegression(loadCtx, launch.Repo, workflow, firstNonEmptyString(run.HeadBranch, launch.Branch))
 		},
 		DispatchWorkflowsResolver: func(loadCtx context.Context) ([]dispatch.Workflow, error) {
 			workflows, err := dispatchWorkflowModels(loadCtx, githubClient, launch)
