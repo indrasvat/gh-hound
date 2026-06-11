@@ -156,7 +156,7 @@ func TestListJobsForAttemptPaginates(t *testing.T) {
 			if i > 0 {
 				jobs.WriteString(",")
 			}
-			jobs.WriteString(fmt.Sprintf(`{"id":%d,"name":"job-%d","status":"completed","conclusion":"success"}`, start+i+1, start+i+1))
+			_, _ = fmt.Fprintf(&jobs, `{"id":%d,"name":"job-%d","status":"completed","conclusion":"success"}`, start+i+1, start+i+1)
 		}
 		jobs.WriteString(`]`)
 		_, _ = fmt.Fprintf(w, `{"total_count":101,"jobs":%s}`, jobs.String())
