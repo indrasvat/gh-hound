@@ -2,6 +2,7 @@ package fake
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/indrasvat/gh-hound/internal/model"
@@ -256,5 +257,64 @@ func TestFakeCacheDeletesReportCountsAndNotFound(t *testing.T) {
 	}
 	if _, err := New(ScenarioEmpty).ListCaches(context.Background(), "indrasvat/gh-hound", usecase.CacheFilter{}); err != nil {
 		t.Fatalf("empty scenario lists an empty kennel, got %v", err)
+	}
+}
+
+func TestFakeWorkflowsCoverAllDocumentedStates(t *testing.T) {
+	adapter := New(ScenarioGreen)
+	workflows, err := adapter.ListWorkflows(context.Background(), "indrasvat/gh-hound")
+	if err != nil {
+		t.Fatalf("ListWorkflows: %v", err)
+	}
+	states := map[string]string{}
+	for _, workflow := range workflows {
+		states[workflow.State] = workflow.Path
+	}
+	for _, state := range []string{
+		model.WorkflowStateActive,
+		model.WorkflowStateDisabledManually,
+		model.WorkflowStateDisabledInactivity,
+		model.WorkflowStateDisabledFork,
+		model.WorkflowStateDeleted,
+	} {
+		if states[state] == "" {
+			t.Fatalf("fake workflows missing state %q (have %#v)", state, states)
+		}
+	}
+	// The dispatch path must keep exactly one dispatchable workflow so
+	// the single-form launch behavior stays deterministic: only ci.yml
+	// carries a workflow_dispatch trigger.
+	for _, workflow := range workflows {
+		raw, err := adapter.FetchWorkflowFile(context.Background(), "indrasvat/gh-hound", workflow.Path)
+		if err != nil {
+			t.Fatalf("FetchWorkflowFile(%s): %v", workflow.Path, err)
+		}
+		hasDispatch := strings.Contains(raw, "workflow_dispatch")
+		if workflow.Path == ".github/workflows/ci.yml" && !hasDispatch {
+			t.Fatalf("ci.yml lost its workflow_dispatch trigger")
+		}
+		if workflow.Path != ".github/workflows/ci.yml" && hasDispatch {
+			t.Fatalf("%s should not be dispatchable in the fake", workflow.Path)
+		}
+	}
+}
+
+func TestFakeWorkflowToggleHonorsScenarioErrors(t *testing.T) {
+	adapter := New(ScenarioGreen)
+	result, err := adapter.EnableWorkflow(context.Background(), "indrasvat/gh-hound", "nightly.yml")
+	if err != nil {
+		t.Fatalf("EnableWorkflow: %v", err)
+	}
+	if result.Action != usecase.ActionEnableWorkflow || result.WorkflowID != "nightly.yml" {
+		t.Fatalf("enable result = %#v", result)
+	}
+	if _, err := adapter.DisableWorkflow(context.Background(), "indrasvat/gh-hound", "ci.yml"); err != nil {
+		t.Fatalf("DisableWorkflow: %v", err)
+	}
+	permission := New(ScenarioPermission)
+	_, err = permission.DisableWorkflow(context.Background(), "indrasvat/gh-hound", "ci.yml")
+	actionErr, ok := usecase.AsActionError(err)
+	if !ok || actionErr.Kind != usecase.ActionErrorPermission {
+		t.Fatalf("permission scenario error = %v", err)
 	}
 }

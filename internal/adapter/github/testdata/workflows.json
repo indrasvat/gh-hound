@@ -1,0 +1,77 @@
+{
+ "total_count": 6,
+ "workflows": [
+  {
+   "id": 210394681,
+   "node_id": "W_kwDOQdIDQ84Mil45",
+   "name": "CI",
+   "path": ".github/workflows/ci.yml",
+   "state": "active",
+   "created_at": "2025-11-25T18:35:00.000-08:00",
+   "updated_at": "2025-12-03T17:26:30.000-08:00",
+   "url": "https://api.github.com/repos/indrasvat/vicaya/actions/workflows/210394681",
+   "html_url": "https://github.com/indrasvat/vicaya/blob/main/.github/workflows/ci.yml",
+   "badge_url": "https://github.com/indrasvat/vicaya/workflows/CI/badge.svg"
+  },
+  {
+   "id": 213400925,
+   "node_id": "W_kwDOQdIDQ84MuD1d",
+   "name": "PR Release Cleanup",
+   "path": ".github/workflows/pr-release-cleanup.yml",
+   "state": "disabled_inactivity",
+   "created_at": "2025-12-05T12:57:12.000-08:00",
+   "updated_at": "2026-05-17T20:00:14.000-07:00",
+   "url": "https://api.github.com/repos/indrasvat/vicaya/actions/workflows/213400925",
+   "html_url": "https://github.com/indrasvat/vicaya/blob/main/.github/workflows/pr-release-cleanup.yml",
+   "badge_url": "https://github.com/indrasvat/vicaya/workflows/PR%20Release%20Cleanup/badge.svg"
+  },
+  {
+   "id": 213400930,
+   "node_id": "W_kwDOQdIDQ84MuD1e",
+   "name": "Muzzled Patrol",
+   "path": ".github/workflows/muzzled-patrol.yml",
+   "state": "disabled_manually",
+   "created_at": "2025-12-05T12:57:12.000-08:00",
+   "updated_at": "2026-05-17T20:00:14.000-07:00",
+   "url": "https://api.github.com/repos/indrasvat/vicaya/actions/workflows/213400930",
+   "html_url": "https://github.com/indrasvat/vicaya/blob/main/.github/workflows/muzzled-patrol.yml",
+   "badge_url": "https://github.com/indrasvat/vicaya/workflows/Muzzled%20Patrol/badge.svg"
+  },
+  {
+   "id": 213400931,
+   "node_id": "W_kwDOQdIDQ84MuD1f",
+   "name": "Fork Gate",
+   "path": ".github/workflows/fork-gate.yml",
+   "state": "disabled_fork",
+   "created_at": "2025-12-05T12:57:12.000-08:00",
+   "updated_at": "2026-05-17T20:00:14.000-07:00",
+   "url": "https://api.github.com/repos/indrasvat/vicaya/actions/workflows/213400931",
+   "html_url": "https://github.com/indrasvat/vicaya/blob/main/.github/workflows/fork-gate.yml",
+   "badge_url": "https://github.com/indrasvat/vicaya/workflows/Fork%20Gate/badge.svg"
+  },
+  {
+   "id": 213400932,
+   "node_id": "W_kwDOQdIDQ84MuD1g",
+   "name": "Old Patrol",
+   "path": ".github/workflows/old-patrol.yml",
+   "state": "deleted",
+   "created_at": "2025-12-05T12:57:12.000-08:00",
+   "updated_at": "2026-05-17T20:00:14.000-07:00",
+   "url": "https://api.github.com/repos/indrasvat/vicaya/actions/workflows/213400932",
+   "html_url": "https://github.com/indrasvat/vicaya/blob/main/.github/workflows/old-patrol.yml",
+   "badge_url": "https://github.com/indrasvat/vicaya/workflows/Old%20Patrol/badge.svg"
+  },
+  {
+   "id": 213400933,
+   "node_id": "W_kwDOQdIDQ84MuD1h",
+   "name": "Future Hound",
+   "path": ".github/workflows/future-hound.yml",
+   "state": "disabled_by_future_rule",
+   "created_at": "2025-12-05T12:57:12.000-08:00",
+   "updated_at": "2026-05-17T20:00:14.000-07:00",
+   "url": "https://api.github.com/repos/indrasvat/vicaya/actions/workflows/213400933",
+   "html_url": "https://github.com/indrasvat/vicaya/blob/main/.github/workflows/future-hound.yml",
+   "badge_url": "https://github.com/indrasvat/vicaya/workflows/Future%20Hound/badge.svg"
+  }
+ ]
+}

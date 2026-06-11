@@ -298,6 +298,14 @@ func (g *launchGitHub) DispatchWorkflow(context.Context, string, string, usecase
 	return usecase.ActionResult{}, errors.New("not implemented")
 }
 
+func (g *launchGitHub) EnableWorkflow(context.Context, string, string) (usecase.ActionResult, error) {
+	return usecase.ActionResult{}, errors.New("not implemented")
+}
+
+func (g *launchGitHub) DisableWorkflow(context.Context, string, string) (usecase.ActionResult, error) {
+	return usecase.ActionResult{}, errors.New("not implemented")
+}
+
 func greenRun(number int, branch string) model.Run {
 	return model.Run{
 		ID:         int64(number),

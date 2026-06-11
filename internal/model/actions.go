@@ -144,6 +144,16 @@ type CacheUsage struct {
 	ActiveSizeInBytes int64 `json:"active_size_in_bytes"`
 	ActiveCount       int   `json:"active_count"`
 }
+// Workflow states GitHub documents on list-workflows. State stays an
+// open string everywhere: unknown future values render verbatim with
+// a neutral badge and are never rejected.
+const (
+	WorkflowStateActive             = "active"
+	WorkflowStateDisabledManually   = "disabled_manually"
+	WorkflowStateDisabledInactivity = "disabled_inactivity"
+	WorkflowStateDisabledFork       = "disabled_fork"
+	WorkflowStateDeleted            = "deleted"
+)
 
 type Workflow struct {
 	ID      int64           `json:"id"`
@@ -152,6 +162,19 @@ type Workflow struct {
 	State   string          `json:"state"`
 	HTMLURL string          `json:"html_url"`
 	Inputs  []WorkflowInput `json:"inputs,omitempty"`
+}
+
+// Toggleable reports whether enable/disable is a valid move for this
+// workflow: active flips off, manually- or inactivity-disabled flip
+// back on. Fork-disabled and deleted workflows cannot be toggled, and
+// unknown states are left alone rather than guessed at.
+func (w Workflow) Toggleable() bool {
+	switch w.State {
+	case WorkflowStateActive, WorkflowStateDisabledManually, WorkflowStateDisabledInactivity:
+		return true
+	default:
+		return false
+	}
 }
 
 type WorkflowInput struct {

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -1104,6 +1105,14 @@ func (g *cliGitHub) dispatches() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.dispatchCalls
+}
+
+func (g *cliGitHub) EnableWorkflow(context.Context, string, string) (usecase.ActionResult, error) {
+	return usecase.ActionResult{}, errors.New("not implemented")
+}
+
+func (g *cliGitHub) DisableWorkflow(context.Context, string, string) (usecase.ActionResult, error) {
+	return usecase.ActionResult{}, errors.New("not implemented")
 }
 
 func cliRun(id int64, workflow string, status model.Status, conclusion model.Conclusion) model.Run {

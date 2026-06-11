@@ -49,7 +49,26 @@ func (c *Client) DispatchWorkflow(ctx context.Context, repo, workflowID string, 
 	return result, c.postJSON(ctx, resourcePath(repo, "actions/workflows/"+escapedWorkflowID+"/dispatches"), request)
 }
 
+// EnableWorkflow flips a workflow back on. The identifier is what the
+// API accepts: a numeric workflow ID or the workflow file path (both
+// verified live 2026-06-10; slashes in paths are escaped, not routed).
+func (c *Client) EnableWorkflow(ctx context.Context, repo, workflowID string) (usecase.ActionResult, error) {
+	result := usecase.ActionResult{Action: usecase.ActionEnableWorkflow, Repo: repo, WorkflowID: workflowID, Message: "Workflow enabled"}
+	return result, c.mutateJSON(ctx, http.MethodPut, resourcePath(repo, "actions/workflows/"+url.PathEscape(workflowID)+"/enable"), nil)
+}
+
+// DisableWorkflow turns a workflow off (state becomes
+// disabled_manually upstream).
+func (c *Client) DisableWorkflow(ctx context.Context, repo, workflowID string) (usecase.ActionResult, error) {
+	result := usecase.ActionResult{Action: usecase.ActionDisableWorkflow, Repo: repo, WorkflowID: workflowID, Message: "Workflow disabled"}
+	return result, c.mutateJSON(ctx, http.MethodPut, resourcePath(repo, "actions/workflows/"+url.PathEscape(workflowID)+"/disable"), nil)
+}
+
 func (c *Client) postJSON(ctx context.Context, resource string, body any) error {
+	return c.mutateJSON(ctx, http.MethodPost, resource, body)
+}
+
+func (c *Client) mutateJSON(ctx context.Context, method, resource string, body any) error {
 	return c.queue.Do(ctx, func(ctx context.Context) error {
 		start := time.Now()
 		var reader io.Reader
@@ -60,7 +79,7 @@ func (c *Client) postJSON(ctx context.Context, resource string, body any) error 
 			}
 			reader = &encoded
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+resource, reader)
+		req, err := http.NewRequestWithContext(ctx, method, c.baseURL+resource, reader)
 		if err != nil {
 			return err
 		}
