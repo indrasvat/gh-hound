@@ -691,3 +691,9 @@ footer {
   outline-offset: 2px;
   border-radius: 2px;
 }
+
+/* ---------- agent verb tabs ---------- */
+
+.agent-tabs { margin: 0 0 0.9rem; }
+.agent-pane pre { min-height: 26rem; }
+@media (max-width: 920px) { .agent-pane pre { min-height: 0; } }
