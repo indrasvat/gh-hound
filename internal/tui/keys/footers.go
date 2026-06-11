@@ -14,6 +14,7 @@ const (
 	ScreenLog      Screen = "log"
 	ScreenDispatch Screen = "dispatch"
 	ScreenDiff     Screen = "diff"
+	ScreenCaches   Screen = "caches"
 	ScreenPalette  Screen = "palette"
 	ScreenHelp     Screen = "help"
 	ScreenToasts   Screen = "toasts"
@@ -95,6 +96,15 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "enter", Display: "⏎", Action: "first_bad", Help: "first bad", ShowInFooter: true},
 		{Key: "o", Action: "compare", Help: "compare", ShowInFooter: true},
 		{Key: "esc", Display: "⎋", Action: "back", Help: "back", ShowInFooter: true},
+	},
+	ScreenCaches: {
+		{Key: "j/k", Action: "move", Help: "move", ShowInFooter: true},
+		{Key: "s", Action: "sort", Help: "sort", ShowInFooter: true},
+		{Key: "/", Action: "filter", Help: "filter", ShowInFooter: true},
+		{Key: "d", Action: "dig_up", Help: "dig up", ShowInFooter: true},
+		{Key: "D", Action: "dig_up_key", Help: "dig up key", ShowInFooter: true},
+		{Key: "esc", Display: "⎋", Action: "back", Help: "back", ShowInFooter: true},
+		{Key: "?", Action: "help", Help: "", ShowInFooter: true},
 	},
 	ScreenPalette: {
 		{Key: "workflows", Action: "workflows", Help: "", ShowInFooter: true},

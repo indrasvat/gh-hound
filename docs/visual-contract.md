@@ -19,6 +19,7 @@ Source of truth: `docs/gh-hound-design.html`. Re-read the matching mock before e
 | ⑨ | approvals | deploy-gate overlay over the runs screen: env multi-pick rows ([x]/[ ]/[-] checkboxes, ◫ glyph, reviewers line), comment line with documented default, notice line for refusals; opened by A on a waiting run after the shared "checking the gate" load |
 | ⑩ | help | three-column contextual keymap; legend; Canvas/Layer overlay |
 | ⑪ | diff (the trail) | hound verdict line; ✔ last-good / ✗ first-bad boundary summary with attempt note; suspect rows with aligned sha/author/subject columns, selection bar, long-subject ellipsis; inconclusive state hints at diff_max_pages |
+| ⑫ | caches | kennel header `kennel: 7.2/10 GB · N caches`; pressure gauge colored ok (<50%), run (50–90%), fail (>90%); past 90% the warn line `kennel's almost full — GitHub starts evicting at 10 GB.`; sortable key/ref/size/last-used table with selected-row fill; `/` filter line; empty state `the kennel's empty — nothing cached on this repo.`; delete confirms lead with the match count |
 
 ## Theme Tokens
 
@@ -97,6 +98,7 @@ Footer text must be generated from keymap data, not copied into renderers.
 | log | j/k scroll · g/G ends · / search · t time · n/N match · z/Z fold · w wrap · ⎋ back |
 | dispatch | ⏎ run · ⇥ next · ⎋ cancel |
 | diff | j/k move · ⏎ first bad · o compare · ⎋ back |
+| caches | j/k move · s sort · / filter · d dig up · D dig up key · ⎋ back · ? |
 | palette | workflows · watch · diff · theme |
 | help | : palette · ? close · ⎋ close |
 | toasts | ⎋ dismiss · g dismiss all · r retry · ? help |
@@ -134,6 +136,7 @@ per-screen spinner in any later change is a review-blocking defect.
 | log open (`l`) | shared loading body with byte progress (`▰▰▱▱▱ 2.1 MB/4.8 MB`) when Content-Length is known |
 | dispatch open (`D`) | loading line on the originating runs screen; route flips when resolved |
 | diff open (`:diff`) | shared loading body (`picking up the scent`) on the trail screen |
+| caches open (palette `caches`) | shared loading body (`sniffing the kennel…`); deletes reuse the slot (`digging it up…`) |
 
 Palette note: `:` opens with the generic dispatch entry only — the
 per-workflow `dispatch: <name>` items appear once the workflow cache
@@ -142,7 +145,8 @@ keystroke would violate the invariant.
 
 Spinner: braille cycle (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`), ~120ms/frame, run color;
 labels are hound-voiced and passed per context. Fixture screens:
-`runs-loading`, `detail-loading`, `failure-loading`, `log-progress`.
+`runs-loading`, `detail-loading`, `failure-loading`, `log-progress`,
+`caches`, `caches-pressure`, `caches-empty`.
 
 Approvals: `A` on a waiting run fetches the gate list through the
 shared loader (kind `approvals`, label "checking the gate") before the
