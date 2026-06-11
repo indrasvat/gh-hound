@@ -17,6 +17,9 @@ gh hound approvals --run <run-id> --no-tui --json
 gh hound approvals --run <run-id> --approve --env production --comment "lgtm" --no-tui --json
 gh hound approvals --run <run-id> --reject --no-tui --json
 gh hound runs --approvals --no-tui --json
+gh hound caches --no-tui --json
+gh hound caches --delete-id <cache-id> --no-tui --json
+gh hound caches --delete-key <key> --ref <ref> --no-tui --json
 gh hound rerun --run <run-id> --no-tui --json
 gh hound rerun --run <run-id> --failed-only --debug --no-tui --json
 gh hound rerun --run <run-id> --job <job-id> --no-tui --json
@@ -112,6 +115,14 @@ Each run includes:
 Runs include `artifacts[]` (`id`, `name`, `size_in_bytes`, `expired`, `expires_at`, `created_at`, `digest`) only when `--artifacts` is passed; the default runs path makes zero artifact API calls (with the flag, expect paginated artifact-list calls per run). The `artifacts` command lists a run's artifacts (defaults to the latest run on the selected branch) and `--download <name|id>` extracts the zip into `<dir>/<artifact-name>/` (`--force` to overwrite). Expired artifacts are rejected before any network call. Download URLs are never emitted: the API's signed links are short-lived secrets. The `artifacts` command exits `0` on success and `2` on any error (including expired artifacts); it never exits `1` or `3`.
 
 The failure object is the stable agent contract. Agents should not screen-scrape the TUI or parse raw GitHub logs when this object is available.
+
+### Caches (the kennel)
+
+"CI got slow" is often "the cache got evicted." `caches` lists the repo's Actions caches with the usage header agents need to do gauge math: `usage` carries `active_size_in_bytes`, `active_count`, and `cap_bytes` — the documented 10 GB eviction cap, since github.com exposes no cap endpoint (the usage-policy endpoint is GHES-only). Each `caches[]` entry: `id`, `key`, `ref`, `size_in_bytes`, `last_accessed_at`, `created_at`. Eviction lags, so `active_size_in_bytes` can legitimately exceed `cap_bytes`.
+
+Deletion uses unambiguous flags because numeric cache keys are legal: `--delete-id <id>` evicts one cache; `--delete-key <key> [--ref <ref>]` evicts every cache matching the key (or key prefix) and reports `deleted.deleted_count`. Exit codes follow the global contract: `0` deleted (or list rendered), `2` anything else. On exit `2` the envelope still writes with `deleted.accepted: false` and a typed `error: {kind, message}` where `kind` adds `not_found` (no cache matched) to the mutation taxonomy. Deletes are paced at one per second through the same serial queue as every other mutation. The schema lives under `$defs.caches_result` in schema.json.
+
+The default `runs` path makes zero cache API calls; the kennel is only sniffed on the explicit verb or TUI screen.
 
 Triage degrades per job instead of failing the listing: when a job log has expired or cannot be fetched, `log_excerpt` is empty and `exit_code` falls back to `1`, but the failure entry itself — `job`, `step`, `annotations[]` — is always present for every failed job.
 
