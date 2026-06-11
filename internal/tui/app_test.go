@@ -1222,7 +1222,7 @@ func TestActionPermissionErrorKeepsCurrentScreenAndShowsToast(t *testing.T) {
 		},
 	})
 
-	app = app.executeAction(RouteRuns, ActionRequest{
+	app, _ = app.executeAction(RouteRuns, ActionRequest{
 		Action: usecase.ActionRerunFailedJobs,
 		Run:    model.Run{ID: 8200, RunNumber: 8200},
 	})

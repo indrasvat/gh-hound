@@ -43,6 +43,10 @@ type Run struct {
 	HTMLURL    string     `json:"html_url" xml:"html_url,attr"`
 	Failed     []Failure  `json:"failed" xml:"failed>failure"`
 	Artifacts  []Artifact `json:"artifacts,omitempty" xml:"artifacts>artifact,omitempty"`
+	// PendingEnvironments names the deployment gates holding a waiting
+	// run. Present only with `runs --approvals` (zero extra API calls
+	// on the default path, Task 200 precedent).
+	PendingEnvironments []string `json:"pending_environments,omitempty" xml:"pending_environments>environment,omitempty"`
 }
 
 // Artifact mirrors the pipe contract's artifact metadata. Download
@@ -86,6 +90,89 @@ type Download struct {
 	Name      string `json:"name" xml:"name,attr"`
 	Path      string `json:"path" xml:"path,attr"`
 	FileCount int    `json:"file_count" xml:"file_count,attr"`
+}
+
+// ApprovalsResult is the pipe envelope for the approvals verb. The
+// list form carries pending only; review attempts add accepted (true
+// with reviewed, false with the typed error refusal).
+type ApprovalsResult struct {
+	XMLName  xml.Name            `json:"-" xml:"approvals_result"`
+	Repo     string              `json:"repo" xml:"repo,attr"`
+	RunID    int64               `json:"run_id" xml:"run_id,attr"`
+	Pending  []PendingDeployment `json:"pending" xml:"pending>environment"`
+	Accepted *bool               `json:"accepted,omitempty" xml:"accepted,attr,omitempty"`
+	Reviewed *DeploymentReview   `json:"reviewed,omitempty" xml:"reviewed,omitempty"`
+	Error    *MutationError      `json:"error,omitempty" xml:"error,omitempty"`
+}
+
+// PendingDeployment mirrors the agent contract for one gate: the
+// environment, its wait timer, whether the caller can approve, and the
+// required reviewers. No URLs are emitted.
+type PendingDeployment struct {
+	EnvironmentID         int64                `json:"environment_id" xml:"environment_id,attr"`
+	Environment           string               `json:"environment" xml:"environment,attr"`
+	WaitTimer             int                  `json:"wait_timer" xml:"wait_timer,attr"`
+	CurrentUserCanApprove bool                 `json:"current_user_can_approve" xml:"current_user_can_approve,attr"`
+	Reviewers             []DeploymentReviewer `json:"reviewers" xml:"reviewers>reviewer"`
+}
+
+type DeploymentReviewer struct {
+	Type string `json:"type" xml:"type,attr"`
+	Name string `json:"name" xml:"name,attr"`
+}
+
+// DeploymentReview reports what a review attempt posted: the state,
+// the environments it covered, and the comment that accompanied it.
+type DeploymentReview struct {
+	State        string   `json:"state" xml:"state,attr"`
+	Environments []string `json:"environments" xml:"environments>environment"`
+	Comment      string   `json:"comment" xml:"comment,attr"`
+}
+
+func WriteApprovals(w io.Writer, format Format, result ApprovalsResult) error {
+	switch format {
+	case "", FormatJSON:
+		encoder := json.NewEncoder(w)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(result)
+	case FormatMarkdown:
+		if _, err := fmt.Fprintf(w, "# gh-hound approvals\n\nRepo: `%s`\nRun: `%d`\n\n| Environment | Wait | Can approve | Reviewers |\n| --- | --- | --- | --- |\n", result.Repo, result.RunID); err != nil {
+			return err
+		}
+		for _, pending := range result.Pending {
+			reviewers := make([]string, 0, len(pending.Reviewers))
+			for _, reviewer := range pending.Reviewers {
+				reviewers = append(reviewers, reviewer.Name)
+			}
+			if _, err := fmt.Fprintf(w, "| %s | %ds | %t | %s |\n", pending.Environment, pending.WaitTimer, pending.CurrentUserCanApprove, strings.Join(reviewers, ", ")); err != nil {
+				return err
+			}
+		}
+		if result.Reviewed != nil {
+			if _, err := fmt.Fprintf(w, "\nReviewed `%s`: %s — %q\n", result.Reviewed.State, strings.Join(result.Reviewed.Environments, ", "), result.Reviewed.Comment); err != nil {
+				return err
+			}
+		}
+		if result.Error != nil {
+			if _, err := fmt.Fprintf(w, "\nError: `%s` — %s\n", result.Error.Kind, result.Error.Message); err != nil {
+				return err
+			}
+		}
+		return nil
+	case FormatXML:
+		if _, err := fmt.Fprintln(w, xml.Header[:len(xml.Header)-1]); err != nil {
+			return err
+		}
+		encoder := xml.NewEncoder(w)
+		encoder.Indent("", "  ")
+		if err := encoder.Encode(result); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(w)
+		return err
+	default:
+		return fmt.Errorf("unsupported output format %q", format)
+	}
 }
 
 // MutationResult is the pipe envelope for the rerun and cancel verbs.

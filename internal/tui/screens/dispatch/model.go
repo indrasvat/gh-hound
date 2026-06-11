@@ -102,6 +102,8 @@ func (m Model) Update(msg KeyMsg) Model {
 		if len(field.Options) > 0 {
 			field.Index = (field.Index + 1) % len(field.Options)
 			field.Value = field.Options[field.Index]
+		} else if msg.Key == "space" && field.Type == InputText {
+			field.Value += " "
 		}
 	case "left":
 		if len(field.Options) > 0 {

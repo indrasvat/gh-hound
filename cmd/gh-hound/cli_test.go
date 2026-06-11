@@ -358,11 +358,66 @@ func TestKeyNameDecodesANSIArrowsAndShiftTab(t *testing.T) {
 		"\x15":   "ctrl+u",
 		"\r":     "enter",
 		"\x7f":   "backspace",
+		" ":      "space",
 	}
 	for input, want := range tests {
 		if got := keyName([]byte(input)); got != want {
 			t.Fatalf("keyName(%q) = %q, want %q", input, got, want)
 		}
+	}
+}
+
+// TestSpaceByteTogglesApprovalsPickThroughRealDecoder drives the
+// literal byte a terminal sends through the production key decoder
+// into the app — guarding against handlers that match a symbolic key
+// name the decoder never produces (the round-8 QA finding).
+func TestSpaceByteTogglesApprovalsPickThroughRealDecoder(t *testing.T) {
+	decoder := keyDecoder{}
+	scratch := make([]byte, 8)
+	spaceKey, err := decoder.Next(strings.NewReader(" "), scratch)
+	if err != nil {
+		t.Fatalf("decoder: %v", err)
+	}
+
+	waiting := model.Run{
+		ID: 9001, RunNumber: 572, Name: "Deploy", Status: model.StatusWaiting,
+		HeadBranch: "main", Event: "push",
+	}
+	github := &cliGitHub{
+		runs: []model.Run{waiting},
+		pendingList: []model.PendingDeployment{{
+			EnvironmentID: 1, EnvironmentName: "production", CurrentUserCanApprove: true,
+			Reviewers: []model.DeploymentReviewer{{Type: "User", Name: "indrasvat"}},
+		}},
+	}
+	app, err := defaultTUIApp(context.Background(), commandRuntime{
+		Env:    mapEnv(map[string]string{"HOUND_WELCOME": "false"}),
+		IsTTY:  true,
+		GitHub: github,
+		Repo: &cliRepo{context: usecase.RepositoryContext{
+			Repo: "indrasvat/gh-hound", Branch: "main", Actor: "indrasvat",
+		}},
+	}, tui.BuildInfo{Version: "v0.1.0"}, cliOptions{})
+	if err != nil {
+		t.Fatalf("defaultTUIApp: %v", err)
+	}
+	app, _ = app.Update(tui.KeyMsg{Key: "A"})
+	app, settled := app.SettleLoads(2 * time.Second)
+	if !settled {
+		t.Fatal("approvals load did not settle")
+	}
+
+	before := ansi.Strip(app.ViewSize(120, 32))
+	if !strings.Contains(before, "[x]") {
+		t.Fatalf("overlay must open with production picked:\n%s", before)
+	}
+	app, handled := app.Update(tui.KeyMsg{Key: spaceKey})
+	if !handled {
+		t.Fatalf("decoded space key %q was not handled by the overlay", spaceKey)
+	}
+	after := ansi.Strip(app.ViewSize(120, 32))
+	if !strings.Contains(after, "[ ]") || strings.Contains(after, "[x]") {
+		t.Fatalf("decoded space key %q did not unpick production:\n%s", spaceKey, after)
 	}
 }
 
@@ -943,6 +998,11 @@ type cliGitHub struct {
 	workflows        []model.Workflow
 	workflowFiles    map[string]string
 	workflowErrors   map[string]error
+	pendingList      []model.PendingDeployment
+	pendingErr       error
+	listPending      int
+	reviews          []usecase.DeploymentReview
+	reviewErr        error
 	err              error
 }
 
@@ -1060,6 +1120,30 @@ func (g *cliGitHub) DownloadArtifact(context.Context, string, int64) (io.ReadClo
 	defer g.mu.Unlock()
 	g.downloadArtifact++
 	return io.NopCloser(strings.NewReader(g.artifactZip)), nil
+}
+
+func (g *cliGitHub) ListPendingDeployments(context.Context, string, int64) ([]model.PendingDeployment, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.listPending++
+	if g.pendingErr != nil {
+		return nil, g.pendingErr
+	}
+	return g.pendingList, nil
+}
+
+func (g *cliGitHub) ReviewPendingDeployments(_ context.Context, _ string, runID int64, review usecase.DeploymentReview) (usecase.ActionResult, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.reviews = append(g.reviews, review)
+	if g.reviewErr != nil {
+		return usecase.ActionResult{}, g.reviewErr
+	}
+	action := usecase.ActionApproveDeployment
+	if review.State == usecase.DeploymentRejected {
+		action = usecase.ActionRejectDeployment
+	}
+	return usecase.ActionResult{Action: action, RunID: runID}, nil
 }
 
 func artifactZipBytes(t *testing.T) string {
@@ -1679,5 +1763,327 @@ func TestDispatchSubcommandLaunchOpensForm(t *testing.T) {
 	view := ansi.Strip(app.ViewSize(120, 32))
 	if !strings.Contains(view, "trunk") || !strings.Contains(view, "Deploy") {
 		t.Fatalf("dispatch launch form incomplete:\n%s", view)
+	}
+}
+
+func approvalsRuntime(out *bytes.Buffer, github *cliGitHub) commandRuntime {
+	return commandRuntime{
+		Stdout: out,
+		Stderr: &bytes.Buffer{},
+		Env:    emptyEnv,
+		IsTTY:  false,
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}
+}
+
+func cliPendingDeployments() []model.PendingDeployment {
+	return []model.PendingDeployment{
+		{
+			EnvironmentID:         7301,
+			EnvironmentName:       "production",
+			CurrentUserCanApprove: true,
+			Reviewers:             []model.DeploymentReviewer{{Type: "User", Name: "indrasvat"}},
+		},
+		{
+			EnvironmentID:         7302,
+			EnvironmentName:       "staging",
+			WaitTimer:             1800,
+			CurrentUserCanApprove: false,
+			Reviewers:             []model.DeploymentReviewer{{Type: "Team", Name: "deploy-keys"}},
+		},
+	}
+}
+
+func TestApprovalsListExitsActionableWhenGatesAwaitReview(t *testing.T) {
+	var out bytes.Buffer
+	github := &cliGitHub{pendingList: cliPendingDeployments()}
+	cmd := newRootCommandWithRuntime(approvalsRuntime(&out, github), testBuildInfo())
+	cmd.SetArgs([]string{"approvals", "--run", "30433655", "--no-tui", "--json"})
+
+	code, _ := executeCommand(cmd)
+	if code != 1 {
+		t.Fatalf("approvals list exit = %d, want 1 (gates awaiting review)\n%s", code, out.String())
+	}
+	var decoded struct {
+		RunID   int64 `json:"run_id"`
+		Pending []struct {
+			Environment           string `json:"environment"`
+			CurrentUserCanApprove bool   `json:"current_user_can_approve"`
+		} `json:"pending"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
+	}
+	if decoded.RunID != 30433655 || len(decoded.Pending) != 2 || decoded.Pending[0].Environment != "production" {
+		t.Fatalf("approvals list envelope = %s", out.String())
+	}
+}
+
+func TestApprovalsListExitsZeroWhenNothingPending(t *testing.T) {
+	var out bytes.Buffer
+	github := &cliGitHub{}
+	cmd := newRootCommandWithRuntime(approvalsRuntime(&out, github), testBuildInfo())
+	cmd.SetArgs([]string{"approvals", "--run", "30433655", "--no-tui", "--json"})
+
+	code, err := executeCommand(cmd)
+	if err != nil || code != 0 {
+		t.Fatalf("empty approvals exit = %d, err = %v\n%s", code, err, out.String())
+	}
+	if !strings.Contains(out.String(), `"pending": []`) {
+		t.Fatalf("empty list must render pending: []\n%s", out.String())
+	}
+}
+
+func TestApprovalsApproveReviewsAllApprovableEnvironments(t *testing.T) {
+	var out bytes.Buffer
+	github := &cliGitHub{pendingList: cliPendingDeployments()}
+	cmd := newRootCommandWithRuntime(approvalsRuntime(&out, github), testBuildInfo())
+	cmd.SetArgs([]string{"approvals", "--run", "30433655", "--approve", "--no-tui", "--json"})
+
+	code, err := executeCommand(cmd)
+	if err != nil || code != 0 {
+		t.Fatalf("approve exit = %d, err = %v\n%s", code, err, out.String())
+	}
+	if len(github.reviews) != 1 {
+		t.Fatalf("review calls = %d, want 1", len(github.reviews))
+	}
+	review := github.reviews[0]
+	if len(review.EnvironmentIDs) != 1 || review.EnvironmentIDs[0] != 7301 {
+		t.Fatalf("no --env must review only approvable environments, got %#v", review.EnvironmentIDs)
+	}
+	if review.Comment != usecase.DefaultReviewComment {
+		t.Fatalf("comment = %q, want documented default", review.Comment)
+	}
+	var decoded struct {
+		Accepted *bool `json:"accepted"`
+		Reviewed *struct {
+			State        string   `json:"state"`
+			Environments []string `json:"environments"`
+			Comment      string   `json:"comment"`
+		} `json:"reviewed"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
+	}
+	if decoded.Accepted == nil || !*decoded.Accepted || decoded.Reviewed == nil || decoded.Reviewed.State != "approved" {
+		t.Fatalf("approve envelope = %s", out.String())
+	}
+	if len(decoded.Reviewed.Environments) != 1 || decoded.Reviewed.Environments[0] != "production" {
+		t.Fatalf("reviewed environments = %#v", decoded.Reviewed.Environments)
+	}
+}
+
+func TestApprovalsRejectCarriesEnvAndComment(t *testing.T) {
+	var out bytes.Buffer
+	github := &cliGitHub{pendingList: cliPendingDeployments()}
+	cmd := newRootCommandWithRuntime(approvalsRuntime(&out, github), testBuildInfo())
+	cmd.SetArgs([]string{"approvals", "--run", "30433655", "--reject", "--env", "production", "--comment", "not on a friday", "--no-tui", "--json"})
+
+	code, err := executeCommand(cmd)
+	if err != nil || code != 0 {
+		t.Fatalf("reject exit = %d, err = %v\n%s", code, err, out.String())
+	}
+	review := github.reviews[0]
+	if review.State != usecase.DeploymentRejected || review.Comment != "not on a friday" {
+		t.Fatalf("reject review = %#v", review)
+	}
+	if !strings.Contains(out.String(), `"state": "rejected"`) {
+		t.Fatalf("reject envelope = %s", out.String())
+	}
+}
+
+func TestApprovalsRefusalsWriteTypedEnvelopes(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		kind string
+	}{
+		{"missing run", []string{"approvals", "--no-tui", "--json"}, "validation"},
+		{"approve and reject", []string{"approvals", "--run", "1", "--approve", "--reject", "--no-tui", "--json"}, "validation"},
+		{"env without verb", []string{"approvals", "--run", "1", "--env", "production", "--no-tui", "--json"}, "validation"},
+		{"unknown env", []string{"approvals", "--run", "30433655", "--approve", "--env", "mars", "--no-tui", "--json"}, "validation"},
+		{"not approvable", []string{"approvals", "--run", "30433655", "--approve", "--env", "staging", "--no-tui", "--json"}, "permission"},
+	}
+	for _, tt := range tests {
+		var out bytes.Buffer
+		github := &cliGitHub{pendingList: cliPendingDeployments()}
+		cmd := newRootCommandWithRuntime(approvalsRuntime(&out, github), testBuildInfo())
+		cmd.SetArgs(tt.args)
+		code, _ := executeCommand(cmd)
+		if code != 2 {
+			t.Fatalf("%s exit = %d, want 2\n%s", tt.name, code, out.String())
+		}
+		var decoded struct {
+			Accepted *bool `json:"accepted"`
+			Error    *struct {
+				Kind string `json:"kind"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+			t.Fatalf("%s: invalid JSON: %v\n%s", tt.name, err, out.String())
+		}
+		if decoded.Accepted == nil || *decoded.Accepted {
+			t.Fatalf("%s: refusal must carry accepted:false\n%s", tt.name, out.String())
+		}
+		if decoded.Error == nil || decoded.Error.Kind != tt.kind {
+			t.Fatalf("%s: error kind = %v, want %s\n%s", tt.name, decoded.Error, tt.kind, out.String())
+		}
+		if len(github.reviews) != 0 {
+			t.Fatalf("%s: refusal must not reach the review API", tt.name)
+		}
+	}
+}
+
+func TestApprovalsFakeScenariosCoverWaitingAndRefusals(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{Stdout: &out, Stderr: &bytes.Buffer{}, Env: emptyEnv}, testBuildInfo())
+	cmd.SetArgs([]string{"approvals", "--run", "30433655", "--fake-scenario", "waiting", "--no-tui", "--json"})
+	code, _ := executeCommand(cmd)
+	if code != 1 {
+		t.Fatalf("fake waiting list exit = %d, want 1\n%s", code, out.String())
+	}
+	if !strings.Contains(out.String(), `"environment": "production"`) {
+		t.Fatalf("fake waiting envelope = %s", out.String())
+	}
+
+	out.Reset()
+	cmd = newRootCommandWithRuntime(commandRuntime{Stdout: &out, Stderr: &bytes.Buffer{}, Env: emptyEnv}, testBuildInfo())
+	cmd.SetArgs([]string{"approvals", "--run", "30433655", "--approve", "--fake-scenario", "permission", "--no-tui", "--json"})
+	code, _ = executeCommand(cmd)
+	if code != 2 || !strings.Contains(out.String(), `"kind": "permission"`) {
+		t.Fatalf("fake permission exit = %d\n%s", code, out.String())
+	}
+}
+
+func TestRunsApprovalsFlagIsOptIn(t *testing.T) {
+	waiting := cliRun(909, "Deploy", model.StatusWaiting, model.ConclusionNone)
+	green := cliRun(908, "CI", model.StatusCompleted, model.ConclusionSuccess)
+	var out bytes.Buffer
+	github := &cliGitHub{
+		runs:        []model.Run{waiting, green},
+		pendingList: cliPendingDeployments(),
+	}
+	runtime := approvalsRuntime(&out, github)
+
+	cmd := newRootCommandWithRuntime(runtime, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--no-tui", "--json"})
+	if code, _ := executeCommand(cmd); code != 3 {
+		t.Fatalf("runs with waiting exit = %d, want 3 (pending)", code)
+	}
+	if github.listPending != 0 {
+		t.Fatalf("default runs path must make zero pending-deployment calls, got %d", github.listPending)
+	}
+
+	out.Reset()
+	cmd = newRootCommandWithRuntime(runtime, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--approvals", "--no-tui", "--json"})
+	if code, _ := executeCommand(cmd); code != 3 {
+		t.Fatalf("runs --approvals exit = %d, want 3", code)
+	}
+	if github.listPending != 1 {
+		t.Fatalf("runs --approvals must call pending deployments once (waiting runs only), got %d", github.listPending)
+	}
+	var decoded struct {
+		Runs []struct {
+			ID                  int64    `json:"id"`
+			PendingEnvironments []string `json:"pending_environments"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
+	}
+	if len(decoded.Runs) != 2 {
+		t.Fatalf("runs = %d", len(decoded.Runs))
+	}
+	if len(decoded.Runs[0].PendingEnvironments) != 2 || decoded.Runs[0].PendingEnvironments[0] != "production" {
+		t.Fatalf("waiting run pending_environments = %#v", decoded.Runs[0].PendingEnvironments)
+	}
+	if len(decoded.Runs[1].PendingEnvironments) != 0 {
+		t.Fatalf("completed run must not gain pending_environments: %#v", decoded.Runs[1])
+	}
+}
+
+func TestDefaultTUIAppWiresApprovalsThroughGitHubPort(t *testing.T) {
+	waiting := cliRun(909, "Deploy", model.StatusWaiting, model.ConclusionNone)
+	github := &cliGitHub{
+		runs:        []model.Run{waiting},
+		pendingList: cliPendingDeployments(),
+	}
+	app, err := defaultTUIApp(context.Background(), commandRuntime{
+		Env:    mapEnv(map[string]string{"HOUND_WELCOME": "false"}),
+		IsTTY:  true,
+		GitHub: github,
+		Repo: &cliRepo{context: usecase.RepositoryContext{
+			Repo:   "indrasvat/gh-hound",
+			Branch: "main",
+			Actor:  "indrasvat",
+		}},
+	}, tui.BuildInfo{Version: "v0.1.0"}, cliOptions{})
+	if err != nil {
+		t.Fatalf("defaultTUIApp returned error: %v", err)
+	}
+
+	app, handled := app.Update(tui.KeyMsg{Key: "A"})
+	if !handled {
+		t.Fatal("A was not handled on a waiting run")
+	}
+	app, settled := app.SettleLoads(2 * time.Second)
+	if !settled {
+		t.Fatal("approvals load did not settle")
+	}
+	if app.TopOverlay() != tui.OverlayApprovals {
+		t.Fatalf("overlay = %q, want approvals", app.TopOverlay())
+	}
+	if github.listPending == 0 {
+		t.Fatal("approvals overlay did not fetch through the GitHub port")
+	}
+	view := app.ViewSize(120, 40)
+	if !strings.Contains(view, "production") {
+		t.Fatalf("overlay missing live gate data:\n%s", view)
+	}
+
+	// Approve through confirm: the review must hit the port with the
+	// approvable environment only.
+	app, _ = app.Update(tui.KeyMsg{Key: "y"})
+	_, _ = app.Update(tui.KeyMsg{Key: "y"})
+	if len(github.reviews) != 1 {
+		t.Fatalf("review calls = %d, want 1", len(github.reviews))
+	}
+	if github.reviews[0].State != usecase.DeploymentApproved || len(github.reviews[0].EnvironmentIDs) != 1 || github.reviews[0].EnvironmentIDs[0] != 7301 {
+		t.Fatalf("review = %#v", github.reviews[0])
+	}
+}
+
+func TestDefaultTUIAppDetailCarriesPendingEnvironmentsForWaitingRun(t *testing.T) {
+	waiting := cliRun(909, "Deploy", model.StatusWaiting, model.ConclusionNone)
+	github := &cliGitHub{
+		runs:        []model.Run{waiting},
+		jobs:        []model.Job{},
+		pendingList: cliPendingDeployments(),
+	}
+	app, err := defaultTUIApp(context.Background(), commandRuntime{
+		Env:    mapEnv(map[string]string{"HOUND_WELCOME": "false"}),
+		IsTTY:  true,
+		GitHub: github,
+		Repo: &cliRepo{context: usecase.RepositoryContext{
+			Repo:   "indrasvat/gh-hound",
+			Branch: "main",
+			Actor:  "indrasvat",
+		}},
+	}, tui.BuildInfo{Version: "v0.1.0"}, cliOptions{})
+	if err != nil {
+		t.Fatalf("defaultTUIApp returned error: %v", err)
+	}
+	app, _ = app.Update(tui.KeyMsg{Key: "enter"})
+	app, settled := app.SettleLoads(2 * time.Second)
+	if !settled {
+		t.Fatal("detail load did not settle")
+	}
+	view := app.ViewSize(120, 40)
+	for _, want := range []string{"Deploy gate (2)", "production", "not yours to open"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("detail view missing %q:\n%s", want, view)
+		}
 	}
 }

@@ -24,6 +24,9 @@ const (
 	Enter          = "⏎"
 	Escape         = "⎋"
 	Artifact       = "▣"
+	// Gate marks a run waiting on a deployment review. Text
+	// presentation only (U+25EB), per the theme glyph contract.
+	Gate = "◫"
 )
 
 // SpinnerFrames is the one loading-spinner glyph cycle for the whole

@@ -1,6 +1,6 @@
 ---
 name: gh-hound-qa-ledger
-description: Running QA failure/verification ledger for gh-hound TUI audits (rounds 4-7; tasks 220 async loading, 240 rerun-confirm debug toggle, 230 dispatch ref foreign repos)
+description: Running QA failure/verification ledger for gh-hound TUI audits (rounds 4-9; tasks 220, 240, 230, 250 approvals — round 9 PASS, space key fix verified live)
 metadata:
   type: project
 ---
@@ -68,6 +68,49 @@ head_branch main). Note: the accepted toast TTLs out within ~5s, so
 delayed snapshots miss it — verify submission via the API run record.
 Ref field is render-only in the form (`m.Workflow.Ref`); it is set by
 context resolution and not editable in-form.
+
+Round 8 (branch feat/250-deployment-approvals, f49f88f worktree,
+2026-06-10): FAIL — P1: `space pick` in the deploy-gate overlay is DEAD
+in the built binary. `keyName()` (cmd/gh-hound/main.go:1346 default
+branch) emits `" "` for byte 0x20; `approvals.Update` matches only
+`case "space"` (overlay/approvals/approvals.go:99,123). Unit tests
+drive `KeyMsg{Key: "space"}` (approvals_app_test.go:221) — green in a
+key name the real TTY never produces; the EXACT dead-code-path pattern
+from the claim-verification rules. Consequences: [x] never toggles,
+locked-env refusal notice ("not yours to open — …") unreachable,
+footer/help/visual-contract "space pick" all lie. Comment mode space
+works only by accident (default single-rune append). app.go:2406 also
+lists "space" (dispatchHandled) — same dead name, check dispatch
+toggles whenever space handling is fixed. Everything else in round 8
+passed: 3 new fixtures + assertions OK at all breakpoints, ◫ badge +
+gated summary + notice line on runs, A → shared loader (app.go:1432
+"checking the gate") → overlay async, y/n confirm-gated ("open the
+gate for production?" / "keep the gate shut for production?"), c
+comment mode with truthful footer, detail pending panel live, help "A
+approvals (waiting runs)", palette "approvals · review the deploy
+gate", runs footer static, runs/detail/dispatch fixtures unregressed.
+
+Round 9 (feat/250-deployment-approvals, 1808bc9, 2026-06-10): PASS —
+round-8 P1 (dead space key) verified FIXED in the built binary, live
+`__vqa-tui --scenario waiting` 120x40. keyName() now maps 0x20 →
+"space" (cmd/gh-hound/main.go:1346); pinned end-to-end by
+TestSpaceByteTogglesApprovalsPickThroughRealDecoder (cli_test.go:374,
+drives raw " " through production keyDecoder.Next into app.Update —
+the right test shape). Verified live: space toggles [x]→[ ]→[x] on
+production; space on locked staging → "not yours to open — staging
+needs another reviewer" and stays [-]; y with nothing picked → "pick a
+gate first — space marks an environment", no confirm; runs filter
+accepts "a b" and narrows; palette query accepts space; dispatch text
+field accepts "v1 rc" AND space still cycles choice fields (round-8
+app.go:2406 follow-up closed). e273dfc also verified live: c → type
+draft → esc restores default comment line ("reviewed from gh-hound
+(default)"), esc pops only the comment layer, and y afterwards opens
+the confirm with no draft carried; comment mode has dedicated truthful
+footer "type comment · ⏎ done · ⎋ cancel". Confirm box itself never
+displays the comment text — by design, the overlay comment line is the
+source of truth. Waiting-scenario nav note: `A`'s wait-for needle must
+be overlay-specific ("space pick"), since "production" matches the
+runs row text. 253 unit tests green; 12 screenshots in .shux/out/r9-*.
 
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.

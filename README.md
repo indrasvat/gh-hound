@@ -104,6 +104,7 @@ The local gate includes race-enabled Go tests, large-log performance tests, and 
 - **Runs home**: branch or repo-wide list, all-green state, status glyphs, run numbers, filters, summary counts, and rate/cache metadata.
 - **Run detail**: master-detail job/step view with responsive collapse at narrow terminal sizes.
 - **Artifacts**: list a run's artifacts in detail view, download and auto-extract with confirmation; expired artifacts are flagged and refused up front.
+- **Deployment approvals**: waiting runs wear a gate badge; `A` opens the gate overlay — pick environments, approve or reject with confirmation — and the `approvals` pipe verb does the same for agents. The `gh` CLI has no equivalent.
 - **Time navigation**: a `t` modal on the log screen with a landmark picker (step boundaries, the failure window, the slowest gaps), typed jumps (`17:43`, `+30s`, `-2m`), and `A-B` range filtering.
 - **Status cycle**: `f` on the runs screen cycles all / failing / running / passed through the server filter.
 - **Attempt forensics**: `runs --run <id> --attempt <n>` triages a specific attempt after a re-run -- failed jobs, clean excerpts, exit codes.
@@ -196,7 +197,7 @@ Fixture scenarios are intentionally restricted to non-interactive/test paths. Th
 | Context | Keys |
 | --- | --- |
 | Global | `?` help, `:` palette, `T` theme, `q`/`Ctrl+C` quit, `Esc` back |
-| Runs | `j/k` or arrows move, `g/G` top/bottom, `s` scope, `Enter` open, `f` status cycle, `/` filter, `l` logs, `w` watch |
+| Runs | `j/k` or arrows move, `g/G` top/bottom, `s` scope, `Enter` open, `f` status cycle, `/` filter, `l` logs, `w` watch, `A` approvals (waiting runs) |
 | Actions | `r` rerun, `R` rerun failed, `x` cancel, `X` force cancel, `D` dispatch |
 | Detail | `Tab` focus, `n` next failure, `l` logs, `a` artifacts, `d` download, `J/K` next/previous run |
 | Failure | `l` full log, `o` browser, `y` copy excerpt, `r` rerun job |

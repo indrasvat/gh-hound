@@ -13,6 +13,10 @@ gh hound runs --run <run-id> --attempt <n> --no-tui --json
 gh hound artifacts --run <run-id> --no-tui --json
 gh hound artifacts --run <run-id> --download <name> --dir <path> --no-tui --json
 gh hound runs --artifacts --no-tui --json
+gh hound approvals --run <run-id> --no-tui --json
+gh hound approvals --run <run-id> --approve --env production --comment "lgtm" --no-tui --json
+gh hound approvals --run <run-id> --reject --no-tui --json
+gh hound runs --approvals --no-tui --json
 gh hound rerun --run <run-id> --no-tui --json
 gh hound rerun --run <run-id> --failed-only --debug --no-tui --json
 gh hound rerun --run <run-id> --job <job-id> --no-tui --json
@@ -50,9 +54,32 @@ Mutation exit codes: `0` accepted, `2` anything else (validation such as `--job`
 
 On exit `2` the envelope still writes with `accepted: false` and a typed refusal: `error: {kind, message}` where `kind` is one of `validation | permission | conflict | rate_limit | network | unknown`. Harnesses can rehearse refusals deterministically with `--fake-scenario conflict` or `--fake-scenario permission`.
 
+## Deployment Approvals
+
+A run gated on an environment sits in `waiting`; `approvals` is the verb that opens (or keeps shut) the gate — the `gh` CLI has no equivalent.
+
+```bash
+gh hound approvals --run <id> --no-tui --json                                  # list pending gates
+gh hound approvals --run <id> --approve [--env <name>...] [--comment <text>] --no-tui --json
+gh hound approvals --run <id> --reject  [--env <name>...] [--comment <text>] --no-tui --json
+```
+
+Envelope (`$defs.approvals_result`): `{repo, run_id, pending: [{environment_id, environment, wait_timer, current_user_can_approve, reviewers: [{type, name}]}]}`. Review attempts add `accepted` plus either `reviewed: {state, environments, comment}` (accepted) or the typed `error: {kind, message}` refusal.
+
+Exit codes for the list form: `0` nothing pending (`pending: []`), `1` gates exist awaiting review (the actionable state), `2` anything else. Review form: `0` review accepted, `2` refused — `accepted: false` with `error.kind` one of `validation | permission | conflict | rate_limit | network | unknown`; exit `1` is never returned by a review.
+
+Review semantics:
+
+- `--approve`/`--reject` with **no** `--env` reviews ALL environments the caller can approve; if none are approvable the refusal is `permission`.
+- `--env <name>` is repeatable; an unknown name refuses as `validation`, a gate you cannot review refuses as `permission` — both before any write.
+- The POST body always includes a comment (the API requires the field): blank input sends the documented default `reviewed from gh-hound`.
+- Reviews are paced through the same one-per-second mutation limiter as `rerun`/`cancel`.
+
+`runs --approvals` adds `pending_environments: [names]` to `waiting` runs only — the default runs path makes zero pending-deployment calls, and even with the flag non-waiting runs cost nothing. Rehearse deterministically with `--fake-scenario waiting` (run `30433655` holds two gates, one not approvable).
+
 ## JSON Contract
 
-The JSON schema lives at `internal/render/testdata/schema.json` (mutation envelope under `$defs.mutation_result`); the canonical failure fixture lives at `internal/render/testdata/failure.golden.json`.
+The JSON schema lives at `internal/render/testdata/schema.json` (mutation envelope under `$defs.mutation_result`, approvals envelope under `$defs.approvals_result`); the canonical failure fixture lives at `internal/render/testdata/failure.golden.json`.
 
 Each run includes:
 
@@ -80,7 +107,7 @@ For local tests and docs, use fake scenarios:
 ./bin/gh-hound watch --json --fake-scenario failure
 ```
 
-Accepted aliases: `ok`, `green`, `success`; `failure`, `failed`, `failing`; `pending`, `running`, `in_progress`, `queued`; `api_error`, `network_error`, `rate_limited`.
+Accepted aliases: `ok`, `green`, `success`; `failure`, `failed`, `failing`; `pending`, `running`, `in_progress`, `queued`; `api_error`, `network_error`, `rate_limited`; `waiting`, `gated`.
 
 ## Guardrails
 

@@ -25,7 +25,7 @@ func ViewSize(m Model, width, height int) string {
 	stepsBudget := 0
 	if height > 0 {
 		// breadcrumb + pane header + divider + trailing divider + hint.
-		fixed := 5 + artifactsBlockLines(m)
+		fixed := 5 + artifactsBlockLines(m) + gateBlockLines(m)
 		stepsBudget = max(height-fixed, 3)
 	}
 	lines := []string{fit(breadcrumb(m), width)}
@@ -108,11 +108,11 @@ func renderStepsPane(m Model, width, stepsBudget int, standalone bool) []string 
 			}
 			hint = "the hound is on its way back…"
 		}
-		return []string{
+		return append([]string{
 			paneHeader("Steps", "", width, m.Focus == FocusSteps),
 			divider(width),
 			fitANSI(colorize(sgrDim, hint), width),
-		}
+		}, renderGateBlock(m, width)...)
 	}
 	header := stepHeader(job)
 	lines := []string{
@@ -129,10 +129,58 @@ func renderStepsPane(m Model, width, stepsBudget int, standalone bool) []string 
 	if remaining := len(job.Steps) - end; remaining > 0 {
 		lines = append(lines, fitANSI("    "+colorize(sgrDim, fmt.Sprintf("+%d more", remaining)), width))
 	}
+	lines = append(lines, renderGateBlock(m, width)...)
 	lines = append(lines, renderArtifactsBlock(m, width)...)
 	lines = append(lines, divider(width))
 	lines = append(lines, hintLine(m, width))
 	return lines
+}
+
+func gateBlockLines(m Model) int {
+	if !showGateBlock(m) {
+		return 0
+	}
+	return 2 + len(m.PendingDeployments)
+}
+
+func showGateBlock(m Model) bool {
+	return m.Run.Status == model.StatusWaiting && len(m.PendingDeployments) > 0
+}
+
+// renderGateBlock is the pending-environments panel for a waiting run:
+// each gate, its reviewers, the wait timer, and whether this user can
+// open it.
+func renderGateBlock(m Model, width int) []string {
+	if !showGateBlock(m) {
+		return nil
+	}
+	lines := []string{
+		divider(width),
+		paneHeader(fmt.Sprintf("Deploy gate (%d)", len(m.PendingDeployments)), "A review", width, false),
+	}
+	for _, gate := range m.PendingDeployments {
+		lines = append(lines, gateRow(gate, width))
+	}
+	return lines
+}
+
+func gateRow(gate model.PendingDeployment, width int) string {
+	state := colorize(sgrOK, "you can open this gate")
+	iconColor := sgrInfo
+	if !gate.CurrentUserCanApprove {
+		state = colorize(sgrWarn, "not yours to open")
+		iconColor = sgrDim
+	}
+	left := "  " + colorize(iconColor, icons.Gate) + " " + colorize(sgrFGSoft, gate.EnvironmentName) + " " + state
+	if gate.WaitTimer > 0 {
+		left += colorize(sgrDim, fmt.Sprintf(" · wait %dm", gate.WaitTimer/60))
+	}
+	reviewers := make([]string, 0, len(gate.Reviewers))
+	for _, reviewer := range gate.Reviewers {
+		reviewers = append(reviewers, reviewer.Name)
+	}
+	right := colorize(sgrDim, strings.Join(reviewers, ", "))
+	return joinRightANSI(left, right, width)
 }
 
 // stepWindow returns the visible [start, end) slice of steps for the

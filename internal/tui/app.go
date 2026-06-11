@@ -15,6 +15,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/banner"
 	"github.com/indrasvat/gh-hound/internal/tui/keys"
+	"github.com/indrasvat/gh-hound/internal/tui/overlay/approvals"
 	"github.com/indrasvat/gh-hound/internal/tui/overlay/confirm"
 	"github.com/indrasvat/gh-hound/internal/tui/overlay/help"
 	"github.com/indrasvat/gh-hound/internal/tui/overlay/palette"
@@ -48,11 +49,12 @@ const (
 type Overlay string
 
 const (
-	OverlayNone     Overlay = ""
-	OverlayHelp     Overlay = "help"
-	OverlayPalette  Overlay = "palette"
-	OverlayConfirm  Overlay = "confirm"
-	OverlayTimeJump Overlay = "time_jump"
+	OverlayNone      Overlay = ""
+	OverlayHelp      Overlay = "help"
+	OverlayPalette   Overlay = "palette"
+	OverlayConfirm   Overlay = "confirm"
+	OverlayTimeJump  Overlay = "time_jump"
+	OverlayApprovals Overlay = "approvals"
 )
 
 type KeyMsg struct {
@@ -73,6 +75,7 @@ type Options struct {
 	RunsMetadata              func() (usecase.RequestMeta, bool)
 	LogRefetchNotice          func(int64) (usecase.LogRefetchNotice, bool)
 	ActionHandler             func(ActionRequest) (usecase.ActionResult, error)
+	ApprovalsResolver         func(context.Context, model.Run) ([]model.PendingDeployment, error)
 	ArtifactsResolver         func(model.Run) ([]model.Artifact, error)
 	ArtifactDownloader        func(model.Artifact, string) (usecase.DownloadResult, error)
 	OpenURL                   func(string) error
@@ -86,6 +89,10 @@ type ActionRequest struct {
 	Workflow dispatch.Workflow
 	Dispatch usecase.DispatchRequest
 	Debug    bool
+	// Environments and Comment carry deployment-review intent for the
+	// approve/reject actions.
+	Environments []string
+	Comment      string
 }
 
 type App struct {
@@ -108,6 +115,7 @@ type App struct {
 	watch                     watch.Model
 	dispatch                  dispatch.Model
 	palette                   palette.Model
+	approvals                 approvals.Model
 	confirm                   confirm.Model
 	toasts                    toast.Model
 	runsMeta                  usecase.RequestMeta
@@ -124,6 +132,7 @@ type App struct {
 	runsMetadata              func() (usecase.RequestMeta, bool)
 	logRefetchNotice          func(int64) (usecase.LogRefetchNotice, bool)
 	actionHandler             func(ActionRequest) (usecase.ActionResult, error)
+	approvalsResolver         func(context.Context, model.Run) ([]model.PendingDeployment, error)
 	artifactsResolver         func(model.Run) ([]model.Artifact, error)
 	artifactDownloader        func(model.Artifact, string) (usecase.DownloadResult, error)
 	artifactsFetch            *artifactsFetchState
@@ -306,6 +315,7 @@ func NewApp(options Options) App {
 		runsMetadata:              options.RunsMetadata,
 		logRefetchNotice:          options.LogRefetchNotice,
 		actionHandler:             options.ActionHandler,
+		approvalsResolver:         options.ApprovalsResolver,
 		artifactsResolver:         options.ArtifactsResolver,
 		artifactDownloader:        options.ArtifactDownloader,
 		openURL:                   options.OpenURL,
@@ -404,6 +414,9 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 		if a.TopOverlay() == OverlayTimeJump {
 			return a.updateTimeJump(msg)
 		}
+		if a.TopOverlay() == OverlayApprovals {
+			return a.updateApprovals(msg)
+		}
 		switch msg.Key {
 		case "esc":
 			a.overlays = a.overlays[:len(a.overlays)-1]
@@ -489,6 +502,12 @@ func (a App) ViewSize(width, height int) string {
 		if a.TopOverlay() == OverlayTimeJump {
 			footer = "j/k pick · type time · ⏎ go · ⎋ cancel"
 		}
+		if a.TopOverlay() == OverlayApprovals {
+			footer = "j/k move · space pick · y open gate · n keep shut · c comment · ⎋ close"
+			if a.approvals.CommentMode {
+				footer = "type comment · ⏎ done · ⎋ cancel"
+			}
+		}
 	} else {
 		body = toastLayer(a.theme, body, a.toasts, contentWidth(width))
 	}
@@ -535,6 +554,21 @@ func RenderFixtureSize(screen string, width, height int) string {
 		loadingApp.routes = []Route{RouteRuns, RouteLog}
 		loadingApp.load = &pendingLoad{kind: loadKindLog, label: "fetching log", started: time.Now().Add(-250 * time.Millisecond), read: 2202009, total: 5033165}
 		return loadingApp.ViewSize(width, height)
+	case "runs-waiting":
+		app.runs = sampleWaitingRunsModel()
+		return frameViewSize(app.theme, "hound", "⎇ branch main · @indrasvat", "◔ 4,981/5k live", runs.View(app.runs, bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
+	case "approvals":
+		app.runs = sampleWaitingRunsModel()
+		app.routes = []Route{RouteRuns}
+		run, _ := app.runs.SelectedRun()
+		app.approvals = approvals.NewModel(run, samplePendingDeployments())
+		app.overlays = append(app.overlays, OverlayApprovals)
+		return app.ViewSize(width, height)
+	case "detail-pending":
+		app.runs = sampleWaitingRunsModel()
+		run, _ := app.runs.SelectedRun()
+		m := DetailModelForRun(run).WithRepo("indrasvat/gh-hound").WithPendingDeployments(samplePendingDeployments())
+		return frameViewSize(app.theme, "hound", "Deploy #572 › main", "waiting", detail.ViewSize(m, bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
 	case "rerun-confirm":
 		loadingApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
 		run, _ := loadingApp.runs.SelectedRun()
@@ -1012,6 +1046,13 @@ func (a App) updateRuns(msg KeyMsg) (App, bool) {
 		if run, ok := a.runs.SelectedRun(); ok {
 			a = a.handleAction(RouteRuns, ActionRequest{Action: usecase.ActionForceCancelRun, Run: run})
 		}
+	case runs.IntentApprovals:
+		if a.loadBlocked(loadKindApprovals) {
+			break
+		}
+		if run, ok := a.runs.SelectedRun(); ok {
+			a = a.openApprovals(run)
+		}
 	case runs.IntentFilter:
 		a = a.reloadRuns(a.runs.Intent.Filter)
 		_, serverSide := serverRunFilter(a.runs.Context, a.config.PerPage, a.runs.Intent.Filter)
@@ -1214,7 +1255,15 @@ func (a App) updateConfirm(msg KeyMsg) (App, bool) {
 			return a.startArtifactDownload(*pendingDownload), true
 		}
 		if pending != nil {
-			a = a.executeAction(pending.route, pending.request)
+			var accepted bool
+			a, accepted = a.executeAction(pending.route, pending.request)
+			if accepted && deploymentReviewFamily(pending.request.Action) && a.TopOverlay() == OverlayApprovals {
+				// The gate was acted on: the overlay beneath has
+				// nothing left to offer. A refusal keeps it open with
+				// the picks and comment intact for a retry.
+				a.PopOverlay()
+				a.approvals = approvals.Model{}
+			}
 		}
 		return a, true
 	case confirm.IntentCancel:
@@ -1321,6 +1370,11 @@ func (a App) handlePaletteIntent(intent palette.Intent) App {
 			a.routes = []Route{RouteRuns, RouteDetail}
 			a.detail = a.detail.Update(detail.KeyMsg{Key: "a"})
 		}
+	case "approvals":
+		a.PopOverlay()
+		if run, ok := a.runs.SelectedRun(); ok {
+			a = a.openApprovals(run)
+		}
 	case string(RouteDispatch):
 		a = a.openDispatchFromPalette(intent.Value)
 	}
@@ -1357,6 +1411,100 @@ func (a App) openDispatchFromPalette(value string) App {
 func (a *App) PopOverlay() {
 	if len(a.overlays) > 0 {
 		a.overlays = a.overlays[:len(a.overlays)-1]
+	}
+}
+
+// openApprovals fetches the selected waiting run's gate list through
+// startLoad — never on the keypress path — and opens the overlay when
+// it lands. Non-waiting runs get a truthful toast instead.
+func (a App) openApprovals(run model.Run) App {
+	if run.Status != model.StatusWaiting {
+		a.pushToast("approvals-no-gate", usecase.Resilience{
+			Severity: usecase.SeverityInfo,
+			Title:    "no gate here",
+			Message:  "this run is not waiting on a deploy review",
+		})
+		return a
+	}
+	if a.approvalsResolver == nil {
+		a.pushErrorToast("approvals-unavailable", usecase.ResilienceFor(errors.New("deploy approvals are not configured"), usecase.ErrorContext{}))
+		return a
+	}
+	resolver := a.approvalsResolver
+	return a.startLoad(loadKindApprovals, "checking the gate", func(ctx context.Context) func(App) App {
+		pending, err := resolver(ctx, run)
+		return func(app App) App {
+			if err != nil {
+				app.pushErrorToast("approvals-fetch-failed", usecase.ResilienceFor(err, usecase.ErrorContext{}))
+				return app
+			}
+			if len(pending) == 0 {
+				app.pushToast("approvals-empty", usecase.Resilience{
+					Severity: usecase.SeverityInfo,
+					Title:    "no gate here",
+					Message:  "nothing is pending review on this run",
+				})
+				return app
+			}
+			app.approvals = approvals.NewModel(run, pending)
+			if app.TopOverlay() != OverlayApprovals {
+				app.overlays = append(app.overlays, OverlayApprovals)
+			}
+			return app
+		}
+	})
+}
+
+func (a App) updateApprovals(msg KeyMsg) (App, bool) {
+	if !a.approvals.CommentMode {
+		switch msg.Key {
+		case "esc":
+			a.PopOverlay()
+			a.approvals = approvals.Model{}
+			return a, true
+		case "?":
+			a.overlays = append(a.overlays, OverlayHelp)
+			return a, true
+		case "q", "ctrl+c":
+			a.quit = true
+			return a, true
+		}
+	}
+	before := a.approvals
+	a.approvals = a.approvals.Update(approvals.KeyMsg{Key: msg.Key})
+	switch a.approvals.Intent.Kind {
+	case approvals.IntentApprove:
+		a = a.handleAction(RouteRuns, ActionRequest{
+			Action:       usecase.ActionApproveDeployment,
+			Run:          a.approvals.Run,
+			Environments: a.approvals.Intent.Environments,
+			Comment:      a.approvals.Intent.Comment,
+		})
+	case approvals.IntentReject:
+		a = a.handleAction(RouteRuns, ActionRequest{
+			Action:       usecase.ActionRejectDeployment,
+			Run:          a.approvals.Run,
+			Environments: a.approvals.Intent.Environments,
+			Comment:      a.approvals.Intent.Comment,
+		})
+	}
+	changed := before.Selected != a.approvals.Selected ||
+		before.CommentMode != a.approvals.CommentMode ||
+		before.Comment != a.approvals.Comment ||
+		before.Notice != a.approvals.Notice ||
+		len(before.PickedEnvironments()) != len(a.approvals.PickedEnvironments()) ||
+		a.approvals.Intent.Kind != approvals.IntentNone
+	return a, changed || len([]rune(msg.Key)) == 1
+}
+
+// deploymentReviewFamily reports whether an action is a deploy-gate
+// review; confirming one also closes the approvals overlay beneath.
+func deploymentReviewFamily(action usecase.Action) bool {
+	switch action {
+	case usecase.ActionApproveDeployment, usecase.ActionRejectDeployment:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -1963,21 +2111,26 @@ func (a App) handleAction(route Route, request ActionRequest) App {
 	if actionRequiresConfirmation(request.Action) {
 		return a.openConfirm(route, request)
 	}
-	return a.executeAction(route, request)
+	a, _ = a.executeAction(route, request)
+	return a
 }
 
-func (a App) executeAction(route Route, request ActionRequest) App {
+// executeAction runs the mutation and reports whether it was accepted,
+// so callers can keep state (like the approvals overlay) alive on a
+// refusal and let the user retry.
+func (a App) executeAction(route Route, request ActionRequest) (App, bool) {
 	a.clearRouteError(route)
 	if a.actionHandler == nil {
 		a.setRouteError(route, "action unavailable: live GitHub mutation handler is not configured")
-		return a
+		return a, false
 	}
-	if result, err := a.actionHandler(request); err != nil {
+	result, err := a.actionHandler(request)
+	if err != nil {
 		a.pushErrorToast("action-failed", usecase.ResilienceFor(err, usecase.ErrorContext{}))
-	} else {
-		a.pushToast("action-ok", usecase.ResilienceForSuccess(result))
+		return a, false
 	}
-	return a
+	a.pushToast("action-ok", usecase.ResilienceForSuccess(result))
+	return a, true
 }
 
 func (a App) openConfirm(route Route, request ActionRequest) App {
@@ -2006,7 +2159,9 @@ func actionRequiresConfirmation(action usecase.Action) bool {
 		usecase.ActionRerunFailedJobs,
 		usecase.ActionRerunJob,
 		usecase.ActionCancelRun,
-		usecase.ActionForceCancelRun:
+		usecase.ActionForceCancelRun,
+		usecase.ActionApproveDeployment,
+		usecase.ActionRejectDeployment:
 		return true
 	default:
 		return false
@@ -2025,9 +2180,20 @@ func confirmMessage(request ActionRequest) string {
 		return "cancel " + runTarget(request.Run)
 	case usecase.ActionForceCancelRun:
 		return "force-cancel " + runTarget(request.Run)
+	case usecase.ActionApproveDeployment:
+		return "open the gate for " + environmentTarget(request.Environments) + "?"
+	case usecase.ActionRejectDeployment:
+		return "keep the gate shut for " + environmentTarget(request.Environments) + "?"
 	default:
 		return string(request.Action)
 	}
+}
+
+func environmentTarget(environments []string) string {
+	if len(environments) == 0 {
+		return "this deployment"
+	}
+	return strings.Join(environments, ", ")
 }
 
 func runTarget(run model.Run) string {
@@ -2292,6 +2458,8 @@ func (a App) overlayTitle() string {
 		return "Confirm action"
 	case OverlayTimeJump:
 		return "Jump to time"
+	case OverlayApprovals:
+		return "deploy gate"
 	default:
 		return ""
 	}
@@ -2307,6 +2475,8 @@ func (a App) overlayView(width int) string {
 		return confirm.View(a.confirm, width-20)
 	case OverlayTimeJump:
 		return timejump.View(a.timeJump, width-20)
+	case OverlayApprovals:
+		return approvals.View(a.approvals, width-20)
 	default:
 		return ""
 	}
@@ -2447,6 +2617,7 @@ func paletteItems(workflows []dispatch.Workflow) []palette.Item {
 		{Name: "runs --all", Description: "runs across all branches", Route: "runs --all"},
 		{Name: "run:failed", Description: "filtered to failures", Route: "run:failed"},
 		{Name: "artifacts", Description: "selected run's artifacts", Route: "artifacts"},
+		{Name: "approvals", Description: "review the deploy gate", Route: "approvals"},
 	}
 	if len(workflows) == 0 {
 		items = append(items, palette.Item{Name: "dispatch", Description: "trigger workflow_dispatch", Route: string(RouteDispatch)})
@@ -2814,6 +2985,43 @@ func sampleRunsModel() runs.Model {
 			{ID: 564, Name: "Security", DisplayTitle: "dependency audit", Event: "workflow_dispatch", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 564, Actor: "dependabot", HeadBranch: "fix/parser", HeadSHA: "f6a7b8c", UpdatedAt: now.Add(-4 * time.Hour), RunStartedAt: now.Add(-241 * time.Minute)},
 		},
 	})
+}
+
+// sampleWaitingRunsModel mirrors the fake adapter's waiting scenario:
+// the newest run holds at a deployment gate.
+func sampleWaitingRunsModel() runs.Model {
+	now := time.Now().UTC().Truncate(time.Second)
+	return runs.NewModel(usecase.LaunchContext{
+		Repo:   "indrasvat/gh-hound",
+		Branch: "main",
+		Actor:  "indrasvat",
+		Scope:  usecase.LaunchScopeBranch,
+		State:  usecase.LaunchStateRuns,
+		Runs: []model.Run{
+			{ID: 30433655, Name: "Deploy", DisplayTitle: "production rollout", Event: "push", Status: model.StatusWaiting, Conclusion: model.ConclusionNone, RunNumber: 572, Actor: "indrasvat", HeadBranch: "main", HeadSHA: "a1b2c3d", UpdatedAt: now.Add(-90 * time.Second), RunStartedAt: now.Add(-2 * time.Minute)},
+			{ID: 30433571, Name: "CI", DisplayTitle: "fix parser", Event: "pull_request", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 571, Actor: "indrasvat", HeadBranch: "main", HeadSHA: "b4c5d6e", UpdatedAt: now.Add(-12 * time.Minute), RunStartedAt: now.Add(-14 * time.Minute)},
+			{ID: 30433570, Name: "Docs", DisplayTitle: "docs refresh", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 570, Actor: "indrasvat", HeadBranch: "main", HeadSHA: "c7d8e9f", UpdatedAt: now.Add(-3 * time.Hour), RunStartedAt: now.Add(-181 * time.Minute)},
+		},
+	})
+}
+
+func samplePendingDeployments() []model.PendingDeployment {
+	return []model.PendingDeployment{
+		{
+			EnvironmentID:         7301,
+			EnvironmentName:       "production",
+			WaitTimer:             0,
+			CurrentUserCanApprove: true,
+			Reviewers:             []model.DeploymentReviewer{{Type: "User", Name: "indrasvat"}},
+		},
+		{
+			EnvironmentID:         7302,
+			EnvironmentName:       "staging",
+			WaitTimer:             1800,
+			CurrentUserCanApprove: false,
+			Reviewers:             []model.DeploymentReviewer{{Type: "Team", Name: "deploy-keys"}},
+		},
+	}
 }
 
 func sampleAllGreenModel() runs.Model {

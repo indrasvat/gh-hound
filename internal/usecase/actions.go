@@ -16,7 +16,32 @@ const (
 	ActionCancelRun       Action = "cancel_run"
 	ActionForceCancelRun  Action = "force_cancel_run"
 	ActionDispatch        Action = "dispatch"
+
+	ActionApproveDeployment Action = "approve_deployment"
+	ActionRejectDeployment  Action = "reject_deployment"
 )
+
+// DeploymentReviewState is the verdict posted to the pending
+// deployments endpoint.
+type DeploymentReviewState string
+
+const (
+	DeploymentApproved DeploymentReviewState = "approved"
+	DeploymentRejected DeploymentReviewState = "rejected"
+)
+
+// DefaultReviewComment is the documented comment sent when the user
+// leaves the review comment blank: the API requires the field, so the
+// POST body always carries one.
+const DefaultReviewComment = "reviewed from gh-hound"
+
+// DeploymentReview is the adapter-facing review payload. The comment is
+// always sent; adapters substitute DefaultReviewComment when blank.
+type DeploymentReview struct {
+	EnvironmentIDs []int64
+	State          DeploymentReviewState
+	Comment        string
+}
 
 type ActionResult struct {
 	Action     Action

@@ -27,6 +27,7 @@ const (
 	ScenarioConflict     Scenario = "conflict"
 	ScenarioLogRender    Scenario = "log_render"
 	ScenarioLogRefetch   Scenario = "log_refetch"
+	ScenarioWaiting      Scenario = "waiting"
 )
 
 type Adapter struct {
@@ -75,6 +76,8 @@ func (a *Adapter) listScenarioRuns() ([]model.Run, error) {
 		run.Status = model.StatusInProgress
 		run.Conclusion = model.ConclusionNone
 		return []model.Run{run}, nil
+	case ScenarioWaiting:
+		return []model.Run{waitingRun(), greenRun(571)}, nil
 	case ScenarioEmpty:
 		return []model.Run{}, nil
 	case ScenarioRateLimited:
@@ -212,6 +215,64 @@ func (a *Adapter) DownloadArtifact(context.Context, string, int64) (io.ReadClose
 		return nil, err
 	}
 	return io.NopCloser(bytes.NewReader(buf.Bytes())), nil
+}
+
+// waitingRunID is the fixture run gated on environment review in the
+// waiting scenario.
+const waitingRunID int64 = 30433655
+
+func waitingRun() model.Run {
+	run := greenRun(572)
+	run.ID = waitingRunID
+	run.Name = "Deploy"
+	run.DisplayTitle = "production rollout"
+	run.Event = "push"
+	run.Status = model.StatusWaiting
+	run.Conclusion = model.ConclusionNone
+	run.HTMLURL = "https://github.com/indrasvat/gh-hound/actions/runs/30433655"
+	return run
+}
+
+func (a *Adapter) ListPendingDeployments(_ context.Context, _ string, runID int64) ([]model.PendingDeployment, error) {
+	switch a.scenario {
+	case ScenarioRateLimited, ScenarioNetworkError, ScenarioPermission, ScenarioConflict:
+		_, err := a.actionResult(usecase.ActionApproveDeployment, "", runID, 0, "")
+		return nil, err
+	case ScenarioWaiting:
+		if runID != waitingRunID {
+			return []model.PendingDeployment{}, nil
+		}
+		return []model.PendingDeployment{
+			{
+				EnvironmentID:         7301,
+				EnvironmentName:       "production",
+				WaitTimer:             0,
+				CurrentUserCanApprove: true,
+				Reviewers: []model.DeploymentReviewer{
+					{Type: "User", Name: "indrasvat"},
+				},
+			},
+			{
+				EnvironmentID:         7302,
+				EnvironmentName:       "staging",
+				WaitTimer:             1800,
+				CurrentUserCanApprove: false,
+				Reviewers: []model.DeploymentReviewer{
+					{Type: "Team", Name: "deploy-keys"},
+				},
+			},
+		}, nil
+	default:
+		return []model.PendingDeployment{}, nil
+	}
+}
+
+func (a *Adapter) ReviewPendingDeployments(_ context.Context, repo string, runID int64, review usecase.DeploymentReview) (usecase.ActionResult, error) {
+	action := usecase.ActionApproveDeployment
+	if review.State == usecase.DeploymentRejected {
+		action = usecase.ActionRejectDeployment
+	}
+	return a.actionResult(action, repo, runID, 0, "")
 }
 
 func (a *Adapter) FetchJobLog(context.Context, string, int64) (string, error) {

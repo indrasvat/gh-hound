@@ -70,6 +70,9 @@ func (m Model) Update(msg KeyMsg) Model {
 			m.Query = m.Query[:len(m.Query)-1]
 			m.Selected = 0
 		}
+	case "space":
+		m.Query += " "
+		m.Selected = 0
 	default:
 		if len([]rune(msg.Key)) == 1 {
 			m.Query += msg.Key

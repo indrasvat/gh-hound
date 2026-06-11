@@ -98,6 +98,8 @@ func (m Model) updateInput(msg KeyMsg) Model {
 		if len(m.input) > 0 {
 			m.input = m.input[:len(m.input)-1]
 		}
+	case "space":
+		m.input += " "
 	default:
 		if len([]rune(msg.Key)) == 1 {
 			m.input += msg.Key

@@ -95,12 +95,17 @@ type cliOptions struct {
 	Watch         bool
 	Fake          string
 	WithArtifacts bool
+	WithApprovals bool
 	RunID         int64
 	Attempt       int
 	Download      string
 	Dir           string
 	Force         bool
 	LaunchRoute   usecase.LaunchRoute
+	Approve       bool
+	Reject        bool
+	Envs          []string
+	Comment       string
 }
 
 func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Command {
@@ -164,6 +169,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.AddCommand(newWatchCommand(runtime, &options))
 	cmd.AddCommand(newDispatchCommand(runtime, info, &options))
 	cmd.AddCommand(newArtifactsCommand(runtime, &options))
+	cmd.AddCommand(newApprovalsCommand(runtime, &options))
 	cmd.AddCommand(newRerunCommand(runtime, &options))
 	cmd.AddCommand(newCancelCommand(runtime, &options))
 	return cmd
@@ -415,6 +421,7 @@ func newRunsCommand(runtime commandRuntime, options *cliOptions) *cobra.Command 
 	}
 	cmd.Flags().StringVar(&options.Status, "status", "", "filter runs by status or conclusion (env HOUND_STATUS)")
 	cmd.Flags().BoolVar(&options.WithArtifacts, "artifacts", false, "include artifact metadata per run (paginated artifact-list calls per run)")
+	cmd.Flags().BoolVar(&options.WithApprovals, "approvals", false, "include pending_environments for waiting runs (one pending-deployments call per waiting run)")
 	cmd.Flags().Int64Var(&options.RunID, "run", 0, "inspect a single run by ID (any branch)")
 	cmd.Flags().IntVar(&options.Attempt, "attempt", 0, "target a specific run attempt for failure triage (requires --run)")
 	return cmd
@@ -435,6 +442,152 @@ func newArtifactsCommand(runtime commandRuntime, options *cliOptions) *cobra.Com
 	cmd.Flags().StringVar(&options.Dir, "dir", ".", "destination directory for downloads")
 	cmd.Flags().BoolVar(&options.Force, "force", false, "overwrite an existing extraction destination")
 	return cmd
+}
+
+func newApprovalsCommand(runtime commandRuntime, options *cliOptions) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "approvals",
+		Short: "List or review a waiting run's deployment gates",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			applyEnv(options, runtime.Env)
+			options.NoTUI = true
+			return writeApprovalsResult(cmd.Context(), runtime.Stdout, *options, runtime)
+		},
+	}
+	cmd.Flags().Int64Var(&options.RunID, "run", 0, "run ID whose pending deployments to inspect")
+	cmd.Flags().BoolVar(&options.Approve, "approve", false, "approve the pending deployment gates")
+	cmd.Flags().BoolVar(&options.Reject, "reject", false, "reject the pending deployment gates")
+	cmd.Flags().StringArrayVar(&options.Envs, "env", nil, "environment name to review (repeatable; default: all you can approve)")
+	cmd.Flags().StringVar(&options.Comment, "comment", "", "review comment (default: \"reviewed from gh-hound\")")
+	return cmd
+}
+
+// writeApprovalsResult renders the approvals envelope. Exit codes
+// follow the global contract: 0 review accepted or nothing pending,
+// 1 pending gates exist awaiting review (list form), 2 anything else
+// with a typed error.kind refusal on stdout.
+func writeApprovalsResult(ctx context.Context, w io.Writer, options cliOptions, runtime commandRuntime) error {
+	format := render.Format(options.Format)
+	result := render.ApprovalsResult{
+		Repo:    firstNonEmpty(options.Repo, ""),
+		RunID:   options.RunID,
+		Pending: []render.PendingDeployment{},
+	}
+	reviewRequested := options.Approve || options.Reject
+	refuse := func(err error) error {
+		kind, message := approvalsErrorKind(err)
+		accepted := false
+		result.Accepted = &accepted
+		result.Error = &render.MutationError{Kind: kind, Message: message}
+		if writeErr := render.WriteApprovals(w, format, result); writeErr != nil {
+			return writeErr
+		}
+		return outcomeError{code: render.ExitError}
+	}
+	if options.RunID <= 0 {
+		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Message: "--run <run-id> (a positive ID) is required"})
+	}
+	if options.Approve && options.Reject {
+		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Message: "--approve and --reject are mutually exclusive"})
+	}
+	if !reviewRequested && (len(options.Envs) > 0 || options.Comment != "") {
+		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Message: "--env and --comment require --approve or --reject"})
+	}
+
+	var githubClient usecase.GitHub
+	if options.Fake != "" {
+		scenario := normalizedScenario(options)
+		if scenario == "api_error" {
+			return refuse(usecase.ActionError{Kind: usecase.ActionErrorNetwork, Message: "github api unavailable"})
+		}
+		githubClient = fake.New(fakeScenarioFor(scenario))
+		result.Repo = firstNonEmpty(options.Repo, "indrasvat/gh-hound")
+	} else {
+		target, err := resolveTarget(ctx, options, runtime)
+		if err != nil {
+			return refuse(err)
+		}
+		defer func() {
+			_ = target.close()
+		}()
+		githubClient = target.github
+		result.Repo = target.repo
+	}
+
+	service := usecase.ApprovalsService{
+		GitHub:  githubClient,
+		Limiter: &usecase.MutationLimiter{MinSpacing: time.Second},
+	}
+	if !reviewRequested {
+		pending, err := service.List(ctx, result.Repo, options.RunID)
+		if err != nil {
+			return refuse(err)
+		}
+		result.Pending = mapRenderPendingDeployments(pending)
+		if err := render.WriteApprovals(w, format, result); err != nil {
+			return err
+		}
+		if len(result.Pending) > 0 {
+			// The actionable state: gates exist and await review.
+			return outcomeError{code: render.ExitActionNeeded}
+		}
+		return nil
+	}
+
+	outcome, err := service.Review(ctx, result.Repo, options.RunID, usecase.DeploymentReviewRequest{
+		Environments: options.Envs,
+		Approve:      options.Approve,
+		Comment:      options.Comment,
+	})
+	if err != nil {
+		return refuse(err)
+	}
+	accepted := true
+	result.Accepted = &accepted
+	result.Reviewed = &render.DeploymentReview{
+		State:        string(outcome.State),
+		Environments: outcome.Environments,
+		Comment:      outcome.Comment,
+	}
+	return render.WriteApprovals(w, format, result)
+}
+
+// approvalsErrorKind maps any error to the typed refusal taxonomy.
+func approvalsErrorKind(err error) (string, string) {
+	if actionErr, ok := usecase.AsActionError(err); ok {
+		return string(actionErr.Kind), actionErr.Error()
+	}
+	var apiErr usecase.APIError
+	if errors.As(err, &apiErr) {
+		switch apiErr.Kind {
+		case usecase.APIErrorAuth, usecase.APIErrorPermission:
+			return string(usecase.ActionErrorPermission), apiErr.Error()
+		case usecase.APIErrorRateLimit:
+			return string(usecase.ActionErrorRateLimit), apiErr.Error()
+		case usecase.APIErrorNetwork:
+			return string(usecase.ActionErrorNetwork), apiErr.Error()
+		}
+		return string(usecase.ActionErrorUnknown), apiErr.Error()
+	}
+	return string(usecase.ActionErrorUnknown), err.Error()
+}
+
+func mapRenderPendingDeployments(pending []model.PendingDeployment) []render.PendingDeployment {
+	out := make([]render.PendingDeployment, 0, len(pending))
+	for _, gate := range pending {
+		reviewers := make([]render.DeploymentReviewer, 0, len(gate.Reviewers))
+		for _, reviewer := range gate.Reviewers {
+			reviewers = append(reviewers, render.DeploymentReviewer{Type: reviewer.Type, Name: reviewer.Name})
+		}
+		out = append(out, render.PendingDeployment{
+			EnvironmentID:         gate.EnvironmentID,
+			Environment:           gate.EnvironmentName,
+			WaitTimer:             gate.WaitTimer,
+			CurrentUserCanApprove: gate.CurrentUserCanApprove,
+			Reviewers:             reviewers,
+		})
+	}
+	return out
 }
 
 func newWatchCommand(runtime commandRuntime, options *cliOptions) *cobra.Command {
@@ -637,9 +790,16 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 	}
 	githubClient := githubClientForRuntime(runtime)
 	repoProvider := repoProviderForRuntime(runtime)
+	// One limiter paces every mutation the TUI can fire — reruns,
+	// cancels, and deployment reviews share the same budget.
+	mutationLimiter := &usecase.MutationLimiter{MinSpacing: time.Second}
 	actionService := usecase.ActionService{
 		GitHub:  githubClient,
-		Limiter: &usecase.MutationLimiter{MinSpacing: time.Second},
+		Limiter: mutationLimiter,
+	}
+	approvalsService := usecase.ApprovalsService{
+		GitHub:  githubClient,
+		Limiter: mutationLimiter,
 	}
 	failureService := usecase.FailureService{GitHub: githubClient}
 	watchService := usecase.WatchService{GitHub: githubClient, MinPoll: cfg.PollMin, MaxPoll: cfg.PollMax}
@@ -683,7 +843,15 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			if err != nil {
 				return detail.Model{}, err
 			}
-			return detail.NewModel(run, jobs).WithRepo(launch.Repo), nil
+			resolved := detail.NewModel(run, jobs).WithRepo(launch.Repo)
+			if run.Status == model.StatusWaiting {
+				// The gate panel is auxiliary: a pending-deployments
+				// failure must not take the whole detail screen down.
+				if pending, pendingErr := approvalsService.List(loadCtx, launch.Repo, run.ID); pendingErr == nil {
+					resolved = resolved.WithPendingDeployments(pending)
+				}
+			}
+			return resolved, nil
 		},
 		FailureResolver: func(loadCtx context.Context, run model.Run, selected model.Job) (failurescreen.Model, logscreen.Model, error) {
 			job, err := resolveJobForRun(loadCtx, githubClient, launch.Repo, run, selected)
@@ -790,9 +958,22 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 					}
 				}
 				return actionService.DispatchWorkflow(ctx, launch.Repo, request.Workflow.ID, request.Dispatch)
+			case usecase.ActionApproveDeployment, usecase.ActionRejectDeployment:
+				outcome, err := approvalsService.Review(ctx, launch.Repo, request.Run.ID, usecase.DeploymentReviewRequest{
+					Environments: request.Environments,
+					Approve:      request.Action == usecase.ActionApproveDeployment,
+					Comment:      request.Comment,
+				})
+				if err != nil {
+					return usecase.ActionResult{}, err
+				}
+				return outcome.Result, nil
 			default:
 				return usecase.ActionResult{}, fmt.Errorf("unsupported action %q", request.Action)
 			}
+		},
+		ApprovalsResolver: func(loadCtx context.Context, run model.Run) ([]model.PendingDeployment, error) {
+			return approvalsService.List(loadCtx, launch.Repo, run.ID)
 		},
 		ArtifactsResolver: func(run model.Run) ([]model.Artifact, error) {
 			return usecase.ArtifactsService{GitHub: githubClient}.List(ctx, launch.Repo, run.ID)
@@ -1159,6 +1340,10 @@ func keyName(input []byte) string {
 		return "tab"
 	case 0x7f, '\b':
 		return "backspace"
+	case ' ':
+		// The symbolic name every Update handler matches on; text
+		// inputs append " " from their explicit space cases.
+		return "space"
 	case 0x1b:
 		return "esc"
 	default:
@@ -1300,6 +1485,9 @@ func liveResult(ctx context.Context, options cliOptions, runtime commandRuntime)
 		if options.WithArtifacts {
 			attachArtifacts(ctx, usecase.ArtifactsService{GitHub: githubClient}, repo, singleRuns, renderSingle)
 		}
+		if options.WithApprovals {
+			attachApprovals(ctx, usecase.ApprovalsService{GitHub: githubClient}, repo, singleRuns, renderSingle)
+		}
 		return render.Result{Repo: repo, Branch: branch, Runs: renderSingle}, nil
 	}
 
@@ -1321,7 +1509,40 @@ func liveResult(ctx context.Context, options cliOptions, runtime commandRuntime)
 	if options.WithArtifacts {
 		attachArtifacts(ctx, usecase.ArtifactsService{GitHub: githubClient}, repo, runs, renderRuns)
 	}
+	if options.WithApprovals {
+		attachApprovals(ctx, usecase.ApprovalsService{GitHub: githubClient}, repo, runs, renderRuns)
+	}
 	return render.Result{Repo: repo, Branch: branch, Runs: renderRuns}, nil
+}
+
+// attachApprovals fills pending_environments for waiting runs in
+// place. Opt-in via --approvals; runs that are not waiting cost zero
+// calls even with the flag, and errors leave the run unenriched rather
+// than failing the listing.
+func attachApprovals(ctx context.Context, service usecase.ApprovalsService, repo string, runs []model.Run, out []render.Run) {
+	semaphore := make(chan struct{}, triageWorkers)
+	var wg sync.WaitGroup
+	for i, run := range runs {
+		if run.Status != model.StatusWaiting {
+			continue
+		}
+		wg.Add(1)
+		go func(i int, run model.Run) {
+			defer wg.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+			pending, err := service.List(ctx, repo, run.ID)
+			if err != nil || len(pending) == 0 {
+				return
+			}
+			names := make([]string, 0, len(pending))
+			for _, gate := range pending {
+				names = append(names, gate.EnvironmentName)
+			}
+			out[i].PendingEnvironments = names
+		}(i, run)
+	}
+	wg.Wait()
 }
 
 // attachArtifacts fills artifacts[] for each run in place. Opt-in via
@@ -1444,6 +1665,8 @@ func fakeScenarioFor(scenario string) fake.Scenario {
 		return fake.ScenarioConflict
 	case "permission":
 		return fake.ScenarioPermission
+	case "waiting":
+		return fake.ScenarioWaiting
 	default:
 		return fake.ScenarioGreen
 	}
@@ -1691,6 +1914,9 @@ func normalizedScenario(options cliOptions) string {
 	case "conflict", "permission":
 		// Mutation-refusal scenarios: typed errors for agent harnesses.
 		return raw
+	case "waiting", "gated":
+		// Deployment-approval scenario: a run holding at the gate.
+		return "waiting"
 	}
 	status := strings.ToLower(strings.TrimSpace(options.Status))
 	switch status {

@@ -111,6 +111,67 @@ func TestScenariosReproduceErrorTaxonomy(t *testing.T) {
 	}
 }
 
+func TestWaitingScenarioSurfacesGatedRunAndPendingEnvironments(t *testing.T) {
+	adapter := New(ScenarioWaiting)
+	runs, err := adapter.ListRuns(context.Background(), usecase.RunFilter{Repo: "indrasvat/gh-hound"})
+	if err != nil {
+		t.Fatalf("ListRuns error = %v", err)
+	}
+	if len(runs) < 2 {
+		t.Fatalf("waiting scenario runs = %d, want at least 2", len(runs))
+	}
+	if runs[0].Status != model.StatusWaiting {
+		t.Fatalf("newest run status = %s, want waiting", runs[0].Status)
+	}
+
+	pending, err := adapter.ListPendingDeployments(context.Background(), "indrasvat/gh-hound", runs[0].ID)
+	if err != nil {
+		t.Fatalf("ListPendingDeployments error = %v", err)
+	}
+	if len(pending) != 2 {
+		t.Fatalf("pending = %d environments, want 2", len(pending))
+	}
+	if pending[0].EnvironmentName != "production" || !pending[0].CurrentUserCanApprove {
+		t.Fatalf("first pending env = %#v, want approvable production", pending[0])
+	}
+	if pending[1].CurrentUserCanApprove {
+		t.Fatalf("second pending env must not be approvable: %#v", pending[1])
+	}
+	if len(pending[0].Reviewers) == 0 || len(pending[1].Reviewers) == 0 {
+		t.Fatal("pending environments must carry reviewers")
+	}
+
+	// Non-waiting runs have no gates.
+	none, err := adapter.ListPendingDeployments(context.Background(), "indrasvat/gh-hound", runs[1].ID)
+	if err != nil || len(none) != 0 {
+		t.Fatalf("non-waiting run pending = %v, %v; want empty", none, err)
+	}
+
+	result, err := adapter.ReviewPendingDeployments(context.Background(), "indrasvat/gh-hound", runs[0].ID, usecase.DeploymentReview{
+		EnvironmentIDs: []int64{pending[0].EnvironmentID},
+		State:          usecase.DeploymentApproved,
+		Comment:        usecase.DefaultReviewComment,
+	})
+	if err != nil {
+		t.Fatalf("ReviewPendingDeployments error = %v", err)
+	}
+	if result.Action != usecase.ActionApproveDeployment {
+		t.Fatalf("review result = %#v", result)
+	}
+}
+
+func TestWaitingScenarioReviewHonorsErrorScenarios(t *testing.T) {
+	adapter := New(ScenarioPermission)
+	_, err := adapter.ReviewPendingDeployments(context.Background(), "indrasvat/gh-hound", 1, usecase.DeploymentReview{
+		EnvironmentIDs: []int64{1},
+		State:          usecase.DeploymentRejected,
+	})
+	actionErr, ok := usecase.AsActionError(err)
+	if !ok || actionErr.Kind != usecase.ActionErrorPermission {
+		t.Fatalf("permission scenario review error = %#v", err)
+	}
+}
+
 func TestFakeListRunsHonorsStatusFilter(t *testing.T) {
 	adapter := New(ScenarioFailing)
 	runs, err := adapter.ListRuns(context.Background(), usecase.RunFilter{Status: "in_progress"})

@@ -18,6 +18,8 @@ gh hound watch --json                            # active run, fail-fast
 gh hound runs --run <id> --attempt 2 --no-tui --json   # forensics on a re-run
 gh hound artifacts --no-tui --json               # latest run's artifacts
 gh hound artifacts --run <id> --download <name> --dir <path> --no-tui --json
+gh hound approvals --run <id> --no-tui --json    # pending deploy gates (exit 1 = awaiting review)
+gh hound approvals --run <id> --approve --env production --comment "lgtm" --no-tui --json
 ```
 
 Runs are scoped to the current git branch by default. An empty `runs[]` usually means the branch has no runs — pass `--all` or `--branch <ref>` before concluding CI is missing.
@@ -52,15 +54,17 @@ gh hound cancel --run <id> --no-tui --json                        # call a run o
 
 `action` in the result is one of `rerun | rerun_failed | rerun_job | cancel | force_cancel`. Exit `0` means accepted; `2` means it did not happen (read `error`). A sound agent loop: exit 1 from `runs` -> inspect `failed[]` -> if transient, `rerun --failed-only --debug` -> `watch --json`.
 
+Deployment approvals: a `waiting` run is gated on environment review. `approvals --run <id>` lists the gates (exit `1` while any await review, `0` when none); `--approve`/`--reject` with no `--env` reviews everything you can approve, `--env <name>` (repeatable) targets gates, `--comment` is optional (a blank one sends `reviewed from gh-hound` — the API requires the field). Refusals are typed: unknown environment -> `validation`, not a required reviewer -> `permission`. Add `--approvals` to `runs` for `pending_environments` on waiting runs (opt-in, one call per waiting run).
+
 ## Deterministic Scenarios
 
 For testing agent behavior without live CI:
 
 ```bash
-gh hound runs --no-tui --json --fake-scenario failure   # also: green, pending, empty, api_error
+gh hound runs --no-tui --json --fake-scenario failure   # also: green, pending, empty, api_error, waiting
 ```
 
-The JSON schema lives at `internal/render/testdata/schema.json` in the gh-hound repo; the mutation envelope is under `$defs.mutation_result`.
+The JSON schema lives at `internal/render/testdata/schema.json` in the gh-hound repo; the mutation envelope is under `$defs.mutation_result` and the approvals envelope under `$defs.approvals_result`.
 
 ## Guardrails
 

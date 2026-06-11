@@ -140,3 +140,11 @@ func (g *watchGitHub) GetRunAttempt(ctx context.Context, repo string, runID int6
 func (g *watchGitHub) ListJobsForAttempt(ctx context.Context, repo string, runID int64, _ int) ([]model.Job, error) {
 	return g.ListJobs(ctx, repo, runID)
 }
+
+func (g *watchGitHub) ListPendingDeployments(context.Context, string, int64) ([]model.PendingDeployment, error) {
+	return nil, nil
+}
+
+func (g *watchGitHub) ReviewPendingDeployments(context.Context, string, int64, usecase.DeploymentReview) (usecase.ActionResult, error) {
+	return usecase.ActionResult{}, errors.New("not implemented")
+}

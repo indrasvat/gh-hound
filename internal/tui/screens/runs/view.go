@@ -160,6 +160,10 @@ func glyph(run model.Run) string {
 	if run.Status == model.StatusCompleted {
 		return icons.ForConclusion(run.Conclusion)
 	}
+	if run.Status == model.StatusWaiting {
+		// The gate badge: this run is holding for a deployment review.
+		return icons.Gate
+	}
 	return icons.ForStatus(run.Status)
 }
 
@@ -248,6 +252,11 @@ func summaryLine(summary Summary, hasMore bool) string {
 		colorize(sgrRun, fmt.Sprintf("%d running", summary.Running)) +
 		" · " +
 		colorize(sgrSubtle, fmt.Sprintf("%d passed", summary.Passed))
+	if summary.Gated > 0 {
+		// The contextual gate affordance: A only acts on waiting runs,
+		// so it is advertised only while one is on screen.
+		line += " · " + colorize(sgrInfo, fmt.Sprintf("%s %d gated · A review", icons.Gate, summary.Gated))
+	}
 	if hasMore {
 		line += " · " + colorize(sgrSubtle, "G load more")
 	}

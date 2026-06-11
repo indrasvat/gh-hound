@@ -105,6 +105,24 @@ type Artifact struct {
 	HeadSHA     string    `json:"head_sha"`
 }
 
+// PendingDeployment is one environment gate holding a `waiting` run:
+// who may open it, how long the wait timer is, and whether the current
+// user can review it.
+type PendingDeployment struct {
+	EnvironmentID         int64                `json:"environment_id"`
+	EnvironmentName       string               `json:"environment_name"`
+	WaitTimer             int                  `json:"wait_timer"`
+	CurrentUserCanApprove bool                 `json:"current_user_can_approve"`
+	Reviewers             []DeploymentReviewer `json:"reviewers"`
+}
+
+// DeploymentReviewer names a required reviewer: a User login or a Team
+// slug, with Type distinguishing the two.
+type DeploymentReviewer struct {
+	Type string `json:"type"`
+	Name string `json:"name"`
+}
+
 type Workflow struct {
 	ID      int64           `json:"id"`
 	Name    string          `json:"name"`

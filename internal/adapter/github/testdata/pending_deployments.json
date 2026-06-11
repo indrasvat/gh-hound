@@ -1,0 +1,38 @@
+[
+  {
+    "environment": {
+      "id": 161088068,
+      "node_id": "MDExOkVudmlyb25tZW50MTYxMDg4MDY4",
+      "name": "staging",
+      "url": "https://api.github.com/repos/github/hello-world/environments/staging",
+      "html_url": "https://github.com/github/hello-world/deployments/activity_log?environments_filter=staging"
+    },
+    "wait_timer": 30,
+    "wait_timer_started_at": "2020-11-23T22:00:40Z",
+    "current_user_can_approve": true,
+    "reviewers": [
+      {
+        "type": "User",
+        "reviewer": {
+          "login": "octocat",
+          "id": 1,
+          "node_id": "MDQ6VXNlcjE=",
+          "type": "User",
+          "site_admin": false
+        }
+      },
+      {
+        "type": "Team",
+        "reviewer": {
+          "id": 1,
+          "node_id": "MDQ6VGVhbTE=",
+          "name": "Justice League",
+          "slug": "justice-league",
+          "description": "A great team.",
+          "privacy": "closed",
+          "permission": "admin"
+        }
+      }
+    ]
+  }
+]
