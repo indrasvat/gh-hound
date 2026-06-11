@@ -171,6 +171,44 @@ func TestApprovalsRejectFlowCarriesCommentAndVoice(t *testing.T) {
 	}
 }
 
+func TestApprovalsCommentEscDiscardsEdit(t *testing.T) {
+	app, requests := waitingTestApp(t)
+	app, _ = app.Update(KeyMsg{Key: "A"})
+	app, _ = app.SettleLoads(time.Second)
+
+	// Type a comment but abandon it with esc — the advertised cancel.
+	app, _ = app.Update(KeyMsg{Key: "c"})
+	for _, key := range []string{"o", "o", "p", "s"} {
+		app, _ = app.Update(KeyMsg{Key: key})
+	}
+	app, _ = app.Update(KeyMsg{Key: "esc"})
+	if app.TopOverlay() != OverlayApprovals {
+		t.Fatalf("esc in comment mode must stay on the overlay, got %q", app.TopOverlay())
+	}
+
+	// A committed comment survives a later esc-cancelled edit session.
+	app, _ = app.Update(KeyMsg{Key: "c"})
+	for _, key := range []string{"k", "e", "p", "t"} {
+		app, _ = app.Update(KeyMsg{Key: key})
+	}
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.Update(KeyMsg{Key: "c"})
+	app, _ = app.Update(KeyMsg{Key: "z"})
+	app, _ = app.Update(KeyMsg{Key: "esc"})
+	if got := app.approvals.Comment; got != "kept" {
+		t.Fatalf("esc must restore the last committed comment, got %q", got)
+	}
+
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	if len(*requests) != 1 {
+		t.Fatalf("confirmed approve must call the handler once, got %d", len(*requests))
+	}
+	if comment := (*requests)[0].Comment; comment != "kept" {
+		t.Fatalf("review carried %q, want the committed comment with discarded drafts dropped", comment)
+	}
+}
+
 func TestApprovalsOverlaySpaceRefusesUnapprovableEnvironment(t *testing.T) {
 	app, requests := waitingTestApp(t)
 	app, _ = app.Update(KeyMsg{Key: "A"})

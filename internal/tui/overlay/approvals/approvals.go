@@ -46,8 +46,11 @@ type Model struct {
 	Picked       map[int]bool
 	Comment      string
 	CommentMode  bool
-	Notice       string
-	Intent       Intent
+	// commentBackup holds the pre-edit comment so esc can discard the
+	// edit instead of silently submitting abandoned text with a review.
+	commentBackup string
+	Notice        string
+	Intent        Intent
 }
 
 // NewModel builds the overlay state. Every approvable environment
@@ -97,6 +100,7 @@ func (m Model) Update(msg KeyMsg) Model {
 		m = m.togglePicked()
 	case "c":
 		m.CommentMode = true
+		m.commentBackup = m.Comment
 	case "y":
 		m = m.review(IntentApprove)
 	case "n":
@@ -107,8 +111,11 @@ func (m Model) Update(msg KeyMsg) Model {
 
 func (m Model) updateComment(msg KeyMsg) Model {
 	switch msg.Key {
-	case "esc", "enter":
+	case "enter":
 		m.CommentMode = false
+	case "esc":
+		m.CommentMode = false
+		m.Comment = m.commentBackup
 	case "backspace":
 		if len(m.Comment) > 0 {
 			m.Comment = m.Comment[:len(m.Comment)-1]
