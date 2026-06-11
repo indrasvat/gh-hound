@@ -46,6 +46,10 @@ func artifactsBlockLines(m Model) int {
 	if len(m.Artifacts) > visible {
 		lines++
 	}
+	// The selected downloaded artifact carries a path subline.
+	if _, ok := m.selectedDownloadedPath(); ok {
+		lines++
+	}
 	return lines
 }
 
@@ -203,9 +207,13 @@ func renderArtifactsBlock(m Model, width int) []string {
 	if len(m.Artifacts) == 0 {
 		return nil
 	}
+	header := fmt.Sprintf("Artifacts (%d)", len(m.Artifacts))
+	if done := m.DownloadedCount(); done > 0 {
+		header = fmt.Sprintf("Artifacts (%d · %d %s)", len(m.Artifacts), done, icons.Success)
+	}
 	lines := []string{
 		divider(width),
-		paneHeader(fmt.Sprintf("Artifacts (%d)", len(m.Artifacts)), "", width, m.Focus == FocusArtifacts),
+		paneHeader(header, "", width, m.Focus == FocusArtifacts),
 	}
 	start := 0
 	if m.SelectedArtifact >= artifactsWindow {
@@ -213,7 +221,14 @@ func renderArtifactsBlock(m Model, width int) []string {
 	}
 	end := min(start+artifactsWindow, len(m.Artifacts))
 	for i := start; i < end; i++ {
-		lines = append(lines, artifactRow(m.Artifacts[i], i == m.SelectedArtifact && m.Focus == FocusArtifacts, width))
+		artifact := m.Artifacts[i]
+		selected := i == m.SelectedArtifact && m.Focus == FocusArtifacts
+		lines = append(lines, artifactRow(artifact, m.Download(artifact.ID), selected, m.SpinnerFrame, width))
+		if selected {
+			if subline, ok := artifactPathSubline(m.Download(artifact.ID), width); ok {
+				lines = append(lines, subline)
+			}
+		}
 	}
 	if remaining := len(m.Artifacts) - end; remaining > 0 {
 		lines = append(lines, fitANSI("    "+colorize(sgrDim, fmt.Sprintf("+%d more", remaining)), width))
@@ -221,7 +236,10 @@ func renderArtifactsBlock(m Model, width int) []string {
 	return lines
 }
 
-func artifactRow(artifact model.Artifact, selected bool, width int) string {
+// artifactRow annotates the right edge with the download lifecycle:
+// live byte count while transferring, extraction marker, done/failed
+// verdicts — and the plain size when nothing ever started.
+func artifactRow(artifact model.Artifact, status DownloadStatus, selected bool, frame int, width int) string {
 	bar := " "
 	if selected {
 		bar = colorize(sgrOK, icons.Cursor)
@@ -234,15 +252,52 @@ func artifactRow(artifact model.Artifact, selected bool, width int) string {
 	}
 	leftWidth := max(width-22, 1)
 	left := fitANSI(bar+" "+colorize(iconColor, icons.Artifact)+" "+colorize(nameColor, artifact.Name), leftWidth)
-	right := colorize(sgrDim, humanSize(artifact.SizeInBytes))
+	var right string
+	switch status.State {
+	case DownloadStateDownloading:
+		right = colorize(sgrInfo, spinnerGlyph(frame)+" ↓ "+humanSize(status.Bytes)+"…")
+	case DownloadStateExtracting:
+		right = colorize(sgrInfo, spinnerGlyph(frame)+" extracting…")
+	case DownloadStateDone:
+		files := "files"
+		if status.FileCount == 1 {
+			files = "file"
+		}
+		right = colorize(sgrOK, icons.Success) + " " + colorize(sgrDim, fmt.Sprintf("%d %s", status.FileCount, files))
+	case DownloadStateFailed:
+		right = colorize(sgrFail, icons.Failure+" failed")
+	default:
+		right = colorize(sgrDim, humanSize(artifact.SizeInBytes))
+	}
 	if artifact.Expired {
-		right = colorize(sgrWarn, "[expired]") + " " + right
+		right = colorize(sgrWarn, "[expired]") + " " + colorize(sgrDim, humanSize(artifact.SizeInBytes))
 	}
 	row := joinRightANSI(left, right, width)
 	if selected {
 		return backgroundSafe(row, width, sgrFG, sgrSurface2BG)
 	}
 	return row
+}
+
+// artifactPathSubline shows where the selected artifact landed and the
+// keys that act on it — the discoverability anchor for o/y.
+func artifactPathSubline(status DownloadStatus, width int) (string, bool) {
+	if status.State != DownloadStateDone || status.Path == "" {
+		return "", false
+	}
+	line := "    " + colorize(sgrDim, "↳ "+status.Path) + "  " +
+		colorize(sgrInfo, "o") + colorize(sgrDim, " open · ") +
+		colorize(sgrInfo, "y") + colorize(sgrDim, " copy path")
+	return fitANSI(line, width), true
+}
+
+func spinnerGlyph(frame int) string {
+	frames := icons.SpinnerFrames
+	index := frame % len(frames)
+	if index < 0 {
+		index += len(frames)
+	}
+	return frames[index]
 }
 
 func humanSize(bytes int64) string {
@@ -341,6 +396,14 @@ func stepRow(step model.Step, selected bool, width int) string {
 }
 
 func hintLine(m Model, width int) string {
+	// A downloaded selection owns the hint line: o/y change meaning
+	// there and the footer must teach it.
+	if _, ok := m.selectedDownloadedPath(); ok {
+		hint := "  " + colorize(sgrInfo, "o") + " open folder · " +
+			colorize(sgrInfo, "y") + " copy path · " +
+			colorize(sgrInfo, "d") + " re-download"
+		return fitANSI(hint, width)
+	}
 	hint := "  " + colorize(sgrInfo, "n") + " jump to failure · " + colorize(sgrInfo, "l") + " full log"
 	if len(m.Artifacts) > 0 {
 		hint += " · " + colorize(sgrInfo, "a") + " artifacts · " + colorize(sgrInfo, "d") + " download"

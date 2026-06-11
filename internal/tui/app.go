@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/indrasvat/gh-hound/internal/config"
@@ -95,11 +97,15 @@ type Options struct {
 	ActionHandler             func(ActionRequest) (usecase.ActionResult, error)
 	ApprovalsResolver         func(context.Context, model.Run) ([]model.PendingDeployment, error)
 	ArtifactsResolver         func(model.Run) ([]model.Artifact, error)
-	ArtifactDownloader        func(model.Artifact, string) (usecase.DownloadResult, error)
-	CachesResolver            func(context.Context) (caches.Data, error)
-	CacheDeleter              func(context.Context, CacheDeleteRequest) (int, error)
-	OpenURL                   func(string) error
-	CopyText                  func(string) error
+	ArtifactDownloader        func(artifact model.Artifact, destDir string, force bool, onProgress func(usecase.DownloadProgress)) (usecase.DownloadResult, error)
+	// ArtifactDir is the absolute download root artifacts extract
+	// into. The app displays it (confirm modal, completion state);
+	// the downloader closure must extract into the same directory.
+	ArtifactDir    string
+	CachesResolver func(context.Context) (caches.Data, error)
+	CacheDeleter   func(context.Context, CacheDeleteRequest) (int, error)
+	OpenURL        func(string) error
+	CopyText       func(string) error
 }
 
 // CacheDeleteRequest is the app's eviction intent: by ID (one cache)
@@ -176,19 +182,23 @@ type App struct {
 	actionHandler      func(ActionRequest) (usecase.ActionResult, error)
 	approvalsResolver  func(context.Context, model.Run) ([]model.PendingDeployment, error)
 	artifactsResolver  func(model.Run) ([]model.Artifact, error)
-	artifactDownloader func(model.Artifact, string) (usecase.DownloadResult, error)
+	artifactDownloader func(model.Artifact, string, bool, func(usecase.DownloadProgress)) (usecase.DownloadResult, error)
+	artifactDir        string
 	artifactsFetch     *artifactsFetchState
 	artifactDownload   *artifactDownloadState
 	pendingDownload    *model.Artifact
-	caches             caches.Model
-	cachesResolver     func(context.Context) (caches.Data, error)
-	cacheDeleter       func(context.Context, CacheDeleteRequest) (int, error)
-	pendingCacheDelete *CacheDeleteRequest
-	timeJump           timejump.Model
-	lastToastTick      time.Time
-	openURL            func(string) error
-	copyText           func(string) error
-	load               *pendingLoad
+	// pendingDownloadForce marks the queued confirm as an overwrite
+	// retry (destination already exists).
+	pendingDownloadForce bool
+	caches               caches.Model
+	cachesResolver       func(context.Context) (caches.Data, error)
+	cacheDeleter         func(context.Context, CacheDeleteRequest) (int, error)
+	pendingCacheDelete   *CacheDeleteRequest
+	timeJump             timejump.Model
+	lastToastTick        time.Time
+	openURL              func(string) error
+	copyText             func(string) error
+	load                 *pendingLoad
 }
 
 // startLoad runs work off the paint path and records the app's single
@@ -286,11 +296,22 @@ type artifactsFetchState struct {
 }
 
 type artifactDownloadState struct {
-	mu     sync.Mutex
-	name   string
+	mu         sync.Mutex
+	artifactID int64
+	name       string
+	force      bool
+	// prior is the row's status before this attempt, restored when the
+	// attempt resolves to "destination exists" — that outcome is a
+	// question, not a verdict, and cancelling must not strand the row.
+	prior  detail.DownloadStatus
 	result usecase.DownloadResult
 	err    error
 	done   bool
+	// Progress is written by the downloader goroutine on every chunk
+	// and sampled by Refresh ticks: atomics, not the mutex, so the
+	// hot path never contends with the UI loop.
+	bytes      atomic.Int64
+	extracting atomic.Bool
 }
 
 type pendingAction struct {
@@ -371,6 +392,7 @@ func NewApp(options Options) App {
 		approvalsResolver:         options.ApprovalsResolver,
 		artifactsResolver:         options.ArtifactsResolver,
 		artifactDownloader:        options.ArtifactDownloader,
+		artifactDir:               options.ArtifactDir,
 		cachesResolver:            options.CachesResolver,
 		cacheDeleter:              options.CacheDeleter,
 		openURL:                   options.OpenURL,
@@ -845,12 +867,14 @@ func (a App) PollInterval() time.Duration {
 		base = initialPollInterval(a.config)
 	}
 	// A pending load animates the shared spinner: tick at frame rate.
-	if a.load != nil {
+	// A live download does too — its row carries the byte counter and
+	// the shared spinner glyph.
+	if a.load != nil || a.artifactDownload != nil {
 		return loadFrameInterval
 	}
 	// Tighten the loop while async artifact work or timed toasts are
 	// pending so completions and TTL expiry surface promptly.
-	if a.artifactsFetch != nil || a.artifactDownload != nil || a.flakesFetch != nil || len(a.toasts.Toasts) > 0 {
+	if a.artifactsFetch != nil || a.flakesFetch != nil || len(a.toasts.Toasts) > 0 {
 		if base > time.Second {
 			return time.Second
 		}
@@ -958,11 +982,25 @@ func (a App) drainArtifactDownload() (App, bool) {
 	download.mu.Lock()
 	defer download.mu.Unlock()
 	if !download.done {
-		return a, false
+		// Still in flight: mirror the goroutine's progress atomics
+		// into the row annotation and advance the shared spinner.
+		return a.syncArtifactProgress(download), true
 	}
 	a.artifactDownload = nil
-	a.toasts = a.toasts.Dismiss("artifact-downloading")
 	if download.err != nil {
+		var exists usecase.DestinationExistsError
+		if errors.As(download.err, &exists) {
+			// Not a failure verdict: the destination predates this
+			// attempt. Restore the row's pre-attempt state (so a
+			// cancelled overwrite strands nothing) and ask; confirm
+			// retries with force.
+			a.detail = a.detail.WithDownload(download.artifactID, download.prior)
+			return a.openOverwriteConfirm(download.artifactID, exists.Path), true
+		}
+		a.detail = a.detail.WithDownload(download.artifactID, detail.DownloadStatus{
+			State:  detail.DownloadStateFailed,
+			Reason: download.err.Error(),
+		})
 		a.pushErrorToast("artifact-download-failed", usecase.ResilienceFor(download.err, usecase.ErrorContext{}))
 		return a, true
 	}
@@ -970,12 +1008,44 @@ func (a App) drainArtifactDownload() (App, bool) {
 	if download.result.FileCount == 1 {
 		files = "file"
 	}
+	path := absArtifactPath(download.result.Path)
+	a.detail = a.detail.WithDownload(download.artifactID, detail.DownloadStatus{
+		State:     detail.DownloadStateDone,
+		Path:      path,
+		FileCount: download.result.FileCount,
+	})
 	a.pushToast("artifact-downloaded", usecase.Resilience{
 		Severity: usecase.SeverityOK,
 		Title:    "artifact downloaded",
-		Message:  fmt.Sprintf("%s extracted to %s (%d %s)", download.name, download.result.Path, download.result.FileCount, files),
+		Message:  fmt.Sprintf("%s → %s (%d %s) · o open · y copy path", download.name, path, download.result.FileCount, files),
 	})
 	return a, true
+}
+
+// syncArtifactProgress mirrors the downloader goroutine's atomics into
+// the detail model so the artifact row animates: live byte count while
+// transferring, an extraction marker after. Caller holds download.mu.
+func (a App) syncArtifactProgress(download *artifactDownloadState) App {
+	status := detail.DownloadStatus{
+		State: detail.DownloadStateDownloading,
+		Bytes: download.bytes.Load(),
+	}
+	if download.extracting.Load() {
+		status.State = detail.DownloadStateExtracting
+	}
+	a.detail = a.detail.WithDownload(download.artifactID, status)
+	a.detail.SpinnerFrame++
+	return a
+}
+
+// absArtifactPath normalizes an extraction path for display; the
+// downloader root is already absolute in production, so this only
+// rescues relative paths from injected test doubles.
+func absArtifactPath(path string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		return abs
+	}
+	return path
 }
 
 func (a App) startArtifactsFetch(run model.Run) App {
@@ -999,7 +1069,7 @@ func (a App) startArtifactsFetch(run model.Run) App {
 	return a
 }
 
-func (a App) startArtifactDownload(artifact model.Artifact) App {
+func (a App) startArtifactDownload(artifact model.Artifact, force bool) App {
 	if a.artifactDownloader == nil {
 		a.pushErrorToast("artifact-download-unavailable", usecase.ResilienceFor(errors.New("artifact download is not configured"), usecase.ErrorContext{}))
 		return a
@@ -1014,23 +1084,36 @@ func (a App) startArtifactDownload(artifact model.Artifact) App {
 		})
 		return a
 	}
-	state := &artifactDownloadState{name: artifact.Name}
+	state := &artifactDownloadState{artifactID: artifact.ID, name: artifact.Name, force: force, prior: a.detail.Download(artifact.ID)}
 	a.artifactDownload = state
+	// The row is the progress surface from the first frame: no toast,
+	// the annotation lands where the triggering keypress just was.
+	a.detail = a.detail.WithDownload(artifact.ID, detail.DownloadStatus{State: detail.DownloadStateDownloading})
 	downloader := a.artifactDownloader
+	destDir := a.downloadRoot()
 	go func() {
-		result, err := downloader(artifact, ".")
+		result, err := downloader(artifact, destDir, force, func(progress usecase.DownloadProgress) {
+			state.bytes.Store(progress.Bytes)
+			if progress.Phase == usecase.DownloadPhaseExtract {
+				state.extracting.Store(true)
+			}
+		})
 		state.mu.Lock()
 		state.result = result
 		state.err = err
 		state.done = true
 		state.mu.Unlock()
 	}()
-	a.pushToast("artifact-downloading", usecase.Resilience{
-		Severity: usecase.SeverityInfo,
-		Title:    "downloading artifact",
-		Message:  fmt.Sprintf("%s (%s)", artifact.Name, humanArtifactSize(artifact.SizeInBytes)),
-	})
 	return a
+}
+
+// downloadRoot is the directory artifacts extract into — the resolved
+// absolute root in production, the CWD when unconfigured (tests).
+func (a App) downloadRoot() string {
+	if a.artifactDir != "" {
+		return a.artifactDir
+	}
+	return "."
 }
 
 func humanArtifactSize(bytes int64) string {
@@ -1632,6 +1715,10 @@ func (a App) updateDetail(msg KeyMsg) (App, bool) {
 		a = a.copyExternal("detail-sha", a.detail.Run.HeadSHA)
 	case detail.IntentDownloadArtifact:
 		a = a.requestArtifactDownload(a.detail.Intent.ArtifactID)
+	case detail.IntentOpenArtifactDir:
+		a = a.openArtifactDir(a.detail.Intent.ArtifactID)
+	case detail.IntentCopyArtifactPath:
+		a = a.copyExternal("artifact-path", a.detail.Download(a.detail.Intent.ArtifactID).Path)
 	case detail.IntentBack:
 		a.PopRoute()
 	}
@@ -1656,9 +1743,31 @@ func (a App) openDownloadConfirm(artifact model.Artifact) App {
 	a.clearRouteError(RouteDetail)
 	selected := artifact
 	a.pendingDownload = &selected
-	a.confirm = confirm.New(fmt.Sprintf("Download artifact %q (%s) to ./%s/?", artifact.Name, humanArtifactSize(artifact.SizeInBytes), artifact.Name))
+	a.pendingDownloadForce = false
+	target := absArtifactPath(filepath.Join(a.downloadRoot(), artifact.Name))
+	a.confirm = confirm.New(fmt.Sprintf("Download artifact %q (%s)?\n→ %s/", artifact.Name, humanArtifactSize(artifact.SizeInBytes), target))
 	if a.TopOverlay() != OverlayConfirm {
 		a.overlays = append(a.overlays, OverlayConfirm)
+	}
+	return a
+}
+
+// openOverwriteConfirm follows a DestinationExistsError: same pending-
+// download mechanics, force armed, and a message that names the path
+// being replaced.
+func (a App) openOverwriteConfirm(artifactID int64, path string) App {
+	for _, artifact := range a.detail.Artifacts {
+		if artifact.ID != artifactID {
+			continue
+		}
+		selected := artifact
+		a.pendingDownload = &selected
+		a.pendingDownloadForce = true
+		a.confirm = confirm.New(fmt.Sprintf("Destination exists:\n→ %s\nOverwrite and re-download %q?", absArtifactPath(path), artifact.Name))
+		if a.TopOverlay() != OverlayConfirm {
+			a.overlays = append(a.overlays, OverlayConfirm)
+		}
+		return a
 	}
 	return a
 }
@@ -1923,10 +2032,11 @@ func (a App) updateConfirm(msg KeyMsg) (App, bool) {
 	case confirm.IntentConfirm:
 		pending := a.pendingAction
 		pendingDownload := a.pendingDownload
+		pendingForce := a.pendingDownloadForce
 		pendingCacheDelete := a.pendingCacheDelete
 		a = a.closeConfirm()
 		if pendingDownload != nil {
-			return a.startArtifactDownload(*pendingDownload), true
+			return a.startArtifactDownload(*pendingDownload, pendingForce), true
 		}
 		if pendingCacheDelete != nil {
 			return a.startCacheDelete(*pendingCacheDelete), true
@@ -2253,8 +2363,12 @@ func (a App) loadDetail(run model.Run) App {
 	a.clearRouteError(RouteDetail)
 	// The skeleton paints immediately from cached run data; jobs fold
 	// in when the resolver returns. The repo breadcrumb must stay
-	// truthful even while loading.
+	// truthful even while loading. Download verdicts are keyed by
+	// globally-unique artifact IDs, so carrying the map across run
+	// navigation keeps ✓ rows truthful when the user returns.
+	downloads := a.detail.Downloads
 	a.detail = DetailModelForRun(run).WithRepo(a.runs.Context.Repo)
+	a.detail.Downloads = downloads
 	if a.detailResolver == nil {
 		return a.startArtifactsFetch(run)
 	}
@@ -2276,6 +2390,9 @@ func (a App) loadDetail(run model.Run) App {
 			if len(app.detail.Artifacts) > 0 && len(resolved.Artifacts) == 0 {
 				resolved = resolved.WithArtifacts(app.detail.Artifacts)
 			}
+			// Download statuses are session truth keyed by artifact
+			// ID: a fresh detail model must not erase ✓/✗ verdicts.
+			resolved.Downloads = app.detail.Downloads
 			app.detail = resolved
 			return app
 		}
@@ -3221,6 +3338,7 @@ func (a App) closeConfirm() App {
 	}
 	a.pendingAction = nil
 	a.pendingDownload = nil
+	a.pendingDownloadForce = false
 	a.pendingCacheDelete = nil
 	a.confirm = confirm.Model{}
 	return a
@@ -3349,6 +3467,34 @@ func (a *App) pushToast(id string, resilience usecase.Resilience) {
 		a.toasts = toast.New()
 	}
 	a.toasts = a.toasts.Push(toast.FromResilience(id, resilience, 8*time.Second))
+}
+
+// openArtifactDir reveals a downloaded artifact's extraction folder in
+// the system file manager. The browser-opener closure does the work:
+// open/xdg-open handle directories the same way they handle URLs.
+func (a App) openArtifactDir(artifactID int64) App {
+	path := a.detail.Download(artifactID).Path
+	if path == "" {
+		a.pushErrorToast("artifact-dir-missing", usecase.ResilienceFor(fmt.Errorf("the extraction path is not available for this artifact"), usecase.ErrorContext{}))
+		return a
+	}
+	if a.openURL == nil {
+		a.pushErrorToast("artifact-dir-unavailable", usecase.ResilienceFor(fmt.Errorf("folder opener is not configured"), usecase.ErrorContext{}))
+		return a
+	}
+	if err := a.openURL(path); err != nil {
+		a.pushErrorToast("artifact-dir-failed", usecase.ResilienceFor(err, usecase.ErrorContext{}))
+		return a
+	}
+	a.pushToast("artifact-dir-ok", usecase.Resilience{
+		Class:          usecase.ErrorClassSuccess,
+		Severity:       usecase.SeverityOK,
+		Title:          "Opened folder",
+		Message:        path,
+		RetryAction:    "open",
+		KeepCachedView: true,
+	})
+	return a
 }
 
 func (a App) openExternal(url string) App {

@@ -1,6 +1,10 @@
 package detail
 
-import "github.com/indrasvat/gh-hound/internal/model"
+import (
+	"maps"
+
+	"github.com/indrasvat/gh-hound/internal/model"
+)
 
 type Focus string
 
@@ -32,7 +36,32 @@ const (
 	IntentNextRun          IntentKind = "next_run"
 	IntentBack             IntentKind = "back"
 	IntentDownloadArtifact IntentKind = "download_artifact"
+	IntentOpenArtifactDir  IntentKind = "open_artifact_dir"
+	IntentCopyArtifactPath IntentKind = "copy_artifact_path"
 )
+
+// DownloadState tracks one artifact's download lifecycle inside this
+// session. The zero value means "never attempted".
+type DownloadState string
+
+const (
+	DownloadStateNone        DownloadState = ""
+	DownloadStateDownloading DownloadState = "downloading"
+	DownloadStateExtracting  DownloadState = "extracting"
+	DownloadStateDone        DownloadState = "done"
+	DownloadStateFailed      DownloadState = "failed"
+)
+
+// DownloadStatus is per-artifact, session-scoped UI state: where a
+// download stands, how many archive bytes have arrived, and — once
+// done — the absolute extraction path the o/y actions operate on.
+type DownloadStatus struct {
+	State     DownloadState
+	Bytes     int64
+	Path      string
+	FileCount int
+	Reason    string
+}
 
 type Intent struct {
 	Kind       IntentKind
@@ -56,11 +85,20 @@ type Model struct {
 	Focus              Focus
 	Intent             Intent
 
+	// Downloads maps artifact ID to its session download status. The
+	// map is copied on write (WithDownload) to keep value semantics.
+	Downloads map[int64]DownloadStatus
+
 	// Loading state is transient render input set by the app from its
 	// pending load each frame — never persisted, so a cancelled load
 	// can not strand a skeleton.
 	Loading     bool
 	LoadingLine string
+
+	// SpinnerFrame indexes icons.SpinnerFrames for the downloading and
+	// extracting row annotations; the app advances it on poll ticks
+	// while a download is live (the shared-spinner contract).
+	SpinnerFrame int
 }
 
 func NewModel(run model.Run, jobs []model.Job) Model {
@@ -86,6 +124,46 @@ func (m Model) WithArtifacts(artifacts []model.Artifact) Model {
 func (m Model) WithPendingDeployments(pending []model.PendingDeployment) Model {
 	m.PendingDeployments = append([]model.PendingDeployment(nil), pending...)
 	return m
+}
+
+// WithDownload records one artifact's download status, copying the map
+// so earlier Model values stay frozen.
+func (m Model) WithDownload(artifactID int64, status DownloadStatus) Model {
+	next := make(map[int64]DownloadStatus, len(m.Downloads)+1)
+	maps.Copy(next, m.Downloads)
+	next[artifactID] = status
+	m.Downloads = next
+	return m
+}
+
+// Download returns the selected-session download status for an artifact.
+func (m Model) Download(artifactID int64) DownloadStatus {
+	return m.Downloads[artifactID]
+}
+
+// DownloadedCount reports how many of this run's artifacts finished
+// downloading this session (the pane-header chip).
+func (m Model) DownloadedCount() int {
+	count := 0
+	for _, artifact := range m.Artifacts {
+		if m.Downloads[artifact.ID].State == DownloadStateDone {
+			count++
+		}
+	}
+	return count
+}
+
+// selectedDownloadedPath returns the extraction path when the selected
+// artifact's download is done — the gate for the contextual o/y keys.
+func (m Model) selectedDownloadedPath() (int64, bool) {
+	artifact, ok := m.SelectedArtifactModel()
+	if !ok || m.Focus != FocusArtifacts {
+		return 0, false
+	}
+	if m.Downloads[artifact.ID].State != DownloadStateDone {
+		return 0, false
+	}
+	return artifact.ID, true
 }
 
 func (m Model) Update(msg KeyMsg) Model {
@@ -139,8 +217,20 @@ func (m Model) Update(msg KeyMsg) Model {
 	case "X":
 		m.Intent = m.intentFor(IntentForceCancel)
 	case "o":
+		// On a downloaded artifact, o opens the extracted folder; the
+		// browser meaning survives everywhere else.
+		if id, ok := m.selectedDownloadedPath(); ok {
+			m.Intent = Intent{Kind: IntentOpenArtifactDir, RunID: m.Run.ID, ArtifactID: id}
+			break
+		}
 		m.Intent = m.intentFor(IntentBrowser)
 	case "y":
+		// On a downloaded artifact, y copies the extraction path; the
+		// copy-URL meaning survives everywhere else.
+		if id, ok := m.selectedDownloadedPath(); ok {
+			m.Intent = Intent{Kind: IntentCopyArtifactPath, RunID: m.Run.ID, ArtifactID: id}
+			break
+		}
 		m.Intent = m.intentFor(IntentCopyURL)
 	case "Y":
 		m.Intent = m.intentFor(IntentCopySHA)
