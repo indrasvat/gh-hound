@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
@@ -93,5 +94,65 @@ func TestFetchJobLogReturnsErrorForRedirectedLogFailure(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "500") || !strings.Contains(err.Error(), "artifact server exploded") {
 		t.Fatalf("error did not include redirected status/body context: %v", err)
+	}
+}
+
+func TestFetchJobLogWithProgressReportsBytes(t *testing.T) {
+	payload := strings.Repeat("log line padding for byte counting\n", 4096)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/indrasvat/gh-hound/actions/jobs/42/logs":
+			http.Redirect(w, r, "/blob", http.StatusFound)
+		case "/blob":
+			w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+			_, _ = w.Write([]byte(payload))
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client())
+	var mu sync.Mutex
+	var lastRead, lastTotal int64
+	var reports int
+	logText, err := client.FetchJobLogWithProgress(context.Background(), "indrasvat/gh-hound", 42,
+		func(read, total int64) {
+			mu.Lock()
+			defer mu.Unlock()
+			if read < lastRead {
+				t.Errorf("progress went backwards: %d after %d", read, lastRead)
+			}
+			lastRead, lastTotal = read, total
+			reports++
+		})
+	if err != nil {
+		t.Fatalf("FetchJobLogWithProgress returned error: %v", err)
+	}
+	if logText != payload {
+		t.Fatalf("payload mismatch: got %d bytes, want %d", len(logText), len(payload))
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if reports == 0 {
+		t.Fatal("progress was never reported")
+	}
+	if lastRead != int64(len(payload)) {
+		t.Fatalf("final read = %d, want %d", lastRead, len(payload))
+	}
+	if lastTotal != int64(len(payload)) {
+		t.Fatalf("total = %d, want %d (from Content-Length)", lastTotal, len(payload))
+	}
+}
+
+func TestFetchJobLogWithNilProgressMatchesPlainFetch(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("plain body\n"))
+	}))
+	defer server.Close()
+	client := NewClient(server.URL, server.Client())
+	logText, err := client.FetchJobLogWithProgress(context.Background(), "indrasvat/gh-hound", 7, nil)
+	if err != nil || logText != "plain body\n" {
+		t.Fatalf("nil-progress fetch = %q, %v", logText, err)
 	}
 }

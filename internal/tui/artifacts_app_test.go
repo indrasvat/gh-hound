@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -25,7 +26,7 @@ func artifactsTestApp(t *testing.T, downloader func(model.Artifact, string) (use
 			State: usecase.LaunchStateRuns,
 			Runs:  []model.Run{run},
 		},
-		DetailResolver: func(run model.Run) (detail.Model, error) {
+		DetailResolver: func(_ context.Context, run model.Run) (detail.Model, error) {
 			return detail.NewModel(run, []model.Job{{ID: 7001, Name: "build", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess}}), nil
 		},
 		ArtifactsResolver: func(run model.Run) ([]model.Artifact, error) {
@@ -63,6 +64,9 @@ func TestDetailArtifactsLoadAsyncAndRender(t *testing.T) {
 	if len(app.DetailModel().Artifacts) != 0 {
 		t.Fatal("artifacts should load asynchronously, not at detail-open time")
 	}
+	// Jobs settle first: the artifacts block renders off the steps
+	// pane, which shows its loading hint until jobs land.
+	app = settleApp(t, app)
 	app = waitForArtifacts(t, app)
 	view := ansi.Strip(app.ViewSize(120, 40))
 	for _, want := range []string{"Artifacts (2)", "coverage", "1.2 MB", "old-report", "[expired]"} {

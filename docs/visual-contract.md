@@ -107,3 +107,32 @@ Footer text must be generated from keymap data, not copied into renderers.
 ## Visual QA Gate
 
 For each screen at `80x24`, `120x40`, and `200x60`: verify alignment, color mapping, selection fill and bar, focus treatment, footer/keymap parity, overlay layering, no tearing, no clipped glyphs, and recognizable fidelity to the HTML mock.
+
+## Loading States (the Task 220 invariant)
+
+> **No keystroke may block on the network.** The UI repaints within
+> 50ms of the keystroke (previous content dimmed, or a skeleton). If
+> the fetch is still in flight after a 100ms grace window, the shared
+> loading indicator appears. Every fetch is esc-cancellable and stale
+> results are dropped.
+
+There is exactly **one** loading indicator in gh-hound
+(`internal/tui/loading.go` + `icons.SpinnerFrames`). A bespoke
+per-screen spinner in any later change is a review-blocking defect.
+
+| Surface | Loading treatment |
+|---|---|
+| runs reload (`f` `/` `G`) | previous rows dimmed; loading line below the summary |
+| detail open (`⏎`) | skeleton with run header + repo breadcrumb; loading line in the jobs pane |
+| failure open | shared loading body |
+| log open (`l`) | shared loading body with byte progress (`▰▰▱▱▱ 2.1 MB/4.8 MB`) when Content-Length is known |
+| dispatch open (`D`) | loading line on the originating runs screen; route flips when resolved |
+
+Palette note: `:` opens with the generic dispatch entry only — the
+per-workflow `dispatch: <name>` items appear once the workflow cache
+is warm (after the first dispatch open), because enriching on the
+keystroke would violate the invariant.
+
+Spinner: braille cycle (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`), ~120ms/frame, run color;
+labels are hound-voiced and passed per context. Fixture screens:
+`runs-loading`, `detail-loading`, `failure-loading`, `log-progress`.

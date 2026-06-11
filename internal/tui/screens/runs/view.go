@@ -38,6 +38,11 @@ func renderRuns(m Model, width, height int, now time.Time) string {
 	if notice != "" {
 		fixedRows++
 	}
+	if m.Loading && m.LoadingLine != "" {
+		// The loading line needs its own row or exact-fit heights
+		// would push it past the frame.
+		fixedRows++
+	}
 	showFilter := m.InputMode || strings.TrimSpace(m.Filter) != ""
 	rowCapacity := runRowCapacity(height, fixedRows, showFilter, len(runs))
 	start, end := viewport(selected, len(runs), rowCapacity)
@@ -52,13 +57,22 @@ func renderRuns(m Model, width, height int, now time.Time) string {
 	}
 	for i, run := range runs[start:end] {
 		index := start + i
-		lines = append(lines, row(run, index == selected, width, now))
+		line := row(run, index == selected, width, now)
+		if m.Loading {
+			// The previous list stays visible but dimmed while a
+			// reload is in flight.
+			line = dimLine(ansi.Strip(line), width)
+		}
+		lines = append(lines, line)
 	}
 	if notice != "" {
 		lines = append(lines, dimLine("  "+notice, width))
 	}
 	summary := m.Summary()
 	lines = append(lines, fitANSI(joinRightANSI(summaryLine(summary, m.Context.HasMore), pageLine(start, end, len(runs), m.Context.HasMore), width), width))
+	if m.Loading && m.LoadingLine != "" {
+		lines = append(lines, fitANSI(m.LoadingLine, width))
+	}
 	return strings.Join(lines, "\n")
 }
 
@@ -77,6 +91,9 @@ func renderAllGreen(m Model, width, height int, now time.Time) string {
 	fixedRows := 5
 	notice := visibleNotice(m)
 	if notice != "" {
+		fixedRows++
+	}
+	if m.Loading && m.LoadingLine != "" {
 		fixedRows++
 	}
 	showFilter := m.InputMode || strings.TrimSpace(m.Filter) != ""
@@ -99,7 +116,11 @@ func renderAllGreen(m Model, width, height int, now time.Time) string {
 		lines = append(lines, dimLine("  no runs match /"+m.Filter, width))
 	}
 	for i, run := range runs[start:end] {
-		lines = append(lines, allGreenRow(run, start+i == selected, width, now))
+		line := allGreenRow(run, start+i == selected, width, now)
+		if m.Loading {
+			line = dimLine(ansi.Strip(line), width)
+		}
+		lines = append(lines, line)
 	}
 	if len(runs) > 0 {
 		moreHint := ""
@@ -107,6 +128,9 @@ func renderAllGreen(m Model, width, height int, now time.Time) string {
 			moreHint = " · G load more"
 		}
 		lines = append(lines, dimLine(pageLine(start, end, len(runs), m.Context.HasMore)+moreHint, width))
+	}
+	if m.Loading && m.LoadingLine != "" {
+		lines = append(lines, fitANSI(m.LoadingLine, width))
 	}
 	return strings.Join(lines, "\n")
 }

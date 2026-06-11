@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -62,13 +63,13 @@ type Options struct {
 	Config                    config.Config
 	Build                     BuildInfo
 	Launch                    usecase.LaunchContext
-	DetailResolver            func(model.Run) (detail.Model, error)
-	RunsResolver              func(usecase.RunFilter) ([]model.Run, error)
-	FailureResolver           func(model.Run, model.Job) (failure.Model, logscreen.Model, error)
-	LogResolver               func(model.Run, model.Job) (logscreen.Model, error)
-	WatchResolver             func(model.Run) (watch.Model, error)
-	DispatchResolver          func() (dispatch.Model, error)
-	DispatchWorkflowsResolver func() ([]dispatch.Workflow, error)
+	DetailResolver            func(context.Context, model.Run) (detail.Model, error)
+	RunsResolver              func(context.Context, usecase.RunFilter) ([]model.Run, error)
+	FailureResolver           func(context.Context, model.Run, model.Job) (failure.Model, logscreen.Model, error)
+	LogResolver               func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error)
+	WatchResolver             func(context.Context, model.Run) (watch.Model, error)
+	DispatchResolver          func(context.Context) (dispatch.Model, error)
+	DispatchWorkflowsResolver func(context.Context) ([]dispatch.Workflow, error)
 	RunsMetadata              func() (usecase.RequestMeta, bool)
 	LogRefetchNotice          func(int64) (usecase.LogRefetchNotice, bool)
 	ActionHandler             func(ActionRequest) (usecase.ActionResult, error)
@@ -113,13 +114,13 @@ type App struct {
 	dispatchWorkflows         []dispatch.Workflow
 	pendingAction             *pendingAction
 	routeErrors               map[Route]string
-	detailResolver            func(model.Run) (detail.Model, error)
-	runsResolver              func(usecase.RunFilter) ([]model.Run, error)
-	failureResolver           func(model.Run, model.Job) (failure.Model, logscreen.Model, error)
-	logResolver               func(model.Run, model.Job) (logscreen.Model, error)
-	watchResolver             func(model.Run) (watch.Model, error)
-	dispatchResolver          func() (dispatch.Model, error)
-	dispatchWorkflowsResolver func() ([]dispatch.Workflow, error)
+	detailResolver            func(context.Context, model.Run) (detail.Model, error)
+	runsResolver              func(context.Context, usecase.RunFilter) ([]model.Run, error)
+	failureResolver           func(context.Context, model.Run, model.Job) (failure.Model, logscreen.Model, error)
+	logResolver               func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error)
+	watchResolver             func(context.Context, model.Run) (watch.Model, error)
+	dispatchResolver          func(context.Context) (dispatch.Model, error)
+	dispatchWorkflowsResolver func(context.Context) ([]dispatch.Workflow, error)
 	runsMetadata              func() (usecase.RequestMeta, bool)
 	logRefetchNotice          func(int64) (usecase.LogRefetchNotice, bool)
 	actionHandler             func(ActionRequest) (usecase.ActionResult, error)
@@ -132,6 +133,90 @@ type App struct {
 	lastToastTick             time.Time
 	openURL                   func(string) error
 	copyText                  func(string) error
+	load                      *pendingLoad
+}
+
+// startLoad runs work off the paint path and records the app's single
+// in-flight fetch. Starting a new load supersedes the old one by
+// pointer replacement; the orphaned goroutine's result can never
+// apply. work returns the apply closure that folds the result (or its
+// error handling) into the App at drain time.
+func (a App) startLoad(kind loadKind, label string, work func(ctx context.Context) func(App) App) App {
+	return a.startLoadProgress(kind, label, func(ctx context.Context, _ func(int64, int64)) func(App) App {
+		return work(ctx)
+	})
+}
+
+// loadBlocked reports whether starting a load of the given kind must
+// be refused: a DIFFERENT kind is already in flight. Same-kind loads
+// supersede (f-cycle, opening another run's detail), but a cross-kind
+// open would cancel work whose result the abandoned route still needs
+// — escape back and it would be a stuck skeleton.
+func (a App) loadBlocked(kind loadKind) bool {
+	return a.load != nil && a.load.kind != kind
+}
+
+// startLoadProgress is startLoad for fetches that can report byte
+// progress and honor cancellation; work receives a per-load context
+// (cancelled on esc or supersession) and the progress callback.
+func (a App) startLoadProgress(kind loadKind, label string, work func(ctx context.Context, progress func(read, total int64)) func(App) App) App {
+	if a.loadBlocked(kind) {
+		// Backstop: intent sites guard with loadBlocked before pushing
+		// routes; refusing here keeps the single-slot invariant even if
+		// a future call site forgets.
+		return a
+	}
+	if prev := a.load; prev != nil && prev.cancel != nil {
+		// Superseded work must stop burning the serial queue, not just
+		// lose its seat at the table.
+		prev.cancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	state := &pendingLoad{kind: kind, label: label, started: time.Now(), cancel: cancel}
+	a.load = state
+	go func() {
+		state.finish(work(ctx, state.progress))
+	}()
+	return a
+}
+
+// drainLoad applies a completed load, or reports an animation frame is
+// due while the spinner is visible. Inside the grace window it stays
+// quiet so sub-100ms fetches never flash.
+func (a App) drainLoad() (App, bool) {
+	load := a.load
+	if load == nil {
+		return a, false
+	}
+	done, apply, _, _ := load.snapshot()
+	if !done {
+		return a, time.Since(load.started) >= loadGraceDelay
+	}
+	a.load = nil
+	if apply != nil {
+		a = apply(a)
+	}
+	return a, true
+}
+
+// SettleLoads blocks until the pending load (and any load it chains
+// into) has applied, or the timeout passes. It exists for tests and
+// deterministic fixtures only — the interactive loop drains on poll
+// ticks and must never call it.
+func (a App) SettleLoads(timeout time.Duration) (App, bool) {
+	deadline := time.Now().Add(timeout)
+	for a.load != nil {
+		done, _, _, _ := a.load.snapshot()
+		if done {
+			a, _ = a.drainLoad()
+			continue
+		}
+		if time.Now().After(deadline) {
+			return a, false
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return a, true
 }
 
 // artifactsFetchState carries an async artifacts listing for the
@@ -180,7 +265,7 @@ func NewApp(options Options) App {
 	initialDetail := detail.Model{}
 	if run, ok := runsModel.SelectedRun(); ok {
 		if options.DetailResolver != nil {
-			resolved, err := options.DetailResolver(run)
+			resolved, err := options.DetailResolver(context.Background(), run)
 			if err != nil {
 				routeErrors[RouteDetail] = "detail unavailable: " + err.Error()
 			} else {
@@ -239,25 +324,25 @@ func NewScenarioApp(scenario string, build BuildInfo) App {
 	app.watch = sampleWatchModel()
 	app.dispatch = sampleDispatchModel()
 	app.routeErrors = map[Route]string{}
-	app.detailResolver = func(model.Run) (detail.Model, error) {
+	app.detailResolver = func(context.Context, model.Run) (detail.Model, error) {
 		return sampleDetailModel(), nil
 	}
-	app.runsResolver = func(usecase.RunFilter) ([]model.Run, error) {
+	app.runsResolver = func(context.Context, usecase.RunFilter) ([]model.Run, error) {
 		return sampleRunsModel().Context.Runs, nil
 	}
-	app.failureResolver = func(model.Run, model.Job) (failure.Model, logscreen.Model, error) {
+	app.failureResolver = func(context.Context, model.Run, model.Job) (failure.Model, logscreen.Model, error) {
 		return sampleFailureModel(), sampleLogModel(), nil
 	}
-	app.logResolver = func(model.Run, model.Job) (logscreen.Model, error) {
+	app.logResolver = func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error) {
 		return sampleLogModel(), nil
 	}
-	app.watchResolver = func(model.Run) (watch.Model, error) {
+	app.watchResolver = func(context.Context, model.Run) (watch.Model, error) {
 		return sampleWatchModel(), nil
 	}
-	app.dispatchResolver = func() (dispatch.Model, error) {
+	app.dispatchResolver = func(context.Context) (dispatch.Model, error) {
 		return sampleDispatchModel(), nil
 	}
-	app.dispatchWorkflowsResolver = func() ([]dispatch.Workflow, error) {
+	app.dispatchWorkflowsResolver = func(context.Context) ([]dispatch.Workflow, error) {
 		return []dispatch.Workflow{sampleDispatchModel().Workflow}, nil
 	}
 	app.actionHandler = func(ActionRequest) (usecase.ActionResult, error) {
@@ -275,6 +360,22 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 	// on poll ticks, so the section appears as soon as it is ready.
 	if next, ok := a.drainArtifactsFetch(); ok {
 		a = next
+	}
+	if load := a.load; load != nil {
+		if done, _, _, _ := load.snapshot(); done {
+			a, _ = a.drainLoad()
+		} else if msg.Key == "esc" {
+			// Cancel interest AND the underlying work: the orphaned
+			// result can never apply, and the fetch stops occupying
+			// the serial queue. Re-enter (load is nil now) so normal
+			// esc routing still restores the prior view.
+			if load.cancel != nil {
+				load.cancel()
+			}
+			a.load = nil
+			next, _ := a.Update(msg)
+			return next, true
+		}
 	}
 	if a.inputMode {
 		if msg.Key == "esc" {
@@ -391,6 +492,30 @@ func RenderFixtureSize(screen string, width, height int) string {
 		return frameViewSize(app.theme, "hound", "⎇ branch main · @indrasvat", "◔ 4,981/5k live", runs.View(sampleAllGreenModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenAllGreen), width, height, true)
 	case "runs":
 		return frameViewSize(app.theme, "hound", "⎇ branch fix/parser · @indrasvat", "◔ 4,981/5k live 304", runs.View(sampleRunsModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
+	case "runs-loading":
+		// Deterministic loading states: started is pinned 250ms back so
+		// the spinner sits stably on frame 2 and the grace window has
+		// passed.
+		loadingApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		loadingApp.load = &pendingLoad{kind: loadKindRuns, label: "sniffing out failing runs", started: time.Now().Add(-250 * time.Millisecond)}
+		return loadingApp.ViewSize(width, height)
+	case "detail-loading":
+		loadingApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		run := loadingApp.runs.Context.Runs[0]
+		loadingApp.detail = DetailModelForRun(run).WithRepo(loadingApp.runs.Context.Repo)
+		loadingApp.routes = []Route{RouteRuns, RouteDetail}
+		loadingApp.load = &pendingLoad{kind: loadKindDetail, label: "fetching jobs", started: time.Now().Add(-250 * time.Millisecond)}
+		return loadingApp.ViewSize(width, height)
+	case "failure-loading":
+		loadingApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		loadingApp.routes = []Route{RouteRuns, RouteDetail, RouteFailure}
+		loadingApp.load = &pendingLoad{kind: loadKindFailure, label: "fetching the failure", started: time.Now().Add(-250 * time.Millisecond)}
+		return loadingApp.ViewSize(width, height)
+	case "log-progress":
+		loadingApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		loadingApp.routes = []Route{RouteRuns, RouteLog}
+		loadingApp.load = &pendingLoad{kind: loadKindLog, label: "fetching log", started: time.Now().Add(-250 * time.Millisecond), read: 2202009, total: 5033165}
+		return loadingApp.ViewSize(width, height)
 	case "rate_limit_toast":
 		app.runs = sampleRunsModel()
 		app.routes = []Route{RouteRuns}
@@ -543,6 +668,10 @@ func (a App) PollInterval() time.Duration {
 	if base <= 0 {
 		base = initialPollInterval(a.config)
 	}
+	// A pending load animates the shared spinner: tick at frame rate.
+	if a.load != nil {
+		return loadFrameInterval
+	}
 	// Tighten the loop while async artifact work or timed toasts are
 	// pending so completions and TTL expiry surface promptly.
 	if a.artifactsFetch != nil || a.artifactDownload != nil || len(a.toasts.Toasts) > 0 {
@@ -565,6 +694,16 @@ func (a App) Refresh() (App, bool) {
 	if next, ok := a.drainArtifactDownload(); ok {
 		a = next
 		changed = true
+	}
+	if next, ok := a.drainLoad(); ok {
+		a = next
+		changed = true
+	}
+	if a.load != nil {
+		// A pending load owns the serial queue: route polling here
+		// would block the loop (starving spinner frames) and double-
+		// fetch the same surface. Drain + animate only.
+		return a, changed
 	}
 	if a.TopOverlay() != OverlayNone || a.routeInputMode() {
 		return a, changed
@@ -797,21 +936,33 @@ func (a App) updateRuns(msg KeyMsg) (App, bool) {
 	a.runs = a.runs.Update(runs.KeyMsg{Key: msg.Key})
 	switch a.runs.Intent.Kind {
 	case runs.IntentOpenDetail:
+		if a.loadBlocked(loadKindDetail) {
+			break
+		}
 		if run, ok := a.runs.SelectedRun(); ok {
 			a = a.loadDetail(run)
 		}
 		a.PushRoute(RouteDetail)
 	case runs.IntentOpenLogs:
+		if a.loadBlocked(loadKindLog) {
+			break
+		}
 		if run, ok := a.runs.SelectedRun(); ok {
 			a = a.loadLog(run, model.Job{})
 		}
 		a.PushRoute(RouteLog)
 	case runs.IntentWatch:
+		if a.loadBlocked(loadKindWatch) {
+			break
+		}
 		if run, ok := a.runs.SelectedRun(); ok {
 			a = a.loadWatch(run)
 		}
 		a.PushRoute(RouteWatch)
 	case runs.IntentDispatch:
+		if a.loadBlocked(loadKindDispatch) {
+			break
+		}
 		a = a.openDispatch()
 	case runs.IntentBrowser:
 		if run, ok := a.runs.SelectedRun(); ok {
@@ -855,12 +1006,21 @@ func (a App) updateDetail(msg KeyMsg) (App, bool) {
 	a.detail = a.detail.Update(detail.KeyMsg{Key: msg.Key})
 	switch a.detail.Intent.Kind {
 	case detail.IntentFailure:
+		if a.loadBlocked(loadKindFailure) {
+			break
+		}
 		a = a.loadFailure(a.detail.Run, a.selectedDetailJob())
 		a.PushRoute(RouteFailure)
 	case detail.IntentLog:
+		if a.loadBlocked(loadKindLog) {
+			break
+		}
 		a = a.loadLog(a.detail.Run, a.selectedDetailJob())
 		a.PushRoute(RouteLog)
 	case detail.IntentWatch:
+		if a.loadBlocked(loadKindWatch) {
+			break
+		}
 		a = a.loadWatch(a.detail.Run)
 		a.PushRoute(RouteWatch)
 	case detail.IntentRerunJob:
@@ -1114,12 +1274,11 @@ func (a App) handlePaletteIntent(intent palette.Intent) App {
 }
 
 func (a App) openPalette() App {
-	// Dispatch resolution can fail in repo-wide sessions (no branch
-	// ref); that is not the palette's problem. The generic dispatch
-	// item stays available and openDispatch surfaces the error when
-	// the user actually selects it.
-	workflows, _ := a.dispatchWorkflowChoices()
-	a.palette = palette.New(paletteItems(workflows))
+	// Palette enrichment uses only already-cached workflows: the
+	// invariant forbids a network fetch on the ':' keystroke. The
+	// generic dispatch item stays available and openDispatch resolves
+	// (async) when the user actually selects it.
+	a.palette = palette.New(paletteItems(a.dispatchWorkflows))
 	if a.TopOverlay() != OverlayPalette {
 		a.overlays = append(a.overlays, OverlayPalette)
 	}
@@ -1149,17 +1308,35 @@ func (a *App) PopOverlay() {
 
 func (a App) loadDetail(run model.Run) App {
 	a.clearRouteError(RouteDetail)
+	// The skeleton paints immediately from cached run data; jobs fold
+	// in when the resolver returns. The repo breadcrumb must stay
+	// truthful even while loading.
+	a.detail = DetailModelForRun(run).WithRepo(a.runs.Context.Repo)
 	if a.detailResolver == nil {
-		a.detail = DetailModelForRun(run)
 		return a.startArtifactsFetch(run)
 	}
-	resolved, err := a.detailResolver(run)
-	if err != nil {
-		a.detail = DetailModelForRun(run)
-		a.setRouteError(RouteDetail, "detail unavailable: "+err.Error())
-		return a
-	}
-	a.detail = resolved
+	resolver := a.detailResolver
+	a = a.startLoad(loadKindDetail, "fetching jobs", func(ctx context.Context) func(App) App {
+		resolved, err := resolver(ctx, run)
+		return func(app App) App {
+			if app.detail.Run.ID != run.ID {
+				// The user opened a different run meanwhile; this
+				// result no longer has a home.
+				return app
+			}
+			if err != nil {
+				app.setRouteError(RouteDetail, "detail unavailable: "+err.Error())
+				return app
+			}
+			// Artifacts race jobs: the async artifacts fetch may have
+			// landed on the skeleton already — carry it over.
+			if len(app.detail.Artifacts) > 0 && len(resolved.Artifacts) == 0 {
+				resolved = resolved.WithArtifacts(app.detail.Artifacts)
+			}
+			app.detail = resolved
+			return app
+		}
+	})
 	return a.startArtifactsFetch(run)
 }
 
@@ -1180,23 +1357,51 @@ func (a App) reloadRuns(query string) App {
 		a.setRouteError(RouteRuns, "runs filter unavailable: live GitHub runs loader is not configured")
 		return a
 	}
-	resolved, err := a.runsResolver(filter)
-	if err != nil {
-		a = a.handleRunsError(RouteRuns, "runs-filter", "runs filter failed: "+err.Error(), err)
-		return a
+	resolver := a.runsResolver
+	// The result belongs to the scope that REQUESTED it: a local scope
+	// toggle mid-flight must not receive another scope's rows.
+	requestScope := a.runs.Context.Scope
+	return a.startLoad(loadKindRuns, runsLoadLabel(query), func(ctx context.Context) func(App) App {
+		resolved, err := resolver(ctx, filter)
+		return func(app App) App {
+			if err != nil {
+				return app.handleRunsError(RouteRuns, "runs-filter", "runs filter failed: "+err.Error(), err)
+			}
+			switch requestScope {
+			case usecase.LaunchScopeBranch:
+				app.runs.Context.BranchRuns = resolved
+			case usecase.LaunchScopeRepo:
+				app.runs.Context.RepoRuns = resolved
+			}
+			if app.runs.Context.Scope != requestScope {
+				// The user moved to another scope while this was in
+				// flight: park the result in its cache slot only.
+				return app
+			}
+			app.runs.Context.Runs = resolved
+			app.runs.Context.Page = 1
+			app.runs.Context.PerPage = perPageFor(app.runs.Context, app.config.PerPage)
+			app.runs.Context.HasMore = len(resolved) >= app.runs.Context.PerPage
+			app.runs.Selected = 0
+			return app
+		}
+	})
+}
+
+// runsLoadLabel keeps the loading line hound-voiced per query.
+func runsLoadLabel(query string) string {
+	switch strings.TrimSpace(query) {
+	case "":
+		return "fetching the pack"
+	case "failing", "failed", "red":
+		return "sniffing out failing runs"
+	case "running", "live":
+		return "sniffing out running runs"
+	case "passed", "passing", "green":
+		return "sniffing out passing runs"
+	default:
+		return "sniffing out /" + strings.TrimSpace(query)
 	}
-	a.runs.Context.Runs = resolved
-	switch a.runs.Context.Scope {
-	case usecase.LaunchScopeBranch:
-		a.runs.Context.BranchRuns = resolved
-	case usecase.LaunchScopeRepo:
-		a.runs.Context.RepoRuns = resolved
-	}
-	a.runs.Context.Page = 1
-	a.runs.Context.PerPage = perPageFor(a.runs.Context, a.config.PerPage)
-	a.runs.Context.HasMore = len(resolved) >= a.runs.Context.PerPage
-	a.runs.Selected = 0
-	return a
 }
 
 func (a App) loadMoreRuns() App {
@@ -1218,19 +1423,30 @@ func (a App) loadMoreRuns() App {
 		a.setRouteError(RouteRuns, "next page unavailable: live GitHub runs loader is not configured")
 		return a
 	}
-	resolved, err := a.runsResolver(filter)
-	if err != nil {
-		a = a.handleRunsError(RouteRuns, "runs-page", "next page failed: "+err.Error(), err)
-		return a
-	}
-	a.runs.Context.Page = nextPage
-	a.runs.Context.PerPage = perPage
-	_ = a.appendActiveRuns(resolved)
-	// A full page that deduped to nothing still means deeper pages
-	// exist (high-velocity repos shift runs between pages); latching
-	// HasMore=false there froze pagination on openclaw-sized repos.
-	a.runs.Context.HasMore = len(resolved) >= perPage
-	return a
+	resolver := a.runsResolver
+	requestScope := a.runs.Context.Scope
+	return a.startLoad(loadKindRuns, "fetching more runs", func(ctx context.Context) func(App) App {
+		resolved, err := resolver(ctx, filter)
+		return func(app App) App {
+			if err != nil {
+				return app.handleRunsError(RouteRuns, "runs-page", "next page failed: "+err.Error(), err)
+			}
+			if app.runs.Context.Scope != requestScope {
+				// The page belongs to a scope the user already left;
+				// appending it would corrupt the active listing. Drop
+				// it — G in the new scope fetches its own pages.
+				return app
+			}
+			app.runs.Context.Page = nextPage
+			app.runs.Context.PerPage = perPage
+			_ = app.appendActiveRuns(resolved)
+			// A full page that deduped to nothing still means deeper pages
+			// exist (high-velocity repos shift runs between pages); latching
+			// HasMore=false there froze pagination on openclaw-sized repos.
+			app.runs.Context.HasMore = len(resolved) >= perPage
+			return app
+		}
+	})
 }
 
 func (a App) refreshRuns() (App, bool) {
@@ -1248,7 +1464,7 @@ func (a App) refreshRuns() (App, bool) {
 	if selected, ok := a.runs.SelectedRun(); ok {
 		selectedID = selected.ID
 	}
-	resolved, err := a.runsResolver(filter)
+	resolved, err := a.runsResolver(context.Background(), filter)
 	if err != nil {
 		a = a.handleRunsError(RouteRuns, "runs-refresh", "refresh failed: "+err.Error(), err)
 		a.pollInterval = nextPollIntervalForRuns(nil, a.pollInterval, a.config)
@@ -1283,7 +1499,7 @@ func (a App) refreshWatch() (App, bool) {
 	if a.watchResolver == nil || a.watch.State.Run.ID == 0 {
 		return a, false
 	}
-	resolved, err := a.watchResolver(a.watch.State.Run)
+	resolved, err := a.watchResolver(context.Background(), a.watch.State.Run)
 	if err != nil {
 		a.setRouteError(RouteWatch, "watch refresh failed: "+err.Error())
 		a.refreshCount++
@@ -1481,16 +1697,21 @@ func (a App) loadFailure(run model.Run, job model.Job) App {
 		a.setRouteError(RouteFailure, "failure unavailable: live failure loader is not configured")
 		return a
 	}
-	resolved, fullLog, err := a.failureResolver(run, job)
-	if err != nil {
-		a.setRouteError(RouteFailure, "failure unavailable: "+err.Error())
-		return a
-	}
-	a.failure = resolved
-	a.log = fullLog
-	a.clearRouteError(RouteLog)
-	a.pushLogRefetchToast(job.ID)
-	return a
+	resolver := a.failureResolver
+	return a.startLoad(loadKindFailure, "fetching the failure", func(ctx context.Context) func(App) App {
+		resolved, fullLog, err := resolver(ctx, run, job)
+		return func(app App) App {
+			if err != nil {
+				app.setRouteError(RouteFailure, "failure unavailable: "+err.Error())
+				return app
+			}
+			app.failure = resolved
+			app.log = fullLog
+			app.clearRouteError(RouteLog)
+			app.pushLogRefetchToast(job.ID)
+			return app
+		}
+	})
 }
 
 func (a App) loadLog(run model.Run, job model.Job) App {
@@ -1499,14 +1720,19 @@ func (a App) loadLog(run model.Run, job model.Job) App {
 		a.setRouteError(RouteLog, "log unavailable: live log loader is not configured")
 		return a
 	}
-	resolved, err := a.logResolver(run, job)
-	if err != nil {
-		a.setRouteError(RouteLog, "log unavailable: "+err.Error())
-		return a
-	}
-	a.log = resolved
-	a.pushLogRefetchToast(job.ID)
-	return a
+	resolver := a.logResolver
+	return a.startLoadProgress(loadKindLog, "fetching log", func(ctx context.Context, progress func(read, total int64)) func(App) App {
+		resolved, err := resolver(ctx, run, job, progress)
+		return func(app App) App {
+			if err != nil {
+				app.setRouteError(RouteLog, "log unavailable: "+err.Error())
+				return app
+			}
+			app.log = resolved
+			app.pushLogRefetchToast(job.ID)
+			return app
+		}
+	})
 }
 
 func (a *App) pushLogRefetchToast(jobID int64) {
@@ -1540,25 +1766,56 @@ func (a App) loadWatch(run model.Run) App {
 		a.setRouteError(RouteWatch, "watch unavailable: live watch loader is not configured")
 		return a
 	}
-	resolved, err := a.watchResolver(run)
-	if err != nil {
-		a.setRouteError(RouteWatch, "watch unavailable: "+err.Error())
-		return a
-	}
-	a.watch = resolved
-	return a
+	resolver := a.watchResolver
+	return a.startLoad(loadKindWatch, "chasing down the run", func(ctx context.Context) func(App) App {
+		resolved, err := resolver(ctx, run)
+		return func(app App) App {
+			if err != nil {
+				app.setRouteError(RouteWatch, "watch unavailable: "+err.Error())
+				return app
+			}
+			app.watch = resolved
+			return app
+		}
+	})
 }
 
 func (a App) openDispatch() App {
-	workflows, err := a.dispatchWorkflowChoices()
-	if err != nil {
-		a.setRouteError(RouteDispatch, "dispatch unavailable: "+err.Error())
+	// Cached choices decide instantly; only the fetch goes async. The
+	// route is pushed when the decision is known so esc-from-palette
+	// navigation matches the old synchronous behavior exactly.
+	if len(a.dispatchWorkflows) > 0 {
+		return a.applyDispatchChoices(a.dispatchWorkflows)
+	}
+	if a.dispatchWorkflowsResolver == nil {
+		a = a.loadDispatch()
 		a.PushRoute(RouteDispatch)
 		return a
 	}
+	resolver := a.dispatchWorkflowsResolver
+	return a.startLoad(loadKindDispatch, "fetching workflows", func(ctx context.Context) func(App) App {
+		workflows, err := resolver(ctx)
+		return func(app App) App {
+			if err != nil {
+				app.setRouteError(RouteDispatch, "dispatch unavailable: "+err.Error())
+				app.PushRoute(RouteDispatch)
+				return app
+			}
+			app.dispatchWorkflows = append([]dispatch.Workflow(nil), workflows...)
+			return app.applyDispatchChoices(workflows)
+		}
+	})
+}
+
+// applyDispatchChoices routes per the resolved workflow count: none →
+// the single-workflow resolver path, one → straight to the form, many
+// → the chooser palette over the current route.
+func (a App) applyDispatchChoices(workflows []dispatch.Workflow) App {
 	switch len(workflows) {
 	case 0:
-		a = a.loadDispatch()
+		// The workflows fetch already came back empty — go straight to
+		// the single-form resolver instead of re-fetching the list.
+		a = a.loadDispatchFallback()
 		a.PushRoute(RouteDispatch)
 	case 1:
 		a.dispatch = dispatch.NewModel(workflows[0])
@@ -1574,36 +1831,63 @@ func (a App) openDispatch() App {
 
 func (a App) loadDispatch() App {
 	a.clearRouteError(RouteDispatch)
-	if workflows, err := a.dispatchWorkflowChoices(); err == nil && len(workflows) > 0 {
-		a.dispatch = dispatch.NewModel(workflows[0])
+	// Already-fetched workflows open the form instantly; only the
+	// network path goes async.
+	if len(a.dispatchWorkflows) > 0 {
+		a.dispatch = dispatch.NewModel(a.dispatchWorkflows[0])
 		return a
 	}
-	if a.dispatchResolver == nil {
+	workflowsResolver := a.dispatchWorkflowsResolver
+	dispatchResolver := a.dispatchResolver
+	if workflowsResolver == nil && dispatchResolver == nil {
 		a.setRouteError(RouteDispatch, "dispatch unavailable: live workflow loader is not configured")
 		return a
 	}
-	resolved, err := a.dispatchResolver()
-	if err != nil {
-		a.setRouteError(RouteDispatch, "dispatch unavailable: "+err.Error())
-		return a
-	}
-	a.dispatch = resolved
-	return a
+	return a.startLoad(loadKindDispatch, "fetching workflows", func(ctx context.Context) func(App) App {
+		if workflowsResolver != nil {
+			if workflows, err := workflowsResolver(ctx); err == nil && len(workflows) > 0 {
+				return func(app App) App {
+					app.dispatchWorkflows = append([]dispatch.Workflow(nil), workflows...)
+					app.dispatch = dispatch.NewModel(workflows[0])
+					return app
+				}
+			}
+		}
+		return dispatchFallbackApply(ctx, dispatchResolver)
+	})
 }
 
-func (a *App) dispatchWorkflowChoices() ([]dispatch.Workflow, error) {
-	if len(a.dispatchWorkflows) > 0 {
-		return append([]dispatch.Workflow(nil), a.dispatchWorkflows...), nil
+// loadDispatchFallback fetches the single dispatch form without
+// retrying the workflows list (callers know it already came back
+// empty).
+func (a App) loadDispatchFallback() App {
+	a.clearRouteError(RouteDispatch)
+	dispatchResolver := a.dispatchResolver
+	if dispatchResolver == nil {
+		a.setRouteError(RouteDispatch, "dispatch unavailable: live workflow loader is not configured")
+		return a
 	}
-	if a.dispatchWorkflowsResolver == nil {
-		return nil, nil
+	return a.startLoad(loadKindDispatch, "fetching workflows", func(ctx context.Context) func(App) App {
+		return dispatchFallbackApply(ctx, dispatchResolver)
+	})
+}
+
+func dispatchFallbackApply(ctx context.Context, dispatchResolver func(context.Context) (dispatch.Model, error)) func(App) App {
+	if dispatchResolver == nil {
+		return func(app App) App {
+			app.setRouteError(RouteDispatch, "dispatch unavailable: live workflow loader is not configured")
+			return app
+		}
 	}
-	workflows, err := a.dispatchWorkflowsResolver()
-	if err != nil {
-		return nil, err
+	resolved, err := dispatchResolver(ctx)
+	return func(app App) App {
+		if err != nil {
+			app.setRouteError(RouteDispatch, "dispatch unavailable: "+err.Error())
+			return app
+		}
+		app.dispatch = resolved
+		return app
 	}
-	a.dispatchWorkflows = append([]dispatch.Workflow(nil), workflows...)
-	return workflows, nil
 }
 
 func (a *App) dispatchWorkflowByValue(value string) (dispatch.Workflow, bool) {
@@ -1611,11 +1895,9 @@ func (a *App) dispatchWorkflowByValue(value string) (dispatch.Workflow, bool) {
 	if value == "" {
 		return dispatch.Workflow{}, false
 	}
-	workflows, err := a.dispatchWorkflowChoices()
-	if err != nil {
-		return dispatch.Workflow{}, false
-	}
-	for _, workflow := range workflows {
+	// Workflow-specific palette items only exist once the cache is
+	// populated, so the cached list is authoritative here.
+	for _, workflow := range a.dispatchWorkflows {
 		if workflowValue(workflow) == value {
 			return workflow, true
 		}
@@ -1983,8 +2265,15 @@ func (a App) chromeParts() (string, string, string) {
 	case RouteDetail:
 		return "hound", detailContext(a.detail.Run), shortSHA(a.detail.Run.HeadSHA)
 	case RouteFailure:
+		if load := a.load; load != nil && load.kind == loadKindFailure {
+			// Stale counts from prior content mislead during a fetch.
+			return "hound", "failed step", "fetching…"
+		}
 		return "hound", "failed step", failureRight(a.failure)
 	case RouteLog:
+		if load := a.load; load != nil && load.kind == loadKindLog {
+			return "hound", "full log", "fetching…"
+		}
 		return "hound", "full log", logRight(a.log)
 	case RouteWatch:
 		run := a.watch.State.Run
@@ -2157,20 +2446,42 @@ func (a App) screenBody(width, height int) string {
 		if body, ok := a.launchStateBody(bodyWidth); ok {
 			return body
 		}
-		return runs.ViewSize(a.runs, bodyWidth, bodyHeight(height), time.Now())
+		runsModel := a.runs
+		if load := a.load; load != nil && (load.kind == loadKindRuns || load.kind == loadKindDispatch) {
+			runsModel.Loading = true
+			runsModel.LoadingLine = loadingLine(a.theme, load, bodyWidth, time.Now())
+		}
+		return runs.ViewSize(runsModel, bodyWidth, bodyHeight(height), time.Now())
 	case RouteDetail:
-		return detail.ViewSize(a.detail, bodyWidth, bodyHeight(height))
+		detailModel := a.detail
+		if load := a.load; load != nil && load.kind == loadKindDetail {
+			detailModel.Loading = true
+			detailModel.LoadingLine = loadingLine(a.theme, load, bodyWidth/2, time.Now())
+		}
+		return detail.ViewSize(detailModel, bodyWidth, bodyHeight(height))
 	case RouteFailure:
+		if load := a.load; load != nil && load.kind == loadKindFailure {
+			return loadingBody(a.theme, load, bodyWidth, time.Now())
+		}
 		return failure.View(a.failure, bodyWidth)
 	case RouteLog:
+		if load := a.load; load != nil && load.kind == loadKindLog {
+			return loadingBody(a.theme, load, bodyWidth, time.Now())
+		}
 		logModel := a.log
 		if rows := bodyHeight(height) - 1; rows > 0 {
 			logModel.Height = rows
 		}
 		return logscreen.View(logModel, bodyWidth)
 	case RouteWatch:
+		if load := a.load; load != nil && load.kind == loadKindWatch {
+			return loadingBody(a.theme, load, bodyWidth, time.Now())
+		}
 		return watch.View(a.watch, bodyWidth)
 	case RouteDispatch:
+		if load := a.load; load != nil && load.kind == loadKindDispatch {
+			return loadingBody(a.theme, load, bodyWidth, time.Now())
+		}
 		return dispatch.View(a.dispatch, bodyWidth)
 	default:
 		return string(a.Route())

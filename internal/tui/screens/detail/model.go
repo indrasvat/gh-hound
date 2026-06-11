@@ -52,6 +52,12 @@ type Model struct {
 	SelectedArtifact int
 	Focus            Focus
 	Intent           Intent
+
+	// Loading state is transient render input set by the app from its
+	// pending load each frame — never persisted, so a cancelled load
+	// can not strand a skeleton.
+	Loading     bool
+	LoadingLine string
 }
 
 func NewModel(run model.Run, jobs []model.Job) Model {

@@ -60,3 +60,11 @@ type GitHubDiagnostics interface {
 type GitHubLogDiagnostics interface {
 	LastLogRefetch(jobID int64) (LogRefetchNotice, bool)
 }
+
+// LogProgressFetcher is an optional adapter capability: log download
+// with byte-progress reporting (read, total; total <= 0 when the size
+// is unknown). Adapters without it fall back to plain FetchJobLog and
+// callers render an indeterminate spinner.
+type LogProgressFetcher interface {
+	FetchJobLogWithProgress(ctx context.Context, repo string, jobID int64, progress func(read, total int64)) (string, error)
+}

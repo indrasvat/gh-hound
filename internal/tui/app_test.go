@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -150,7 +151,7 @@ func TestProductionChromeDoesNotInventMissingGitHubMetadata(t *testing.T) {
 				Conclusion: model.ConclusionFailure,
 			}},
 		},
-		DetailResolver: func(run model.Run) (detail.Model, error) {
+		DetailResolver: func(_ context.Context, run model.Run) (detail.Model, error) {
 			return detail.NewModel(run, []model.Job{{
 				ID:         7001,
 				RunID:      run.ID,
@@ -163,6 +164,13 @@ func TestProductionChromeDoesNotInventMissingGitHubMetadata(t *testing.T) {
 	if !handled || app.Route() != RouteDetail {
 		t.Fatalf("enter did not open detail: handled=%v route=%s", handled, app.Route())
 	}
+	// The skeleton must already show the real repo, never invented
+	// metadata; resolved identifiers are asserted after settle.
+	skeleton := ansi.Strip(app.ViewSize(120, 32))
+	if !strings.Contains(skeleton, "openclaw/openclaw") {
+		t.Fatalf("loading skeleton lost the repo breadcrumb:\n%s", skeleton)
+	}
+	app = settleApp(t, app)
 	view := ansi.Strip(app.ViewSize(120, 32))
 	for _, banned := range []string{"branch", "@sha", "unknown", "workflow"} {
 		if strings.Contains(view, banned) {
@@ -404,7 +412,7 @@ func TestDispatchPickerSelectsExactWorkflow(t *testing.T) {
 				HeadBranch: "main",
 			}},
 		},
-		DispatchWorkflowsResolver: func() ([]dispatch.Workflow, error) {
+		DispatchWorkflowsResolver: func(context.Context) ([]dispatch.Workflow, error) {
 			return []dispatch.Workflow{
 				{Name: "Release", ID: "release.yml", Ref: "main"},
 				{Name: "Blacksmith Build Artifacts Testbox", ID: "blacksmith.yml", Ref: "main", Inputs: []dispatch.Input{{
@@ -421,6 +429,7 @@ func TestDispatchPickerSelectsExactWorkflow(t *testing.T) {
 	})
 
 	app, handled := app.Update(KeyMsg{Key: "D"})
+	app = settleApp(t, app)
 	if !handled || app.TopOverlay() != OverlayPalette || app.Route() != RouteRuns {
 		t.Fatalf("D should open dispatch workflow picker: handled=%v route=%s overlay=%s\n%s", handled, app.Route(), app.TopOverlay(), app.View())
 	}
@@ -474,7 +483,7 @@ func TestDispatchTextInputConsumesGlobalShortcutLetters(t *testing.T) {
 				Conclusion: model.ConclusionSuccess,
 			}},
 		},
-		DispatchWorkflowsResolver: func() ([]dispatch.Workflow, error) {
+		DispatchWorkflowsResolver: func(context.Context) ([]dispatch.Workflow, error) {
 			return []dispatch.Workflow{{
 				Name: "CI",
 				ID:   "ci.yml",
@@ -487,6 +496,7 @@ func TestDispatchTextInputConsumesGlobalShortcutLetters(t *testing.T) {
 		},
 	})
 	app, handled := app.Update(KeyMsg{Key: "D"})
+	app = settleApp(t, app)
 	if !handled || app.Route() != RouteDispatch {
 		t.Fatalf("D did not open dispatch form: handled=%v route=%s\n%s", handled, app.Route(), app.View())
 	}
@@ -613,6 +623,7 @@ func TestRootShellDelegatesScreenKeysAndRoutes(t *testing.T) {
 	if !handled || app.Route() != RouteDetail {
 		t.Fatalf("runs enter should route to detail: handled=%v route=%s", handled, app.Route())
 	}
+	app = settleApp(t, app)
 
 	app, handled = app.Update(KeyMsg{Key: "tab"})
 	if !handled || app.detail.Focus != detail.FocusArtifacts {
@@ -654,7 +665,7 @@ func TestRunsArrowKeysNavigateAndSelectedRunOpensDistinctDetail(t *testing.T) {
 			State:  usecase.LaunchStateRuns,
 			Runs:   []model.Run{release, codeQL},
 		},
-		DetailResolver: func(run model.Run) (detail.Model, error) {
+		DetailResolver: func(_ context.Context, run model.Run) (detail.Model, error) {
 			job := model.Job{ID: run.ID + 10, RunID: run.ID, Name: run.Name + " job", Status: run.Status, Conclusion: run.Conclusion}
 			return detail.NewModel(run, []model.Job{job}), nil
 		},
@@ -672,6 +683,7 @@ func TestRunsArrowKeysNavigateAndSelectedRunOpensDistinctDetail(t *testing.T) {
 	if !handled || app.Route() != RouteDetail {
 		t.Fatalf("enter did not open selected detail: handled=%v route=%s", handled, app.Route())
 	}
+	app = settleApp(t, app)
 	view := ansi.Strip(app.View())
 	for _, want := range []string{"CodeQL #43", "CodeQL job", "ql56789"} {
 		if !strings.Contains(view, want) {
@@ -817,7 +829,7 @@ func TestRunsFilterReloadsServerSupportedQueries(t *testing.T) {
 				HeadBranch:   "main",
 			}},
 		},
-		RunsResolver: func(filter usecase.RunFilter) ([]model.Run, error) {
+		RunsResolver: func(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
 			calls = append(calls, filter)
 			return []model.Run{{
 				ID:           2002,
@@ -841,6 +853,7 @@ func TestRunsFilterReloadsServerSupportedQueries(t *testing.T) {
 			t.Fatalf("key %q was not handled", key)
 		}
 	}
+	app = settleApp(t, app)
 
 	if len(calls) != 1 {
 		t.Fatalf("runs resolver calls = %d, want 1", len(calls))
@@ -877,7 +890,7 @@ func TestRunsEndLoadsNextGitHubPage(t *testing.T) {
 				{ID: 1001, Name: "CI", RunNumber: 1001, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess},
 			},
 		},
-		RunsResolver: func(filter usecase.RunFilter) ([]model.Run, error) {
+		RunsResolver: func(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
 			calls = append(calls, filter)
 			return []model.Run{
 				{ID: 1001, Name: "CI", RunNumber: 1001, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess},
@@ -891,6 +904,7 @@ func TestRunsEndLoadsNextGitHubPage(t *testing.T) {
 	if !handled {
 		t.Fatal("G should be handled")
 	}
+	app = settleApp(t, app)
 	if len(calls) != 1 {
 		t.Fatalf("pagination resolver calls = %d, want 1", len(calls))
 	}
@@ -935,7 +949,7 @@ func TestRefreshReloadsVisibleRunsWithoutKeypress(t *testing.T) {
 				HeadBranch: "main",
 			}},
 		},
-		RunsResolver: func(filter usecase.RunFilter) ([]model.Run, error) {
+		RunsResolver: func(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
 			calls++
 			if filter.Page != 1 || filter.Branch != "main" {
 				t.Fatalf("refresh filter = %#v", filter)
@@ -1009,7 +1023,7 @@ func TestRefreshBacksOffIdleRunsAndResetsWhenRunning(t *testing.T) {
 				HeadBranch: "main",
 			}},
 		},
-		RunsResolver: func(usecase.RunFilter) ([]model.Run, error) {
+		RunsResolver: func(context.Context, usecase.RunFilter) ([]model.Run, error) {
 			next := responses[0]
 			responses = responses[1:]
 			return next, nil
@@ -1054,7 +1068,7 @@ func TestRunsChromeShowsRealRateAndCacheMetadata(t *testing.T) {
 				HeadBranch: "main",
 			}},
 		},
-		RunsResolver: func(usecase.RunFilter) ([]model.Run, error) {
+		RunsResolver: func(context.Context, usecase.RunFilter) ([]model.Run, error) {
 			meta = usecase.RequestMeta{Status: 304, Cache: "hit", RateRemaining: "4998"}
 			return []model.Run{{
 				ID:         9001,
@@ -1113,7 +1127,7 @@ func TestRefreshErrorKeepsCachedRunsAndShowsToast(t *testing.T) {
 				HeadBranch:   "integration",
 			}},
 		},
-		RunsResolver: func(usecase.RunFilter) ([]model.Run, error) {
+		RunsResolver: func(context.Context, usecase.RunFilter) ([]model.Run, error) {
 			return nil, usecase.APIError{
 				Kind:    usecase.APIErrorPermission,
 				Status:  403,
@@ -1157,7 +1171,7 @@ func TestRefreshRateLimitToastShowsAutoResumeMetadata(t *testing.T) {
 				HeadBranch:   "integration",
 			}},
 		},
-		RunsResolver: func(usecase.RunFilter) ([]model.Run, error) {
+		RunsResolver: func(context.Context, usecase.RunFilter) ([]model.Run, error) {
 			return nil, usecase.APIError{
 				Kind:       usecase.APIErrorRateLimit,
 				Status:     403,
@@ -1288,11 +1302,12 @@ func TestDetailOpenBrowserAndCopyUseSelectedJobAndRun(t *testing.T) {
 		Launch:   usecase.LaunchContext{Repo: "openclaw/openclaw", Branch: "main", Scope: usecase.LaunchScopeBranch, State: usecase.LaunchStateRuns, Runs: []model.Run{run}},
 		OpenURL:  func(value string) error { opened = value; return nil },
 		CopyText: func(value string) error { copied = value; return nil },
-		DetailResolver: func(model.Run) (detail.Model, error) {
+		DetailResolver: func(context.Context, model.Run) (detail.Model, error) {
 			return detail.NewModel(run, []model.Job{job}).WithRepo("openclaw/openclaw"), nil
 		},
 	})
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 
 	app, handled := app.Update(KeyMsg{Key: "o"})
 	if !handled || opened != job.HTMLURL {
@@ -1320,15 +1335,17 @@ func TestFailureOpenBrowserAndCopyExcerpt(t *testing.T) {
 		Launch:   usecase.LaunchContext{Repo: "openclaw/openclaw", Branch: "main", Scope: usecase.LaunchScopeBranch, State: usecase.LaunchStateRuns, Runs: []model.Run{run}},
 		OpenURL:  func(value string) error { opened = value; return nil },
 		CopyText: func(value string) error { copied = value; return nil },
-		DetailResolver: func(model.Run) (detail.Model, error) {
+		DetailResolver: func(context.Context, model.Run) (detail.Model, error) {
 			return detail.NewModel(run, []model.Job{report.Job}).WithRepo("openclaw/openclaw"), nil
 		},
-		FailureResolver: func(model.Run, model.Job) (failurescreen.Model, logscreen.Model, error) {
+		FailureResolver: func(context.Context, model.Run, model.Job) (failurescreen.Model, logscreen.Model, error) {
 			return failurescreen.NewModel("openclaw/openclaw", run.ID, report), logscreen.NewModel(report.Log, 1, 6), nil
 		},
 	})
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 
 	app, handled := app.Update(KeyMsg{Key: "o"})
 	if !handled || opened != report.Job.HTMLURL {
@@ -1454,10 +1471,10 @@ func TestLogRefetchNoticeShowsToastWhileKeepingRecoveredLog(t *testing.T) {
 			Runs:       []model.Run{run},
 			BranchRuns: []model.Run{run},
 		},
-		DetailResolver: func(model.Run) (detail.Model, error) {
+		DetailResolver: func(context.Context, model.Run) (detail.Model, error) {
 			return detail.NewModel(run, []model.Job{job}).WithRepo("openclaw/openclaw"), nil
 		},
-		LogResolver: func(model.Run, model.Job) (logscreen.Model, error) {
+		LogResolver: func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error) {
 			return logscreen.NewModel(logs.Parse("001 recovered log line\n##[error]still visible"), 1, 6), nil
 		},
 		LogRefetchNotice: func(jobID int64) (usecase.LogRefetchNotice, bool) {
@@ -1473,10 +1490,12 @@ func TestLogRefetchNoticeShowsToastWhileKeepingRecoveredLog(t *testing.T) {
 		},
 	})
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 	app, handled := app.Update(KeyMsg{Key: "l"})
 	if !handled || app.Route() != RouteLog {
 		t.Fatalf("log open handled=%v route=%s", handled, app.Route())
 	}
+	app = settleApp(t, app)
 	view := ansi.Strip(app.ViewSize(120, 28))
 	for _, want := range []string{"recovered log line", "Log render failed", "link had expired"} {
 		if !strings.Contains(view, want) {
@@ -1506,10 +1525,10 @@ func TestFailureRouteShowsLogRefetchToastAfterRecoveredFailureLoad(t *testing.T)
 			Runs:       []model.Run{run},
 			BranchRuns: []model.Run{run},
 		},
-		DetailResolver: func(model.Run) (detail.Model, error) {
+		DetailResolver: func(context.Context, model.Run) (detail.Model, error) {
 			return detail.NewModel(run, []model.Job{job}).WithRepo("openclaw/openclaw"), nil
 		},
-		FailureResolver: func(model.Run, model.Job) (failurescreen.Model, logscreen.Model, error) {
+		FailureResolver: func(context.Context, model.Run, model.Job) (failurescreen.Model, logscreen.Model, error) {
 			return failurescreen.NewModel("openclaw/openclaw", run.ID, report), logscreen.NewModel(report.Log, 1, 6), nil
 		},
 		LogRefetchNotice: func(jobID int64) (usecase.LogRefetchNotice, bool) {
@@ -1525,10 +1544,12 @@ func TestFailureRouteShowsLogRefetchToastAfterRecoveredFailureLoad(t *testing.T)
 		},
 	})
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 	app, handled := app.Update(KeyMsg{Key: "enter"})
 	if !handled || app.Route() != RouteFailure {
 		t.Fatalf("failure open handled=%v route=%s", handled, app.Route())
 	}
+	app = settleApp(t, app)
 	view := ansi.Strip(app.ViewSize(120, 28))
 	for _, want := range []string{"Process completed with exit code 1", "Log render failed", "HTTP 410"} {
 		if !strings.Contains(view, want) {
@@ -1673,7 +1694,7 @@ func TestEscClearingServerFilterRestoresUnfilteredRuns(t *testing.T) {
 	app := NewApp(Options{
 		Config: cfg,
 		Launch: usecase.LaunchContext{Repo: "x/y", Branch: "main", State: usecase.LaunchStateRuns, Runs: full},
-		RunsResolver: func(filter usecase.RunFilter) ([]model.Run, error) {
+		RunsResolver: func(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
 			if filter.Status != "" {
 				return running, nil
 			}
@@ -1683,10 +1704,12 @@ func TestEscClearingServerFilterRestoresUnfilteredRuns(t *testing.T) {
 	for _, key := range []string{"/", "r", "u", "n", "n", "i", "n", "g", "enter"} {
 		app, _ = app.Update(KeyMsg{Key: key})
 	}
+	app = settleApp(t, app)
 	if got := len(app.runs.FilteredRuns()); got != 1 {
 		t.Fatalf("server filter applied = %d rows, want 1", got)
 	}
 	app, _ = app.Update(KeyMsg{Key: "esc"})
+	app = settleApp(t, app)
 	if got := len(app.runs.FilteredRuns()); got != len(full) {
 		t.Fatalf("esc must restore the unfiltered listing immediately: %d rows, want %d", got, len(full))
 	}
@@ -1698,7 +1721,7 @@ func TestPaletteOpenDoesNotToastDispatchResolutionErrors(t *testing.T) {
 	app := NewApp(Options{
 		Config: cfg,
 		Launch: usecase.LaunchContext{Repo: "x/y", State: usecase.LaunchStateRuns, Runs: []model.Run{cliTestRun(1, "CI", "main")}},
-		DispatchWorkflowsResolver: func() ([]dispatch.Workflow, error) {
+		DispatchWorkflowsResolver: func(context.Context) ([]dispatch.Workflow, error) {
 			return nil, errors.New("dispatch ref is unavailable; pass --branch or run from a checkout")
 		},
 	})
@@ -1715,6 +1738,7 @@ func TestPaletteOpenDoesNotToastDispatchResolutionErrors(t *testing.T) {
 		app, _ = app.Update(KeyMsg{Key: key})
 	}
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 	view := ansi.Strip(app.ViewSize(120, 40))
 	if !strings.Contains(view, "dispatch unavailable") {
 		t.Fatalf("selecting dispatch must surface the resolution error:\n%s", view)
@@ -1725,8 +1749,11 @@ func TestTimeJumpModalFlow(t *testing.T) {
 	app := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
 	app.config.Welcome = false
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 	app, _ = app.Update(KeyMsg{Key: "l"})
+	app = settleApp(t, app)
 	if app.Route() != RouteLog {
 		t.Fatalf("setup: expected log route, got %s", app.Route())
 	}
@@ -1766,8 +1793,11 @@ func TestLogSearchEscStaysOnLog(t *testing.T) {
 	app := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
 	app.config.Welcome = false
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 	app, _ = app.Update(KeyMsg{Key: "l"})
+	app = settleApp(t, app)
 	app, _ = app.Update(KeyMsg{Key: "/"})
 	app, _ = app.Update(KeyMsg{Key: "x"})
 	app, handled := app.Update(KeyMsg{Key: "esc"})
@@ -1784,8 +1814,11 @@ func TestTimeJumpPickerAndRangeFlow(t *testing.T) {
 	app := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
 	app.config.Welcome = false
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 	app, _ = app.Update(KeyMsg{Key: "l"})
+	app = settleApp(t, app)
 	app, _ = app.Update(KeyMsg{Key: "t"})
 	view := ansi.Strip(app.ViewSize(120, 40))
 	if !strings.Contains(view, "failure window") {
