@@ -2229,8 +2229,15 @@ func (a App) chromeParts() (string, string, string) {
 	case RouteDetail:
 		return "hound", detailContext(a.detail.Run), shortSHA(a.detail.Run.HeadSHA)
 	case RouteFailure:
+		if load := a.load; load != nil && load.kind == loadKindFailure {
+			// Stale counts from prior content mislead during a fetch.
+			return "hound", "failed step", "fetching…"
+		}
 		return "hound", "failed step", failureRight(a.failure)
 	case RouteLog:
+		if load := a.load; load != nil && load.kind == loadKindLog {
+			return "hound", "full log", "fetching…"
+		}
 		return "hound", "full log", logRight(a.log)
 	case RouteWatch:
 		run := a.watch.State.Run

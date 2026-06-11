@@ -30,7 +30,7 @@ func ViewSize(m Model, width, height int) string {
 	}
 	lines := []string{fit(breadcrumb(m), width)}
 	if width < 100 {
-		lines = append(lines, renderStepsPane(m, width, stepsBudget)...)
+		lines = append(lines, renderStepsPane(m, width, stepsBudget, true)...)
 	} else {
 		lines = append(lines, renderWide(m, width, stepsBudget)...)
 	}
@@ -53,7 +53,7 @@ func renderWide(m Model, width, stepsBudget int) []string {
 	leftWidth := clampInt(width/3, 30, 38)
 	rightWidth := width - leftWidth - 1
 	jobs := renderJobsPane(m, leftWidth)
-	steps := renderStepsPane(m, rightWidth, stepsBudget)
+	steps := renderStepsPane(m, rightWidth, stepsBudget, false)
 	height := max(len(jobs), len(steps))
 	lines := make([]string, 0, height)
 	for i := range height {
@@ -91,11 +91,21 @@ func renderJobsPane(m Model, width int) []string {
 	return lines
 }
 
-func renderStepsPane(m Model, width, stepsBudget int) []string {
+func renderStepsPane(m Model, width, stepsBudget int, standalone bool) []string {
 	job := m.selectedJob()
 	if len(m.Jobs) == 0 {
 		hint := "Select a job after GitHub returns job data"
 		if m.Loading {
+			// In the stacked layout (width < 100) this pane is the whole
+			// screen, so it must carry the shared loading line itself —
+			// the jobs pane that normally hosts it is not rendered.
+			if standalone && m.LoadingLine != "" {
+				return []string{
+					paneHeader("Steps", "", width, m.Focus == FocusSteps),
+					divider(width),
+					fitANSI(m.LoadingLine, width),
+				}
+			}
 			hint = "the hound is on its way back…"
 		}
 		return []string{
