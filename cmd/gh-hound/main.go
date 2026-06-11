@@ -255,25 +255,26 @@ func writeMutationResult(ctx context.Context, w io.Writer, options cliOptions, r
 	// on stdout and exit 2 is never a bare stderr message (the silent
 	// outcomeError suppresses duplicate printing in main).
 	refuse := func(err error) error {
-		kind, message := "unknown", err.Error()
+		kind, message, field := "unknown", err.Error(), ""
 		if actionErr, ok := usecase.AsActionError(err); ok {
 			kind, message = string(actionErr.Kind), actionErr.Message
+			field = actionErr.Field
 		}
 		result.Accepted = false
-		result.Error = &render.MutationError{Kind: kind, Message: message}
+		result.Error = &render.MutationError{Kind: kind, Field: field, Message: message}
 		if writeErr := render.WriteMutation(w, format, result); writeErr != nil {
 			return writeErr
 		}
 		return outcomeError{code: render.ExitError}
 	}
 	if request.runID <= 0 {
-		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Message: "--run <run-id> (a positive ID) is required"})
+		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Field: "run", Message: "--run <run-id> (a positive ID) is required"})
 	}
 	if request.jobID < 0 {
-		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Message: "--job must be a positive job ID"})
+		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Field: "job", Message: "--job must be a positive job ID"})
 	}
 	if request.jobID != 0 && request.failedOnly {
-		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Message: "--job and --failed-only are mutually exclusive"})
+		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Field: "job", Message: "--job and --failed-only are mutually exclusive"})
 	}
 
 	var githubClient usecase.GitHub

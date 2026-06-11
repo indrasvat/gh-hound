@@ -1473,6 +1473,9 @@ func TestMutationValidationEmitsEnvelope(t *testing.T) {
 		if !ok || errObj["kind"] != "validation" {
 			t.Fatalf("%s: error = %#v, want validation kind", name, decoded["error"])
 		}
+		if field, _ := errObj["field"].(string); field == "" {
+			t.Fatalf("%s: validation refusal missing error.field: %#v", name, errObj)
+		}
 		if decoded["accepted"] != false {
 			t.Fatalf("%s: accepted = %v", name, decoded["accepted"])
 		}
