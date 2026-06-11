@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -65,7 +66,7 @@ type Options struct {
 	DetailResolver            func(model.Run) (detail.Model, error)
 	RunsResolver              func(usecase.RunFilter) ([]model.Run, error)
 	FailureResolver           func(model.Run, model.Job) (failure.Model, logscreen.Model, error)
-	LogResolver               func(model.Run, model.Job, func(read, total int64)) (logscreen.Model, error)
+	LogResolver               func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error)
 	WatchResolver             func(model.Run) (watch.Model, error)
 	DispatchResolver          func() (dispatch.Model, error)
 	DispatchWorkflowsResolver func() ([]dispatch.Workflow, error)
@@ -116,7 +117,7 @@ type App struct {
 	detailResolver            func(model.Run) (detail.Model, error)
 	runsResolver              func(usecase.RunFilter) ([]model.Run, error)
 	failureResolver           func(model.Run, model.Job) (failure.Model, logscreen.Model, error)
-	logResolver               func(model.Run, model.Job, func(read, total int64)) (logscreen.Model, error)
+	logResolver               func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error)
 	watchResolver             func(model.Run) (watch.Model, error)
 	dispatchResolver          func() (dispatch.Model, error)
 	dispatchWorkflowsResolver func() ([]dispatch.Workflow, error)
@@ -141,18 +142,25 @@ type App struct {
 // apply. work returns the apply closure that folds the result (or its
 // error handling) into the App at drain time.
 func (a App) startLoad(kind loadKind, label string, work func() func(App) App) App {
-	return a.startLoadProgress(kind, label, func(func(int64, int64)) func(App) App {
+	return a.startLoadProgress(kind, label, func(context.Context, func(int64, int64)) func(App) App {
 		return work()
 	})
 }
 
 // startLoadProgress is startLoad for fetches that can report byte
-// progress; work receives the report callback to thread downstream.
-func (a App) startLoadProgress(kind loadKind, label string, work func(progress func(read, total int64)) func(App) App) App {
-	state := &pendingLoad{kind: kind, label: label, started: time.Now()}
+// progress and honor cancellation; work receives a per-load context
+// (cancelled on esc or supersession) and the progress callback.
+func (a App) startLoadProgress(kind loadKind, label string, work func(ctx context.Context, progress func(read, total int64)) func(App) App) App {
+	if prev := a.load; prev != nil && prev.cancel != nil {
+		// Superseded work must stop burning the serial queue, not just
+		// lose its seat at the table.
+		prev.cancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	state := &pendingLoad{kind: kind, label: label, started: time.Now(), cancel: cancel}
 	a.load = state
 	go func() {
-		state.finish(work(state.progress))
+		state.finish(work(ctx, state.progress))
 	}()
 	return a
 }
@@ -310,7 +318,7 @@ func NewScenarioApp(scenario string, build BuildInfo) App {
 	app.failureResolver = func(model.Run, model.Job) (failure.Model, logscreen.Model, error) {
 		return sampleFailureModel(), sampleLogModel(), nil
 	}
-	app.logResolver = func(model.Run, model.Job, func(read, total int64)) (logscreen.Model, error) {
+	app.logResolver = func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error) {
 		return sampleLogModel(), nil
 	}
 	app.watchResolver = func(model.Run) (watch.Model, error) {
@@ -342,9 +350,13 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 		if done, _, _, _ := load.snapshot(); done {
 			a, _ = a.drainLoad()
 		} else if msg.Key == "esc" {
-			// Cancel interest: the orphaned result can never apply.
-			// Re-enter (load is nil now) so normal esc routing still
-			// restores the prior view; handled regardless.
+			// Cancel interest AND the underlying work: the orphaned
+			// result can never apply, and the fetch stops occupying
+			// the serial queue. Re-enter (load is nil now) so normal
+			// esc routing still restores the prior view.
+			if load.cancel != nil {
+				load.cancel()
+			}
 			a.load = nil
 			next, _ := a.Update(msg)
 			return next, true
@@ -1310,19 +1322,27 @@ func (a App) reloadRuns(query string) App {
 		return a
 	}
 	resolver := a.runsResolver
+	// The result belongs to the scope that REQUESTED it: a local scope
+	// toggle mid-flight must not receive another scope's rows.
+	requestScope := a.runs.Context.Scope
 	return a.startLoad(loadKindRuns, runsLoadLabel(query), func() func(App) App {
 		resolved, err := resolver(filter)
 		return func(app App) App {
 			if err != nil {
 				return app.handleRunsError(RouteRuns, "runs-filter", "runs filter failed: "+err.Error(), err)
 			}
-			app.runs.Context.Runs = resolved
-			switch app.runs.Context.Scope {
+			switch requestScope {
 			case usecase.LaunchScopeBranch:
 				app.runs.Context.BranchRuns = resolved
 			case usecase.LaunchScopeRepo:
 				app.runs.Context.RepoRuns = resolved
 			}
+			if app.runs.Context.Scope != requestScope {
+				// The user moved to another scope while this was in
+				// flight: park the result in its cache slot only.
+				return app
+			}
+			app.runs.Context.Runs = resolved
 			app.runs.Context.Page = 1
 			app.runs.Context.PerPage = perPageFor(app.runs.Context, app.config.PerPage)
 			app.runs.Context.HasMore = len(resolved) >= app.runs.Context.PerPage
@@ -1658,8 +1678,8 @@ func (a App) loadLog(run model.Run, job model.Job) App {
 		return a
 	}
 	resolver := a.logResolver
-	return a.startLoadProgress(loadKindLog, "fetching log", func(progress func(read, total int64)) func(App) App {
-		resolved, err := resolver(run, job, progress)
+	return a.startLoadProgress(loadKindLog, "fetching log", func(ctx context.Context, progress func(read, total int64)) func(App) App {
+		resolved, err := resolver(ctx, run, job, progress)
 		return func(app App) App {
 			if err != nil {
 				app.setRouteError(RouteLog, "log unavailable: "+err.Error())
@@ -1703,13 +1723,18 @@ func (a App) loadWatch(run model.Run) App {
 		a.setRouteError(RouteWatch, "watch unavailable: live watch loader is not configured")
 		return a
 	}
-	resolved, err := a.watchResolver(run)
-	if err != nil {
-		a.setRouteError(RouteWatch, "watch unavailable: "+err.Error())
-		return a
-	}
-	a.watch = resolved
-	return a
+	resolver := a.watchResolver
+	return a.startLoad(loadKindWatch, "chasing down the run", func() func(App) App {
+		resolved, err := resolver(run)
+		return func(app App) App {
+			if err != nil {
+				app.setRouteError(RouteWatch, "watch unavailable: "+err.Error())
+				return app
+			}
+			app.watch = resolved
+			return app
+		}
+	})
 }
 
 func (a App) openDispatch() App {
@@ -1745,7 +1770,9 @@ func (a App) openDispatch() App {
 func (a App) applyDispatchChoices(workflows []dispatch.Workflow) App {
 	switch len(workflows) {
 	case 0:
-		a = a.loadDispatch()
+		// The workflows fetch already came back empty — go straight to
+		// the single-form resolver instead of re-fetching the list.
+		a = a.loadDispatchFallback()
 		a.PushRoute(RouteDispatch)
 	case 1:
 		a.dispatch = dispatch.NewModel(workflows[0])
@@ -1783,22 +1810,41 @@ func (a App) loadDispatch() App {
 				}
 			}
 		}
-		if dispatchResolver == nil {
-			return func(app App) App {
-				app.setRouteError(RouteDispatch, "dispatch unavailable: live workflow loader is not configured")
-				return app
-			}
-		}
-		resolved, err := dispatchResolver()
+		return dispatchFallbackApply(dispatchResolver)
+	})
+}
+
+// loadDispatchFallback fetches the single dispatch form without
+// retrying the workflows list (callers know it already came back
+// empty).
+func (a App) loadDispatchFallback() App {
+	a.clearRouteError(RouteDispatch)
+	dispatchResolver := a.dispatchResolver
+	if dispatchResolver == nil {
+		a.setRouteError(RouteDispatch, "dispatch unavailable: live workflow loader is not configured")
+		return a
+	}
+	return a.startLoad(loadKindDispatch, "fetching workflows", func() func(App) App {
+		return dispatchFallbackApply(dispatchResolver)
+	})
+}
+
+func dispatchFallbackApply(dispatchResolver func() (dispatch.Model, error)) func(App) App {
+	if dispatchResolver == nil {
 		return func(app App) App {
-			if err != nil {
-				app.setRouteError(RouteDispatch, "dispatch unavailable: "+err.Error())
-				return app
-			}
-			app.dispatch = resolved
+			app.setRouteError(RouteDispatch, "dispatch unavailable: live workflow loader is not configured")
 			return app
 		}
-	})
+	}
+	resolved, err := dispatchResolver()
+	return func(app App) App {
+		if err != nil {
+			app.setRouteError(RouteDispatch, "dispatch unavailable: "+err.Error())
+			return app
+		}
+		app.dispatch = resolved
+		return app
+	}
 }
 
 func (a *App) dispatchWorkflowByValue(value string) (dispatch.Workflow, bool) {
@@ -2378,6 +2424,9 @@ func (a App) screenBody(width, height int) string {
 		}
 		return logscreen.View(logModel, bodyWidth)
 	case RouteWatch:
+		if load := a.load; load != nil && load.kind == loadKindWatch {
+			return loadingBody(a.theme, load, bodyWidth, time.Now())
+		}
 		return watch.View(a.watch, bodyWidth)
 	case RouteDispatch:
 		if load := a.load; load != nil && load.kind == loadKindDispatch {

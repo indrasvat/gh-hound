@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -14,6 +15,8 @@ import (
 	"github.com/indrasvat/gh-hound/internal/tui/screens/dispatch"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/failure"
 	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/runs"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/watch"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -349,7 +352,7 @@ func TestDetailResultForAbandonedRunNeverApplies(t *testing.T) {
 func TestLogOpenShowsByteProgress(t *testing.T) {
 	app := asyncTestApp()
 	release := make(chan struct{})
-	app.logResolver = func(run model.Run, job model.Job, progress func(read, total int64)) (logscreen.Model, error) {
+	app.logResolver = func(_ context.Context, run model.Run, job model.Job, progress func(read, total int64)) (logscreen.Model, error) {
 		progress(2202009, 5033165)
 		<-release
 		return sampleLogModel(), nil
@@ -491,4 +494,108 @@ func TestRefreshSkipsRoutePollingWhileLoading(t *testing.T) {
 	if got := pollCalls.Load(); got != 1 {
 		t.Fatalf("route polls during load = %d, want 1 (the load's own fetch)", got)
 	}
+}
+
+func TestWatchOpenIsAsync(t *testing.T) {
+	app := asyncTestApp()
+	release := make(chan struct{})
+	app.watchResolver = func(model.Run) (watch.Model, error) {
+		<-release
+		return sampleWatchModel(), nil
+	}
+	started := time.Now()
+	app, _ = app.Update(KeyMsg{Key: "w"})
+	if elapsed := time.Since(started); elapsed > 50*time.Millisecond {
+		t.Fatalf("watch open blocked for %v", elapsed)
+	}
+	if app.Route() != RouteWatch {
+		t.Fatalf("route = %v, want watch", app.Route())
+	}
+	if app.load == nil || app.load.kind != loadKindWatch {
+		t.Fatal("watch open started no load")
+	}
+	close(release)
+	app = settleApp(t, app)
+	if !strings.Contains(ansi.Strip(app.ViewSized(124)), "watch · CI #570") {
+		t.Fatal("watch content missing after settle")
+	}
+}
+
+func TestRunsReloadAppliesToRequestScope(t *testing.T) {
+	app := asyncTestApp()
+	app.runs.Context.Scope = usecase.LaunchScopeBranch
+	app.runs.Context.BranchRuns = app.runs.Context.Runs
+	app.runs.Context.RepoRuns = append([]model.Run(nil), app.runs.Context.Runs...)
+	release := make(chan struct{})
+	filtered := []model.Run{{ID: 9999, Name: "CI", RunNumber: 9999, Status: model.StatusCompleted, Conclusion: model.ConclusionFailure, HeadBranch: "fix/parser"}}
+	app.runsResolver = func(usecase.RunFilter) ([]model.Run, error) {
+		<-release
+		return filtered, nil
+	}
+	repoBefore := len(app.runs.Context.RepoRuns)
+	app, _ = app.Update(KeyMsg{Key: "f"})                                           // branch-scoped reload in flight
+	app.runs = app.runs.Update(runs.KeyMsg{Key: "s"}).Update(runs.KeyMsg{Key: "s"}) // local scope wiggle
+	// Flip to repo scope mid-flight (local toggle, no network).
+	app.runs = app.runs.Update(runs.KeyMsg{Key: "s"})
+	if app.runs.Context.Scope != usecase.LaunchScopeRepo {
+		t.Fatal("scope toggle did not flip to repo")
+	}
+	close(release)
+	app = settleApp(t, app)
+	// The branch-scoped result must not have overwritten the repo cache
+	// or the now-active repo listing.
+	if got := len(app.runs.Context.RepoRuns); got != repoBefore {
+		t.Fatalf("branch reload result leaked into RepoRuns: %d, want %d", got, repoBefore)
+	}
+	if app.runs.Context.Scope == usecase.LaunchScopeRepo && len(app.runs.Context.Runs) == 1 && app.runs.Context.Runs[0].ID == 9999 {
+		t.Fatal("branch-scoped result replaced the active repo listing")
+	}
+	if got := len(app.runs.Context.BranchRuns); got != 1 || app.runs.Context.BranchRuns[0].ID != 9999 {
+		t.Fatalf("branch cache should hold the late result: %+v", app.runs.Context.BranchRuns)
+	}
+}
+
+func TestEscCancelsUnderlyingLogFetch(t *testing.T) {
+	app := asyncTestApp()
+	cancelled := make(chan struct{})
+	app.logResolver = func(ctx context.Context, run model.Run, job model.Job, progress func(read, total int64)) (logscreen.Model, error) {
+		<-ctx.Done()
+		close(cancelled)
+		return logscreen.Model{}, ctx.Err()
+	}
+	app, _ = app.Update(KeyMsg{Key: "l"})
+	if app.load == nil {
+		t.Fatal("no pending log load")
+	}
+	app, _ = app.Update(KeyMsg{Key: "esc"})
+	select {
+	case <-cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("esc did not cancel the underlying fetch context")
+	}
+}
+
+func TestSupersededLoadContextIsCancelled(t *testing.T) {
+	app := asyncTestApp()
+	cancelled := make(chan struct{})
+	app.logResolver = func(ctx context.Context, run model.Run, job model.Job, progress func(read, total int64)) (logscreen.Model, error) {
+		select {
+		case <-ctx.Done():
+			close(cancelled)
+			return logscreen.Model{}, ctx.Err()
+		case <-time.After(2 * time.Second):
+			return sampleLogModel(), nil
+		}
+	}
+	app, _ = app.Update(KeyMsg{Key: "l"})
+	// Supersede with a runs reload.
+	app.runsResolver = func(usecase.RunFilter) ([]model.Run, error) { return nil, nil }
+	app = app.reloadRuns("failing")
+	select {
+	case <-cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("supersession did not cancel the prior load's context")
+	}
+	app, _ = app.SettleLoads(2 * time.Second)
+	_ = app
 }

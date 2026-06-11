@@ -44,7 +44,10 @@ There is exactly **one** loading indicator in gh-hound, and every screen uses it
 - **`enter` → detail**: jobs fetch goes async; skeleton detail (run header from cached data) paints immediately with spinner in the jobs pane.
 - **Failure screen open**: log + annotations fetch async; header paints first.
 - **`l` → full log**: byte-progress spinner (`◔ fetching log… 2.1 MB`) — content-length is known after redirect; parse runs off the paint path too (multi-MB logs must not freeze on parse).
-- **Dispatch form open**: the existing workflows fetch — form paints with placeholders. (Task 230's default-branch fetch is NOT built here; 230 adds it later, consuming this task's shared component.)
+- **Dispatch form open**: the existing workflows fetch goes async. Implementation note (accepted deviation): rather than a placeholder form, the originating runs screen hosts the loading line and the route flips once the workflow count is known — this preserves the 0/1/many navigation semantics exactly. (Task 230's default-branch fetch is NOT built here; 230 adds it later, consuming this task's shared component.)
+- **Watch open (`w`)**: the watch resolver fetch goes async with the shared loading body (review round-1 catch — the original inventory missed it).
+- Cancellation is real: esc and supersession cancel the per-load context, so multi-MB downloads stop occupying the serial queue (not just orphaned).
+- Known limitation (follow-up issue, pre-existing on main): poll-tick route refreshes (`refreshRuns`/`refreshWatch`) are still synchronous in the loop; suspended while a load is pending, so they cannot starve loading frames, but a slow poll between loads can still delay a keypress.
 - Common machinery: a single loading-state component + generation counter (stale responses dropped) + `esc` cancels interest and restores the prior view instantly.
 - All loading/error states join the visual contract.
 

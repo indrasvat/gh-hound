@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -1473,7 +1474,7 @@ func TestLogRefetchNoticeShowsToastWhileKeepingRecoveredLog(t *testing.T) {
 		DetailResolver: func(model.Run) (detail.Model, error) {
 			return detail.NewModel(run, []model.Job{job}).WithRepo("openclaw/openclaw"), nil
 		},
-		LogResolver: func(model.Run, model.Job, func(read, total int64)) (logscreen.Model, error) {
+		LogResolver: func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error) {
 			return logscreen.NewModel(logs.Parse("001 recovered log line\n##[error]still visible"), 1, 6), nil
 		},
 		LogRefetchNotice: func(jobID int64) (usecase.LogRefetchNotice, bool) {

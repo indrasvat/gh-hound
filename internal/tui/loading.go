@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -31,6 +32,7 @@ const (
 	loadKindFailure  loadKind = "failure"
 	loadKindLog      loadKind = "log"
 	loadKindDispatch loadKind = "dispatch"
+	loadKindWatch    loadKind = "watch"
 )
 
 // pendingLoad is the app's single in-flight fetch. Supersession and
@@ -51,6 +53,11 @@ type pendingLoad struct {
 
 	done  bool
 	apply func(App) App
+
+	// cancel stops the underlying work (network included) when the
+	// load is superseded or esc-cancelled — orphaning the result is
+	// not enough, the serial queue must be freed too.
+	cancel context.CancelFunc
 }
 
 func (p *pendingLoad) finish(apply func(App) App) {

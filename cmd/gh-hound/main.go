@@ -528,8 +528,8 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			}
 			return failurescreen.NewModel(launch.Repo, run.ID, report), logscreen.NewModel(report.Log, report.Log.Failure.AnchorLine, 6), nil
 		},
-		LogResolver: func(run model.Run, selected model.Job, progress func(read, total int64)) (logscreen.Model, error) {
-			job, err := resolveJobForRun(ctx, githubClient, launch.Repo, run, selected)
+		LogResolver: func(loadCtx context.Context, run model.Run, selected model.Job, progress func(read, total int64)) (logscreen.Model, error) {
+			job, err := resolveJobForRun(loadCtx, githubClient, launch.Repo, run, selected)
 			if err != nil {
 				return logscreen.Model{}, err
 			}
@@ -538,9 +538,9 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			// adapters without it fall back to the plain fetch and the
 			// indeterminate spinner.
 			if fetcher, ok := githubClient.(usecase.LogProgressFetcher); ok && progress != nil {
-				raw, err = fetcher.FetchJobLogWithProgress(ctx, launch.Repo, job.ID, progress)
+				raw, err = fetcher.FetchJobLogWithProgress(loadCtx, launch.Repo, job.ID, progress)
 			} else {
-				raw, err = githubClient.FetchJobLog(ctx, launch.Repo, job.ID)
+				raw, err = githubClient.FetchJobLog(loadCtx, launch.Repo, job.ID)
 			}
 			if err != nil {
 				return logscreen.Model{}, err
