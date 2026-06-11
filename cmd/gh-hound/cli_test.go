@@ -1003,11 +1003,11 @@ func (g *cliGitHub) RerunRun(context.Context, string, int64, bool) (usecase.Acti
 	return usecase.ActionResult{}, nil
 }
 
-func (g *cliGitHub) RerunFailedJobs(context.Context, string, int64) (usecase.ActionResult, error) {
+func (g *cliGitHub) RerunFailedJobs(context.Context, string, int64, bool) (usecase.ActionResult, error) {
 	return usecase.ActionResult{}, nil
 }
 
-func (g *cliGitHub) RerunJob(context.Context, string, int64) (usecase.ActionResult, error) {
+func (g *cliGitHub) RerunJob(context.Context, string, int64, bool) (usecase.ActionResult, error) {
 	return usecase.ActionResult{}, nil
 }
 

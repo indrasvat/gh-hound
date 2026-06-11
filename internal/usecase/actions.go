@@ -78,15 +78,15 @@ func (s ActionService) RerunRun(ctx context.Context, repo string, runID int64, d
 	})
 }
 
-func (s ActionService) RerunFailedJobs(ctx context.Context, repo string, runID int64) (ActionResult, error) {
+func (s ActionService) RerunFailedJobs(ctx context.Context, repo string, runID int64, debug bool) (ActionResult, error) {
 	return s.mutate(ctx, func() (ActionResult, error) {
-		return s.GitHub.RerunFailedJobs(ctx, repo, runID)
+		return s.GitHub.RerunFailedJobs(ctx, repo, runID, debug)
 	})
 }
 
-func (s ActionService) RerunJob(ctx context.Context, repo string, jobID int64) (ActionResult, error) {
+func (s ActionService) RerunJob(ctx context.Context, repo string, jobID int64, debug bool) (ActionResult, error) {
 	return s.mutate(ctx, func() (ActionResult, error) {
-		return s.GitHub.RerunJob(ctx, repo, jobID)
+		return s.GitHub.RerunJob(ctx, repo, jobID, debug)
 	})
 }
 

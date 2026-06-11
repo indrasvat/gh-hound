@@ -20,14 +20,17 @@ func (c *Client) RerunRun(ctx context.Context, repo string, runID int64, debug b
 	return result, c.postJSON(ctx, resourcePath(repo, "actions/runs/"+strconv.FormatInt(runID, 10)+"/rerun"), body)
 }
 
-func (c *Client) RerunFailedJobs(ctx context.Context, repo string, runID int64) (usecase.ActionResult, error) {
+func (c *Client) RerunFailedJobs(ctx context.Context, repo string, runID int64, debug bool) (usecase.ActionResult, error) {
 	result := usecase.ActionResult{Action: usecase.ActionRerunFailedJobs, Repo: repo, RunID: runID, Message: "Re-run failed jobs queued"}
-	return result, c.postJSON(ctx, resourcePath(repo, "actions/runs/"+strconv.FormatInt(runID, 10)+"/rerun-failed-jobs"), nil)
+	// Live-verified 2026-06-10 (API v2026-03-10): accepts the debug body.
+	body := map[string]bool{"enable_debug_logging": debug}
+	return result, c.postJSON(ctx, resourcePath(repo, "actions/runs/"+strconv.FormatInt(runID, 10)+"/rerun-failed-jobs"), body)
 }
 
-func (c *Client) RerunJob(ctx context.Context, repo string, jobID int64) (usecase.ActionResult, error) {
+func (c *Client) RerunJob(ctx context.Context, repo string, jobID int64, debug bool) (usecase.ActionResult, error) {
 	result := usecase.ActionResult{Action: usecase.ActionRerunJob, Repo: repo, JobID: jobID, Message: "Job re-run queued"}
-	return result, c.postJSON(ctx, resourcePath(repo, "actions/jobs/"+strconv.FormatInt(jobID, 10)+"/rerun"), nil)
+	body := map[string]bool{"enable_debug_logging": debug}
+	return result, c.postJSON(ctx, resourcePath(repo, "actions/jobs/"+strconv.FormatInt(jobID, 10)+"/rerun"), body)
 }
 
 func (c *Client) CancelRun(ctx context.Context, repo string, runID int64) (usecase.ActionResult, error) {

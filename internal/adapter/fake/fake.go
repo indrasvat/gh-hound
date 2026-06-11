@@ -252,11 +252,11 @@ func (a *Adapter) RerunRun(ctx context.Context, repo string, runID int64, debug 
 	return a.actionResult(usecase.ActionRerunRun, repo, runID, 0, "")
 }
 
-func (a *Adapter) RerunFailedJobs(ctx context.Context, repo string, runID int64) (usecase.ActionResult, error) {
+func (a *Adapter) RerunFailedJobs(ctx context.Context, repo string, runID int64, _ bool) (usecase.ActionResult, error) {
 	return a.actionResult(usecase.ActionRerunFailedJobs, repo, runID, 0, "")
 }
 
-func (a *Adapter) RerunJob(ctx context.Context, repo string, jobID int64) (usecase.ActionResult, error) {
+func (a *Adapter) RerunJob(ctx context.Context, repo string, jobID int64, _ bool) (usecase.ActionResult, error) {
 	return a.actionResult(usecase.ActionRerunJob, repo, 0, jobID, "")
 }
 

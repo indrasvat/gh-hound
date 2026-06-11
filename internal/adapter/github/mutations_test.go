@@ -29,9 +29,27 @@ func TestMutationEndpointsUseExpectedMethodPathAndBodies(t *testing.T) {
 				t.Fatalf("rerun body = %#v", body)
 			}
 			w.WriteHeader(http.StatusCreated)
-		case "/repos/indrasvat/gh-hound/actions/runs/571/rerun-failed-jobs",
-			"/repos/indrasvat/gh-hound/actions/jobs/399/rerun",
-			"/repos/indrasvat/gh-hound/actions/runs/571/cancel",
+		case "/repos/indrasvat/gh-hound/actions/runs/571/rerun-failed-jobs":
+			// Live-verified 2026-06-10: this endpoint accepts the debug
+			// body on API v2026-03-10 (201 on run 27245877203).
+			var body map[string]bool
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode rerun-failed body: %v", err)
+			}
+			if !body["enable_debug_logging"] {
+				t.Fatalf("rerun-failed body = %#v", body)
+			}
+			w.WriteHeader(http.StatusCreated)
+		case "/repos/indrasvat/gh-hound/actions/jobs/399/rerun":
+			var body map[string]bool
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode job rerun body: %v", err)
+			}
+			if body["enable_debug_logging"] {
+				t.Fatalf("job rerun body = %#v, want debug false", body)
+			}
+			w.WriteHeader(http.StatusCreated)
+		case "/repos/indrasvat/gh-hound/actions/runs/571/cancel",
 			"/repos/indrasvat/gh-hound/actions/runs/571/force-cancel":
 			w.WriteHeader(http.StatusAccepted)
 		case "/repos/indrasvat/gh-hound/actions/workflows/release.yml/dispatches":
@@ -53,8 +71,8 @@ func TestMutationEndpointsUseExpectedMethodPathAndBodies(t *testing.T) {
 	ctx := context.Background()
 	calls := []func() error{
 		func() error { _, err := client.RerunRun(ctx, "indrasvat/gh-hound", 571, true); return err },
-		func() error { _, err := client.RerunFailedJobs(ctx, "indrasvat/gh-hound", 571); return err },
-		func() error { _, err := client.RerunJob(ctx, "indrasvat/gh-hound", 399); return err },
+		func() error { _, err := client.RerunFailedJobs(ctx, "indrasvat/gh-hound", 571, true); return err },
+		func() error { _, err := client.RerunJob(ctx, "indrasvat/gh-hound", 399, false); return err },
 		func() error { _, err := client.CancelRun(ctx, "indrasvat/gh-hound", 571); return err },
 		func() error { _, err := client.ForceCancelRun(ctx, "indrasvat/gh-hound", 571); return err },
 		func() error {

@@ -585,12 +585,12 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			case usecase.ActionRerunRun:
 				return actionService.RerunRun(ctx, launch.Repo, request.Run.ID, request.Debug)
 			case usecase.ActionRerunFailedJobs:
-				return actionService.RerunFailedJobs(ctx, launch.Repo, request.Run.ID)
+				return actionService.RerunFailedJobs(ctx, launch.Repo, request.Run.ID, request.Debug)
 			case usecase.ActionRerunJob:
 				if request.Job.ID == 0 {
 					return usecase.ActionResult{}, fmt.Errorf("job is not loaded")
 				}
-				return actionService.RerunJob(ctx, launch.Repo, request.Job.ID)
+				return actionService.RerunJob(ctx, launch.Repo, request.Job.ID, request.Debug)
 			case usecase.ActionCancelRun:
 				return actionService.CancelRun(ctx, launch.Repo, request.Run.ID)
 			case usecase.ActionForceCancelRun:
