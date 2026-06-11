@@ -482,6 +482,8 @@ func (a *Adapter) CompareCommits(_ context.Context, repo, base, head string) (mo
 			{SHA: "cc99aa1b2c3d4e5f60718293a4b5c6d7e8f90a1b", Author: "dependabot[bot]", Message: "chore(deps): bump charmbracelet/x/ansi"},
 		},
 	}, nil
+}
+
 // fakeCaches is the deterministic kennel: sizes sum to ~9.7 GiB so
 // the usage gauge sits past the 90% eviction warning in e2e and PTY
 // rehearsals without any live repo.

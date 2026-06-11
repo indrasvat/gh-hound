@@ -121,6 +121,8 @@ type PendingDeployment struct {
 type DeploymentReviewer struct {
 	Type string `json:"type"`
 	Name string `json:"name"`
+}
+
 // Cache is one GitHub Actions cache entry (the kennel's contents).
 // Shape pinned against the live API 2026-06-10: the wire payload also
 // carries a version hash, deliberately dropped — it names the cache
