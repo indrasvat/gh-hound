@@ -135,7 +135,7 @@ per-screen spinner in any later change is a review-blocking defect.
 | Surface | Loading treatment |
 |---|---|
 | runs reload (`f` `/` `G`) | previous rows dimmed; loading line below the summary |
-| pack board open (`w`) | rows seed instantly from the runs list; dimmed with the loading line below while the first pack tick lands |
+| hunt board open (`w`) | rows seed instantly from the runs list; dimmed with the loading line below while the first hunt tick lands |
 | detail open (`⏎`) | skeleton with run header + repo breadcrumb; loading line in the jobs pane |
 | failure open | shared loading body |
 | log open (`l`) | shared loading body with byte progress (`▰▰▱▱▱ 2.1 MB/4.8 MB`) when Content-Length is known |

@@ -221,7 +221,7 @@ func TestRefreshPackPushesTheSettledToastOnce(t *testing.T) {
 	app.toasts.Toasts = nil
 	app, _ = app.Refresh()
 	view = ansi.Strip(app.ViewSized(100))
-	if strings.Contains(view, "pack's home.") {
+	if strings.Contains(view, "hunt's home") {
 		t.Fatal("settled toast repeated after settle")
 	}
 }

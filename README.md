@@ -214,7 +214,7 @@ Fixture scenarios are intentionally restricted to non-interactive/test paths. Th
 | Failure | `l` full log, `o` browser, `y` copy excerpt, `r` rerun job |
 | Log | `/` search, `t` time jump/range, `n/N` matches, `z/Z` fold, `w` wrap, `g/G` top/bottom |
 | Watch | `f` follow, `d` debug, `x` cancel, `Esc` detach |
-| Pack board | `j/k` move, `Enter` drill into one run, `f` follow worst, `x` cancel, `Esc` back |
+| Hunt board | `j/k` move, `Enter` drill into one run, `f` follow worst, `x` cancel, `Esc` back |
 | Dispatch | `Tab` next, arrows/select controls, `Enter` run, `Esc` cancel |
 | Trail (diff) | `j/k` move suspects, `Enter` open first bad run, `o` compare in browser, `Esc` back |
 | Kennel (workflows) | `j/k` move, `e` wake/muzzle (confirm-gated), `o` browser, `Esc` back |
