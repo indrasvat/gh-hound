@@ -108,6 +108,7 @@ The local gate includes race-enabled Go tests, large-log performance tests, and 
 - **Time navigation**: a `t` modal on the log screen with a landmark picker (step boundaries, the failure window, the slowest gaps), typed jumps (`17:43`, `+30s`, `-2m`), and `A-B` range filtering.
 - **Status cycle**: `f` on the runs screen cycles all / failing / running / passed through the server filter.
 - **Attempt forensics**: `runs --run <id> --attempt <n>` triages a specific attempt after a re-run -- failed jobs, clean excerpts, exit codes.
+- **The trail**: `diff` walks a workflow's history to the last-green → first-red boundary and names the suspect commits -- the answer `git bisect` re-runs builds for is already in the run history. TUI screen via `:diff`, JSON verdict for agents, `diff_max_pages` bounds the spend.
 - **Failure diagnosis**: annotations, failing step, exit code, and de-noised failure excerpts.
 - **Full log viewer**: line-number gutter, fold rows, search, match count, wrap toggle, scrollbar, and syntax-aware highlighting.
 - **Watch mode**: active-run frame with follow, debug toggle, cancel, and detach.
@@ -176,6 +177,7 @@ gh hound runs --status failure --no-tui --json
 gh hound watch --json
 gh hound rerun --run <id> --failed-only --debug --no-tui --json
 gh hound cancel --run <id> --no-tui --json
+gh hound diff --workflow CI --no-tui --json            # who broke main?
 gh hound artifacts --no-tui --json
 gh hound artifacts --run <run-id> --download <name> --dir <path> --no-tui --json
 gh hound runs --run <run-id> --attempt 2 --no-tui --json   # forensics on a re-run
@@ -188,6 +190,7 @@ Local deterministic scenarios are available for docs, tests, and agent harnesses
 ./bin/gh-hound runs --no-tui --json --fake-scenario failure
 ./bin/gh-hound runs --no-tui --json --fake-scenario pending
 ./bin/gh-hound watch --json --fake-scenario failure
+./bin/gh-hound diff --workflow CI --no-tui --json --fake-scenario regression
 ```
 
 Fixture scenarios are intentionally restricted to non-interactive/test paths. The real TUI does not fall back to sample data.
@@ -204,6 +207,7 @@ Fixture scenarios are intentionally restricted to non-interactive/test paths. Th
 | Log | `/` search, `t` time jump/range, `n/N` matches, `z/Z` fold, `w` wrap, `g/G` top/bottom |
 | Watch | `f` follow, `d` debug, `x` cancel, `Esc` detach |
 | Dispatch | `Tab` next, arrows/select controls, `Enter` run, `Esc` cancel |
+| Trail (diff) | `j/k` move suspects, `Enter` open first bad run, `o` compare in browser, `Esc` back |
 
 ## Configuration
 
@@ -213,6 +217,7 @@ Config lives at `~/.config/gh-hound/config.toml`. Environment variables and flag
 default_scope = "branch"
 auto_watch = false
 per_page = 30
+diff_max_pages = 10
 theme = "bramble"
 log_level = "info"
 ```
@@ -225,7 +230,10 @@ Use JSON for automation:
 
 ```bash
 gh hound runs --status failure --no-tui --json | jq '.runs[0].failed[0]'
+gh hound diff --workflow CI --no-tui --json | jq '{status, verdict, suspects: .total_suspects}'
 ```
+
+The `diff` verdict is a JSON object agents can branch on: `status` is `located` (exit `1` -- a regression exists), `green`, or `inconclusive` (both exit `0`), with `last_good`, `first_bad`, `suspect_commits[]`, and `compare_url` when the boundary is found.
 
 Exit codes:
 
@@ -268,7 +276,7 @@ See [docs/development.md](docs/development.md) for the TDD workflow, Makefile ta
 ## Roadmap
 
 - **v1**: current-branch CI, failure diagnosis, logs, watch, rerun/cancel/dispatch, JSON agent surface, release packaging.
-- **v2**: run diff against last green, flake detection, multi-repo pulse, deployments, caches, runners. (Artifacts shipped in v0.2.0.)
+- **v2**: flake detection, multi-repo pulse, deployments, caches, runners. (Artifacts shipped in v0.2.0; run diff against last green shipped as `diff` — the trail.)
 - **v3**: JSON-RPC/MCP `serve` mode for lifecycle events and multi-agent CI fix loops.
 
 ## License

@@ -22,6 +22,7 @@ gh hound rerun --run <run-id> --failed-only --debug --no-tui --json
 gh hound rerun --run <run-id> --job <job-id> --no-tui --json
 gh hound cancel --run <run-id> --no-tui --json
 gh hound cancel --run <run-id> --force --no-tui --json
+gh hound diff --workflow <name|file|id> [--branch <b>] --no-tui --json
 gh hound runs --no-tui --format md
 gh hound runs --no-tui --format xml
 ```
@@ -76,10 +77,29 @@ Review semantics:
 - Reviews are paced through the same one-per-second mutation limiter as `rerun`/`cancel`.
 
 `runs --approvals` adds `pending_environments: [names]` to `waiting` runs only — the default runs path makes zero pending-deployment calls, and even with the flag non-waiting runs cost nothing. Rehearse deterministically with `--fake-scenario waiting` (run `30433655` holds two gates, one not approvable).
+## Regression Verdict (diff)
+
+"Who broke main?" without `git bisect`: `gh hound diff` walks a workflow's run history newest-first to the most recent clean run before the current failure streak and names the suspect commit range.
+
+```bash
+gh hound diff --workflow CI --no-tui --json
+gh hound diff --workflow ci.yml --branch main -R owner/repo --no-tui --json
+```
+
+Verdict envelope (`$defs.diff_result` in schema.json): `{repo, workflow, branch, status, last_good, first_bad, suspect_commits[], total_suspects, compare_url, runs_scanned, verdict}`.
+
+- `status` is the source of truth: `located` (boundary found), `green` (newest completed run is clean), `inconclusive` (history ran out or the page cap was hit before a clean run).
+- `last_good` / `first_bad` are full run objects, present only when `status` is `located`.
+- `suspect_commits[]` carries `{sha, author, message}` (subject line only), capped at 50 rendered; `total_suspects` always reports the full range. `compare_url` links the exact range.
+- `verdict` is the hound's one-line reading, e.g. `scent picked up: #101 was clean, #102 wasn't.` or `trail went cold after 1,000 runs.`
+
+Diff exit codes: `1` boundary located (a regression exists — action needed), `0` no action derivable (`green` or `inconclusive`), `2` API/validation error with a typed `error: {kind, message}` envelope (`validation | auth | permission | not_found | rate_limit | network | unknown`). Exit `3` is never used: a finished scan has nothing pending.
+
+Scan rules agents can rely on: a run counts by its latest attempt's conclusion (a failure rerun to green is green); cancelled, skipped, neutral, stale, and still-running runs carry no signal and are stepped over. API spend is bounded by `diff_max_pages` (default 10 pages of 100 runs, env `HOUND_DIFF_MAX_PAGES`); hitting the cap yields `inconclusive`, never a hang. Rehearse deterministically with `--fake-scenario regression` (a seeded boundary: exit `1`, suspects included).
 
 ## JSON Contract
 
-The JSON schema lives at `internal/render/testdata/schema.json` (mutation envelope under `$defs.mutation_result`, approvals envelope under `$defs.approvals_result`); the canonical failure fixture lives at `internal/render/testdata/failure.golden.json`.
+The JSON schema lives at `internal/render/testdata/schema.json` (mutation envelope under `$defs.mutation_result`, approvals envelope under `$defs.approvals_result`, regression verdict under `$defs.diff_result`); the canonical failure fixture lives at `internal/render/testdata/failure.golden.json`.
 
 Each run includes:
 
@@ -107,7 +127,7 @@ For local tests and docs, use fake scenarios:
 ./bin/gh-hound watch --json --fake-scenario failure
 ```
 
-Accepted aliases: `ok`, `green`, `success`; `failure`, `failed`, `failing`; `pending`, `running`, `in_progress`, `queued`; `api_error`, `network_error`, `rate_limited`; `waiting`, `gated`.
+Accepted aliases: `ok`, `green`, `success`; `failure`, `failed`, `failing`; `pending`, `running`, `in_progress`, `queued`; `api_error`, `network_error`, `rate_limited`; `waiting`, `gated`. The `regression` scenario seeds a deterministic last-green → first-red boundary for `diff`.
 
 ## Guardrails
 
