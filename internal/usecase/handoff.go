@@ -66,11 +66,18 @@ func (s HandoffService) clock() Clock {
 	return realClock{}
 }
 
+// handoffQuerySkew widens only the SERVER query fence: created_at is
+// stamped by GitHub's clock, which may trail the local one. The
+// client-side freshness check stays strict at the dispatch instant —
+// a pre-dispatch run selected through the skew window would be a
+// false attach, which is worse than a lost scent.
+const handoffQuerySkew = 5 * time.Second
+
 // DiscoverDispatchedRun is the 204-fallback ONLY: find the run a
 // dispatch created when the response body carried no run id. Filters
 // server-side by workflow + ref + event=workflow_dispatch + created
-// after the dispatch timestamp; returns ErrScentLost once the budget
-// is spent.
+// after the (skew-widened) dispatch timestamp; client-side the fence
+// is strict; returns ErrScentLost once the budget is spent.
 func (s HandoffService) DiscoverDispatchedRun(ctx context.Context, repo, workflow, ref string, since time.Time) (model.Run, error) {
 	if s.History == nil {
 		return model.Run{}, errors.New("run history is unavailable for this adapter")
@@ -86,7 +93,7 @@ func (s HandoffService) DiscoverDispatchedRun(ctx context.Context, repo, workflo
 		listed, err := s.History.ListWorkflowRuns(ctx, repo, workflow, RunFilter{
 			Branch:       ref,
 			Event:        "workflow_dispatch",
-			CreatedAfter: since,
+			CreatedAfter: since.Add(-handoffQuerySkew),
 			PerPage:      handoffDiscoveryPerPage,
 		})
 		if err != nil {

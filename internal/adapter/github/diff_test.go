@@ -25,7 +25,7 @@ func TestListWorkflowRunsScopesPathAndMapsPinnedPayload(t *testing.T) {
 	}
 	var gotPath, gotQuery string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
+		gotPath = r.URL.EscapedPath()
 		gotQuery = r.URL.RawQuery
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(payload)
@@ -33,7 +33,7 @@ func TestListWorkflowRunsScopesPathAndMapsPinnedPayload(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, server.Client())
-	runs, err := client.ListWorkflowRuns(context.Background(), "indrasvat/gh-hound", "ci.yml", usecase.RunFilter{
+	runs, err := client.ListWorkflowRuns(context.Background(), "indrasvat/gh-hound", ".github/workflows/ci.yml", usecase.RunFilter{
 		Branch:        "main",
 		PerPage:       100,
 		Page:          2,
@@ -42,8 +42,11 @@ func TestListWorkflowRunsScopesPathAndMapsPinnedPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListWorkflowRuns returned error: %v", err)
 	}
-	if gotPath != "/repos/indrasvat/gh-hound/actions/workflows/ci.yml/runs" {
-		t.Fatalf("path = %q, want workflow-scoped runs path", gotPath)
+	// Full file paths are legal workflow ids (the dispatch roster uses
+	// them); the slashes must be escaped into ONE path segment, not
+	// routed (codex blocker on the 204 discovery path).
+	if gotPath != "/repos/indrasvat/gh-hound/actions/workflows/.github%2Fworkflows%2Fci.yml/runs" {
+		t.Fatalf("path = %q, want the escaped workflow segment", gotPath)
 	}
 	if gotQuery != "branch=main&created=%3C%3D2026-06-10T12%3A00%3A00Z&page=2&per_page=100" {
 		t.Fatalf("query = %q", gotQuery)

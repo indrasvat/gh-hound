@@ -44,7 +44,7 @@ func (c *Client) ListWorkflowRuns(ctx context.Context, repo, workflow string, fi
 		values.Set("created", created)
 	}
 	var decoded runsResponse
-	resource := resourcePath(repo, "actions/workflows/"+workflow+"/runs")
+	resource := resourcePath(repo, "actions/workflows/"+url.PathEscape(workflow)+"/runs")
 	if err := c.getJSON(ctx, resource, values, &decoded); err != nil {
 		return nil, err
 	}

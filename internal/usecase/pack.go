@@ -131,6 +131,7 @@ func (s PackWatchService) Tick(ctx context.Context, state PackState) (PackState,
 
 	listed, err := s.Runs.ListRuns(ctx, RunFilter{
 		Repo:    state.Repo,
+		Branch:  state.Branch,
 		HeadSHA: state.HeadSHA,
 		PerPage: packListPerPage,
 	})

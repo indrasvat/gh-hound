@@ -2238,7 +2238,7 @@ func (a App) refreshPack() (App, bool) {
 	before := a.board.Summary()
 	next, err := a.packResolver(context.Background(), a.packState())
 	if err != nil {
-		a.setRouteError(RouteWatchBoard, "pack watch refresh failed: "+err.Error())
+		a.setRouteError(RouteWatchBoard, "hunt refresh failed: "+err.Error())
 		a.refreshCount++
 		return a, true
 	}
@@ -2259,7 +2259,7 @@ func (a *App) pushPackSettledToast(summary usecase.PackSummary) {
 	if summary.Lost == 0 {
 		a.pushToast("pack-settled", usecase.Resilience{
 			Severity: usecase.SeverityOK,
-			Title:    "pack's home.",
+			Title:    "the hunt's home.",
 			Message:  summary.String(),
 		})
 		return
@@ -2775,10 +2775,6 @@ func (a App) attachHandoffWatch(request ActionRequest, result usecase.ActionResu
 	}
 }
 
-// handoffClockSkew widens the discovery fence: created_at comes from
-// GitHub's clock, the fence from ours.
-const handoffClockSkew = 5 * time.Second
-
 // attachDispatchWatch attaches the watch to the dispatched run. The
 // 200 body carries the run id directly (API v2026-03-10); ONLY a 204
 // host (no id) earns the bounded discovery poll.
@@ -2797,7 +2793,7 @@ func (a App) attachDispatchWatch(request ActionRequest, result usecase.ActionRes
 	watchResolver := a.watchResolver
 	workflowID := request.Workflow.ID
 	ref := request.Dispatch.Ref
-	since := started.Add(-handoffClockSkew)
+	since := started
 	a = a.startLoad(loadKindWatch, "picking up the scent", func(ctx context.Context) func(App) App {
 		run, err := resolver(ctx, workflowID, ref, since)
 		if err != nil {

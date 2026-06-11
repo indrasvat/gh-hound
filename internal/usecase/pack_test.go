@@ -112,7 +112,7 @@ func TestPackWatchTickSpendsOneListCallRegardlessOfPackSize(t *testing.T) {
 	}
 	lister := &recordingRunLister{pages: [][]model.Run{members}}
 	service := usecase.PackWatchService{Runs: lister, MinPoll: time.Second, MaxPoll: 30 * time.Second}
-	state := usecase.PackState{Repo: "indrasvat/gh-hound", HeadSHA: "a1b2c3d", Event: "push", Max: 10, Runs: members}
+	state := usecase.PackState{Repo: "indrasvat/gh-hound", HeadSHA: "a1b2c3d", Event: "push", Branch: "main", Max: 10, Runs: members}
 
 	for tick := range 3 {
 		var err error
@@ -127,6 +127,12 @@ func TestPackWatchTickSpendsOneListCallRegardlessOfPackSize(t *testing.T) {
 	for _, filter := range lister.filters {
 		if filter.HeadSHA != "a1b2c3d" {
 			t.Fatalf("tick filter must be server-side by head_sha, got %#v", filter)
+		}
+		// Branch scope rides every tick: the same sha pushed to two
+		// branches must not leak into a branch-scoped hunt (codex
+		// blocker).
+		if filter.Branch != "main" {
+			t.Fatalf("tick filter must keep the branch scope, got %#v", filter)
 		}
 	}
 }

@@ -71,16 +71,20 @@ func TestDiscoverDispatchedRunFindsTheFreshRun(t *testing.T) {
 		t.Fatalf("discovery polls = %d, want 2", history.calls)
 	}
 	filter := history.filters[0]
-	if filter.Event != "workflow_dispatch" || filter.Branch != "main" || !filter.CreatedAfter.Equal(since) {
-		t.Fatalf("discovery filter = %#v, want event=workflow_dispatch branch=main created_after=%s", filter, since)
+	if filter.Event != "workflow_dispatch" || filter.Branch != "main" || !filter.CreatedAfter.Equal(since.Add(-5*time.Second)) {
+		t.Fatalf("discovery filter = %#v, want event=workflow_dispatch branch=main created_after=%s (query skew only)", filter, since.Add(-5*time.Second))
 	}
 }
 
 func TestDiscoverDispatchedRunIgnoresStaleRuns(t *testing.T) {
 	since := time.Date(2026, 6, 11, 10, 0, 0, 0, time.UTC)
 	stale := model.Run{ID: 1, Event: "workflow_dispatch", CreatedAt: since.Add(-time.Minute)}
+	// Inside the 5s server-query skew but before the dispatch: the
+	// strict client fence must refuse it (codex blocker — a same-ref
+	// dispatch from 2s earlier must never be attached).
+	skewStale := model.Run{ID: 3, Event: "workflow_dispatch", CreatedAt: since.Add(-2 * time.Second)}
 	fresh := model.Run{ID: 2, Event: "workflow_dispatch", CreatedAt: since.Add(2 * time.Second)}
-	history := &scriptedHistory{pages: [][]model.Run{{stale}, {fresh, stale}}}
+	history := &scriptedHistory{pages: [][]model.Run{{stale, skewStale}, {fresh, stale, skewStale}}}
 	service := usecase.HandoffService{History: history, Clock: &stubClock{now: since}, MaxPolls: 10, Interval: 3 * time.Second}
 
 	run, err := service.DiscoverDispatchedRun(context.Background(), "indrasvat/gh-hound", "release.yml", "main", since)

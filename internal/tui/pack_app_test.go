@@ -213,7 +213,7 @@ func TestRefreshPackPushesTheSettledToastOnce(t *testing.T) {
 		t.Fatal("refresh reported no change")
 	}
 	view := ansi.Strip(app.ViewSized(100))
-	if !strings.Contains(view, "pack's home.") {
+	if !strings.Contains(view, "the hunt's home.") {
 		t.Fatalf("settled toast missing:\n%s", view)
 	}
 
@@ -298,8 +298,8 @@ func TestDispatchHandoff204FallsBackToBoundedDiscovery(t *testing.T) {
 	if sawWorkflow != "release.yml" || sawRef != "main" {
 		t.Fatalf("discovery args = %q %q", sawWorkflow, sawRef)
 	}
-	if !sawSince.Before(before) {
-		t.Fatalf("discovery fence %s must predate the dispatch (skew allowance)", sawSince)
+	if sawSince.Before(before) {
+		t.Fatalf("discovery fence %s must be the strict dispatch instant — pre-dispatch fences false-attach stale runs", sawSince)
 	}
 	if watched.Load() != 4242 {
 		t.Fatalf("watched run = %d, want the discovered 4242", watched.Load())
