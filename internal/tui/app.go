@@ -448,6 +448,13 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 	case "enter":
 		if a.Route() == RouteWelcome {
 			a.welcomeDismissed = true
+			if a.launchRoute == RouteDispatch {
+				// Dispatch launches go through the standard open flow
+				// so the workflows fetch starts (same as the D key).
+				a.routes[len(a.routes)-1] = RouteRuns
+				a.launchRoute = RouteRuns
+				return a.openDispatch(), true
+			}
 			a.routes[len(a.routes)-1] = a.launchRoute
 			return a, true
 		}
