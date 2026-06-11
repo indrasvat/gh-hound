@@ -356,3 +356,36 @@ func TestPollIntervalSleepsOnlyUntilDueAfterPreDueDrain(t *testing.T) {
 		t.Fatalf("overdue PollInterval = %v, want base 2s", got)
 	}
 }
+
+// codex bot P2: a completed poll drained on an UNHANDLED keypress must
+// still report handled=true, or the loop never repaints it and the
+// next tick (nothing left to drain) reports no change — leaving the
+// fresh data invisible until the following poll.
+func TestUnhandledKeyDrainingPollStillRepaints(t *testing.T) {
+	app := runsPollApp(t, func(context.Context, usecase.RunFilter) ([]model.Run, error) {
+		return []model.Run{
+			{ID: 9001, Name: "CI", RunNumber: 44, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, HeadBranch: "main"},
+			{ID: 9002, Name: "CI", RunNumber: 45, Status: model.StatusInProgress, Conclusion: model.ConclusionNone, HeadBranch: "main"},
+		}, nil
+	})
+	app, _ = app.Refresh() // start poll
+	deadline := time.Now().Add(2 * time.Second)
+	for !app.tickPoll.ready() {
+		if time.Now().After(deadline) {
+			t.Fatal("poll never completed")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	// "5" is not bound on the runs screen — the key is ignored, but the
+	// drain applied, so Update must report handled to force a repaint.
+	app, handled := app.Update(KeyMsg{Key: "5"})
+	if !handled {
+		t.Fatal("draining a poll on an unhandled key must report handled (repaint)")
+	}
+	if app.tickPoll != nil {
+		t.Fatal("the poll should have drained on the keypress")
+	}
+	if !strings.Contains(ansi.Strip(app.ViewSize(120, 20)), "#45") {
+		t.Fatal("the drained poll's data never reached the view")
+	}
+}

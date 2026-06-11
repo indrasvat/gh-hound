@@ -617,11 +617,18 @@ func NewScenarioApp(scenario string, build BuildInfo) App {
 	return app
 }
 
-func (a App) Update(msg KeyMsg) (App, bool) {
-	// Async artifact results apply on the next keypress too, not only
-	// on poll ticks, so the section appears as soon as it is ready.
+func (a App) Update(msg KeyMsg) (out App, handled bool) {
+	// Background results apply on the keypress path too, not only on
+	// poll ticks, so a ready section/poll lands as soon as the next key
+	// arrives. Any such application must repaint even if the key itself
+	// is unhandled: the loop only re-renders when handled is true, and
+	// the next tick won't re-drain what already drained — so the fresh
+	// data would otherwise sit invisible until the following poll.
+	repaint := false
+	defer func() { handled = handled || repaint }()
 	if next, ok := a.drainArtifactsFetch(); ok {
 		a = next
+		repaint = true
 	}
 	// A completed download must land before the key routes: otherwise
 	// o/y/d act on a stale "downloading" row. If the drain just
@@ -630,17 +637,20 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 	overlayBefore := a.TopOverlay()
 	if next, ok := a.drainArtifactDownload(); ok {
 		a = next
+		repaint = true
 		if a.TopOverlay() == OverlayConfirm && overlayBefore != OverlayConfirm {
 			return a, true
 		}
 	}
 	if next, ok := a.drainFlakesFetch(); ok {
 		a = next
+		repaint = true
 	}
 	// A completed route poll applies before the key routes, so a
 	// keystroke acts on the freshest list the background fetch produced.
 	if next, ok := a.drainTickPoll(); ok {
 		a = next
+		repaint = true
 	}
 	if load := a.load; load != nil {
 		if done, _, _, _ := load.snapshot(); done {
