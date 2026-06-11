@@ -9,6 +9,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/failure"
+	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -265,5 +267,59 @@ func TestFlakeFixturesRender(t *testing.T) {
 				t.Fatalf("fixture %s missing %q:\n%s", screen, want, view)
 			}
 		}
+	}
+}
+
+// TestFlakeScanStartsOnlyAfterTheFailureResolves pins the codex
+// blocker: the GitHub queue is serial, so the scent check must not
+// race the failure fetch — it starts in the failure load's apply
+// callback, after the paintable result exists.
+func TestFlakeScanStartsOnlyAfterTheFailureResolves(t *testing.T) {
+	app := NewScenarioApp("failure", BuildInfo{Version: "test"})
+	var failureDone, scanStarted atomic.Bool
+	innerFailure := app.failureResolver
+	app.failureResolver = func(ctx context.Context, run model.Run, job model.Job) (failure.Model, logscreen.Model, error) {
+		defer failureDone.Store(true)
+		return innerFailure(ctx, run, job)
+	}
+	innerFlakes := app.flakesResolver
+	app.flakesResolver = func(ctx context.Context, run model.Run) (usecase.FlakeReport, error) {
+		scanStarted.Store(true)
+		if !failureDone.Load() {
+			t.Error("flake scan started before the failure resolved")
+		}
+		return innerFlakes(ctx, run)
+	}
+	app = failureWithPanel(t, app)
+	if !scanStarted.Load() {
+		t.Fatal("flake scan never started")
+	}
+}
+
+// TestEscFromFailureCancelsTheInFlightScan pins the second half of
+// the codex blocker: leaving the failure screen abandons the scan —
+// no API spend continues behind the user's back.
+func TestEscFromFailureCancelsTheInFlightScan(t *testing.T) {
+	app := NewScenarioApp("failure", BuildInfo{Version: "test"})
+	release := make(chan struct{})
+	var sawCancel atomic.Bool
+	app.flakesResolver = func(ctx context.Context, run model.Run) (usecase.FlakeReport, error) {
+		select {
+		case <-ctx.Done():
+			sawCancel.Store(true)
+			return usecase.FlakeReport{}, ctx.Err()
+		case <-release:
+			return usecase.FlakeReport{}, nil
+		}
+	}
+	app = openFailureScreen(t, app)
+	app, _ = app.Update(KeyMsg{Key: "esc"})
+	deadline := time.Now().Add(2 * time.Second)
+	for !sawCancel.Load() {
+		if time.Now().After(deadline) {
+			close(release)
+			t.Fatal("esc did not cancel the in-flight scan")
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

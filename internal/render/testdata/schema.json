@@ -660,7 +660,8 @@
         }
        }
       }
-     }
+     },
+     "description": "Only jobs with evidence appear: a clean job never enters the list, so verdict is flaky|suspect by construction."
     },
     "verdict": {
      "type": "string"

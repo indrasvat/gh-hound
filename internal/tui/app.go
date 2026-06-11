@@ -1068,7 +1068,16 @@ func (a *App) PushRoute(route Route) {
 
 func (a *App) PopRoute() {
 	if len(a.routes) > 1 {
+		leaving := a.routes[len(a.routes)-1]
 		a.routes = a.routes[:len(a.routes)-1]
+		// Leaving the failure screen abandons its in-flight scent
+		// check: the scan must not keep spending API calls after esc
+		// (codex blocker).
+		if leaving == RouteFailure {
+			if fetch := a.flakesFetch; fetch != nil && fetch.cancel != nil {
+				fetch.cancel()
+			}
+		}
 	}
 }
 
@@ -1268,6 +1277,7 @@ type flakesFetchState struct {
 	report usecase.FlakeReport
 	err    error
 	done   bool
+	cancel context.CancelFunc
 }
 
 // startFlakesFetch begins the failure-panel scan off the load slot so
@@ -1285,11 +1295,13 @@ func (a App) startFlakesFetch(run model.Run) App {
 	if pending := a.flakesFetch; pending != nil && pending.key == key {
 		return a
 	}
-	state := &flakesFetchState{key: key, run: run}
+	ctx, cancel := context.WithCancel(context.Background())
+	state := &flakesFetchState{key: key, run: run, cancel: cancel}
 	a.flakesFetch = state
 	resolver := a.flakesResolver
 	go func() {
-		report, err := resolver(context.Background(), run)
+		defer cancel()
+		report, err := resolver(ctx, run)
 		state.mu.Lock()
 		state.report = report
 		state.err = err
@@ -2756,16 +2768,15 @@ func (a App) loadFailure(run model.Run, job model.Job) App {
 			app.log = fullLog
 			app.clearRouteError(RouteLog)
 			app.pushLogRefetchToast(job.ID)
-			// A verdict that landed (or was cached) before the failure
-			// resolved still gets its panel.
+			// The scent check starts only AFTER the failure resolved:
+			// the GitHub queue is serial, so a scan racing the failure
+			// fetch could delay the first paint (codex blocker). Gated
+			// on flake_badges; cached verdicts attach without a fetch.
+			app = app.startFlakesFetch(run)
 			return app.attachFlakePanel()
 		}
 	})
-	// The scent check rides alongside, off the load slot, so it can
-	// never block the failure paint (Task 220 invariant). It is gated
-	// on flake_badges: off means zero extra calls unless :flakes is
-	// asked for explicitly.
-	return a.startFlakesFetch(run)
+	return a
 }
 
 func (a App) loadLog(run model.Run, job model.Job) App {
