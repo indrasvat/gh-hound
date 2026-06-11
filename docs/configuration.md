@@ -35,7 +35,7 @@ log_level = "info"      # off | error | warn | info | debug
 | `HOUND_STATUS` | Runs filter, such as `failure` or `in_progress` |
 | `HOUND_ALL` | Show all branches when true |
 | `HOUND_DIFF_MAX_PAGES` | Page budget for the `diff` regression scan (default 10) |
-| `HOUND_WATCH_GROUP_MAX` | Pack board size cap for multi-run watch (default 10) |
+| `HOUND_WATCH_GROUP_MAX` | Hunt board size cap for multi-run watch (default 10) |
 | `HOUND_NO_TUI` | Force structured output when true |
 | `HOUND_JSON` | Force JSON output when true |
 | `HOUND_FORMAT` | `json`, `md`, or `xml` |
