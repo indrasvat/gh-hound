@@ -1008,21 +1008,20 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 	}
 	defer restore()
 	if runtime.IsTTY {
-		if _, err := io.WriteString(runtime.Stdout, "\x1b[?25l"); err != nil {
+		// Alt screen + hidden cursor for the app's lifetime: scrollback
+		// stays clean and the cursor never strobes during repaints.
+		if _, err := io.WriteString(runtime.Stdout, enterAlt+hideCursor); err != nil {
 			return err
 		}
 		defer func() {
-			_, _ = io.WriteString(runtime.Stdout, "\x1b[?25h")
+			_, _ = io.WriteString(runtime.Stdout, showCursor+leaveAlt)
 		}()
 	}
 
+	renderer := newFrameRenderer(runtime.Stdout)
 	render := func() error {
 		if runtime.IsTTY {
-			if _, err := io.WriteString(runtime.Stdout, "\x1b[?25l\x1b[2J\x1b[H"); err != nil {
-				return err
-			}
-			_, err := io.WriteString(runtime.Stdout, ttyView(app.ViewSize(width, height)))
-			return err
+			return renderer.Render(app.ViewSize(width, height))
 		}
 		_, err := fmt.Fprintln(runtime.Stdout, app.ViewSize(width, height))
 		return err
@@ -1043,6 +1042,9 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 		case <-resizeEvents:
 			width, height = terminalSize(runtime.Stdout)
 			app = app.WithViewport(width, height)
+			// The terminal reflowed: the previous frame's rows no
+			// longer correspond, so the diff must start over.
+			renderer.Invalidate()
 			if err := render(); err != nil {
 				return err
 			}
@@ -1828,10 +1830,6 @@ func defaultConfig(lookup ...func(string) (string, bool)) (config.Config, error)
 		env = lookup[0]
 	}
 	return config.Load(config.LoadOptions{LookupEnv: env})
-}
-
-func ttyView(view string) string {
-	return strings.ReplaceAll(strings.TrimRight(view, "\n"), "\n", "\r\n")
 }
 
 func executeCommand(cmd *cobra.Command) (int, error) {

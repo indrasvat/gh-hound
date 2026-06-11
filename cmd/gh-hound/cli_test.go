@@ -461,13 +461,6 @@ func TestInteractiveTUIRejectsFakeScenario(t *testing.T) {
 	}
 }
 
-func TestTTYViewUsesCRLFWithoutTrailingScroll(t *testing.T) {
-	got := ttyView("one\ntwo\n")
-	if got != "one\r\ntwo" {
-		t.Fatalf("ttyView = %q, want CRLF without trailing newline", got)
-	}
-}
-
 func TestScreenFixtureDoesNotEmitTrailingScrollLine(t *testing.T) {
 	var out bytes.Buffer
 	cmd := newRootCommandWithRuntime(commandRuntime{

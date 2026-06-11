@@ -153,6 +153,7 @@ e2e: ## Run end-to-end tests
 vqa: ## Run shux visual-quality audit
 	@./.claude/automations/vqa.sh
 	@./.claude/automations/interaction_audit.sh
+	@./.claude/automations/render_hygiene.sh
 
 .PHONY: vqa-screen
 vqa-screen: ## Run VQA for one screen: make vqa-screen SCREEN=runs
