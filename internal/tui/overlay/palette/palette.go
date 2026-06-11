@@ -36,6 +36,7 @@ func DefaultItems() []Item {
 		{Name: "runs --all", Description: "runs across all branches"},
 		{Name: "run:failed", Description: "filtered to failures"},
 		{Name: "artifacts", Description: "selected run's artifacts"},
+		{Name: "diff", Description: "who broke main? · the trail"},
 		{Name: "dispatch", Description: "trigger workflow_dispatch"},
 	}
 }
@@ -110,7 +111,7 @@ func View(m Model, width int) string {
 		}
 		lines = append(lines, fit(row, width))
 	}
-	lines = append(lines, "workflows · watch · diff (v2) · theme")
+	lines = append(lines, "workflows · watch · diff · theme")
 	return strings.Join(lines, "\n")
 }
 

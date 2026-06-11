@@ -911,6 +911,24 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			}
 			return dispatch.NewModel(workflows[0]), nil
 		},
+		DiffResolver: func(loadCtx context.Context, run model.Run) (usecase.RegressionVerdict, error) {
+			history, hasHistory := githubClient.(usecase.WorkflowRunHistory)
+			comparer, hasComparer := githubClient.(usecase.CommitComparer)
+			if !hasHistory || !hasComparer {
+				return usecase.RegressionVerdict{}, fmt.Errorf("regression scan is unavailable for this adapter")
+			}
+			workflow := workflowSelectorForRun(run)
+			if workflow == "" {
+				return usecase.RegressionVerdict{}, fmt.Errorf("the selected run has no workflow identity to follow")
+			}
+			service := usecase.DiffService{
+				History:  history,
+				Compare:  comparer,
+				MaxPages: cfg.DiffMaxPages,
+				PerPage:  usecase.DiffPerPage,
+			}
+			return service.LocateRegression(loadCtx, launch.Repo, workflow, firstNonEmptyString(launch.Branch, run.HeadBranch))
+		},
 		DispatchWorkflowsResolver: func(loadCtx context.Context) ([]dispatch.Workflow, error) {
 			workflows, err := dispatchWorkflowModels(loadCtx, githubClient, launch)
 			if err != nil {

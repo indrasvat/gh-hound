@@ -185,6 +185,19 @@ func resolveWorkflowSelector(ctx context.Context, githubClient usecase.GitHub, r
 	}
 }
 
+// workflowSelectorForRun derives the history-endpoint selector from a
+// run: the workflow file name when the run carries its path, else the
+// numeric workflow ID.
+func workflowSelectorForRun(run model.Run) string {
+	if literal := workflowSelectorLiteral(run.Path); literal != "" {
+		return literal
+	}
+	if run.WorkflowID != 0 {
+		return strconv.FormatInt(run.WorkflowID, 10)
+	}
+	return ""
+}
+
 // diffErrorKind maps adapter/usecase errors onto the envelope's error
 // taxonomy.
 func diffErrorKind(err error) string {

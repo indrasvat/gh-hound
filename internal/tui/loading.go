@@ -34,6 +34,7 @@ const (
 	loadKindDispatch  loadKind = "dispatch"
 	loadKindWatch     loadKind = "watch"
 	loadKindApprovals loadKind = "approvals"
+	loadKindDiff      loadKind = "diff"
 )
 
 // pendingLoad is the app's single in-flight fetch. Supersession and
