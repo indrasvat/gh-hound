@@ -100,6 +100,7 @@ type cliOptions struct {
 	Download      string
 	Dir           string
 	Force         bool
+	LaunchRoute   usecase.LaunchRoute
 }
 
 func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Command {
@@ -161,7 +162,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.AddCommand(newVQATUICommand(runtime, info))
 	cmd.AddCommand(newRunsCommand(runtime, &options))
 	cmd.AddCommand(newWatchCommand(runtime, &options))
-	cmd.AddCommand(newDispatchCommand(runtime, &options))
+	cmd.AddCommand(newDispatchCommand(runtime, info, &options))
 	cmd.AddCommand(newArtifactsCommand(runtime, &options))
 	cmd.AddCommand(newRerunCommand(runtime, &options))
 	cmd.AddCommand(newCancelCommand(runtime, &options))
@@ -254,25 +255,26 @@ func writeMutationResult(ctx context.Context, w io.Writer, options cliOptions, r
 	// on stdout and exit 2 is never a bare stderr message (the silent
 	// outcomeError suppresses duplicate printing in main).
 	refuse := func(err error) error {
-		kind, message := "unknown", err.Error()
+		kind, message, field := "unknown", err.Error(), ""
 		if actionErr, ok := usecase.AsActionError(err); ok {
 			kind, message = string(actionErr.Kind), actionErr.Message
+			field = actionErr.Field
 		}
 		result.Accepted = false
-		result.Error = &render.MutationError{Kind: kind, Message: message}
+		result.Error = &render.MutationError{Kind: kind, Field: field, Message: message}
 		if writeErr := render.WriteMutation(w, format, result); writeErr != nil {
 			return writeErr
 		}
 		return outcomeError{code: render.ExitError}
 	}
 	if request.runID <= 0 {
-		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Message: "--run <run-id> (a positive ID) is required"})
+		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Field: "run", Message: "--run <run-id> (a positive ID) is required"})
 	}
 	if request.jobID < 0 {
-		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Message: "--job must be a positive job ID"})
+		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Field: "job", Message: "--job must be a positive job ID"})
 	}
 	if request.jobID != 0 && request.failedOnly {
-		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Message: "--job and --failed-only are mutually exclusive"})
+		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Field: "job", Message: "--job and --failed-only are mutually exclusive"})
 	}
 
 	var githubClient usecase.GitHub
@@ -448,13 +450,20 @@ func newWatchCommand(runtime commandRuntime, options *cliOptions) *cobra.Command
 	}
 }
 
-func newDispatchCommand(runtime commandRuntime, options *cliOptions) *cobra.Command {
+func newDispatchCommand(runtime commandRuntime, info buildInfo, options *cliOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:   "dispatch",
 		Short: "Trigger a workflow_dispatch workflow",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			options.NoTUI = true
-			return writeResult(cmd.Context(), runtime.Stdout, *options, runtime)
+			applyEnv(options, runtime.Env)
+			if options.NoTUI || options.JSON || !runtime.IsTTY {
+				// The dispatch form is interactive; a flag-driven pipe
+				// dispatch verb is planned (spec 240 conventions) but
+				// not built — refusing beats silently printing runs.
+				return errors.New("dispatch is interactive; run it in a terminal TUI (a flag-driven dispatch verb is planned)")
+			}
+			options.LaunchRoute = usecase.LaunchRouteDispatch
+			return runTUI(cmd.Context(), runtime, info, *options)
 		},
 	}
 }
@@ -642,6 +651,7 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 		Repo:    options.Repo,
 		Branch:  options.Branch,
 		All:     options.All,
+		Route:   options.LaunchRoute,
 		PerPage: cfg.PerPage,
 	})
 	return tui.NewApp(tui.Options{
@@ -756,6 +766,28 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			case usecase.ActionDispatch:
 				if request.Workflow.ID == "" {
 					return usecase.ActionResult{}, fmt.Errorf("workflow is not loaded")
+				}
+				validator, ok := githubClient.(usecase.RefValidator)
+				if !ok {
+					// Validation is part of the dispatch contract, not
+					// an optional nicety: an adapter without it cannot
+					// dispatch (review-required hardening).
+					return usecase.ActionResult{}, usecase.ActionError{
+						Kind:    usecase.ActionErrorValidation,
+						Field:   "ref",
+						Message: "ref validation is unavailable for this adapter; dispatch refused",
+					}
+				}
+				exists, refErr := validator.RefExists(ctx, launch.Repo, request.Dispatch.Ref)
+				if refErr != nil {
+					return usecase.ActionResult{}, refErr
+				}
+				if !exists {
+					return usecase.ActionResult{}, usecase.ActionError{
+						Kind:    usecase.ActionErrorValidation,
+						Field:   "ref",
+						Message: fmt.Sprintf("ref %q isn't in this yard — pass an existing branch or tag", request.Dispatch.Ref),
+					}
 				}
 				return actionService.DispatchWorkflow(ctx, launch.Repo, request.Workflow.ID, request.Dispatch)
 			default:
@@ -914,7 +946,17 @@ func dispatchWorkflowModels(ctx context.Context, githubClient usecase.GitHub, la
 	}
 	ref, err := dispatchRef(launch)
 	if err != nil {
-		return nil, err
+		// Foreign target without --branch: the target's own default
+		// branch is the honest pre-fill (issue #15). Capability-gated;
+		// fakes without it keep the explicit error.
+		provider, ok := githubClient.(usecase.RepoInfoProvider)
+		if !ok {
+			return nil, err
+		}
+		ref, err = provider.DefaultBranch(ctx, launch.Repo)
+		if err != nil {
+			return nil, fmt.Errorf("dispatch ref is unavailable: %w", err)
+		}
 	}
 	out := make([]dispatch.Workflow, 0, len(dispatchable))
 	for _, workflow := range dispatchable {
@@ -1212,7 +1254,13 @@ func resolveTarget(ctx context.Context, options cliOptions, runtime commandRunti
 		_ = closeTrace()
 		return resolvedTarget{}, errors.New("repository context could not be resolved; pass -R owner/repo or set GH_REPO")
 	}
-	branch := firstNonEmpty(options.Branch, repoCtx.Branch)
+	// The local checkout branch only applies to the local repo: a
+	// foreign -R target must not be filtered by a branch that likely
+	// does not exist there (issue #15, pipe path).
+	branch := strings.TrimSpace(options.Branch)
+	if branch == "" && (options.Repo == "" || strings.EqualFold(strings.TrimSpace(options.Repo), strings.TrimSpace(repoCtx.Repo))) {
+		branch = repoCtx.Branch
+	}
 	if options.All {
 		branch = ""
 	}

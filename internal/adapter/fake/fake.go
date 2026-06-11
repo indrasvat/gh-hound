@@ -356,3 +356,14 @@ func job() model.Job {
 		}},
 	}
 }
+
+// RefExists implements usecase.RefValidator: fake refs always exist
+// except the canonical typo "ghost", reserved for refusal rehearsals.
+func (a *Adapter) RefExists(_ context.Context, _ string, ref string) (bool, error) {
+	return ref != "" && ref != "ghost", nil
+}
+
+// DefaultBranch implements usecase.RepoInfoProvider for fakes.
+func (a *Adapter) DefaultBranch(context.Context, string) (string, error) {
+	return "main", nil
+}

@@ -67,7 +67,7 @@ fmt: ## Format Go files
 
 .PHONY: fmt-check
 fmt-check: ## Check formatting without writing
-	@unformatted="$$(gofmt -l .)"; \
+	@unformatted="$$(gofmt -l . | grep -v '^.claude/worktrees/' || true)"; \
 	if [ -n "$$unformatted" ]; then \
 		printf "$(COLOR_RED)gofmt needed:$(COLOR_RESET)\n%s\n" "$$unformatted"; \
 		exit 1; \

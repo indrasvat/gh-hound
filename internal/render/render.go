@@ -107,7 +107,10 @@ type MutationResult struct {
 // is not accepted (exit 2): kind mirrors the ActionError taxonomy
 // (validation, permission, conflict, rate_limit, network, unknown).
 type MutationError struct {
-	Kind    string `json:"kind" xml:"kind,attr"`
+	Kind string `json:"kind" xml:"kind,attr"`
+	// Field names the offending input for validation refusals (run,
+	// job, ref) so agents can correct programmatically.
+	Field   string `json:"field,omitempty" xml:"field,attr,omitempty"`
 	Message string `json:"message" xml:"message,attr"`
 }
 

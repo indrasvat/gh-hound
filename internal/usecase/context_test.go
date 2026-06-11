@@ -308,3 +308,31 @@ func (g *launchGitHub) GetRunAttempt(context.Context, string, int64, int) (model
 func (g *launchGitHub) ListJobsForAttempt(context.Context, string, int64, int) ([]model.Job, error) {
 	return nil, errors.New("not implemented")
 }
+
+func TestForeignRepoDoesNotInheritLocalCheckoutBranch(t *testing.T) {
+	gh := &launchGitHub{}
+	service := usecase.LaunchService{
+		Config:     config.Default(),
+		GitHub:     gh,
+		Repository: &fakeRepository{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "fix/local-work", HeadSHA: "deadbee", Actor: "indrasvat"}},
+	}
+	result := service.Resolve(context.Background(), usecase.LaunchRequest{Repo: "openclaw/openclaw"})
+	if result.Branch != "" {
+		t.Fatalf("foreign repo inherited local branch %q", result.Branch)
+	}
+	if result.HeadSHA != "" {
+		t.Fatalf("foreign repo inherited local head sha %q", result.HeadSHA)
+	}
+	if result.Scope != usecase.LaunchScopeRepo {
+		t.Fatalf("foreign repo without branch should be repo-scoped, got %s", result.Scope)
+	}
+
+	same := service.Resolve(context.Background(), usecase.LaunchRequest{Repo: "indrasvat/gh-hound"})
+	if same.Branch != "fix/local-work" {
+		t.Fatalf("same repo lost local branch: %q", same.Branch)
+	}
+	explicit := service.Resolve(context.Background(), usecase.LaunchRequest{Repo: "openclaw/openclaw", Branch: "main"})
+	if explicit.Branch != "main" {
+		t.Fatalf("explicit --branch lost: %q", explicit.Branch)
+	}
+}

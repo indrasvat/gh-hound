@@ -111,10 +111,20 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 		perPage = cfg.PerPage
 	}
 
+	// Local checkout context (branch, head sha) only applies when the
+	// target IS the local repo: a foreign -R target must not inherit a
+	// branch that likely does not exist there (issue #15).
+	sameRepo := request.Repo == "" || strings.EqualFold(strings.TrimSpace(request.Repo), strings.TrimSpace(repoCtx.Repo))
+	branch := strings.TrimSpace(request.Branch)
+	headSHA := ""
+	if sameRepo {
+		branch = first(request.Branch, repoCtx.Branch)
+		headSHA = repoCtx.HeadSHA
+	}
 	result := LaunchContext{
 		Repo:    first(request.Repo, repoCtx.Repo),
-		Branch:  first(request.Branch, repoCtx.Branch),
-		HeadSHA: repoCtx.HeadSHA,
+		Branch:  branch,
+		HeadSHA: headSHA,
 		Actor:   repoCtx.Actor,
 		Scope:   LaunchScopeBranch,
 		PerPage: perPage,

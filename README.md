@@ -111,7 +111,7 @@ The local gate includes race-enabled Go tests, large-log performance tests, and 
 - **Full log viewer**: line-number gutter, fold rows, search, match count, wrap toggle, scrollbar, and syntax-aware highlighting.
 - **Watch mode**: active-run frame with follow, debug toggle, cancel, and detach.
 - **Actions**: rerun failed, rerun run/job, cancel, force-cancel, and dispatch with confirmation where appropriate.
-- **Dispatch form**: `workflow_dispatch` workflows and inputs rendered as a keyboard-driven form.
+- **Dispatch form**: `workflow_dispatch` workflows and inputs rendered as a keyboard-driven form. Foreign `-R` targets pre-fill their own default branch (never your local checkout's), and refs are validated as a real branch or tag before anything fires.
 - **Overlays**: command palette, contextual help, confirm modals, and rate-limit/error toasts.
 - **Themes and glyphs**: Bramble dark theme, Bone alternate, text-presentation Unicode, no emoji dependency.
 - **Agent surface**: JSON/Markdown/XML output, Appendix-B schema, and exit codes `0/1/2/3`. The leash works both ways: `rerun` and `cancel` verbs act from the same surface (`--failed-only`, `--job`, `--debug`, `--force`).

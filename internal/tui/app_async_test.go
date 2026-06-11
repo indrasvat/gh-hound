@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/indrasvat/gh-hound/internal/config"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
@@ -723,5 +724,33 @@ func TestCancelConfirmHasNoDebugToggle(t *testing.T) {
 	view := ansi.Strip(app.ViewSized(124))
 	if strings.Contains(view, "debug nose") || strings.Contains(view, "d debug") {
 		t.Fatalf("cancel confirm offers debug:\n%s", view)
+	}
+}
+
+func TestWelcomeEnterIntoDispatchLaunchOpensForm(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = true
+	app := NewApp(Options{
+		Config: cfg,
+		Build:  BuildInfo{Version: "test"},
+		Launch: usecase.LaunchContext{
+			Repo:  "x/y",
+			State: usecase.LaunchStateDispatch,
+			Scope: usecase.LaunchScopeRepo,
+		},
+		DispatchWorkflowsResolver: func(context.Context) ([]dispatch.Workflow, error) {
+			return []dispatch.Workflow{sampleDispatchModel().Workflow}, nil
+		},
+	})
+	if app.Route() != RouteWelcome {
+		t.Fatalf("route = %v, want welcome", app.Route())
+	}
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
+	if app.Route() != RouteDispatch {
+		t.Fatalf("route after welcome enter = %v, want dispatch", app.Route())
+	}
+	if !strings.Contains(ansi.Strip(app.ViewSized(124)), "Release") {
+		t.Fatal("dispatch form not loaded after welcome enter")
 	}
 }

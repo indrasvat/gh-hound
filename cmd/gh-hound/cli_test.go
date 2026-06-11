@@ -924,6 +924,7 @@ func (r *cliRepo) Current(context.Context) (usecase.RepositoryContext, error) {
 
 type cliGitHub struct {
 	mu               sync.Mutex
+	dispatchCalls    int
 	runs             []model.Run
 	runBatches       [][]model.Run
 	jobs             []model.Job
@@ -1020,7 +1021,16 @@ func (g *cliGitHub) ForceCancelRun(context.Context, string, int64) (usecase.Acti
 }
 
 func (g *cliGitHub) DispatchWorkflow(context.Context, string, string, usecase.DispatchRequest) (usecase.ActionResult, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.dispatchCalls++
 	return usecase.ActionResult{}, nil
+}
+
+func (g *cliGitHub) dispatches() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.dispatchCalls
 }
 
 func cliRun(id int64, workflow string, status model.Status, conclusion model.Conclusion) model.Run {
@@ -1463,6 +1473,9 @@ func TestMutationValidationEmitsEnvelope(t *testing.T) {
 		if !ok || errObj["kind"] != "validation" {
 			t.Fatalf("%s: error = %#v, want validation kind", name, decoded["error"])
 		}
+		if field, _ := errObj["field"].(string); field == "" {
+			t.Fatalf("%s: validation refusal missing error.field: %#v", name, errObj)
+		}
 		if decoded["accepted"] != false {
 			t.Fatalf("%s: accepted = %v", name, decoded["accepted"])
 		}
@@ -1494,5 +1507,177 @@ func TestMutationConflictEmitsTypedErrorEnvelope(t *testing.T) {
 	errObj, ok := decoded["error"].(map[string]any)
 	if !ok || errObj["kind"] == "" || errObj["kind"] == nil {
 		t.Fatalf("missing typed error: %#v", decoded)
+	}
+}
+
+// refAwareGitHub layers the 230 capabilities over the cli stub.
+type refAwareGitHub struct {
+	*cliGitHub
+	defaultBranch string
+	existingRefs  map[string]bool
+	branchLookups int
+}
+
+func (g *refAwareGitHub) DefaultBranch(context.Context, string) (string, error) {
+	g.branchLookups++
+	return g.defaultBranch, nil
+}
+
+func (g *refAwareGitHub) RefExists(_ context.Context, _ string, ref string) (bool, error) {
+	return g.existingRefs[ref], nil
+}
+
+func TestDispatchForeignRepoPrefillsTargetDefaultBranch(t *testing.T) {
+	github := &refAwareGitHub{
+		cliGitHub: &cliGitHub{
+			workflows: []model.Workflow{{ID: 99, Name: "Deploy", Path: ".github/workflows/deploy.yml", State: "active"}},
+			workflowFiles: map[string]string{
+				".github/workflows/deploy.yml": "on:\n  workflow_dispatch:\n    inputs:\n      env:\n        type: string\n",
+			},
+		},
+		defaultBranch: "trunk",
+		existingRefs:  map[string]bool{"trunk": true},
+	}
+	// Local checkout is gh-hound, target is openclaw: the local branch
+	// must not leak into the dispatch ref (issue #15).
+	app, err := defaultTUIApp(context.Background(), commandRuntime{
+		Env:    mapEnv(map[string]string{"HOUND_WELCOME": "false"}),
+		IsTTY:  true,
+		GitHub: github,
+		Repo: &cliRepo{context: usecase.RepositoryContext{
+			Repo:   "indrasvat/gh-hound",
+			Branch: "fix/local-work",
+			Actor:  "indrasvat",
+		}},
+	}, tui.BuildInfo{Version: "v0.1.0"}, cliOptions{Repo: "openclaw/openclaw"})
+	if err != nil {
+		t.Fatalf("defaultTUIApp: %v", err)
+	}
+	app, _ = app.Update(tui.KeyMsg{Key: "D"})
+	app, settled := app.SettleLoads(2 * time.Second)
+	if !settled {
+		t.Fatal("dispatch load did not settle")
+	}
+	view := ansi.Strip(app.ViewSize(120, 32))
+	if !strings.Contains(view, "trunk") {
+		t.Fatalf("dispatch form missing target default branch:\n%s", view)
+	}
+	if strings.Contains(view, "fix/local-work") {
+		t.Fatalf("local branch leaked into foreign dispatch:\n%s", view)
+	}
+	if github.branchLookups != 1 {
+		t.Fatalf("default-branch lookups = %d, want exactly 1", github.branchLookups)
+	}
+}
+
+func TestDispatchInvalidRefRefusedBeforeMutation(t *testing.T) {
+	github := &refAwareGitHub{
+		cliGitHub: &cliGitHub{
+			workflows: []model.Workflow{{ID: 99, Name: "Deploy", Path: ".github/workflows/deploy.yml", State: "active"}},
+			workflowFiles: map[string]string{
+				".github/workflows/deploy.yml": "on:\n  workflow_dispatch:\n",
+			},
+		},
+		defaultBranch: "trunk",
+		existingRefs:  map[string]bool{}, // nothing exists: every ref is a typo
+	}
+	app, err := defaultTUIApp(context.Background(), commandRuntime{
+		Env:    mapEnv(map[string]string{"HOUND_WELCOME": "false"}),
+		IsTTY:  true,
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main", Actor: "indrasvat"}},
+	}, tui.BuildInfo{Version: "v0.1.0"}, cliOptions{Repo: "openclaw/openclaw"})
+	if err != nil {
+		t.Fatalf("defaultTUIApp: %v", err)
+	}
+	app, _ = app.Update(tui.KeyMsg{Key: "D"})
+	app, _ = app.SettleLoads(2 * time.Second)
+	// Submit the form: enter triggers the confirm, y confirms.
+	app, _ = app.Update(tui.KeyMsg{Key: "enter"})
+	app, _ = app.Update(tui.KeyMsg{Key: "y"})
+	view := ansi.Strip(app.ViewSize(120, 36))
+	if !strings.Contains(view, "isn't in this yard") {
+		t.Fatalf("invalid ref not refused with the typed message:\n%s", view)
+	}
+	if github.dispatches() != 0 {
+		t.Fatalf("dispatch mutation fired despite invalid ref")
+	}
+}
+
+func TestResolveTargetForeignRepoDropsLocalBranch(t *testing.T) {
+	runtime := commandRuntime{
+		Env:    emptyEnv,
+		GitHub: &cliGitHub{},
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "fix/local-work"}},
+	}
+	target, err := resolveTarget(context.Background(), cliOptions{Repo: "openclaw/openclaw"}, runtime)
+	if err != nil {
+		t.Fatalf("resolveTarget: %v", err)
+	}
+	defer func() { _ = target.close() }()
+	if target.branch != "" {
+		t.Fatalf("foreign target inherited local branch %q", target.branch)
+	}
+	same, err := resolveTarget(context.Background(), cliOptions{Repo: "indrasvat/gh-hound"}, runtime)
+	if err != nil {
+		t.Fatalf("resolveTarget same: %v", err)
+	}
+	defer func() { _ = same.close() }()
+	if same.branch != "fix/local-work" {
+		t.Fatalf("same repo lost local branch: %q", same.branch)
+	}
+}
+
+func TestDispatchSubcommandRefusesPipeMode(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: &bytes.Buffer{},
+		Env:    emptyEnv,
+		IsTTY:  false,
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"dispatch", "--no-tui", "--json", "-R", "x/y"})
+	code, err := executeCommand(cmd)
+	if code != 2 || err == nil {
+		t.Fatalf("pipe dispatch exit = %d err = %v, want 2", code, err)
+	}
+	if !strings.Contains(err.Error(), "dispatch is interactive") {
+		t.Fatalf("err = %v", err)
+	}
+	if strings.Contains(out.String(), `"runs"`) {
+		t.Fatalf("pipe dispatch still prints runs JSON:\n%s", out.String())
+	}
+}
+
+func TestDispatchSubcommandLaunchOpensForm(t *testing.T) {
+	github := &refAwareGitHub{
+		cliGitHub: &cliGitHub{
+			workflows: []model.Workflow{{ID: 99, Name: "Deploy", Path: ".github/workflows/deploy.yml", State: "active"}},
+			workflowFiles: map[string]string{
+				".github/workflows/deploy.yml": "on:\n  workflow_dispatch:\n",
+			},
+		},
+		defaultBranch: "trunk",
+		existingRefs:  map[string]bool{"trunk": true},
+	}
+	app, err := defaultTUIApp(context.Background(), commandRuntime{
+		Env:    mapEnv(map[string]string{"HOUND_WELCOME": "false"}),
+		IsTTY:  true,
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main", Actor: "indrasvat"}},
+	}, tui.BuildInfo{Version: "v0.1.0"}, cliOptions{Repo: "openclaw/openclaw", LaunchRoute: usecase.LaunchRouteDispatch})
+	if err != nil {
+		t.Fatalf("defaultTUIApp: %v", err)
+	}
+	app, settled := app.SettleLoads(2 * time.Second)
+	if !settled {
+		t.Fatal("dispatch launch load did not settle")
+	}
+	if app.Route() != tui.RouteDispatch {
+		t.Fatalf("route = %s, want dispatch", app.Route())
+	}
+	view := ansi.Strip(app.ViewSize(120, 32))
+	if !strings.Contains(view, "trunk") || !strings.Contains(view, "Deploy") {
+		t.Fatalf("dispatch launch form incomplete:\n%s", view)
 	}
 }
