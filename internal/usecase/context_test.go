@@ -379,3 +379,59 @@ func (g *launchGitHub) ListPendingDeployments(context.Context, string, int64) ([
 func (g *launchGitHub) ReviewPendingDeployments(context.Context, string, int64, usecase.DeploymentReview) (usecase.ActionResult, error) {
 	return usecase.ActionResult{}, errors.New("not implemented")
 }
+
+// Task 280: the empty screen is where "why are there no runs" gets its
+// one-field answer — disabled workflows are named in the launch notice
+// with ZERO extra API calls (workflows were already fetched on this
+// path).
+func TestLaunchEmptyStateNamesDisabledWorkflows(t *testing.T) {
+	github := &launchGitHub{
+		runsByBranch: map[string][]model.Run{"main": {}, "": {}},
+		workflows: []model.Workflow{
+			{ID: 1, Name: "CI", State: model.WorkflowStateActive},
+			{ID: 2, Name: "Nightly Sweep", State: model.WorkflowStateDisabledInactivity},
+			{ID: 3, Name: "Stale Patrol", State: model.WorkflowStateDisabledManually},
+		},
+	}
+	service := usecase.LaunchService{
+		Config:     config.Default(),
+		GitHub:     github,
+		Repository: fakeRepository{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}
+	got := service.Resolve(context.Background(), usecase.LaunchRequest{})
+	if got.State != usecase.LaunchStateEmpty {
+		t.Fatalf("state = %s, want empty", got.State)
+	}
+	for _, want := range []string{"off duty", "1 asleep", "1 muzzled", ":workflows"} {
+		if !strings.Contains(got.Notice, want) {
+			t.Fatalf("notice = %q, want substring %q", got.Notice, want)
+		}
+	}
+}
+
+// Singular when one workflow is asleep — "1 workflows" is a defect.
+func TestLaunchEmptyStateNoticeUsesSingular(t *testing.T) {
+	github := &launchGitHub{
+		runsByBranch: map[string][]model.Run{"main": {}, "": {}},
+		workflows: []model.Workflow{
+			{ID: 1, Name: "CI", State: model.WorkflowStateActive},
+			{ID: 2, Name: "Nightly Sweep", State: model.WorkflowStateDisabledInactivity},
+		},
+	}
+	service := usecase.LaunchService{
+		Config:     config.Default(),
+		GitHub:     github,
+		Repository: fakeRepository{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}
+	got := service.Resolve(context.Background(), usecase.LaunchRequest{})
+	if !strings.Contains(got.Notice, "1 workflow asleep") || strings.Contains(got.Notice, "1 workflows") {
+		t.Fatalf("notice = %q, want singular '1 workflow asleep'", got.Notice)
+	}
+	// fork-disabled and deleted are not actionable here; they must not
+	// inflate the off-duty count.
+	github.workflows = append(github.workflows, model.Workflow{ID: 4, Name: "Fork Gate", State: model.WorkflowStateDisabledFork})
+	got = service.Resolve(context.Background(), usecase.LaunchRequest{})
+	if !strings.Contains(got.Notice, "1 workflow asleep") {
+		t.Fatalf("notice = %q, fork-disabled must not change the count", got.Notice)
+	}
+}

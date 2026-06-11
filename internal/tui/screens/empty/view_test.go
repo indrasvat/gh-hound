@@ -25,3 +25,19 @@ func TestViewFitsEmptyAndErrorStates(t *testing.T) {
 		}
 	}
 }
+
+// Task 280: the launch notice (which carries the disabled-workflows
+// answer) must actually reach the empty screen, not just the model.
+func TestViewSurfacesNoticeOnEmptyStates(t *testing.T) {
+	for _, kind := range []Kind{KindNoRuns, KindNoWorkflows} {
+		view := View(Model{
+			Kind:    kind,
+			Repo:    "indrasvat/gh-hound",
+			Branch:  "main",
+			Message: "no workflow runs yet for indrasvat/gh-hound · 1 workflow asleep — :workflows holds the leash",
+		}, 100)
+		if !strings.Contains(view, "1 workflow asleep — :workflows holds the leash") {
+			t.Fatalf("%s view missing the notice:\n%s", kind, view)
+		}
+	}
+}

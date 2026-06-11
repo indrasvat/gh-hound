@@ -203,6 +203,11 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 		} else if result.Notice == "" {
 			result.Notice = fmt.Sprintf("no workflow runs yet for %s", result.Repo)
 		}
+		// The "why are there no runs" answer rides the workflows fetch
+		// this path already made — zero extra API calls.
+		if disabled := disabledWorkflowsNotice(workflows); disabled != "" {
+			result.Notice = result.Notice + " · " + disabled
+		}
 		return result
 	}
 
@@ -222,6 +227,41 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 	}
 	result.State = LaunchStateRuns
 	return result
+}
+
+// disabledWorkflowsNotice names the workflows that stopped working on
+// purpose-shaped states: asleep (disabled_inactivity — the 60-quiet-
+// days cron mystery) and muzzled (disabled_manually). Fork-disabled
+// and deleted workflows are not actionable from here and stay out of
+// the count.
+func disabledWorkflowsNotice(workflows []model.Workflow) string {
+	asleep, muzzled := 0, 0
+	for _, workflow := range workflows {
+		switch workflow.State {
+		case model.WorkflowStateDisabledInactivity:
+			asleep++
+		case model.WorkflowStateDisabledManually:
+			muzzled++
+		}
+	}
+	total := asleep + muzzled
+	if total == 0 {
+		return ""
+	}
+	noun := "workflows"
+	if total == 1 {
+		noun = "workflow"
+	}
+	var desc string
+	switch {
+	case muzzled == 0:
+		desc = fmt.Sprintf("%d %s asleep", asleep, noun)
+	case asleep == 0:
+		desc = fmt.Sprintf("%d %s muzzled", muzzled, noun)
+	default:
+		desc = fmt.Sprintf("%d %s off duty (%d asleep, %d muzzled)", total, noun, asleep, muzzled)
+	}
+	return desc + " — :workflows holds the leash"
 }
 
 func launchErrorMessage(err error) string {

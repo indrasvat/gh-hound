@@ -5,19 +5,20 @@ import "strings"
 type Screen string
 
 const (
-	ScreenWelcome  Screen = "welcome"
-	ScreenAllGreen Screen = "all_green"
-	ScreenRunsList Screen = "runs_list"
-	ScreenDetail   Screen = "detail"
-	ScreenFailure  Screen = "failure"
-	ScreenWatch    Screen = "watch"
-	ScreenLog      Screen = "log"
-	ScreenDispatch Screen = "dispatch"
-	ScreenDiff     Screen = "diff"
-	ScreenCaches   Screen = "caches"
-	ScreenPalette  Screen = "palette"
-	ScreenHelp     Screen = "help"
-	ScreenToasts   Screen = "toasts"
+	ScreenWelcome   Screen = "welcome"
+	ScreenAllGreen  Screen = "all_green"
+	ScreenRunsList  Screen = "runs_list"
+	ScreenDetail    Screen = "detail"
+	ScreenFailure   Screen = "failure"
+	ScreenWatch     Screen = "watch"
+	ScreenLog       Screen = "log"
+	ScreenDispatch  Screen = "dispatch"
+	ScreenDiff      Screen = "diff"
+	ScreenCaches    Screen = "caches"
+	ScreenWorkflows Screen = "workflows"
+	ScreenPalette   Screen = "palette"
+	ScreenHelp      Screen = "help"
+	ScreenToasts    Screen = "toasts"
 )
 
 var footerByScreen = map[Screen][]Binding{
@@ -105,6 +106,12 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "D", Action: "dig_up_key", Help: "dig up key", ShowInFooter: true},
 		{Key: "esc", Display: "⎋", Action: "back", Help: "back", ShowInFooter: true},
 		{Key: "?", Action: "help", Help: "", ShowInFooter: true},
+	},
+	ScreenWorkflows: {
+		{Key: "j/k", Action: "move", Help: "move", ShowInFooter: true},
+		{Key: "e", Action: "toggle", Help: "wake/muzzle", ShowInFooter: true},
+		{Key: "o", Action: "browser", Help: "browser", ShowInFooter: true},
+		{Key: "esc", Display: "⎋", Action: "back", Help: "back", ShowInFooter: true},
 	},
 	ScreenPalette: {
 		{Key: "workflows", Action: "workflows", Help: "", ShowInFooter: true},

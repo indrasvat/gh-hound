@@ -2,12 +2,16 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/tui"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -191,5 +195,120 @@ func TestWorkflowsFakeScenarioCoversAllStates(t *testing.T) {
 	code, _ = executeCommand(cmd)
 	if code != 2 || !strings.Contains(out.String(), `"kind": "network"`) {
 		t.Fatalf("api_error scenario: exit = %d\n%s", code, out.String())
+	}
+}
+
+// The dispatch chooser keeps toggleable disabled workflows visible
+// (badged in the picker) but drops fork-disabled/deleted/unknown
+// states — they can be neither dispatched nor woken from here.
+func TestChooseDispatchWorkflowsKeepsToggleableDisabledStates(t *testing.T) {
+	dispatchYAML := "on:\n  workflow_dispatch:\n"
+	github := &cliGitHub{
+		workflowFiles: map[string]string{
+			".github/workflows/ci.yml":      dispatchYAML,
+			".github/workflows/nightly.yml": dispatchYAML,
+			".github/workflows/stale.yml":   dispatchYAML,
+			".github/workflows/fork.yml":    dispatchYAML,
+			".github/workflows/old.yml":     dispatchYAML,
+			".github/workflows/future.yml":  dispatchYAML,
+		},
+	}
+	workflows := []model.Workflow{
+		{ID: 1, Name: "CI", Path: ".github/workflows/ci.yml", State: model.WorkflowStateActive},
+		{ID: 2, Name: "Nightly Sweep", Path: ".github/workflows/nightly.yml", State: model.WorkflowStateDisabledInactivity},
+		{ID: 3, Name: "Stale Patrol", Path: ".github/workflows/stale.yml", State: model.WorkflowStateDisabledManually},
+		{ID: 4, Name: "Fork Gate", Path: ".github/workflows/fork.yml", State: model.WorkflowStateDisabledFork},
+		{ID: 5, Name: "Old Patrol", Path: ".github/workflows/old.yml", State: model.WorkflowStateDeleted},
+		{ID: 6, Name: "Future Hound", Path: ".github/workflows/future.yml", State: "disabled_by_future_rule"},
+	}
+	chosen, err := chooseDispatchWorkflows(context.Background(), github, "indrasvat/gh-hound", workflows)
+	if err != nil {
+		t.Fatalf("chooseDispatchWorkflows: %v", err)
+	}
+	names := make([]string, 0, len(chosen))
+	for _, workflow := range chosen {
+		names = append(names, workflow.Name)
+	}
+	want := []string{"CI", "Nightly Sweep", "Stale Patrol"}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Fatalf("chosen = %v, want %v", names, want)
+	}
+}
+
+// dispatchWorkflowModels must carry State through so the picker can
+// badge non-active workflows.
+func TestDispatchWorkflowModelsCarryState(t *testing.T) {
+	dispatchYAML := "on:\n  workflow_dispatch:\n"
+	github := &cliGitHub{
+		workflowFiles: map[string]string{
+			".github/workflows/ci.yml":      dispatchYAML,
+			".github/workflows/nightly.yml": dispatchYAML,
+		},
+	}
+	launch := usecase.LaunchContext{
+		Repo:   "indrasvat/gh-hound",
+		Branch: "main",
+		Workflows: []model.Workflow{
+			{ID: 1, Name: "CI", Path: ".github/workflows/ci.yml", State: model.WorkflowStateActive},
+			{ID: 2, Name: "Nightly Sweep", Path: ".github/workflows/nightly.yml", State: model.WorkflowStateDisabledInactivity},
+		},
+	}
+	models, err := dispatchWorkflowModels(context.Background(), github, launch)
+	if err != nil {
+		t.Fatalf("dispatchWorkflowModels: %v", err)
+	}
+	if len(models) != 2 || models[1].State != model.WorkflowStateDisabledInactivity {
+		t.Fatalf("models = %#v, want Nightly Sweep carrying its state", models)
+	}
+}
+
+// End-to-end TUI wiring: the live app must resolve the kennel through
+// the configured GitHub client and route workflow toggles through the
+// shared ActionHandler.
+func TestDefaultTUIAppWiresWorkflowsSurface(t *testing.T) {
+	github := &cliGitHub{
+		runs: []model.Run{{ID: 9001, RunNumber: 571, Name: "CI", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure, HeadBranch: "main", Event: "push"}},
+		workflows: []model.Workflow{
+			{ID: 123, Name: "CI", Path: ".github/workflows/ci.yml", State: model.WorkflowStateActive},
+			{ID: 124, Name: "Nightly Sweep", Path: ".github/workflows/nightly.yml", State: model.WorkflowStateDisabledInactivity},
+		},
+	}
+	app, err := defaultTUIApp(context.Background(), commandRuntime{
+		Env:    mapEnv(map[string]string{"HOUND_WELCOME": "false"}),
+		IsTTY:  true,
+		GitHub: github,
+		Repo: &cliRepo{context: usecase.RepositoryContext{
+			Repo: "indrasvat/gh-hound", Branch: "main", Actor: "indrasvat",
+		}},
+	}, tui.BuildInfo{Version: "v0.1.0"}, cliOptions{})
+	if err != nil {
+		t.Fatalf("defaultTUIApp: %v", err)
+	}
+	app, _ = app.Update(tui.KeyMsg{Key: ":"})
+	for _, key := range []string{"k", "e", "n", "n", "e", "l"} {
+		app, _ = app.Update(tui.KeyMsg{Key: key})
+	}
+	app, _ = app.Update(tui.KeyMsg{Key: "enter"})
+	app, settled := app.SettleLoads(2 * time.Second)
+	if !settled {
+		t.Fatal("workflows load did not settle")
+	}
+	view := ansi.Strip(app.ViewSize(120, 32))
+	for _, want := range []string{"the kennel", "◌ asleep", "✔ active"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("kennel view missing %q:\n%s", want, view)
+		}
+	}
+
+	// j to the asleep workflow, e → confirm, y → exactly one PUT.
+	app, _ = app.Update(tui.KeyMsg{Key: "j"})
+	app, _ = app.Update(tui.KeyMsg{Key: "e"})
+	app, _ = app.Update(tui.KeyMsg{Key: "y"})
+	if len(github.enableTargets) != 1 || github.enableTargets[0] != ".github/workflows/nightly.yml" {
+		t.Fatalf("enable targets = %#v, want the nightly path", github.enableTargets)
+	}
+	view = ansi.Strip(app.ViewSize(120, 32))
+	if !strings.Contains(view, "back on duty.") {
+		t.Fatalf("toast missing hound voice:\n%s", view)
 	}
 }

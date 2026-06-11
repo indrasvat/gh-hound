@@ -20,6 +20,10 @@ type Workflow struct {
 	ID     string
 	Ref    string
 	Inputs []Input
+	// State is the workflow's API state, an open string. The picker
+	// badges non-active workflows and refuses to open the form for
+	// them; empty means "assume active" for older call sites.
+	State string
 }
 
 type Input struct {
