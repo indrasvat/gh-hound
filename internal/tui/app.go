@@ -468,6 +468,17 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 	if next, ok := a.drainArtifactsFetch(); ok {
 		a = next
 	}
+	// A completed download must land before the key routes: otherwise
+	// o/y/d act on a stale "downloading" row. If the drain just
+	// surfaced the overwrite confirm, consume the key — a queued y
+	// must not answer a question that appeared this same instant.
+	overlayBefore := a.TopOverlay()
+	if next, ok := a.drainArtifactDownload(); ok {
+		a = next
+		if a.TopOverlay() == OverlayConfirm && overlayBefore != OverlayConfirm {
+			return a, true
+		}
+	}
 	if next, ok := a.drainFlakesFetch(); ok {
 		a = next
 	}
@@ -871,12 +882,13 @@ func (a App) PollInterval() time.Duration {
 	// A pending load animates the shared spinner: tick at frame rate.
 	// A live download does too — its row carries the byte counter and
 	// the shared spinner glyph.
-	if a.load != nil || a.artifactDownload != nil {
+	if a.load != nil || a.artifactDownloadLive() {
 		return loadFrameInterval
 	}
-	// Tighten the loop while async artifact work or timed toasts are
-	// pending so completions and TTL expiry surface promptly.
-	if a.artifactsFetch != nil || a.flakesFetch != nil || len(a.toasts.Toasts) > 0 {
+	// Tighten the loop while async artifact work (including a parked
+	// done-download awaiting its overwrite question) or timed toasts
+	// are pending so completions and TTL expiry surface promptly.
+	if a.artifactsFetch != nil || a.artifactDownload != nil || a.flakesFetch != nil || len(a.toasts.Toasts) > 0 {
 		if base > time.Second {
 			return time.Second
 		}
@@ -1039,6 +1051,19 @@ func (a App) drainArtifactDownload() (App, bool) {
 		Message:  message,
 	})
 	return a, true
+}
+
+// artifactDownloadLive reports whether a download is still moving —
+// the frame-rate tick is for animation, not for parked completions
+// waiting out an unrelated confirm.
+func (a App) artifactDownloadLive() bool {
+	download := a.artifactDownload
+	if download == nil {
+		return false
+	}
+	download.mu.Lock()
+	defer download.mu.Unlock()
+	return !download.done
 }
 
 // syncArtifactProgress mirrors the downloader goroutine's atomics into

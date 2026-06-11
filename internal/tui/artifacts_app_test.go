@@ -411,7 +411,9 @@ func TestDownloadVerdictSurvivesRunNavigation(t *testing.T) {
 // unrelated confirm is open must not clobber it — the user's queued y
 // would force an overwrite they never saw.
 func TestOverwriteConfirmDefersWhileAnotherConfirmIsOpen(t *testing.T) {
+	release := make(chan struct{})
 	app := artifactsTestApp(t, func(model.Artifact, string, bool, func(usecase.DownloadProgress)) (usecase.DownloadResult, error) {
+		<-release
 		return usecase.DownloadResult{}, usecase.DestinationExistsError{Path: "./coverage"}
 	})
 	app, _ = app.Update(KeyMsg{Key: "enter"})
@@ -419,24 +421,14 @@ func TestOverwriteConfirmDefersWhileAnotherConfirmIsOpen(t *testing.T) {
 	app, _ = app.Update(KeyMsg{Key: "a"})
 	app, _ = app.Update(KeyMsg{Key: "d"})
 	app, _ = app.Update(KeyMsg{Key: "y"})
-	// Let the failing download land, then open an unrelated confirm
-	// (R = rerun failed) before the drain can ask about overwriting.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if download := app.artifactDownload; download != nil {
-			download.mu.Lock()
-			done := download.done
-			download.mu.Unlock()
-			if done {
-				break
-			}
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	// Open an unrelated confirm (R = rerun failed) while the download
+	// is in flight, then let it land with the exists outcome.
 	app, _ = app.Update(KeyMsg{Key: "R"})
 	if app.TopOverlay() != OverlayConfirm {
 		t.Fatal("R should open the rerun confirm")
 	}
+	close(release)
+	waitForDownloadDone(t, app)
 	rerunView := ansi.Strip(app.ViewSize(120, 40))
 	if strings.Contains(rerunView, "Destination exists") {
 		t.Fatalf("overwrite must not hijack the rerun confirm\n%s", rerunView)
@@ -482,5 +474,121 @@ func TestDownloadToastDropsActionHintsWhenSelectionMoved(t *testing.T) {
 	}
 	if strings.Contains(view, "· o open · y copy path") {
 		t.Fatalf("toast must not advertise o/y while another row is selected\n%s", view)
+	}
+}
+
+func waitForDownloadDone(t *testing.T, app App) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if download := app.artifactDownload; download != nil {
+			download.mu.Lock()
+			done := download.done
+			download.mu.Unlock()
+			if done {
+				return
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("download never reached done")
+}
+
+// codex r2 finding 1: a completed download must land on the keypress
+// path too — y right after completion (no Refresh tick in between)
+// must copy the extraction path, not the run URL.
+func TestKeypressDrainsCompletedDownloadBeforeRouting(t *testing.T) {
+	var copied atomic.Value
+	app := artifactsTestAppFull(t,
+		func(model.Artifact, string, bool, func(usecase.DownloadProgress)) (usecase.DownloadResult, error) {
+			return usecase.DownloadResult{Path: "/tmp/hound-dl/coverage", FileCount: 1}, nil
+		},
+		func(string) error { return nil },
+		func(text string) error { copied.Store(text); return nil },
+	)
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = waitForArtifacts(t, app)
+	app, _ = app.Update(KeyMsg{Key: "a"})
+	app, _ = app.Update(KeyMsg{Key: "d"})
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	waitForDownloadDone(t, app)
+	// No Refresh: the next keypress itself must see the done state.
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	if got, _ := copied.Load().(string); got != "/tmp/hound-dl/coverage" {
+		t.Fatalf("y after completion copied %q, want the extraction path", got)
+	}
+	_ = app
+}
+
+// codex r2 finding 1 (second half): when the keypress drain itself
+// surfaces the overwrite confirm, that key is consumed — it must not
+// answer the question that appeared the same instant.
+func TestKeypressSurfacingOverwriteConfirmIsConsumed(t *testing.T) {
+	var mu sync.Mutex
+	var forces []bool
+	app := artifactsTestApp(t, func(_ model.Artifact, _ string, force bool, _ func(usecase.DownloadProgress)) (usecase.DownloadResult, error) {
+		mu.Lock()
+		forces = append(forces, force)
+		mu.Unlock()
+		if !force {
+			return usecase.DownloadResult{}, usecase.DestinationExistsError{Path: "./coverage"}
+		}
+		return usecase.DownloadResult{Path: "/tmp/hound-dl/coverage", FileCount: 1}, nil
+	})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = waitForArtifacts(t, app)
+	app, _ = app.Update(KeyMsg{Key: "a"})
+	app, _ = app.Update(KeyMsg{Key: "d"})
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	waitForDownloadDone(t, app)
+	// This y arrives exactly as the overwrite confirm surfaces: it
+	// must be swallowed, NOT auto-confirm the overwrite.
+	app, handled := app.Update(KeyMsg{Key: "y"})
+	if !handled || app.TopOverlay() != OverlayConfirm {
+		t.Fatalf("the overwrite confirm should have surfaced and consumed the key: top=%s", app.TopOverlay())
+	}
+	mu.Lock()
+	attempts := len(forces)
+	mu.Unlock()
+	if attempts != 1 {
+		t.Fatalf("the same-instant y must not start the force retry: %d attempts", attempts)
+	}
+	// An explicit y now confirms the visible question.
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	refreshUntil(t, app, func(a App) bool {
+		return a.DetailModel().Download(901).State == detail.DownloadStateDone
+	})
+}
+
+// codex r2 finding 2: a parked done-download must not hold the loop at
+// spinner cadence — frame rate is for animation only. The park only
+// arises when the unrelated confirm opens while the download is still
+// in flight (afterwards the keypress drain surfaces the overwrite
+// before any other confirm can open).
+func TestParkedDownloadDoesNotTickAtFrameRate(t *testing.T) {
+	release := make(chan struct{})
+	app := artifactsTestApp(t, func(model.Artifact, string, bool, func(usecase.DownloadProgress)) (usecase.DownloadResult, error) {
+		<-release
+		return usecase.DownloadResult{}, usecase.DestinationExistsError{Path: "./coverage"}
+	})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = waitForArtifacts(t, app)
+	app, _ = app.Update(KeyMsg{Key: "a"})
+	app, _ = app.Update(KeyMsg{Key: "d"})
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	// Open the unrelated confirm while the download is in flight,
+	// then let it complete with the exists outcome.
+	app, _ = app.Update(KeyMsg{Key: "R"})
+	if app.TopOverlay() != OverlayConfirm {
+		t.Fatal("R should open the rerun confirm")
+	}
+	close(release)
+	waitForDownloadDone(t, app)
+	app, _ = app.Refresh()
+	if app.artifactDownload == nil {
+		t.Fatal("the exists-download should stay parked under the confirm")
+	}
+	if got := app.PollInterval(); got == loadFrameInterval {
+		t.Fatalf("parked download must not tick at frame rate, got %v", got)
 	}
 }
