@@ -128,6 +128,11 @@ per-screen spinner in any later change is a review-blocking defect.
 | log open (`l`) | shared loading body with byte progress (`▰▰▱▱▱ 2.1 MB/4.8 MB`) when Content-Length is known |
 | dispatch open (`D`) | loading line on the originating runs screen; route flips when resolved |
 
+Palette note: `:` opens with the generic dispatch entry only — the
+per-workflow `dispatch: <name>` items appear once the workflow cache
+is warm (after the first dispatch open), because enriching on the
+keystroke would violate the invariant.
+
 Spinner: braille cycle (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`), ~120ms/frame, run color;
 labels are hound-voiced and passed per context. Fixture screens:
 `runs-loading`, `detail-loading`, `failure-loading`, `log-progress`.
