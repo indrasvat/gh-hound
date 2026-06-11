@@ -11,6 +11,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/dispatch"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/failure"
 	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
 	"github.com/indrasvat/gh-hound/internal/usecase"
@@ -414,5 +415,42 @@ func TestFailureOpenIsAsync(t *testing.T) {
 	settled := ansi.Strip(app.ViewSized(124))
 	if !strings.Contains(settled, "exit 1") {
 		t.Fatalf("failure content missing after settle:\n%s", settled)
+	}
+}
+
+func TestDispatchOpenIsAsync(t *testing.T) {
+	app := asyncTestApp()
+	release := make(chan struct{})
+	app.dispatchWorkflows = nil
+	app.dispatchWorkflowsResolver = func() ([]dispatch.Workflow, error) {
+		<-release
+		return []dispatch.Workflow{sampleDispatchModel().Workflow}, nil
+	}
+	started := time.Now()
+	app, _ = app.Update(KeyMsg{Key: "D"})
+	if elapsed := time.Since(started); elapsed > 50*time.Millisecond {
+		t.Fatalf("dispatch open blocked for %v", elapsed)
+	}
+	// The route flips only once the workflow count is known; until
+	// then the runs screen hosts the loading line.
+	if app.Route() != RouteRuns {
+		t.Fatalf("route = %v, want runs while resolving", app.Route())
+	}
+	if app.load == nil || app.load.kind != loadKindDispatch {
+		t.Fatal("dispatch open started no load")
+	}
+	app.load.started = time.Now().Add(-200 * time.Millisecond)
+	view := ansi.Strip(app.ViewSized(124))
+	if !strings.Contains(view, "fetching workflows") {
+		t.Fatalf("dispatch loading line missing on runs:\n%s", view)
+	}
+	close(release)
+	app = settleApp(t, app)
+	if app.Route() != RouteDispatch {
+		t.Fatalf("route after settle = %v, want dispatch", app.Route())
+	}
+	settled := ansi.Strip(app.ViewSized(124))
+	if !strings.Contains(settled, "Release") {
+		t.Fatalf("dispatch form missing after settle:\n%s", settled)
 	}
 }

@@ -428,6 +428,7 @@ func TestDispatchPickerSelectsExactWorkflow(t *testing.T) {
 	})
 
 	app, handled := app.Update(KeyMsg{Key: "D"})
+	app = settleApp(t, app)
 	if !handled || app.TopOverlay() != OverlayPalette || app.Route() != RouteRuns {
 		t.Fatalf("D should open dispatch workflow picker: handled=%v route=%s overlay=%s\n%s", handled, app.Route(), app.TopOverlay(), app.View())
 	}
@@ -494,6 +495,7 @@ func TestDispatchTextInputConsumesGlobalShortcutLetters(t *testing.T) {
 		},
 	})
 	app, handled := app.Update(KeyMsg{Key: "D"})
+	app = settleApp(t, app)
 	if !handled || app.Route() != RouteDispatch {
 		t.Fatalf("D did not open dispatch form: handled=%v route=%s\n%s", handled, app.Route(), app.View())
 	}
@@ -1735,6 +1737,7 @@ func TestPaletteOpenDoesNotToastDispatchResolutionErrors(t *testing.T) {
 		app, _ = app.Update(KeyMsg{Key: key})
 	}
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 	view := ansi.Strip(app.ViewSize(120, 40))
 	if !strings.Contains(view, "dispatch unavailable") {
 		t.Fatalf("selecting dispatch must surface the resolution error:\n%s", view)

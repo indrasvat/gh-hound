@@ -1196,12 +1196,11 @@ func (a App) handlePaletteIntent(intent palette.Intent) App {
 }
 
 func (a App) openPalette() App {
-	// Dispatch resolution can fail in repo-wide sessions (no branch
-	// ref); that is not the palette's problem. The generic dispatch
-	// item stays available and openDispatch surfaces the error when
-	// the user actually selects it.
-	workflows, _ := a.dispatchWorkflowChoices()
-	a.palette = palette.New(paletteItems(workflows))
+	// Palette enrichment uses only already-cached workflows: the
+	// invariant forbids a network fetch on the ':' keystroke. The
+	// generic dispatch item stays available and openDispatch resolves
+	// (async) when the user actually selects it.
+	a.palette = palette.New(paletteItems(a.dispatchWorkflows))
 	if a.TopOverlay() != OverlayPalette {
 		a.overlays = append(a.overlays, OverlayPalette)
 	}
@@ -1684,12 +1683,36 @@ func (a App) loadWatch(run model.Run) App {
 }
 
 func (a App) openDispatch() App {
-	workflows, err := a.dispatchWorkflowChoices()
-	if err != nil {
-		a.setRouteError(RouteDispatch, "dispatch unavailable: "+err.Error())
+	// Cached choices decide instantly; only the fetch goes async. The
+	// route is pushed when the decision is known so esc-from-palette
+	// navigation matches the old synchronous behavior exactly.
+	if len(a.dispatchWorkflows) > 0 {
+		return a.applyDispatchChoices(a.dispatchWorkflows)
+	}
+	if a.dispatchWorkflowsResolver == nil {
+		a = a.loadDispatch()
 		a.PushRoute(RouteDispatch)
 		return a
 	}
+	resolver := a.dispatchWorkflowsResolver
+	return a.startLoad(loadKindDispatch, "fetching workflows", func() func(App) App {
+		workflows, err := resolver()
+		return func(app App) App {
+			if err != nil {
+				app.setRouteError(RouteDispatch, "dispatch unavailable: "+err.Error())
+				app.PushRoute(RouteDispatch)
+				return app
+			}
+			app.dispatchWorkflows = append([]dispatch.Workflow(nil), workflows...)
+			return app.applyDispatchChoices(workflows)
+		}
+	})
+}
+
+// applyDispatchChoices routes per the resolved workflow count: none →
+// the single-workflow resolver path, one → straight to the form, many
+// → the chooser palette over the current route.
+func (a App) applyDispatchChoices(workflows []dispatch.Workflow) App {
 	switch len(workflows) {
 	case 0:
 		a = a.loadDispatch()
@@ -1708,36 +1731,44 @@ func (a App) openDispatch() App {
 
 func (a App) loadDispatch() App {
 	a.clearRouteError(RouteDispatch)
-	if workflows, err := a.dispatchWorkflowChoices(); err == nil && len(workflows) > 0 {
-		a.dispatch = dispatch.NewModel(workflows[0])
+	// Already-fetched workflows open the form instantly; only the
+	// network path goes async.
+	if len(a.dispatchWorkflows) > 0 {
+		a.dispatch = dispatch.NewModel(a.dispatchWorkflows[0])
 		return a
 	}
-	if a.dispatchResolver == nil {
+	workflowsResolver := a.dispatchWorkflowsResolver
+	dispatchResolver := a.dispatchResolver
+	if workflowsResolver == nil && dispatchResolver == nil {
 		a.setRouteError(RouteDispatch, "dispatch unavailable: live workflow loader is not configured")
 		return a
 	}
-	resolved, err := a.dispatchResolver()
-	if err != nil {
-		a.setRouteError(RouteDispatch, "dispatch unavailable: "+err.Error())
-		return a
-	}
-	a.dispatch = resolved
-	return a
-}
-
-func (a *App) dispatchWorkflowChoices() ([]dispatch.Workflow, error) {
-	if len(a.dispatchWorkflows) > 0 {
-		return append([]dispatch.Workflow(nil), a.dispatchWorkflows...), nil
-	}
-	if a.dispatchWorkflowsResolver == nil {
-		return nil, nil
-	}
-	workflows, err := a.dispatchWorkflowsResolver()
-	if err != nil {
-		return nil, err
-	}
-	a.dispatchWorkflows = append([]dispatch.Workflow(nil), workflows...)
-	return workflows, nil
+	return a.startLoad(loadKindDispatch, "fetching workflows", func() func(App) App {
+		if workflowsResolver != nil {
+			if workflows, err := workflowsResolver(); err == nil && len(workflows) > 0 {
+				return func(app App) App {
+					app.dispatchWorkflows = append([]dispatch.Workflow(nil), workflows...)
+					app.dispatch = dispatch.NewModel(workflows[0])
+					return app
+				}
+			}
+		}
+		if dispatchResolver == nil {
+			return func(app App) App {
+				app.setRouteError(RouteDispatch, "dispatch unavailable: live workflow loader is not configured")
+				return app
+			}
+		}
+		resolved, err := dispatchResolver()
+		return func(app App) App {
+			if err != nil {
+				app.setRouteError(RouteDispatch, "dispatch unavailable: "+err.Error())
+				return app
+			}
+			app.dispatch = resolved
+			return app
+		}
+	})
 }
 
 func (a *App) dispatchWorkflowByValue(value string) (dispatch.Workflow, bool) {
@@ -1745,11 +1776,9 @@ func (a *App) dispatchWorkflowByValue(value string) (dispatch.Workflow, bool) {
 	if value == "" {
 		return dispatch.Workflow{}, false
 	}
-	workflows, err := a.dispatchWorkflowChoices()
-	if err != nil {
-		return dispatch.Workflow{}, false
-	}
-	for _, workflow := range workflows {
+	// Workflow-specific palette items only exist once the cache is
+	// populated, so the cached list is authoritative here.
+	for _, workflow := range a.dispatchWorkflows {
 		if workflowValue(workflow) == value {
 			return workflow, true
 		}
@@ -2292,7 +2321,7 @@ func (a App) screenBody(width, height int) string {
 			return body
 		}
 		runsModel := a.runs
-		if load := a.load; load != nil && load.kind == loadKindRuns {
+		if load := a.load; load != nil && (load.kind == loadKindRuns || load.kind == loadKindDispatch) {
 			runsModel.Loading = true
 			runsModel.LoadingLine = loadingLine(a.theme, load, bodyWidth, time.Now())
 		}
@@ -2321,6 +2350,9 @@ func (a App) screenBody(width, height int) string {
 	case RouteWatch:
 		return watch.View(a.watch, bodyWidth)
 	case RouteDispatch:
+		if load := a.load; load != nil && load.kind == loadKindDispatch {
+			return loadingBody(a.theme, load, bodyWidth, time.Now())
+		}
 		return dispatch.View(a.dispatch, bodyWidth)
 	default:
 		return string(a.Route())

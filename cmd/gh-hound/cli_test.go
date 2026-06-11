@@ -306,8 +306,15 @@ func TestDefaultTUIAppLoadsDispatchInputsFromWorkflowFile(t *testing.T) {
 	}
 
 	app, handled := app.Update(tui.KeyMsg{Key: "D"})
-	if !handled || app.Route() != tui.RouteDispatch {
-		t.Fatalf("D did not open dispatch: handled=%v route=%s", handled, app.Route())
+	if !handled {
+		t.Fatal("D was not handled")
+	}
+	app, settled := app.SettleLoads(2 * time.Second)
+	if !settled {
+		t.Fatal("dispatch load did not settle")
+	}
+	if app.Route() != tui.RouteDispatch {
+		t.Fatalf("D did not open dispatch: route=%s", app.Route())
 	}
 	view := ansi.Strip(app.ViewSize(120, 32))
 	for _, want := range []string{"dispatch · Release", "version", "channel", "● stable  ○ beta  ○ nightly", "POST …/workflows/.github/workflows/release.yml/dispatches"} {

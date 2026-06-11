@@ -63,6 +63,9 @@ func TestDetailArtifactsLoadAsyncAndRender(t *testing.T) {
 	if len(app.DetailModel().Artifacts) != 0 {
 		t.Fatal("artifacts should load asynchronously, not at detail-open time")
 	}
+	// Jobs settle first: the artifacts block renders off the steps
+	// pane, which shows its loading hint until jobs land.
+	app = settleApp(t, app)
 	app = waitForArtifacts(t, app)
 	view := ansi.Strip(app.ViewSize(120, 40))
 	for _, want := range []string{"Artifacts (2)", "coverage", "1.2 MB", "old-report", "[expired]"} {
