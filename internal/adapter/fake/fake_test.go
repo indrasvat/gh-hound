@@ -189,3 +189,72 @@ func TestFakeListRunsHonorsStatusFilter(t *testing.T) {
 		t.Fatalf("failing fixture must match status=failure: got %d", len(runs))
 	}
 }
+
+func TestFakeCachesCapabilityIsDeterministicAndNearCap(t *testing.T) {
+	adapter := New(ScenarioGreen)
+	var _ usecase.GitHubCaches = adapter
+
+	caches, err := adapter.ListCaches(context.Background(), "indrasvat/gh-hound", usecase.CacheFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(caches) != 5 {
+		t.Fatalf("caches = %d, want 5", len(caches))
+	}
+	usage, err := adapter.CacheUsage(context.Background(), "indrasvat/gh-hound")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var total int64
+	for _, cache := range caches {
+		total += cache.SizeInBytes
+	}
+	if usage.ActiveSizeInBytes != total || usage.ActiveCount != len(caches) {
+		t.Fatalf("usage must mirror the fixture set: %#v vs %d/%d", usage, total, len(caches))
+	}
+	// The e2e scenario must sit past the 90% eviction warning of the
+	// 10 GiB fallback cap.
+	if cap := int64(10) << 30; float64(usage.ActiveSizeInBytes)/float64(cap) <= 0.9 {
+		t.Fatalf("fixture usage %d must exceed 90%% of the 10 GiB cap", usage.ActiveSizeInBytes)
+	}
+
+	filtered, err := adapter.ListCaches(context.Background(), "indrasvat/gh-hound", usecase.CacheFilter{Key: "go-mod", Ref: "refs/pull/7/merge"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filtered) != 1 || filtered[0].ID != 9004 {
+		t.Fatalf("key prefix + ref filter wrong: %#v", filtered)
+	}
+}
+
+func TestFakeCacheDeletesReportCountsAndNotFound(t *testing.T) {
+	adapter := New(ScenarioGreen)
+	// Delete-by-key matches the COMPLETE key (live API semantics): a
+	// prefix must not delete, the exact key digs up every ref's copy.
+	if _, err := adapter.DeleteCachesByKey(context.Background(), "indrasvat/gh-hound", "go-mod", ""); err == nil {
+		t.Fatal("key prefix must not delete — the live API matches complete keys")
+	}
+	count, err := adapter.DeleteCachesByKey(context.Background(), "indrasvat/gh-hound", "go-mod-Linux-x64-1f2e3d", "")
+	if err != nil || count != 2 {
+		t.Fatalf("delete by exact key = %d, %v; want 2 (both refs), nil", count, err)
+	}
+	count, err = adapter.DeleteCachesByKey(context.Background(), "indrasvat/gh-hound", "go-mod-Linux-x64-1f2e3d", "refs/pull/7/merge")
+	if err != nil || count != 1 {
+		t.Fatalf("ref-narrowed delete = %d, %v; want 1, nil", count, err)
+	}
+	count, err = adapter.DeleteCacheByID(context.Background(), "indrasvat/gh-hound", 9005)
+	if err != nil || count != 1 {
+		t.Fatalf("delete by id = %d, %v; want 1, nil", count, err)
+	}
+	_, err = adapter.DeleteCachesByKey(context.Background(), "indrasvat/gh-hound", "ghost", "")
+	if actionErr, ok := usecase.AsActionError(err); !ok || actionErr.Kind != usecase.ActionErrorNotFound {
+		t.Fatalf("ghost key must be typed not_found, got %v", err)
+	}
+	_, err = New(ScenarioPermission).DeleteCacheByID(context.Background(), "indrasvat/gh-hound", 9001)
+	if actionErr, ok := usecase.AsActionError(err); !ok || actionErr.Kind != usecase.ActionErrorPermission {
+		t.Fatalf("permission scenario must refuse deletes, got %v", err)
+	}
+	if _, err := New(ScenarioEmpty).ListCaches(context.Background(), "indrasvat/gh-hound", usecase.CacheFilter{}); err != nil {
+		t.Fatalf("empty scenario lists an empty kennel, got %v", err)
+	}
+}

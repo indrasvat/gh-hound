@@ -19,6 +19,7 @@ func TestScreenFootersMatchVisualContract(t *testing.T) {
 		ScreenDispatch: "⏎ run · ⇥ next · ⎋ cancel",
 		ScreenDiff:     "j/k move · ⏎ first bad · o compare · ⎋ back",
 		ScreenPalette:  "workflows · watch · diff · theme",
+		ScreenCaches:   "j/k move · s sort · / filter · d dig up · D dig up key · ⎋ back · ?",
 		ScreenHelp:     ": palette · ? close · ⎋ close",
 		ScreenToasts:   "⎋ dismiss · g dismiss all · r retry · ? help",
 	}

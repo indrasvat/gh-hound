@@ -21,6 +21,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/tui/overlay/help"
 	"github.com/indrasvat/gh-hound/internal/tui/overlay/palette"
 	"github.com/indrasvat/gh-hound/internal/tui/overlay/timejump"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/caches"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
 	diffscreen "github.com/indrasvat/gh-hound/internal/tui/screens/diff"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/dispatch"
@@ -47,6 +48,7 @@ const (
 	RouteWatch    Route = "watch"
 	RouteDispatch Route = "dispatch"
 	RouteDiff     Route = "diff"
+	RouteCaches   Route = "caches"
 )
 
 type Overlay string
@@ -82,8 +84,17 @@ type Options struct {
 	ApprovalsResolver         func(context.Context, model.Run) ([]model.PendingDeployment, error)
 	ArtifactsResolver         func(model.Run) ([]model.Artifact, error)
 	ArtifactDownloader        func(model.Artifact, string) (usecase.DownloadResult, error)
+	CachesResolver            func(context.Context) (caches.Data, error)
+	CacheDeleter              func(context.Context, CacheDeleteRequest) (int, error)
 	OpenURL                   func(string) error
 	CopyText                  func(string) error
+}
+
+// CacheDeleteRequest is the app's eviction intent: by ID (one cache)
+// or by key (every cache sharing it). Exactly one field is set.
+type CacheDeleteRequest struct {
+	ID  int64
+	Key string
 }
 
 type ActionRequest struct {
@@ -144,6 +155,10 @@ type App struct {
 	artifactsFetch            *artifactsFetchState
 	artifactDownload          *artifactDownloadState
 	pendingDownload           *model.Artifact
+	caches                    caches.Model
+	cachesResolver            func(context.Context) (caches.Data, error)
+	cacheDeleter              func(context.Context, CacheDeleteRequest) (int, error)
+	pendingCacheDelete        *CacheDeleteRequest
 	timeJump                  timejump.Model
 	lastToastTick             time.Time
 	openURL                   func(string) error
@@ -325,6 +340,8 @@ func NewApp(options Options) App {
 		approvalsResolver:         options.ApprovalsResolver,
 		artifactsResolver:         options.ArtifactsResolver,
 		artifactDownloader:        options.ArtifactDownloader,
+		cachesResolver:            options.CachesResolver,
+		cacheDeleter:              options.CacheDeleter,
 		openURL:                   options.OpenURL,
 		copyText:                  options.CopyText,
 	}
@@ -622,6 +639,15 @@ func RenderFixtureSize(screen string, width, height int) string {
 		trailApp.diff = diffscreen.NewModel(sampleColdTrailVerdict())
 		trailApp.routes = []Route{RouteRuns, RouteDiff}
 		return trailApp.ViewSize(width, height)
+	case "caches":
+		m := sampleCachesModel()
+		return frameViewSize(app.theme, "hound", "the kennel · caches", caches.UsageLine(m.Usage, m.Cap), caches.ViewSize(m, bodyWidth, bodyHeight(height), time.Now()), keys.FooterForScreen(keys.ScreenCaches), width, height, true)
+	case "caches-pressure":
+		m := sampleCachesPressureModel()
+		return frameViewSize(app.theme, "hound", "the kennel · caches", caches.UsageLine(m.Usage, m.Cap), caches.ViewSize(m, bodyWidth, bodyHeight(height), time.Now()), keys.FooterForScreen(keys.ScreenCaches), width, height, true)
+	case "caches-empty":
+		m := caches.NewModel("indrasvat/gh-hound", caches.Data{})
+		return frameViewSize(app.theme, "hound", "the kennel · caches", caches.UsageLine(m.Usage, m.Cap), caches.ViewSize(m, bodyWidth, bodyHeight(height), time.Now()), keys.FooterForScreen(keys.ScreenCaches), width, height, true)
 	case "palette":
 		app, _ = app.Update(KeyMsg{Key: ":"})
 		return app.ViewSize(width, height)
@@ -983,6 +1009,8 @@ func (a App) routeInputMode() bool {
 		return a.runs.InputMode
 	case RouteLog:
 		return a.log.InputMode
+	case RouteCaches:
+		return a.caches.InputMode
 	case RouteDispatch:
 		return true
 	default:
@@ -1006,6 +1034,8 @@ func (a App) updateRoute(msg KeyMsg) (App, bool) {
 		return a.updateDispatch(msg)
 	case RouteDiff:
 		return a.updateDiff(msg)
+	case RouteCaches:
+		return a.updateCaches(msg)
 	default:
 		return a, false
 	}
@@ -1299,6 +1329,145 @@ func (a App) updateDispatch(msg KeyMsg) (App, bool) {
 	return a, dispatchHandled(msg.Key) || beforeFocused != a.dispatch.Focused || a.dispatch.Intent.Kind != dispatch.IntentNone
 }
 
+func (a App) updateCaches(msg KeyMsg) (App, bool) {
+	before := a.caches
+	a.caches = a.caches.Update(caches.KeyMsg{Key: msg.Key})
+	switch a.caches.Intent.Kind {
+	case caches.IntentDelete:
+		a = a.openCacheDeleteConfirm(CacheDeleteRequest{ID: a.caches.Intent.CacheID}, a.caches.Intent.Key, 1)
+	case caches.IntentDeleteKey:
+		key := a.caches.Intent.Key
+		a = a.openCacheDeleteConfirm(CacheDeleteRequest{Key: key}, key, a.caches.MatchCount(key))
+	case caches.IntentBack:
+		a.PopRoute()
+	}
+	changed := before.Selected != a.caches.Selected ||
+		before.Filter != a.caches.Filter ||
+		before.InputMode != a.caches.InputMode ||
+		before.SortBy != a.caches.SortBy ||
+		a.caches.Intent.Kind != caches.IntentNone
+	return a, cachesHandled(msg.Key) || changed
+}
+
+// openCaches starts the kennel fetch off the keypress path (Task 220
+// invariant) and routes to the screen; the shared loading body covers
+// the gap.
+func (a App) openCaches() App {
+	a.clearRouteError(RouteCaches)
+	if a.cachesResolver == nil {
+		a.setRouteError(RouteCaches, "kennel unavailable: live GitHub cache loader is not configured")
+		a.PushRoute(RouteCaches)
+		return a
+	}
+	if a.loadBlocked(loadKindCaches) {
+		return a
+	}
+	resolver := a.cachesResolver
+	repo := a.runs.Context.Repo
+	a = a.startLoad(loadKindCaches, "sniffing the kennel", func(ctx context.Context) func(App) App {
+		data, err := resolver(ctx)
+		return func(app App) App {
+			if err != nil {
+				app.setRouteError(RouteCaches, "kennel unavailable: "+err.Error())
+				return app
+			}
+			app.caches = caches.NewModel(repo, data)
+			return app
+		}
+	})
+	a.PushRoute(RouteCaches)
+	return a
+}
+
+// openCacheDeleteConfirm gates every eviction behind the shared
+// confirm overlay, match count first — a key can cover several
+// caches and the user must see how many before anything is dug up.
+func (a App) openCacheDeleteConfirm(request CacheDeleteRequest, key string, matches int) App {
+	if matches <= 0 {
+		return a
+	}
+	a.clearRouteError(RouteCaches)
+	pending := request
+	a.pendingCacheDelete = &pending
+	a.confirm = confirm.New(cacheDeleteConfirmMessage(request, key, matches, a.caches))
+	if a.TopOverlay() != OverlayConfirm {
+		a.overlays = append(a.overlays, OverlayConfirm)
+	}
+	return a
+}
+
+func cacheDeleteConfirmMessage(request CacheDeleteRequest, key string, matches int, m caches.Model) string {
+	label := cacheKeyLabel(key)
+	if request.ID != 0 {
+		size := ""
+		for _, cache := range m.Caches {
+			if cache.ID == request.ID {
+				size = caches.HumanSize(cache.SizeInBytes)
+			}
+		}
+		return fmt.Sprintf("dig up 1 cache — %q (%s)?", label, size)
+	}
+	noun := "caches"
+	if matches == 1 {
+		noun = "cache"
+	}
+	return fmt.Sprintf("dig up %d %s keyed %q (%s)?", matches, noun, label, caches.HumanSize(m.KeyBytes(key)))
+}
+
+// cacheKeyLabel keeps hash-suffixed cache keys readable in the
+// confirm overlay.
+func cacheKeyLabel(key string) string {
+	runes := []rune(key)
+	if len(runes) <= 48 {
+		return key
+	}
+	return string(runes[:47]) + "…"
+}
+
+// startCacheDelete runs the eviction off the keypress path through
+// the shared load slot; the result folds into the kennel locally so
+// no extra listing call is spent.
+func (a App) startCacheDelete(request CacheDeleteRequest) App {
+	if a.cacheDeleter == nil {
+		a.pushErrorToast("cache-delete-unavailable", usecase.ResilienceFor(errors.New("cache eviction is not configured"), usecase.ErrorContext{}))
+		return a
+	}
+	deleter := a.cacheDeleter
+	return a.startLoad(loadKindCaches, "digging it up", func(ctx context.Context) func(App) App {
+		count, err := deleter(ctx, request)
+		return func(app App) App {
+			if err != nil {
+				app.pushErrorToast("cache-delete-failed", usecase.ResilienceFor(err, usecase.ErrorContext{}))
+				return app
+			}
+			if request.ID != 0 {
+				app.caches = app.caches.WithoutCache(request.ID)
+			} else {
+				app.caches = app.caches.WithoutKey(request.Key)
+			}
+			message := "dug that one up."
+			if count > 1 {
+				message = fmt.Sprintf("dug up %d caches.", count)
+			}
+			app.pushToast("cache-deleted", usecase.Resilience{
+				Severity: usecase.SeverityOK,
+				Title:    message,
+				Message:  caches.UsageLine(app.caches.Usage, app.caches.Cap),
+			})
+			return app
+		}
+	})
+}
+
+func cachesHandled(key string) bool {
+	switch key {
+	case "j", "k", "down", "up", "g", "G", "s", "/", "d", "D", "enter", "backspace", "esc":
+		return true
+	default:
+		return len([]rune(key)) == 1
+	}
+}
+
 // debugNose renders the rerun confirm's debug-logging state. Hound
 // voice: the debug nose sniffs out runner diagnostics.
 func debugNose(on bool) string {
@@ -1335,9 +1504,13 @@ func (a App) updateConfirm(msg KeyMsg) (App, bool) {
 	case confirm.IntentConfirm:
 		pending := a.pendingAction
 		pendingDownload := a.pendingDownload
+		pendingCacheDelete := a.pendingCacheDelete
 		a = a.closeConfirm()
 		if pendingDownload != nil {
 			return a.startArtifactDownload(*pendingDownload), true
+		}
+		if pendingCacheDelete != nil {
+			return a.startCacheDelete(*pendingCacheDelete), true
 		}
 		if pending != nil {
 			var accepted bool
@@ -1460,6 +1633,9 @@ func (a App) handlePaletteIntent(intent palette.Intent) App {
 		if run, ok := a.runs.SelectedRun(); ok {
 			a = a.openApprovals(run)
 		}
+	case string(RouteCaches):
+		a.PopOverlay()
+		a = a.openCaches()
 	case string(RouteDispatch):
 		a = a.openDispatchFromPalette(intent.Value)
 	case string(RouteDiff):
@@ -2237,6 +2413,7 @@ func (a App) closeConfirm() App {
 	}
 	a.pendingAction = nil
 	a.pendingDownload = nil
+	a.pendingCacheDelete = nil
 	a.confirm = confirm.Model{}
 	return a
 }
@@ -2530,6 +2707,8 @@ func (a App) footerScreen() keys.Screen {
 		return keys.ScreenDispatch
 	case RouteDiff:
 		return keys.ScreenDiff
+	case RouteCaches:
+		return keys.ScreenCaches
 	default:
 		if a.Route() == RouteRuns && a.runs.AllGreen() {
 			return keys.ScreenAllGreen
@@ -2599,6 +2778,11 @@ func (a App) chromeParts() (string, string, string) {
 			return "hound", "the trail", "sniffing…"
 		}
 		return "hound", diffContext(a.diff.Verdict), diffRight(a.diff.Verdict)
+	case RouteCaches:
+		if load := a.load; load != nil && load.kind == loadKindCaches {
+			return "hound", "the kennel · caches", "fetching…"
+		}
+		return "hound", "the kennel · caches", caches.UsageLine(a.caches.Usage, a.caches.Cap)
 	default:
 		if a.runs.AllGreen() {
 			return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), runsRight(a.runs, a.refreshCount, a.runsMeta)
@@ -2738,6 +2922,7 @@ func paletteItems(workflows []dispatch.Workflow) []palette.Item {
 		{Name: "artifacts", Description: "selected run's artifacts", Route: "artifacts"},
 		{Name: "approvals", Description: "review the deploy gate", Route: "approvals"},
 		{Name: "diff", Description: "who broke main? · the trail", Route: string(RouteDiff)},
+		{Name: "caches", Description: "the kennel · cache usage & eviction", Route: string(RouteCaches)},
 	}
 	if len(workflows) == 0 {
 		items = append(items, palette.Item{Name: "dispatch", Description: "trigger workflow_dispatch", Route: string(RouteDispatch)})
@@ -2833,6 +3018,11 @@ func (a App) screenBody(width, height int) string {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())
 		}
 		return diffscreen.ViewSize(a.diff, bodyWidth, bodyHeight(height))
+	case RouteCaches:
+		if load := a.load; load != nil && load.kind == loadKindCaches {
+			return loadingBody(a.theme, load, bodyWidth, time.Now())
+		}
+		return caches.ViewSize(a.caches, bodyWidth, bodyHeight(height), time.Now())
 	default:
 		return string(a.Route())
 	}
@@ -3199,6 +3389,41 @@ func sampleLongRunsModel(count int) runs.Model {
 		State:  usecase.LaunchStateAllGreen,
 		Runs:   items,
 	})
+}
+
+// sampleCachesModel is a calm kennel (~3.1 GiB of 10) for fixtures;
+// last-used offsets are now-relative so ages render stably.
+func sampleCachesModel() caches.Model {
+	now := time.Now().UTC()
+	rows := []model.Cache{
+		{ID: 9001, Key: "setup-go-Linux-x64-ubuntu24-go-1.26.4-d93f4ea308b07f7c7339055a38006c84c478b6cb448d9d34672d1a6fb9324780", Ref: "refs/heads/main", SizeInBytes: 1610612736, LastAccessedAt: now.Add(-2 * time.Hour), CreatedAt: now.Add(-9 * 24 * time.Hour)},
+		{ID: 9002, Key: "go-build-Linux-x64-main", Ref: "refs/heads/main", SizeInBytes: 858993459, LastAccessedAt: now.Add(-26 * time.Hour), CreatedAt: now.Add(-8 * 24 * time.Hour)},
+		{ID: 9003, Key: "go-mod-Linux-x64-1f2e3d", Ref: "refs/heads/main", SizeInBytes: 536870912, LastAccessedAt: now.Add(-4 * 24 * time.Hour), CreatedAt: now.Add(-7 * 24 * time.Hour)},
+		{ID: 9004, Key: "go-mod-Linux-x64-stale99", Ref: "refs/pull/7/merge", SizeInBytes: 209715200, LastAccessedAt: now.Add(-12 * 24 * time.Hour), CreatedAt: now.Add(-13 * 24 * time.Hour)},
+		{ID: 9005, Key: "node-modules-pages-build", Ref: "refs/heads/main", SizeInBytes: 104857600, LastAccessedAt: now.Add(-21 * 24 * time.Hour), CreatedAt: now.Add(-21 * 24 * time.Hour)},
+	}
+	var total int64
+	for _, row := range rows {
+		total += row.SizeInBytes
+	}
+	return caches.NewModel("indrasvat/gh-hound", caches.Data{
+		Usage:  model.CacheUsage{ActiveSizeInBytes: total, ActiveCount: len(rows)},
+		Caches: rows,
+	})
+}
+
+// sampleCachesPressureModel sits past the 90% eviction threshold so
+// the warning state is pinned in fixtures.
+func sampleCachesPressureModel() caches.Model {
+	m := sampleCachesModel()
+	sizes := []int64{3758096384, 3221225472, 2147483648, 858993459, 429496730}
+	var total int64
+	for i := range m.Caches {
+		m.Caches[i].SizeInBytes = sizes[i%len(sizes)]
+		total += m.Caches[i].SizeInBytes
+	}
+	m.Usage = model.CacheUsage{ActiveSizeInBytes: total, ActiveCount: len(m.Caches)}
+	return m
 }
 
 func sampleFailureModel() failure.Model {

@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -480,6 +482,127 @@ func (a *Adapter) CompareCommits(_ context.Context, repo, base, head string) (mo
 			{SHA: "cc99aa1b2c3d4e5f60718293a4b5c6d7e8f90a1b", Author: "dependabot[bot]", Message: "chore(deps): bump charmbracelet/x/ansi"},
 		},
 	}, nil
+}
+
+// fakeCaches is the deterministic kennel: sizes sum to ~9.7 GiB so
+// the usage gauge sits past the 90% eviction warning in e2e and PTY
+// rehearsals without any live repo.
+func fakeCaches() []model.Cache {
+	return []model.Cache{
+		{ID: 9001, Key: "setup-go-Linux-x64-ubuntu24-go-1.26.4-d93f4ea308b07f7c7339055a38006c84c478b6cb448d9d34672d1a6fb9324780", Ref: "refs/heads/main", SizeInBytes: 3758096384, LastAccessedAt: time.Date(2026, 6, 7, 17, 44, 30, 0, time.UTC), CreatedAt: time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)},
+		{ID: 9002, Key: "go-build-Linux-x64-main", Ref: "refs/heads/main", SizeInBytes: 3221225472, LastAccessedAt: time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC), CreatedAt: time.Date(2026, 6, 2, 9, 0, 0, 0, time.UTC)},
+		{ID: 9003, Key: "go-mod-Linux-x64-1f2e3d", Ref: "refs/heads/main", SizeInBytes: 2147483648, LastAccessedAt: time.Date(2026, 6, 6, 8, 0, 0, 0, time.UTC), CreatedAt: time.Date(2026, 6, 3, 9, 0, 0, 0, time.UTC)},
+		// Same key as 9003 on a PR ref: the live API caches one key per
+		// ref, and delete-by-key without --ref digs them up together.
+		{ID: 9004, Key: "go-mod-Linux-x64-1f2e3d", Ref: "refs/pull/7/merge", SizeInBytes: 858993459, LastAccessedAt: time.Date(2026, 5, 30, 8, 0, 0, 0, time.UTC), CreatedAt: time.Date(2026, 5, 29, 9, 0, 0, 0, time.UTC)},
+		{ID: 9005, Key: "node-modules-pages-build", Ref: "refs/heads/main", SizeInBytes: 429496730, LastAccessedAt: time.Date(2026, 5, 28, 8, 0, 0, 0, time.UTC), CreatedAt: time.Date(2026, 5, 28, 8, 0, 0, 0, time.UTC)},
+	}
+}
+
+// ListCaches implements usecase.GitHubCaches with server-side key
+// prefix and ref semantics so the deterministic lens cannot claim
+// matches the real API would not return.
+func (a *Adapter) ListCaches(_ context.Context, _ string, filter usecase.CacheFilter) ([]model.Cache, error) {
+	if err := a.cachesScenarioError(); err != nil {
+		return nil, err
+	}
+	if a.scenario == ScenarioEmpty {
+		return []model.Cache{}, nil
+	}
+	out := make([]model.Cache, 0)
+	for _, cache := range fakeCaches() {
+		if filter.Key != "" && !strings.HasPrefix(cache.Key, filter.Key) {
+			continue
+		}
+		if filter.Ref != "" && cache.Ref != filter.Ref {
+			continue
+		}
+		out = append(out, cache)
+	}
+	return out, nil
+}
+
+func (a *Adapter) CacheUsage(context.Context, string) (model.CacheUsage, error) {
+	if err := a.cachesScenarioError(); err != nil {
+		return model.CacheUsage{}, err
+	}
+	if a.scenario == ScenarioEmpty {
+		return model.CacheUsage{}, nil
+	}
+	var total int64
+	caches := fakeCaches()
+	for _, cache := range caches {
+		total += cache.SizeInBytes
+	}
+	return model.CacheUsage{ActiveSizeInBytes: total, ActiveCount: len(caches)}, nil
+}
+
+// CacheStorageLimit mirrors github.com's storage-limit endpoint with
+// the default 10 GB so fixtures and rehearsals exercise the provider
+// path instead of the fallback.
+func (a *Adapter) CacheStorageLimit(context.Context, string) (int64, error) {
+	if err := a.cachesScenarioError(); err != nil {
+		return 0, err
+	}
+	return int64(10) << 30, nil
+}
+
+func (a *Adapter) DeleteCacheByID(_ context.Context, _ string, id int64) (int, error) {
+	if err := a.cachesScenarioError(); err != nil {
+		return 0, err
+	}
+	for _, cache := range fakeCaches() {
+		if cache.ID == id {
+			return 1, nil
+		}
+	}
+	return 0, usecase.ActionError{Kind: usecase.ActionErrorNotFound, Message: fmt.Sprintf("no cache with id %d in this kennel", id)}
+}
+
+func (a *Adapter) DeleteCachesByKey(_ context.Context, _ string, key, ref string) (int, error) {
+	if err := a.cachesScenarioError(); err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, cache := range fakeCaches() {
+		// The live DELETE matches the COMPLETE key (only LIST's key
+		// param prefix-matches) — the fake must not promise broader
+		// deletes than production performs.
+		if cache.Key != key {
+			continue
+		}
+		if ref != "" && cache.Ref != ref {
+			continue
+		}
+		count++
+	}
+	if count == 0 {
+		return 0, usecase.ActionError{Kind: usecase.ActionErrorNotFound, Message: "no caches matched key " + strconv.Quote(key)}
+	}
+	return count, nil
+}
+
+// cachesScenarioError mirrors actionResult's refusal taxonomy for the
+// cache surface.
+func (a *Adapter) cachesScenarioError() error {
+	switch a.scenario {
+	case ScenarioRateLimited:
+		return usecase.ActionError{
+			Kind:       usecase.ActionErrorRateLimit,
+			Message:    "rate limited",
+			Status:     http.StatusTooManyRequests,
+			RetryAfter: 42 * time.Second,
+			ResetAt:    fakeRateLimitReset(),
+		}
+	case ScenarioNetworkError:
+		return usecase.ActionError{Kind: usecase.ActionErrorNetwork, Message: "network unavailable"}
+	case ScenarioPermission:
+		return usecase.ActionError{Kind: usecase.ActionErrorPermission, Message: "permission denied", Status: http.StatusForbidden}
+	case ScenarioConflict:
+		return usecase.ActionError{Kind: usecase.ActionErrorConflict, Message: "cache is in use", Status: http.StatusConflict}
+	default:
+		return nil
+	}
 }
 
 // RefExists implements usecase.RefValidator: fake refs always exist

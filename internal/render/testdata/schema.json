@@ -439,6 +439,130 @@
      }
     }
    }
+  },
+  "caches_result": {
+   "type": "object",
+   "required": [
+    "repo",
+    "caches"
+   ],
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "usage": {
+     "type": "object",
+     "required": [
+      "active_size_in_bytes",
+      "active_count",
+      "cap_bytes"
+     ],
+     "properties": {
+      "active_size_in_bytes": {
+       "type": "integer"
+      },
+      "active_count": {
+       "type": "integer"
+      },
+      "cap_bytes": {
+       "type": "integer"
+      }
+     }
+    },
+    "caches": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "id",
+       "key",
+       "ref",
+       "size_in_bytes",
+       "last_accessed_at",
+       "created_at"
+      ],
+      "properties": {
+       "id": {
+        "type": "integer"
+       },
+       "key": {
+        "type": "string"
+       },
+       "ref": {
+        "type": "string"
+       },
+       "size_in_bytes": {
+        "type": "integer"
+       },
+       "last_accessed_at": {
+        "type": "string",
+        "format": "date-time"
+       },
+       "created_at": {
+        "type": "string",
+        "format": "date-time"
+       }
+      }
+     }
+    },
+    "deleted": {
+     "type": "object",
+     "required": [
+      "action",
+      "accepted",
+      "deleted_count"
+     ],
+     "properties": {
+      "action": {
+       "enum": [
+        "delete_id",
+        "delete_key"
+       ]
+      },
+      "id": {
+       "type": "integer"
+      },
+      "key": {
+       "type": "string"
+      },
+      "ref": {
+       "type": "string"
+      },
+      "accepted": {
+       "type": "boolean"
+      },
+      "deleted_count": {
+       "type": "integer"
+      }
+     }
+    },
+    "error": {
+     "type": "object",
+     "required": [
+      "kind",
+      "message"
+     ],
+     "properties": {
+      "kind": {
+       "enum": [
+        "validation",
+        "permission",
+        "conflict",
+        "rate_limit",
+        "network",
+        "not_found",
+        "unknown"
+       ]
+      },
+      "message": {
+       "type": "string"
+      },
+      "field": {
+       "type": "string"
+      }
+     }
+    }
+   }
   }
  }
 }

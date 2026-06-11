@@ -21,6 +21,8 @@ gh hound artifacts --run <id> --download <name> --dir <path> --no-tui --json
 gh hound approvals --run <id> --no-tui --json    # pending deploy gates (exit 1 = awaiting review)
 gh hound approvals --run <id> --approve --env production --comment "lgtm" --no-tui --json
 gh hound diff --workflow CI --no-tui --json      # who broke main? last green vs first bad
+gh hound caches --no-tui --json                  # cache kennel vs the 10 GB eviction cap
+gh hound caches --delete-key <key> --ref <ref> --no-tui --json
 ```
 
 Runs are scoped to the current git branch by default. An empty `runs[]` usually means the branch has no runs — pass `--all` or `--branch <ref>` before concluding CI is missing.
@@ -41,6 +43,8 @@ Top level: `repo`, `branch`, `runs[]`. Each run: `id`, `workflow`, `run_number`,
 Each `failed[]` entry: `job`, `step`, `exit_code`, `annotations[]` (`path`, `line`, `level`, `message`), `log_excerpt`.
 
 Artifacts: `gh hound artifacts` lists `{id, name, size_in_bytes, expired, expires_at, digest}` for a run (latest on branch when `--run` omitted); `--download <name|id>` extracts into `<dir>/<artifact-name>/` and reports `downloaded.path`. Exit `0` success, `2` any error (expired artifacts are refused before download). Add `--artifacts` to `runs` for per-run artifact metadata (opt-in: paginated artifact-list calls per run, usually one).
+
+Caches: `gh hound caches` reports `usage` (`active_size_in_bytes`, `active_count`, `cap_bytes` — the 10 GB eviction cap; usage can exceed it because eviction lags) plus `caches[]` (`id`, `key`, `ref`, `size_in_bytes`, `last_accessed_at`, `created_at`). When CI suddenly slows, check the kennel: usage near `cap_bytes` means LRU eviction is thrashing your keys. Evict with `--delete-id <id>` or `--delete-key <key> [--ref <ref>]` (reports `deleted.deleted_count`). Exit `0` deleted or listed, `2` anything else with typed `error.kind` (`not_found` when nothing matched). The default `runs` path never touches the cache API.
 
 Triage degrades per job: when a job log has expired, `log_excerpt` is empty and `exit_code` falls back to `1`, but `job`, `step`, and `annotations` are always present for every failed job. An empty `failed[]` on a red run means job details could not be listed — fall back to `html_url`.
 
@@ -77,7 +81,7 @@ For testing agent behavior without live CI:
 gh hound runs --no-tui --json --fake-scenario failure   # also: green, pending, empty, api_error, waiting, regression
 ```
 
-The JSON schema lives at `internal/render/testdata/schema.json` in the gh-hound repo; the mutation envelope is under `$defs.mutation_result`, the approvals envelope under `$defs.approvals_result`, and the regression verdict under `$defs.diff_result`.
+The JSON schema lives at `internal/render/testdata/schema.json` in the gh-hound repo; the mutation envelope is under `$defs.mutation_result`, the approvals envelope under `$defs.approvals_result`, the regression verdict under `$defs.diff_result`, and the caches envelope under `$defs.caches_result`.
 
 ## Guardrails
 

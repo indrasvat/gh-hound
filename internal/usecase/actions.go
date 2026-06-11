@@ -66,7 +66,11 @@ const (
 	ActionErrorConflict   ActionErrorKind = "conflict"
 	ActionErrorRateLimit  ActionErrorKind = "rate_limit"
 	ActionErrorNetwork    ActionErrorKind = "network"
-	ActionErrorUnknown    ActionErrorKind = "unknown"
+	// ActionErrorNotFound types a mutation whose target does not exist
+	// (a cache delete that matched nothing); agents branch on it
+	// instead of parsing 404 prose.
+	ActionErrorNotFound ActionErrorKind = "not_found"
+	ActionErrorUnknown  ActionErrorKind = "unknown"
 )
 
 type ActionError struct {

@@ -105,6 +105,7 @@ The local gate includes race-enabled Go tests, large-log performance tests, and 
 - **Run detail**: master-detail job/step view with responsive collapse at narrow terminal sizes.
 - **Artifacts**: list a run's artifacts in detail view, download and auto-extract with confirmation; expired artifacts are flagged and refused up front.
 - **Deployment approvals**: waiting runs wear a gate badge; `A` opens the gate overlay — pick environments, approve or reject with confirmation — and the `approvals` pipe verb does the same for agents. The `gh` CLI has no equivalent.
+- **Cache kennel**: the `caches` verb and palette screen show Actions cache pressure against the 10 GB eviction cap — themed gauge, sortable list (biggest or stalest first), key filter, and confirm-gated deletes by ID or key with the match count shown before anything is dug up. Past 90% the kennel warns before GitHub starts evicting.
 - **Time navigation**: a `t` modal on the log screen with a landmark picker (step boundaries, the failure window, the slowest gaps), typed jumps (`17:43`, `+30s`, `-2m`), and `A-B` range filtering.
 - **Status cycle**: `f` on the runs screen cycles all / failing / running / passed through the server filter.
 - **Attempt forensics**: `runs --run <id> --attempt <n>` triages a specific attempt after a re-run -- failed jobs, clean excerpts, exit codes.
@@ -116,7 +117,7 @@ The local gate includes race-enabled Go tests, large-log performance tests, and 
 - **Dispatch form**: `workflow_dispatch` workflows and inputs rendered as a keyboard-driven form. Foreign `-R` targets pre-fill their own default branch (never your local checkout's), and refs are validated as a real branch or tag before anything fires.
 - **Overlays**: command palette, contextual help, confirm modals, and rate-limit/error toasts.
 - **Themes and glyphs**: Bramble dark theme, Bone alternate, text-presentation Unicode, no emoji dependency.
-- **Agent surface**: JSON/Markdown/XML output, Appendix-B schema, and exit codes `0/1/2/3`. The leash works both ways: `rerun` and `cancel` verbs act from the same surface (`--failed-only`, `--job`, `--debug`, `--force`).
+- **Agent surface**: JSON/Markdown/XML output, Appendix-B schema, and exit codes `0/1/2/3`. The leash works both ways: `rerun`, `cancel`, and `caches --delete-id/--delete-key` act from the same surface (`--failed-only`, `--job`, `--debug`, `--force`, `--ref`).
 - **Async everywhere**: no keystroke blocks on the network — shared spinner, dimmed reloads, instant skeletons, byte-progress bars on multi-MB log downloads, esc cancels the work itself.
 - **Verification harness**: `make vqa` captures every primary screen and interaction through `shux`.
 
