@@ -588,9 +588,10 @@ func TestSupersededLoadContextIsCancelled(t *testing.T) {
 		}
 	}
 	app, _ = app.Update(KeyMsg{Key: "l"})
-	// Supersede with a runs reload.
-	app.runsResolver = func(context.Context, usecase.RunFilter) ([]model.Run, error) { return nil, nil }
-	app = app.reloadRuns("failing")
+	// Supersede with another log load (same kind supersedes; cross-kind
+	// requests are refused by loadBlocked).
+	run, _ := app.runs.SelectedRun()
+	app = app.loadLog(run, model.Job{})
 	select {
 	case <-cancelled:
 	case <-time.After(time.Second):
@@ -627,4 +628,55 @@ func TestLoadMorePageForAbandonedScopeIsDropped(t *testing.T) {
 			t.Fatal("stale branch page leaked into active runs")
 		}
 	}
+}
+
+func TestChildOpenIgnoredWhileDetailLoading(t *testing.T) {
+	app := asyncTestApp()
+	release := make(chan struct{})
+	app.detailResolver = func(_ context.Context, run model.Run) (detail.Model, error) {
+		<-release
+		return detail.NewModel(run, []model.Job{{ID: 1, RunID: run.ID, Name: "build", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure}}), nil
+	}
+	app, _ = app.Update(KeyMsg{Key: "enter"}) // detail skeleton, jobs in flight
+	if app.load == nil || app.load.kind != loadKindDetail {
+		t.Fatal("no pending detail load")
+	}
+	pending := app.load
+	// Child opens from the skeleton must not cancel the jobs fetch.
+	for _, key := range []string{"enter", "l", "w"} {
+		app, _ = app.Update(KeyMsg{Key: key})
+		if app.Route() != RouteDetail {
+			t.Fatalf("%q opened a child route from a loading skeleton (route=%s)", key, app.Route())
+		}
+		if app.load != pending {
+			t.Fatalf("%q superseded the in-flight detail load", key)
+		}
+	}
+	close(release)
+	app = settleApp(t, app)
+	if len(app.detail.Jobs) == 0 {
+		t.Fatal("detail jobs never arrived — load was cancelled by a child open")
+	}
+}
+
+func TestSameKindLoadStillSupersedes(t *testing.T) {
+	app := asyncTestApp()
+	release := make(chan struct{})
+	defer close(release)
+	app.runsResolver = func(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
+		// The first cycle (failing) hangs; the superseding cycle
+		// (running) returns instantly — keyed by filter, not call
+		// order, because goroutine start order is not guaranteed.
+		if filter.Status == "failure" {
+			<-release
+		}
+		return sampleRunsModel().Context.Runs, nil
+	}
+	app, _ = app.Update(KeyMsg{Key: "f"})
+	first := app.load
+	app, _ = app.Update(KeyMsg{Key: "f"}) // cycle again: same kind supersedes
+	if app.load == first {
+		t.Fatal("same-kind reload did not supersede")
+	}
+	app = settleApp(t, app)
 }

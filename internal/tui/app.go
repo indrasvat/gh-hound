@@ -147,10 +147,25 @@ func (a App) startLoad(kind loadKind, label string, work func(ctx context.Contex
 	})
 }
 
+// loadBlocked reports whether starting a load of the given kind must
+// be refused: a DIFFERENT kind is already in flight. Same-kind loads
+// supersede (f-cycle, opening another run's detail), but a cross-kind
+// open would cancel work whose result the abandoned route still needs
+// — escape back and it would be a stuck skeleton.
+func (a App) loadBlocked(kind loadKind) bool {
+	return a.load != nil && a.load.kind != kind
+}
+
 // startLoadProgress is startLoad for fetches that can report byte
 // progress and honor cancellation; work receives a per-load context
 // (cancelled on esc or supersession) and the progress callback.
 func (a App) startLoadProgress(kind loadKind, label string, work func(ctx context.Context, progress func(read, total int64)) func(App) App) App {
+	if a.loadBlocked(kind) {
+		// Backstop: intent sites guard with loadBlocked before pushing
+		// routes; refusing here keeps the single-slot invariant even if
+		// a future call site forgets.
+		return a
+	}
 	if prev := a.load; prev != nil && prev.cancel != nil {
 		// Superseded work must stop burning the serial queue, not just
 		// lose its seat at the table.
@@ -921,21 +936,33 @@ func (a App) updateRuns(msg KeyMsg) (App, bool) {
 	a.runs = a.runs.Update(runs.KeyMsg{Key: msg.Key})
 	switch a.runs.Intent.Kind {
 	case runs.IntentOpenDetail:
+		if a.loadBlocked(loadKindDetail) {
+			break
+		}
 		if run, ok := a.runs.SelectedRun(); ok {
 			a = a.loadDetail(run)
 		}
 		a.PushRoute(RouteDetail)
 	case runs.IntentOpenLogs:
+		if a.loadBlocked(loadKindLog) {
+			break
+		}
 		if run, ok := a.runs.SelectedRun(); ok {
 			a = a.loadLog(run, model.Job{})
 		}
 		a.PushRoute(RouteLog)
 	case runs.IntentWatch:
+		if a.loadBlocked(loadKindWatch) {
+			break
+		}
 		if run, ok := a.runs.SelectedRun(); ok {
 			a = a.loadWatch(run)
 		}
 		a.PushRoute(RouteWatch)
 	case runs.IntentDispatch:
+		if a.loadBlocked(loadKindDispatch) {
+			break
+		}
 		a = a.openDispatch()
 	case runs.IntentBrowser:
 		if run, ok := a.runs.SelectedRun(); ok {
@@ -979,12 +1006,21 @@ func (a App) updateDetail(msg KeyMsg) (App, bool) {
 	a.detail = a.detail.Update(detail.KeyMsg{Key: msg.Key})
 	switch a.detail.Intent.Kind {
 	case detail.IntentFailure:
+		if a.loadBlocked(loadKindFailure) {
+			break
+		}
 		a = a.loadFailure(a.detail.Run, a.selectedDetailJob())
 		a.PushRoute(RouteFailure)
 	case detail.IntentLog:
+		if a.loadBlocked(loadKindLog) {
+			break
+		}
 		a = a.loadLog(a.detail.Run, a.selectedDetailJob())
 		a.PushRoute(RouteLog)
 	case detail.IntentWatch:
+		if a.loadBlocked(loadKindWatch) {
+			break
+		}
 		a = a.loadWatch(a.detail.Run)
 		a.PushRoute(RouteWatch)
 	case detail.IntentRerunJob:

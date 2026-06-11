@@ -1749,8 +1749,11 @@ func TestTimeJumpModalFlow(t *testing.T) {
 	app := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
 	app.config.Welcome = false
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 	app, _ = app.Update(KeyMsg{Key: "l"})
+	app = settleApp(t, app)
 	if app.Route() != RouteLog {
 		t.Fatalf("setup: expected log route, got %s", app.Route())
 	}
@@ -1790,8 +1793,11 @@ func TestLogSearchEscStaysOnLog(t *testing.T) {
 	app := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
 	app.config.Welcome = false
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 	app, _ = app.Update(KeyMsg{Key: "l"})
+	app = settleApp(t, app)
 	app, _ = app.Update(KeyMsg{Key: "/"})
 	app, _ = app.Update(KeyMsg{Key: "x"})
 	app, handled := app.Update(KeyMsg{Key: "esc"})
@@ -1808,8 +1814,11 @@ func TestTimeJumpPickerAndRangeFlow(t *testing.T) {
 	app := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
 	app.config.Welcome = false
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 	app, _ = app.Update(KeyMsg{Key: "l"})
+	app = settleApp(t, app)
 	app, _ = app.Update(KeyMsg{Key: "t"})
 	view := ansi.Strip(app.ViewSize(120, 40))
 	if !strings.Contains(view, "failure window") {
