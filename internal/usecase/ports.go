@@ -61,6 +61,20 @@ type GitHubLogDiagnostics interface {
 	LastLogRefetch(jobID int64) (LogRefetchNotice, bool)
 }
 
+// RepoInfoProvider is an optional adapter capability: the target
+// repo's default branch, used to pre-fill dispatch refs for foreign
+// repos where the local checkout branch would be a lie.
+type RepoInfoProvider interface {
+	DefaultBranch(ctx context.Context, repo string) (string, error)
+}
+
+// RefValidator is an optional adapter capability: whether a ref exists
+// on the target as a branch or tag, checked before dispatching so a
+// typo fails as validation instead of a confusing 422.
+type RefValidator interface {
+	RefExists(ctx context.Context, repo, ref string) (bool, error)
+}
+
 // LogProgressFetcher is an optional adapter capability: log download
 // with byte-progress reporting (read, total; total <= 0 when the size
 // is unknown). Adapters without it fall back to plain FetchJobLog and

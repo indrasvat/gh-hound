@@ -757,6 +757,18 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 				if request.Workflow.ID == "" {
 					return usecase.ActionResult{}, fmt.Errorf("workflow is not loaded")
 				}
+				if validator, ok := githubClient.(usecase.RefValidator); ok {
+					exists, refErr := validator.RefExists(ctx, launch.Repo, request.Dispatch.Ref)
+					if refErr != nil {
+						return usecase.ActionResult{}, refErr
+					}
+					if !exists {
+						return usecase.ActionResult{}, usecase.ActionError{
+							Kind:    usecase.ActionErrorValidation,
+							Message: fmt.Sprintf("ref %q isn't in this yard — pass an existing branch or tag", request.Dispatch.Ref),
+						}
+					}
+				}
 				return actionService.DispatchWorkflow(ctx, launch.Repo, request.Workflow.ID, request.Dispatch)
 			default:
 				return usecase.ActionResult{}, fmt.Errorf("unsupported action %q", request.Action)
@@ -914,7 +926,17 @@ func dispatchWorkflowModels(ctx context.Context, githubClient usecase.GitHub, la
 	}
 	ref, err := dispatchRef(launch)
 	if err != nil {
-		return nil, err
+		// Foreign target without --branch: the target's own default
+		// branch is the honest pre-fill (issue #15). Capability-gated;
+		// fakes without it keep the explicit error.
+		provider, ok := githubClient.(usecase.RepoInfoProvider)
+		if !ok {
+			return nil, err
+		}
+		ref, err = provider.DefaultBranch(ctx, launch.Repo)
+		if err != nil {
+			return nil, fmt.Errorf("dispatch ref is unavailable: %w", err)
+		}
 	}
 	out := make([]dispatch.Workflow, 0, len(dispatchable))
 	for _, workflow := range dispatchable {
