@@ -114,6 +114,57 @@ func TestCachesJSONListsUsageAndCaches(t *testing.T) {
 	}
 }
 
+// TestCachesListFailureKeepsTypedEnvelope pins the refusal taxonomy
+// for the GET side (codex blocker): list/usage failures arrive as
+// usecase.APIError and must not collapse to error.kind "unknown".
+func TestCachesListFailureKeepsTypedEnvelope(t *testing.T) {
+	cases := map[string]struct {
+		err  error
+		kind string
+	}{
+		"rate limit": {usecase.APIError{Kind: usecase.APIErrorRateLimit, Status: 403, Message: "API rate limit exceeded"}, "rate_limit"},
+		"permission": {usecase.APIError{Kind: usecase.APIErrorPermission, Status: 403, Message: "no access"}, "permission"},
+		"network":    {usecase.APIError{Kind: usecase.APIErrorNetwork, Message: "github api unavailable"}, "network"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var out bytes.Buffer
+			github := &cliGitHub{cachesErr: tc.err}
+			cmd := newRootCommandWithRuntime(cachesRuntime(github, &out), testBuildInfo())
+			cmd.SetArgs([]string{"caches", "--no-tui", "--json"})
+			code, _ := executeCommand(cmd)
+			if code != 2 {
+				t.Fatalf("exit = %d, want 2\n%s", code, out.String())
+			}
+			var decoded struct {
+				Error *struct {
+					Kind string `json:"kind"`
+				} `json:"error"`
+			}
+			if jsonErr := json.Unmarshal(out.Bytes(), &decoded); jsonErr != nil {
+				t.Fatalf("invalid JSON: %v\n%s", jsonErr, out.String())
+			}
+			if decoded.Error == nil || decoded.Error.Kind != tc.kind {
+				t.Fatalf("error.kind = %#v, want %q\n%s", decoded.Error, tc.kind, out.String())
+			}
+		})
+	}
+}
+
+// TestCachesServiceSharesTUIMutationLimiter pins the pacing contract
+// (codex blocker): the TUI's cache deletes must ride the SAME limiter
+// as reruns/cancels/reviews, not a fresh one per call.
+func TestCachesServiceSharesTUIMutationLimiter(t *testing.T) {
+	limiter := &usecase.MutationLimiter{MinSpacing: time.Second}
+	service, err := cachesServiceFor(&cliGitHub{}, limiter)
+	if err != nil {
+		t.Fatalf("cachesServiceFor: %v", err)
+	}
+	if service.Limiter != limiter {
+		t.Fatal("cache deletes must share the caller's mutation limiter")
+	}
+}
+
 func TestCachesDeleteByIDWritesAcceptedEnvelope(t *testing.T) {
 	var out bytes.Buffer
 	github := &cliGitHub{}

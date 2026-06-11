@@ -492,7 +492,9 @@ func fakeCaches() []model.Cache {
 		{ID: 9001, Key: "setup-go-Linux-x64-ubuntu24-go-1.26.4-d93f4ea308b07f7c7339055a38006c84c478b6cb448d9d34672d1a6fb9324780", Ref: "refs/heads/main", SizeInBytes: 3758096384, LastAccessedAt: time.Date(2026, 6, 7, 17, 44, 30, 0, time.UTC), CreatedAt: time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)},
 		{ID: 9002, Key: "go-build-Linux-x64-main", Ref: "refs/heads/main", SizeInBytes: 3221225472, LastAccessedAt: time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC), CreatedAt: time.Date(2026, 6, 2, 9, 0, 0, 0, time.UTC)},
 		{ID: 9003, Key: "go-mod-Linux-x64-1f2e3d", Ref: "refs/heads/main", SizeInBytes: 2147483648, LastAccessedAt: time.Date(2026, 6, 6, 8, 0, 0, 0, time.UTC), CreatedAt: time.Date(2026, 6, 3, 9, 0, 0, 0, time.UTC)},
-		{ID: 9004, Key: "go-mod-Linux-x64-stale99", Ref: "refs/pull/7/merge", SizeInBytes: 858993459, LastAccessedAt: time.Date(2026, 5, 30, 8, 0, 0, 0, time.UTC), CreatedAt: time.Date(2026, 5, 29, 9, 0, 0, 0, time.UTC)},
+		// Same key as 9003 on a PR ref: the live API caches one key per
+		// ref, and delete-by-key without --ref digs them up together.
+		{ID: 9004, Key: "go-mod-Linux-x64-1f2e3d", Ref: "refs/pull/7/merge", SizeInBytes: 858993459, LastAccessedAt: time.Date(2026, 5, 30, 8, 0, 0, 0, time.UTC), CreatedAt: time.Date(2026, 5, 29, 9, 0, 0, 0, time.UTC)},
 		{ID: 9005, Key: "node-modules-pages-build", Ref: "refs/heads/main", SizeInBytes: 429496730, LastAccessedAt: time.Date(2026, 5, 28, 8, 0, 0, 0, time.UTC), CreatedAt: time.Date(2026, 5, 28, 8, 0, 0, 0, time.UTC)},
 	}
 }
@@ -553,7 +555,10 @@ func (a *Adapter) DeleteCachesByKey(_ context.Context, _ string, key, ref string
 	}
 	count := 0
 	for _, cache := range fakeCaches() {
-		if !strings.HasPrefix(cache.Key, key) {
+		// The live DELETE matches the COMPLETE key (only LIST's key
+		// param prefix-matches) — the fake must not promise broader
+		// deletes than production performs.
+		if cache.Key != key {
 			continue
 		}
 		if ref != "" && cache.Ref != ref {

@@ -576,6 +576,30 @@ func approvalsErrorKind(err error) (string, string) {
 	return string(usecase.ActionErrorUnknown), err.Error()
 }
 
+// cachesErrorKind maps any error to the typed refusal taxonomy —
+// list/usage failures arrive as usecase.APIError, deletes as
+// ActionError, and both must keep the envelope contract typed.
+func cachesErrorKind(err error) (string, string) {
+	if actionErr, ok := usecase.AsActionError(err); ok {
+		return string(actionErr.Kind), actionErr.Message
+	}
+	var apiErr usecase.APIError
+	if errors.As(err, &apiErr) {
+		switch apiErr.Kind {
+		case usecase.APIErrorAuth, usecase.APIErrorPermission:
+			return string(usecase.ActionErrorPermission), apiErr.Error()
+		case usecase.APIErrorRateLimit:
+			return string(usecase.ActionErrorRateLimit), apiErr.Error()
+		case usecase.APIErrorNetwork:
+			return string(usecase.ActionErrorNetwork), apiErr.Error()
+		case usecase.APIErrorNotFound:
+			return string(usecase.ActionErrorNotFound), apiErr.Error()
+		}
+		return string(usecase.ActionErrorUnknown), apiErr.Error()
+	}
+	return string(usecase.ActionErrorUnknown), err.Error()
+}
+
 func mapRenderPendingDeployments(pending []model.PendingDeployment) []render.PendingDeployment {
 	out := make([]render.PendingDeployment, 0, len(pending))
 	for _, gate := range pending {
@@ -609,7 +633,7 @@ func newCachesCommand(runtime commandRuntime, options *cliOptions) *cobra.Comman
 		},
 	}
 	cmd.Flags().Int64Var(&request.id, "delete-id", 0, "delete one cache by its numeric ID")
-	cmd.Flags().StringVar(&request.key, "delete-key", "", "delete every cache matching this key (or key prefix)")
+	cmd.Flags().StringVar(&request.key, "delete-key", "", "delete every cache with exactly this key (all refs unless --ref narrows)")
 	cmd.Flags().StringVar(&request.ref, "ref", "", "limit --delete-key to one git ref (refs/heads/main)")
 	return cmd
 }
@@ -629,9 +653,9 @@ func writeCachesResult(ctx context.Context, w io.Writer, options cliOptions, run
 	// Every refusal writes the envelope so agents branch on error.kind
 	// on stdout; exit 2 is never a bare stderr message.
 	refuse := func(deleted *render.CacheDeletion, err error) error {
-		kind, message, field := "unknown", err.Error(), ""
+		kind, message := cachesErrorKind(err)
+		field := ""
 		if actionErr, ok := usecase.AsActionError(err); ok {
-			kind, message = string(actionErr.Kind), actionErr.Message
 			field = actionErr.Field
 		}
 		result.Deleted = deleted
@@ -1159,7 +1183,7 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			return usecase.ArtifactsService{GitHub: githubClient}.Download(ctx, launch.Repo, artifact, destDir, false)
 		},
 		CachesResolver: func(loadCtx context.Context) (caches.Data, error) {
-			service, err := cachesServiceFor(githubClient)
+			service, err := cachesServiceFor(githubClient, mutationLimiter)
 			if err != nil {
 				return caches.Data{}, err
 			}
@@ -1174,7 +1198,7 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			return caches.Data{Usage: usage, Caches: items}, nil
 		},
 		CacheDeleter: func(loadCtx context.Context, request tui.CacheDeleteRequest) (int, error) {
-			service, err := cachesServiceFor(githubClient)
+			service, err := cachesServiceFor(githubClient, mutationLimiter)
 			if err != nil {
 				return 0, err
 			}
@@ -1189,15 +1213,17 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 }
 
 // cachesServiceFor builds the kennel service when the adapter has the
-// capability; deletes share the one-per-second mutation pacing.
-func cachesServiceFor(githubClient usecase.GitHub) (usecase.CachesService, error) {
+// capability. The caller passes its mutation limiter so cache deletes
+// share the same one-per-second budget as reruns, cancels, and
+// deployment reviews — a fresh limiter here would reset the pacing.
+func cachesServiceFor(githubClient usecase.GitHub, limiter *usecase.MutationLimiter) (usecase.CachesService, error) {
 	cachesClient, ok := githubClient.(usecase.GitHubCaches)
 	if !ok {
 		return usecase.CachesService{}, errors.New("this adapter cannot reach the cache kennel")
 	}
 	return usecase.CachesService{
 		GitHub:  cachesClient,
-		Limiter: &usecase.MutationLimiter{MinSpacing: time.Second},
+		Limiter: limiter,
 	}, nil
 }
 

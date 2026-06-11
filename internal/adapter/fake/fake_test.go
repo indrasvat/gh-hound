@@ -229,9 +229,18 @@ func TestFakeCachesCapabilityIsDeterministicAndNearCap(t *testing.T) {
 
 func TestFakeCacheDeletesReportCountsAndNotFound(t *testing.T) {
 	adapter := New(ScenarioGreen)
-	count, err := adapter.DeleteCachesByKey(context.Background(), "indrasvat/gh-hound", "go-mod", "")
+	// Delete-by-key matches the COMPLETE key (live API semantics): a
+	// prefix must not delete, the exact key digs up every ref's copy.
+	if _, err := adapter.DeleteCachesByKey(context.Background(), "indrasvat/gh-hound", "go-mod", ""); err == nil {
+		t.Fatal("key prefix must not delete — the live API matches complete keys")
+	}
+	count, err := adapter.DeleteCachesByKey(context.Background(), "indrasvat/gh-hound", "go-mod-Linux-x64-1f2e3d", "")
 	if err != nil || count != 2 {
-		t.Fatalf("delete by key = %d, %v; want 2, nil", count, err)
+		t.Fatalf("delete by exact key = %d, %v; want 2 (both refs), nil", count, err)
+	}
+	count, err = adapter.DeleteCachesByKey(context.Background(), "indrasvat/gh-hound", "go-mod-Linux-x64-1f2e3d", "refs/pull/7/merge")
+	if err != nil || count != 1 {
+		t.Fatalf("ref-narrowed delete = %d, %v; want 1, nil", count, err)
 	}
 	count, err = adapter.DeleteCacheByID(context.Background(), "indrasvat/gh-hound", 9005)
 	if err != nil || count != 1 {
