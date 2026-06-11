@@ -304,6 +304,9 @@ func settleApp(t *testing.T, app App) App {
 // Returns whether the applied poll reported a repaint.
 func pollCycle(t *testing.T, app App) (App, bool) {
 	t.Helper()
+	// Force a poll past the adaptive due-gate so each cycle fetches,
+	// regardless of how little wall-clock elapsed since the last.
+	app.lastPollStart = time.Time{}
 	app, _ = app.Refresh()
 	if app.tickPoll == nil {
 		t.Fatal("Refresh started no background poll on a pollable route")
