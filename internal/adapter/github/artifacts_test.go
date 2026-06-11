@@ -152,7 +152,7 @@ func TestListJobsForAttemptPaginates(t *testing.T) {
 			count = 1
 			start = 100
 		}
-		for i := 0; i < count; i++ {
+		for i := range count {
 			if i > 0 {
 				jobs.WriteString(",")
 			}

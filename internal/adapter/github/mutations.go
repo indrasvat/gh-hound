@@ -90,7 +90,12 @@ func mapActionHTTPError(status int, header http.Header, payload []byte) error {
 	kind := usecase.ActionErrorUnknown
 	switch status {
 	case http.StatusForbidden:
-		if header.Get("X-RateLimit-Remaining") == "0" {
+		// Secondary rate limits also arrive as 403 — with Retry-After
+		// or an explicit message — and agents must back off, not treat
+		// them as permission failures.
+		if header.Get("X-RateLimit-Remaining") == "0" ||
+			header.Get("Retry-After") != "" ||
+			bytes.Contains(bytes.ToLower(payload), []byte("rate limit")) {
 			kind = usecase.ActionErrorRateLimit
 		} else {
 			kind = usecase.ActionErrorPermission

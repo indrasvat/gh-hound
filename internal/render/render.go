@@ -118,8 +118,15 @@ func WriteMutation(w io.Writer, format Format, result MutationResult) error {
 		encoder.SetIndent("", "  ")
 		return encoder.Encode(result)
 	case FormatMarkdown:
-		_, err := fmt.Fprintf(w, "# gh-hound %s\n\nRepo: `%s`\nRun: `%d`\nAccepted: %t\nURL: %s\n", result.Action, result.Repo, result.RunID, result.Accepted, result.HTMLURL)
-		return err
+		if _, err := fmt.Fprintf(w, "# gh-hound %s\n\nRepo: `%s`\nRun: `%d`\nAccepted: %t\nURL: %s\n", result.Action, result.Repo, result.RunID, result.Accepted, result.HTMLURL); err != nil {
+			return err
+		}
+		if result.Error != nil {
+			if _, err := fmt.Fprintf(w, "\nError: `%s` — %s\n", result.Error.Kind, result.Error.Message); err != nil {
+				return err
+			}
+		}
+		return nil
 	case FormatXML:
 		if _, err := fmt.Fprintln(w, xml.Header[:len(xml.Header)-1]); err != nil {
 			return err

@@ -173,6 +173,16 @@ func TestWriteMutationFormats(t *testing.T) {
 	if !strings.Contains(mdOut.String(), "rerun_job") || !strings.Contains(mdOut.String(), "actions/runs/571") {
 		t.Fatalf("md output = %s", mdOut.String())
 	}
+	var mdErr bytes.Buffer
+	refused := result
+	refused.Accepted = false
+	refused.Error = &MutationError{Kind: "conflict", Message: "run already completed"}
+	if err := WriteMutation(&mdErr, FormatMarkdown, refused); err != nil {
+		t.Fatalf("md refusal: %v", err)
+	}
+	if !strings.Contains(mdErr.String(), "conflict") || !strings.Contains(mdErr.String(), "run already completed") {
+		t.Fatalf("md refusal dropped the typed error: %s", mdErr.String())
+	}
 	var xmlOut bytes.Buffer
 	if err := WriteMutation(&xmlOut, FormatXML, result); err != nil {
 		t.Fatalf("xml: %v", err)

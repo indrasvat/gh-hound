@@ -141,3 +141,31 @@ func TestMutationRateLimitErrorCarriesRetryMetadata(t *testing.T) {
 		t.Fatalf("rate limit action error = %#v", actionErr)
 	}
 }
+
+func TestSecondaryRateLimit403MapsToRateLimit(t *testing.T) {
+	tests := []struct {
+		name    string
+		headers map[string]string
+		body    string
+		want    usecase.ActionErrorKind
+	}{
+		{"retry-after header", map[string]string{"Retry-After": "30"}, "slow down", usecase.ActionErrorRateLimit},
+		{"secondary message", nil, "You have exceeded a secondary rate limit", usecase.ActionErrorRateLimit},
+		{"plain permission", nil, "Resource not accessible by integration", usecase.ActionErrorPermission},
+	}
+	for _, tt := range tests {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			for k, v := range tt.headers {
+				w.Header().Set(k, v)
+			}
+			http.Error(w, tt.body, http.StatusForbidden)
+		}))
+		client := NewClient(server.URL, server.Client())
+		_, err := client.CancelRun(context.Background(), "indrasvat/gh-hound", 571)
+		server.Close()
+		actionErr, ok := usecase.AsActionError(err)
+		if !ok || actionErr.Kind != tt.want {
+			t.Fatalf("%s: kind = %#v, want %s", tt.name, err, tt.want)
+		}
+	}
+}
