@@ -176,6 +176,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.AddCommand(newRerunCommand(runtime, &options))
 	cmd.AddCommand(newCancelCommand(runtime, &options))
 	cmd.AddCommand(newDiffCommand(runtime, &options))
+	cmd.AddCommand(newFlakesCommand(runtime, &options))
 	cmd.AddCommand(newWorkflowsCommand(runtime, &options))
 	return cmd
 }
@@ -2121,6 +2122,8 @@ func fakeScenarioFor(scenario string) fake.Scenario {
 		return fake.ScenarioRegression
 	case "pack":
 		return fake.ScenarioPack
+	case "flaky":
+		return fake.ScenarioFlaky
 	default:
 		return fake.ScenarioGreen
 	}
@@ -2308,7 +2311,7 @@ func fakeResult(options cliOptions, scenario string) render.Result {
 	}
 	runStatus := "completed"
 	conclusion := "success"
-	if scenario == "failure" {
+	if scenario == "failure" || scenario == "flaky" {
 		conclusion = "failure"
 	}
 	if scenario == "pending" {
@@ -2378,6 +2381,9 @@ func normalizedScenario(options cliOptions) string {
 		// Multi-run watch scenario: 3 workflows off one push, staggered
 		// completion, Docs lost at the end.
 		return raw
+	case "flaky", "flake", "flakes":
+		// Seeded attempt flips + a retry-masked step for flake forensics.
+		return "flaky"
 	}
 	status := strings.ToLower(strings.TrimSpace(options.Status))
 	switch status {
