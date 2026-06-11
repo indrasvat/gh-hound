@@ -21,7 +21,7 @@ gh hound artifacts --run <id> --download <name> --dir <path> --no-tui --json
 gh hound approvals --run <id> --no-tui --json    # pending deploy gates (exit 1 = awaiting review)
 gh hound approvals --run <id> --approve --env production --comment "lgtm" --no-tui --json
 gh hound diff --workflow CI --no-tui --json      # who broke main? last green vs first bad
-gh hound caches --no-tui --json                  # cache kennel vs the 10 GB eviction cap
+gh hound caches --no-tui --json                  # cache kennel vs the eviction cap
 gh hound caches --delete-key <key> --ref <ref> --no-tui --json
 gh hound workflows --no-tui --json               # workflow states (why did my cron stop?)
 gh hound workflows --enable <id|path> --no-tui --json   # wake a disabled workflow
@@ -46,7 +46,7 @@ Each `failed[]` entry: `job`, `step`, `exit_code`, `annotations[]` (`path`, `lin
 
 Artifacts: `gh hound artifacts` lists `{id, name, size_in_bytes, expired, expires_at, digest}` for a run (latest on branch when `--run` omitted); `--download <name|id>` extracts into `<dir>/<artifact-name>/` and reports `downloaded.path`. Exit `0` success, `2` any error (expired artifacts are refused before download). Add `--artifacts` to `runs` for per-run artifact metadata (opt-in: paginated artifact-list calls per run, usually one).
 
-Caches: `gh hound caches` reports `usage` (`active_size_in_bytes`, `active_count`, `cap_bytes` — the 10 GB eviction cap; usage can exceed it because eviction lags) plus `caches[]` (`id`, `key`, `ref`, `size_in_bytes`, `last_accessed_at`, `created_at`). When CI suddenly slows, check the kennel: usage near `cap_bytes` means LRU eviction is thrashing your keys. Evict with `--delete-id <id>` or `--delete-key <key> [--ref <ref>]` (reports `deleted.deleted_count`). Exit `0` deleted or listed, `2` anything else with typed `error.kind` (`not_found` when nothing matched). The default `runs` path never touches the cache API.
+Caches: `gh hound caches` reports `usage` (`active_size_in_bytes`, `active_count`, `cap_bytes` — the repo's configured storage limit, 10 GB by default; usage can exceed it because eviction lags) plus `caches[]` (`id`, `key`, `ref`, `size_in_bytes`, `last_accessed_at`, `created_at`). When CI suddenly slows, check the kennel: usage near `cap_bytes` means LRU eviction is thrashing your keys. Evict with `--delete-id <id>` or `--delete-key <key> [--ref <ref>]` (reports `deleted.deleted_count`). Exit `0` deleted or listed, `2` anything else with typed `error.kind` (`not_found` when nothing matched). The default `runs` path never touches the cache API.
 
 Triage degrades per job: when a job log has expired, `log_excerpt` is empty and `exit_code` falls back to `1`, but `job`, `step`, and `annotations` are always present for every failed job. An empty `failed[]` on a red run means job details could not be listed — fall back to `html_url`.
 
