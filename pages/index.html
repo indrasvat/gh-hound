@@ -106,6 +106,11 @@
         <p class="trail-a">Rerun, rerun failed, cancel: local, visible, <b>confirmation-gated</b>.</p>
       </div>
       <div class="trail-row reveal">
+        <p class="trail-q">Deploy is waiting on me?</p>
+        <div class="keys"><span class="key">A</span></div>
+        <p class="trail-a">Gated runs wear a badge. Pick environments, then <b>open or hold the gate</b> &mdash; comment included.</p>
+      </div>
+      <div class="trail-row reveal">
         <p class="trail-q">Where did the time go?</p>
         <div class="keys"><span class="key">t</span></div>
         <p class="trail-a">Step picker, <b>slowest-gap detection</b>, jump or range-filter by time.</p>
@@ -126,7 +131,7 @@
   <section id="screens" class="wrap">
     <div class="section-head reveal">
       <h2>Best in show.</h2>
-      <p class="lede">One tab per trick: failure forensics, log time travel, a live watch, the palette, the good ending. Every frame rendered by <span class="hound">gh-hound</span> itself &mdash; the full log is this repo's own CI, caught red-handed.</p>
+      <p class="lede">One tab per trick: failure forensics, log time travel, a live watch, the palette, the deploy gate, the good ending. Every frame rendered by <span class="hound">gh-hound</span> itself &mdash; the full log is this repo's own CI, caught red-handed.</p>
     </div>
     <div class="tabs reveal" role="tablist" aria-label="gh-hound screens">
       <button class="tab" role="tab" aria-selected="true" data-shot="shot-detail">run detail</button>
@@ -135,6 +140,7 @@
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-time">time travel</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-watch">watch</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-palette">palette</button>
+      <button class="tab" role="tab" aria-selected="false" data-shot="shot-approvals">approvals</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-green">all green</button>
     </div>
     <div class="shot-stage reveal">
@@ -161,6 +167,10 @@
       <figure class="shot" id="shot-palette" role="tabpanel" hidden>
         <div class="term"><img src="/assets/shots/palette.png" alt="Command palette overlay listing jump targets like runs, failures, artifacts and dispatch" loading="lazy" width="2242" height="780"></div>
         <figcaption class="shot-caption">command palette · : jumps anywhere</figcaption>
+      </figure>
+      <figure class="shot" id="shot-approvals" role="tabpanel" hidden>
+        <div class="term"><img src="/assets/shots/approvals.png" alt="Deploy gate overlay: pickable pending environments with reviewers, a locked staging gate, and a review comment line" loading="lazy" width="2242" height="820"></div>
+        <figcaption class="shot-caption">deploy gate · A reviews waiting environments, y opens the gate</figcaption>
       </figure>
       <figure class="shot" id="shot-green" role="tabpanel" hidden>
         <div class="term"><img src="/assets/shots/all_green.png" alt="All checks passing banner above the recent runs list" loading="lazy" width="2242" height="628"></div>
