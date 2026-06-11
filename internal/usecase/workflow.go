@@ -1,12 +1,90 @@
 package usecase
 
 import (
+	"context"
 	"fmt"
+	"path"
+	"strconv"
 	"strings"
 
 	"github.com/indrasvat/gh-hound/internal/model"
 	"gopkg.in/yaml.v3"
 )
+
+// WorkflowsService lists workflows (state included — it rides the
+// existing list fetch, no extra calls) and toggles them on or off.
+// Toggle selectors are what the API accepts: a numeric workflow ID or
+// the workflow file path. Display names resolve only in the TUI, from
+// the list already in hand, so the pipe verbs keep the one-call
+// budget.
+type WorkflowsService struct {
+	GitHub  GitHub
+	Limiter *MutationLimiter
+}
+
+func (s WorkflowsService) List(ctx context.Context, repo string) ([]model.Workflow, error) {
+	return s.GitHub.ListWorkflows(ctx, repo)
+}
+
+// Enable wakes a workflow (active again). The success message is the
+// one source of hound voice for every surface: TUI toast and pipe.
+func (s WorkflowsService) Enable(ctx context.Context, repo, target string) (ActionResult, error) {
+	if err := s.prepareToggle(ctx, target); err != nil {
+		return ActionResult{}, err
+	}
+	result, err := s.GitHub.EnableWorkflow(ctx, repo, strings.TrimSpace(target))
+	if err != nil {
+		return ActionResult{}, err
+	}
+	result.Message = "back on duty."
+	return result, nil
+}
+
+// Disable muzzles a workflow (disabled_manually upstream).
+func (s WorkflowsService) Disable(ctx context.Context, repo, target string) (ActionResult, error) {
+	if err := s.prepareToggle(ctx, target); err != nil {
+		return ActionResult{}, err
+	}
+	result, err := s.GitHub.DisableWorkflow(ctx, repo, strings.TrimSpace(target))
+	if err != nil {
+		return ActionResult{}, err
+	}
+	result.Message = "muzzled."
+	return result, nil
+}
+
+// prepareToggle validates the selector BEFORE the limiter and the
+// write: a refusal must never burn an API call or a pacing slot.
+func (s WorkflowsService) prepareToggle(ctx context.Context, target string) error {
+	if !ValidWorkflowTarget(target) {
+		return ActionError{
+			Kind:    ActionErrorValidation,
+			Field:   "workflow",
+			Message: fmt.Sprintf("workflow %q is not a toggle selector — pass the numeric ID or the workflow file path (ci.yml), the two forms the API accepts", strings.TrimSpace(target)),
+		}
+	}
+	if s.Limiter != nil {
+		if err := s.Limiter.Wait(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ValidWorkflowTarget reports whether a selector is one the API
+// accepts directly: a numeric workflow ID or a .yml/.yaml file
+// name/path.
+func ValidWorkflowTarget(target string) bool {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return false
+	}
+	if _, err := strconv.ParseInt(target, 10, 64); err == nil {
+		return true
+	}
+	base := path.Base(target)
+	return strings.HasSuffix(base, ".yml") || strings.HasSuffix(base, ".yaml")
+}
 
 func ParseWorkflowDispatchInputs(raw string) ([]model.WorkflowInput, bool, error) {
 	var root yaml.Node
