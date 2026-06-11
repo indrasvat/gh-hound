@@ -1,6 +1,6 @@
 ---
 name: gh-hound-qa-ledger
-description: Running QA failure/verification ledger for gh-hound TUI audits (rounds 4-10; tasks 220-260 — round 10 PASS, the trail verified live + fixtures)
+description: Running QA failure/verification ledger for gh-hound TUI audits (rounds 4-12; tasks 220-290 — round 12 PASS, kennel header/space/plural fixes verified)
 metadata:
   type: project
 ---
@@ -134,6 +134,71 @@ updated and is the operative truth); runs fixture Age values sit
 under Duration header (pre-existing, renderer untouched in 260).
 No HTML mock exists for the trail — visual-contract row ⑪ is the
 mock reference. Evidence: .shux/out/r10-*.png.
+
+Round 11 (feat/290-cache-visibility, 9313beb, 2026-06-10): FAIL — the
+kennel (caches). Two P2s in NEW 290 code: (1) cachesHeader()
+(screens/caches/view.go:115) is a hand-written literal that drifts from
+row() math at ALL breakpoints — Ref header 1 col left of values,
+"Last used" header 4 cols left of age values and overlapping the
+right-aligned size field (hdr Ref@44/64 vs values@45/65; Last@68/94 vs
+values@72/98). The exact mined header-vs-row-math failure. (2) kennel
+`/` filter input silently drops the space key: caches/model.go
+updateInput has no `case "space"` (runs/model.go:158 maps it to " ");
+keyName emits "space" (5 runes) → default single-rune append skips it.
+No leak (routeInputMode covers RouteCaches; q correctly appends), just
+a dead key. P3s: "dig up 1 caches keyed" plural bug (key-path confirm
+lacks singular, app.go cacheDeleteConfirmMessage); fake kennel has no
+two caches sharing a key so the multi-match D confirm/toast variants
+are unreachable in fixtures AND interactive fake; shared error screen
+titles "Runs unavailable" over "kennel unavailable: …" on the caches
+route (screens/empty/view.go:33, pre-existing renderer); 200x60 keeps
+keyWidth=60 truncating keys that would fit (~90 cols idle). Everything
+else VERIFIED: fixtures caches/caches-pressure/caches-empty clean at
+3 breakpoints, warn line gated (present at 97%, forbidden+absent at
+31%/0%); gauge tri-band confirmed in pixels (31% green, 69% orange,
+97% red); palette lists approvals AND diff AND caches (rebase stitch
+OK); runs/approvals/diff/diff-inconclusive fixtures unregressed;
+footer matches contract + visual_contract_test carries caches row;
+palette→caches flips route instantly ("fetching…" meta, 220 invariant;
+"sniffing the kennel"/"digging it up" grace-skipped in fake, confirmed
+in binary, app.go:1367/1432 live paths); s sort toggles size↔stalest;
+/ narrows with match count; d/D confirm-gated match-count-first, esc
+backs out without mutating, y folds delete locally (5→4 caches,
+gauge 97→89% drops warn line) + "dug that one up." toast (TTL ~5s —
+capture within one chained command); esc layering exact (filter→clear,
+kennel→runs, help→kennel); j/k AND arrows move; empty-state voice line
+live via --scenario empty; error state via rate_limited; help overlay
+contextual to kennel; confirm-on-blank-base matches established
+rerun-confirm style (NOT a 290 regression — don't re-file). Evidence:
+.shux/out/r11-*.png + regenerated .claude/automations/screenshots.
+
+Round 12 (feat/290-cache-visibility, 69624e6, 2026-06-10): PASS —
+targeted re-audit of round-11 P2s + P3s. (1) cachesHeader() now derives
+from columnWidths() shared with row() (view.go:117); measured in
+regenerated fixtures: Ref hdr@45/65/65 == values, Size right-edge
+70/96/96 == values, "Last used" hdr@72/98/98 == age values at
+80/120/200 (at 80 the header label truncates to "Last u…" at the
+border — values fit; acceptable). Pinned by
+TestViewHeaderColumnsAlignWithRows. (2) kennel filter space FIXED live:
+raw 0x20 through real decoder → "/go m  0 matches" + "no caches match
+/go m"; backspace x2 restores "/go  4 matches"; esc clears (model.go:123
+case "space"). (3) multi-match D now REACHABLE: fake kennel caches
+go-mod-Linux-x64-1f2e3d on main (2.0 GB) + refs/pull/7/merge (819.2 MB)
+(fake.go:494/497); D → confirm "dig up 2 caches keyed
+\"go-mod-Linux-x64-1f2e3d\" (2.8 GB)?"; y → both rows fold 5→3,
+usage 9.7→6.9 GB, gauge 97% red → 69% orange, warn line correctly
+disappears, plural toast "✔ dug up 2 caches.". (4) single-match D reads
+"dig up 1 cache keyed …" (app.go:1410-1414 noun switch). NOTE: the
+caches/caches-pressure FIXTURE (__screen) dataset still uses
+go-mod-Linux-x64-stale99 as the 4th row — no shared key in fixtures;
+the multi-match flow is rehearsable only via the fake adapter
+(__vqa-tui). New P3 (unfiled, cosmetic): single-key confirm on the
+long setup-go-… key truncates the message tail to "(3.5 GB…" at the
+confirm-box edge at 120 cols — closing ")?" lost; key label already
+ellipsized by cacheKeyLabel, then fit-truncated again. Toast overlays
+headline right edge ("… ✔ dug up…") — established placement, don't
+re-file. Evidence: .shux/out/r12-live-*.png + regenerated
+.claude/automations/screenshots/caches{,-pressure,-empty}.
 
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.
