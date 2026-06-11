@@ -80,6 +80,14 @@ def main() -> int:
             scroll += read_available(controller, 0.1)
         os.write(controller, b"q")
         read_available(controller, 1.0)
+        # q must exit the app cleanly: a stuck or crashed app means the
+        # interaction never completed and the stream proves nothing.
+        clean_exit = False
+        for _ in range(40):
+            if proc.poll() is not None:
+                clean_exit = True
+                break
+            time.sleep(0.1)
     finally:
         if proc.poll() is None:
             proc.terminate()
@@ -89,6 +97,12 @@ def main() -> int:
     failures = []
     if not startup:
         failures.append("no startup bytes captured (harness problem)")
+    if not clean_exit:
+        failures.append("app did not exit cleanly after q — the drive never completed")
+    elif proc.returncode != 0:
+        failures.append(f"app exited {proc.returncode} — the drive crashed, the stream proves nothing")
+    if b"log" not in scroll and b"hound" not in startup:
+        failures.append("expected screen content missing from the stream — keys may not have landed")
     if b"\x1b[2J" in scroll:
         failures.append(
             f"full-screen erase during scroll: {scroll.count(b'\x1b[2J')} occurrences — flicker regression"
