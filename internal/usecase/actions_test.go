@@ -22,7 +22,7 @@ func TestActionServiceSpacesMutationsWithoutRealSleep(t *testing.T) {
 	if _, err := service.RerunRun(context.Background(), "indrasvat/gh-hound", 571, false); err != nil {
 		t.Fatalf("first rerun returned error: %v", err)
 	}
-	if _, err := service.RerunFailedJobs(context.Background(), "indrasvat/gh-hound", 571); err != nil {
+	if _, err := service.RerunFailedJobs(context.Background(), "indrasvat/gh-hound", 571, true); err != nil {
 		t.Fatalf("second rerun returned error: %v", err)
 	}
 	if clock.slept != time.Second {

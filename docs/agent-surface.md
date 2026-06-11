@@ -13,6 +13,11 @@ gh hound runs --run <run-id> --attempt <n> --no-tui --json
 gh hound artifacts --run <run-id> --no-tui --json
 gh hound artifacts --run <run-id> --download <name> --dir <path> --no-tui --json
 gh hound runs --artifacts --no-tui --json
+gh hound rerun --run <run-id> --no-tui --json
+gh hound rerun --run <run-id> --failed-only --debug --no-tui --json
+gh hound rerun --run <run-id> --job <job-id> --no-tui --json
+gh hound cancel --run <run-id> --no-tui --json
+gh hound cancel --run <run-id> --force --no-tui --json
 gh hound runs --no-tui --format md
 gh hound runs --no-tui --format xml
 ```
@@ -30,9 +35,24 @@ gh hound runs --no-tui --format xml
 
 `watch --json` is fail-fast: if the watched run becomes red, it exits `1` and includes the failure object immediately.
 
+## Mutations
+
+The leash works both ways: agents that diagnose with `runs --json` can act with `rerun` and `cancel` without shelling out to `gh run`.
+
+```bash
+gh hound rerun --run <id> [--failed-only | --job <job-id>] [--debug] --no-tui --json
+gh hound cancel --run <id> [--force] --no-tui --json
+```
+
+Result envelope: `{repo, run_id, job_id?, action, accepted, html_url}` where `action` is one of `rerun | rerun_failed | rerun_job | cancel | force_cancel` (`job_id` appears only for `rerun_job`). `html_url` is reconstructed from repo + run id — the verbs make exactly one API call. `--debug` enables runner diagnostic and step debug logging on every rerun form (live-verified against API v2026-03-10).
+
+Mutation exit codes: `0` accepted, `2` anything else (validation such as `--job` with `--failed-only`, permission, conflict like cancelling a completed run, API). Exit `1` stays reserved for actionable CI state and is never returned by mutation verbs. Mutations are paced at one per second through the same serial queue as reads.
+
+On exit `2` the envelope still writes with `accepted: false` and a typed refusal: `error: {kind, message}` where `kind` is one of `validation | permission | conflict | rate_limit | network | unknown`. Harnesses can rehearse refusals deterministically with `--fake-scenario conflict` or `--fake-scenario permission`.
+
 ## JSON Contract
 
-The JSON schema lives at `internal/render/testdata/schema.json`; the canonical failure fixture lives at `internal/render/testdata/failure.golden.json`.
+The JSON schema lives at `internal/render/testdata/schema.json` (mutation envelope under `$defs.mutation_result`); the canonical failure fixture lives at `internal/render/testdata/failure.golden.json`.
 
 Each run includes:
 

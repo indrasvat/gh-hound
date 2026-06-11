@@ -105,11 +105,11 @@ func (g *watchGitHub) RerunRun(context.Context, string, int64, bool) (usecase.Ac
 	return usecase.ActionResult{}, errors.New("not implemented")
 }
 
-func (g *watchGitHub) RerunFailedJobs(context.Context, string, int64) (usecase.ActionResult, error) {
+func (g *watchGitHub) RerunFailedJobs(context.Context, string, int64, bool) (usecase.ActionResult, error) {
 	return usecase.ActionResult{}, errors.New("not implemented")
 }
 
-func (g *watchGitHub) RerunJob(context.Context, string, int64) (usecase.ActionResult, error) {
+func (g *watchGitHub) RerunJob(context.Context, string, int64, bool) (usecase.ActionResult, error) {
 	return usecase.ActionResult{}, errors.New("not implemented")
 }
 

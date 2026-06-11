@@ -1,7 +1,7 @@
 <p align="center">
   <img src="assets/gh-hound_logo.png" alt="gh-hound logo" width="210"><br>
   <strong>GitHub Actions, without the browser side quest.</strong><br>
-  <em>A fast terminal cockpit for "what broke?", "where?", "can I rerun it?", and "what should my agent fix?"</em><br><br>
+  <em>Hunts down "what broke?", "where?", "can I rerun it?", and "what should my agent fix?" — without leaving your terminal.</em><br><br>
   <a href="https://github.com/indrasvat/gh-hound/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/indrasvat/gh-hound/ci.yml?branch=main&style=flat&labelColor=1a1a1a&label=CI" alt="CI"></a>
   <a href="https://github.com/indrasvat/gh-hound/releases/latest"><img src="https://img.shields.io/github/v/release/indrasvat/gh-hound?style=flat&labelColor=1a1a1a" alt="release"></a>
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat&labelColor=1a1a1a" alt="MIT">
@@ -114,7 +114,8 @@ The local gate includes race-enabled Go tests, large-log performance tests, and 
 - **Dispatch form**: `workflow_dispatch` workflows and inputs rendered as a keyboard-driven form.
 - **Overlays**: command palette, contextual help, confirm modals, and rate-limit/error toasts.
 - **Themes and glyphs**: Bramble dark theme, Bone alternate, text-presentation Unicode, no emoji dependency.
-- **Agent surface**: JSON/Markdown/XML output, Appendix-B schema, and exit codes `0/1/2/3`.
+- **Agent surface**: JSON/Markdown/XML output, Appendix-B schema, and exit codes `0/1/2/3`. The leash works both ways: `rerun` and `cancel` verbs act from the same surface (`--failed-only`, `--job`, `--debug`, `--force`).
+- **Async everywhere**: no keystroke blocks on the network — shared spinner, dimmed reloads, instant skeletons, byte-progress bars on multi-MB log downloads, esc cancels the work itself.
 - **Verification harness**: `make vqa` captures every primary screen and interaction through `shux`.
 
 ## Install
@@ -172,6 +173,8 @@ gh hound watch
 gh hound runs --no-tui --json
 gh hound runs --status failure --no-tui --json
 gh hound watch --json
+gh hound rerun --run <id> --failed-only --debug --no-tui --json
+gh hound cancel --run <id> --no-tui --json
 gh hound artifacts --no-tui --json
 gh hound artifacts --run <run-id> --download <name> --dir <path> --no-tui --json
 gh hound runs --run <run-id> --attempt 2 --no-tui --json   # forensics on a re-run

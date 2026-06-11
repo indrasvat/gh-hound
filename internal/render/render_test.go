@@ -132,3 +132,62 @@ func fixtureResult() Result {
 type errFixture struct{}
 
 func (errFixture) Error() string { return "boom" }
+
+func TestWriteMutationFormats(t *testing.T) {
+	result := MutationResult{
+		Repo:     "indrasvat/gh-hound",
+		RunID:    571,
+		JobID:    399,
+		Action:   "rerun_job",
+		Accepted: true,
+		HTMLURL:  "https://github.com/indrasvat/gh-hound/actions/runs/571",
+	}
+	var jsonOut bytes.Buffer
+	if err := WriteMutation(&jsonOut, FormatJSON, result); err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatalf("json decode: %v", err)
+	}
+	for _, key := range []string{"repo", "run_id", "job_id", "action", "accepted", "html_url"} {
+		if _, ok := decoded[key]; !ok {
+			t.Fatalf("json missing %q: %s", key, jsonOut.String())
+		}
+	}
+	// job_id is omitted for run-level mutations.
+	var runLevel bytes.Buffer
+	runResult := result
+	runResult.JobID = 0
+	runResult.Action = "rerun"
+	if err := WriteMutation(&runLevel, FormatJSON, runResult); err != nil {
+		t.Fatalf("json run-level: %v", err)
+	}
+	if strings.Contains(runLevel.String(), "job_id") {
+		t.Fatalf("run-level mutation leaked job_id: %s", runLevel.String())
+	}
+	var mdOut bytes.Buffer
+	if err := WriteMutation(&mdOut, FormatMarkdown, result); err != nil {
+		t.Fatalf("md: %v", err)
+	}
+	if !strings.Contains(mdOut.String(), "rerun_job") || !strings.Contains(mdOut.String(), "actions/runs/571") {
+		t.Fatalf("md output = %s", mdOut.String())
+	}
+	var mdErr bytes.Buffer
+	refused := result
+	refused.Accepted = false
+	refused.Error = &MutationError{Kind: "conflict", Message: "run already completed"}
+	if err := WriteMutation(&mdErr, FormatMarkdown, refused); err != nil {
+		t.Fatalf("md refusal: %v", err)
+	}
+	if !strings.Contains(mdErr.String(), "conflict") || !strings.Contains(mdErr.String(), "run already completed") {
+		t.Fatalf("md refusal dropped the typed error: %s", mdErr.String())
+	}
+	var xmlOut bytes.Buffer
+	if err := WriteMutation(&xmlOut, FormatXML, result); err != nil {
+		t.Fatalf("xml: %v", err)
+	}
+	if !strings.Contains(xmlOut.String(), "<mutation_result") || !strings.Contains(xmlOut.String(), `action="rerun_job"`) {
+		t.Fatalf("xml output = %s", xmlOut.String())
+	}
+}

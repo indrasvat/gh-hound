@@ -22,12 +22,12 @@ PLANNED
 The JSON surface can see everything and do nothing. Close the loop for agents: `gh hound rerun --run <id> [--failed-only] [--debug]`, `gh hound cancel --run <id> [--force]`, machine-readable results, documented exit codes.
 
 ## Scope
-- `rerun` subcommand: `--run <id>` (required), `--failed-only`, `--debug`, `--job <id>` for single-job rerun. `--debug` combines with ALL rerun forms — the API documents `enable_debug_logging` on full rerun, rerun-failed-jobs, and job rerun alike; pin each request body in adapter tests and confirm during live verification.
+- `rerun` subcommand: `--run <id>` (required), `--failed-only`, `--debug`, `--job <id>` for single-job rerun. `--debug` combines with ALL rerun forms — **live-verified 2026-06-10 on API v2026-03-10**: `enable_debug_logging=true` returned `201 Created` on `runs/{id}/rerun-failed-jobs` (run 27245877203) and `jobs/{id}/rerun` (job 80701207312); full rerun long-documented. Request bodies pinned in adapter tests.
 - `cancel` subcommand: `--run <id>`, `--force`.
 - JSON result: `{repo, run_id, action, accepted: true, html_url}` where `action` enumerates **every** mutation path: `"rerun" | "rerun_failed" | "rerun_job" | "cancel" | "force_cancel"` (single-job rerun carries `job_id` too); typed error object on failure (existing `ActionErrorKind` taxonomy). `html_url` is **reconstructed** (`https://github.com/{repo}/actions/runs/{id}`), never fetched — the mutation endpoints return no body and the one-call budget holds.
 - Exit codes follow the global contract (1 is reserved for actionable CI state, never command-local): `0` mutation accepted, `2` anything else (validation, conflict such as cancelling a completed run, permission, API) — agents branch on `error.kind` in the JSON, which the schema enumerates.
 - Mutation pacing: the existing 1s serial spacing applies; document it.
-- TUI gains nothing new except: rerun confirm overlay gets a `d` toggle for debug logging (currently only watch has `d`); footer/help updated.
+- TUI gains nothing new except: rerun confirm overlay gets a `d` toggle for debug logging (currently only watch has `d`); the confirm FOOTER documents it (`y confirm · d debug · enter/n/esc cancel`) — the help overlay is structurally unreachable from a modal, so the footer is the documentation surface (review-accepted deviation).
 
 ## Out of Scope
 - Bulk mutations, `--all-failed` across runs, watch auto-attach after rerun (Task 270).

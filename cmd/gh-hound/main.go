@@ -149,7 +149,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.PersistentFlags().StringVar((*string)(&options.Format), "format", "json", "pipe output format: json, md, xml (env HOUND_FORMAT)")
 	cmd.PersistentFlags().StringVar(&options.LogLevel, "log-level", "info", "log level: off, error, warn, info, debug (env HOUND_LOG_LEVEL)")
 	cmd.PersistentFlags().BoolVar(&options.TraceHTTP, "trace-http", false, "trace GitHub API calls to the JSON log (env HOUND_TRACE_HTTP)")
-	cmd.PersistentFlags().StringVar(&options.Fake, "fake-scenario", "", "deterministic fake scenario: green, failure, pending, empty, api_error (env HOUND_FAKE_SCENARIO)")
+	cmd.PersistentFlags().StringVar(&options.Fake, "fake-scenario", "", "deterministic fake scenario: green, failure, pending, empty, api_error, conflict, permission (env HOUND_FAKE_SCENARIO)")
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		applyEnv(&options, runtime.Env)
 		return nil
@@ -163,7 +163,165 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.AddCommand(newWatchCommand(runtime, &options))
 	cmd.AddCommand(newDispatchCommand(runtime, &options))
 	cmd.AddCommand(newArtifactsCommand(runtime, &options))
+	cmd.AddCommand(newRerunCommand(runtime, &options))
+	cmd.AddCommand(newCancelCommand(runtime, &options))
 	return cmd
+}
+
+func newRerunCommand(runtime commandRuntime, options *cliOptions) *cobra.Command {
+	var failedOnly, debug bool
+	var jobID int64
+	cmd := &cobra.Command{
+		Use:   "rerun",
+		Short: "Send a run (or job) back out, optionally with debug logging",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			applyEnv(options, runtime.Env)
+			options.NoTUI = true
+			return writeMutationResult(cmd.Context(), runtime.Stdout, *options, runtime, mutationRequest{
+				runID:      options.RunID,
+				jobID:      jobID,
+				failedOnly: failedOnly,
+				debug:      debug,
+			})
+		},
+	}
+	cmd.Flags().Int64Var(&options.RunID, "run", 0, "run ID to rerun")
+	cmd.Flags().Int64Var(&jobID, "job", 0, "rerun a single job by ID")
+	cmd.Flags().BoolVar(&failedOnly, "failed-only", false, "rerun only the failed jobs")
+	cmd.Flags().BoolVar(&debug, "debug", false, "enable runner diagnostic and step debug logging")
+	return cmd
+}
+
+func newCancelCommand(runtime commandRuntime, options *cliOptions) *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "cancel",
+		Short: "Call a run off",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			applyEnv(options, runtime.Env)
+			options.NoTUI = true
+			return writeMutationResult(cmd.Context(), runtime.Stdout, *options, runtime, mutationRequest{
+				runID:  options.RunID,
+				cancel: true,
+				force:  force,
+			})
+		},
+	}
+	cmd.Flags().Int64Var(&options.RunID, "run", 0, "run ID to cancel")
+	cmd.Flags().BoolVar(&force, "force", false, "force-cancel a run stuck in cancellation")
+	return cmd
+}
+
+// mutationRequest is the resolved intent of a rerun/cancel invocation.
+type mutationRequest struct {
+	runID      int64
+	jobID      int64
+	failedOnly bool
+	debug      bool
+	cancel     bool
+	force      bool
+}
+
+// writeMutationResult performs exactly one mutation API call and emits
+// the schema-stable envelope. Exit codes follow the global contract:
+// 0 accepted, 2 anything else (agents branch on error.kind upstream).
+// mutationAction names the request's path in the result enum.
+func mutationAction(request mutationRequest) string {
+	switch {
+	case request.cancel && request.force:
+		return "force_cancel"
+	case request.cancel:
+		return "cancel"
+	case request.jobID != 0:
+		return "rerun_job"
+	case request.failedOnly:
+		return "rerun_failed"
+	default:
+		return "rerun"
+	}
+}
+
+func writeMutationResult(ctx context.Context, w io.Writer, options cliOptions, runtime commandRuntime, request mutationRequest) error {
+	format := render.Format(options.Format)
+	result := render.MutationResult{
+		Repo:    firstNonEmpty(options.Repo, ""),
+		RunID:   request.runID,
+		JobID:   request.jobID,
+		Action:  mutationAction(request),
+		HTMLURL: fmt.Sprintf("https://github.com/%s/actions/runs/%d", firstNonEmpty(options.Repo, ""), request.runID),
+	}
+	// Every refusal writes the envelope: agents branch on error.kind
+	// on stdout and exit 2 is never a bare stderr message (the silent
+	// outcomeError suppresses duplicate printing in main).
+	refuse := func(err error) error {
+		kind, message := "unknown", err.Error()
+		if actionErr, ok := usecase.AsActionError(err); ok {
+			kind, message = string(actionErr.Kind), actionErr.Message
+		}
+		result.Accepted = false
+		result.Error = &render.MutationError{Kind: kind, Message: message}
+		if writeErr := render.WriteMutation(w, format, result); writeErr != nil {
+			return writeErr
+		}
+		return outcomeError{code: render.ExitError}
+	}
+	if request.runID <= 0 {
+		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Message: "--run <run-id> (a positive ID) is required"})
+	}
+	if request.jobID < 0 {
+		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Message: "--job must be a positive job ID"})
+	}
+	if request.jobID != 0 && request.failedOnly {
+		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Message: "--job and --failed-only are mutually exclusive"})
+	}
+
+	var githubClient usecase.GitHub
+	if options.Fake != "" {
+		scenario := normalizedScenario(options)
+		if scenario == "api_error" {
+			kind := usecase.ActionErrorNetwork
+			if strings.Contains(strings.ToLower(options.Fake), "rate") {
+				kind = usecase.ActionErrorRateLimit
+			}
+			return refuse(usecase.ActionError{Kind: kind, Message: "github api unavailable"})
+		}
+		githubClient = fake.New(fakeScenarioFor(scenario))
+		result.Repo = firstNonEmpty(options.Repo, "indrasvat/gh-hound")
+	} else {
+		target, err := resolveTarget(ctx, options, runtime)
+		if err != nil {
+			return refuse(err)
+		}
+		defer func() {
+			_ = target.close()
+		}()
+		githubClient = target.github
+		result.Repo = target.repo
+	}
+	result.HTMLURL = fmt.Sprintf("https://github.com/%s/actions/runs/%d", result.Repo, request.runID)
+
+	service := usecase.ActionService{
+		GitHub:  githubClient,
+		Limiter: &usecase.MutationLimiter{MinSpacing: time.Second},
+	}
+	var err error
+	switch result.Action {
+	case "force_cancel":
+		_, err = service.ForceCancelRun(ctx, result.Repo, request.runID)
+	case "cancel":
+		_, err = service.CancelRun(ctx, result.Repo, request.runID)
+	case "rerun_job":
+		_, err = service.RerunJob(ctx, result.Repo, request.jobID, request.debug)
+	case "rerun_failed":
+		_, err = service.RerunFailedJobs(ctx, result.Repo, request.runID, request.debug)
+	default:
+		_, err = service.RerunRun(ctx, result.Repo, request.runID, request.debug)
+	}
+	if err != nil {
+		return refuse(err)
+	}
+	result.Accepted = true
+	return render.WriteMutation(w, format, result)
 }
 
 func newScreenCommand(stdout io.Writer) *cobra.Command {
@@ -585,12 +743,12 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			case usecase.ActionRerunRun:
 				return actionService.RerunRun(ctx, launch.Repo, request.Run.ID, request.Debug)
 			case usecase.ActionRerunFailedJobs:
-				return actionService.RerunFailedJobs(ctx, launch.Repo, request.Run.ID)
+				return actionService.RerunFailedJobs(ctx, launch.Repo, request.Run.ID, request.Debug)
 			case usecase.ActionRerunJob:
 				if request.Job.ID == 0 {
 					return usecase.ActionResult{}, fmt.Errorf("job is not loaded")
 				}
-				return actionService.RerunJob(ctx, launch.Repo, request.Job.ID)
+				return actionService.RerunJob(ctx, launch.Repo, request.Job.ID, request.Debug)
 			case usecase.ActionCancelRun:
 				return actionService.CancelRun(ctx, launch.Repo, request.Run.ID)
 			case usecase.ActionForceCancelRun:
@@ -1234,6 +1392,10 @@ func fakeScenarioFor(scenario string) fake.Scenario {
 		return fake.ScenarioRunning
 	case "empty":
 		return fake.ScenarioEmpty
+	case "conflict":
+		return fake.ScenarioConflict
+	case "permission":
+		return fake.ScenarioPermission
 	default:
 		return fake.ScenarioGreen
 	}
@@ -1478,6 +1640,9 @@ func normalizedScenario(options cliOptions) string {
 		return "empty"
 	case "api_error", "network_error", "rate_limited", "error":
 		return "api_error"
+	case "conflict", "permission":
+		// Mutation-refusal scenarios: typed errors for agent harnesses.
+		return raw
 	}
 	status := strings.ToLower(strings.TrimSpace(options.Status))
 	switch status {

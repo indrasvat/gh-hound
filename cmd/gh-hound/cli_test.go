@@ -1003,11 +1003,11 @@ func (g *cliGitHub) RerunRun(context.Context, string, int64, bool) (usecase.Acti
 	return usecase.ActionResult{}, nil
 }
 
-func (g *cliGitHub) RerunFailedJobs(context.Context, string, int64) (usecase.ActionResult, error) {
+func (g *cliGitHub) RerunFailedJobs(context.Context, string, int64, bool) (usecase.ActionResult, error) {
 	return usecase.ActionResult{}, nil
 }
 
-func (g *cliGitHub) RerunJob(context.Context, string, int64) (usecase.ActionResult, error) {
+func (g *cliGitHub) RerunJob(context.Context, string, int64, bool) (usecase.ActionResult, error) {
 	return usecase.ActionResult{}, nil
 }
 
@@ -1332,4 +1332,167 @@ func (g *cliGitHub) ListJobsForAttempt(context.Context, string, int64, int) ([]m
 	defer g.mu.Unlock()
 	g.attemptJobCalls++
 	return g.attemptJobs, nil
+}
+
+func runMutationCommand(t *testing.T, args ...string) (int, map[string]any, error) {
+	t.Helper()
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: &bytes.Buffer{},
+		Env:    emptyEnv,
+		IsTTY:  true,
+	}, testBuildInfo())
+	cmd.SetArgs(append(args, "--no-tui", "--json", "--fake-scenario", "failure", "-R", "indrasvat/gh-hound"))
+	code, err := executeCommand(cmd)
+	decoded := map[string]any{}
+	if out.Len() > 0 {
+		if jsonErr := json.Unmarshal(out.Bytes(), &decoded); jsonErr != nil {
+			t.Fatalf("output is not JSON: %v\n%s", jsonErr, out.String())
+		}
+	}
+	return code, decoded, err
+}
+
+func TestRerunCommandEmitsAcceptedJSON(t *testing.T) {
+	code, decoded, err := runMutationCommand(t, "rerun", "--run", "571", "--debug")
+	if err != nil || code != 0 {
+		t.Fatalf("rerun exit = %d err = %v", code, err)
+	}
+	if decoded["action"] != "rerun" || decoded["accepted"] != true {
+		t.Fatalf("rerun result = %#v", decoded)
+	}
+	if decoded["run_id"] != float64(571) {
+		t.Fatalf("run_id = %v", decoded["run_id"])
+	}
+	if decoded["html_url"] != "https://github.com/indrasvat/gh-hound/actions/runs/571" {
+		t.Fatalf("html_url = %v (must be reconstructed, never fetched)", decoded["html_url"])
+	}
+}
+
+func TestRerunFailedOnlyAction(t *testing.T) {
+	code, decoded, err := runMutationCommand(t, "rerun", "--run", "571", "--failed-only", "--debug")
+	if err != nil || code != 0 {
+		t.Fatalf("rerun --failed-only exit = %d err = %v", code, err)
+	}
+	if decoded["action"] != "rerun_failed" {
+		t.Fatalf("action = %v, want rerun_failed", decoded["action"])
+	}
+}
+
+func TestRerunJobAction(t *testing.T) {
+	code, decoded, err := runMutationCommand(t, "rerun", "--run", "571", "--job", "399")
+	if err != nil || code != 0 {
+		t.Fatalf("rerun --job exit = %d err = %v", code, err)
+	}
+	if decoded["action"] != "rerun_job" || decoded["job_id"] != float64(399) {
+		t.Fatalf("job rerun result = %#v", decoded)
+	}
+}
+
+func TestRerunJobRejectsFailedOnly(t *testing.T) {
+	code, decoded, _ := runMutationCommand(t, "rerun", "--run", "571", "--job", "399", "--failed-only")
+	if code != 2 {
+		t.Fatalf("conflicting flags exit = %d, want 2\n%v", code, decoded)
+	}
+}
+
+func TestRerunRequiresRunID(t *testing.T) {
+	code, _, _ := runMutationCommand(t, "rerun")
+	if code != 2 {
+		t.Fatalf("missing --run exit = %d, want 2", code)
+	}
+}
+
+func TestCancelCommandActions(t *testing.T) {
+	code, decoded, err := runMutationCommand(t, "cancel", "--run", "571")
+	if err != nil || code != 0 {
+		t.Fatalf("cancel exit = %d err = %v", code, err)
+	}
+	if decoded["action"] != "cancel" {
+		t.Fatalf("action = %v, want cancel", decoded["action"])
+	}
+	code, decoded, err = runMutationCommand(t, "cancel", "--run", "571", "--force")
+	if err != nil || code != 0 {
+		t.Fatalf("force cancel exit = %d err = %v", code, err)
+	}
+	if decoded["action"] != "force_cancel" {
+		t.Fatalf("action = %v, want force_cancel", decoded["action"])
+	}
+}
+
+func TestMutationAPIErrorExitsTwoWithTypedError(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: &bytes.Buffer{},
+		Env:    emptyEnv,
+		IsTTY:  true,
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"rerun", "--run", "571", "--no-tui", "--json", "--fake-scenario", "api_error", "-R", "indrasvat/gh-hound"})
+	code, _ := executeCommand(cmd)
+	if code != 2 {
+		t.Fatalf("api error exit = %d, want 2\n%s", code, out.String())
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("api error wrote no envelope: %v\n%s", err, out.String())
+	}
+	if decoded["accepted"] != false || decoded["action"] != "rerun" {
+		t.Fatalf("api error envelope = %#v", decoded)
+	}
+	errObj, ok := decoded["error"].(map[string]any)
+	if !ok || errObj["kind"] != "network" {
+		t.Fatalf("api error kind = %#v, want network", decoded["error"])
+	}
+}
+
+func TestMutationValidationEmitsEnvelope(t *testing.T) {
+	for name, args := range map[string][]string{
+		"missing run":   {"rerun"},
+		"negative run":  {"rerun", "--run", "-5"},
+		"job+failed":    {"rerun", "--run", "571", "--job", "399", "--failed-only"},
+		"negative job":  {"rerun", "--run", "571", "--job", "-1"},
+		"cancel no run": {"cancel"},
+	} {
+		code, decoded, _ := runMutationCommand(t, args...)
+		if code != 2 {
+			t.Fatalf("%s: exit = %d, want 2", name, code)
+		}
+		errObj, ok := decoded["error"].(map[string]any)
+		if !ok || errObj["kind"] != "validation" {
+			t.Fatalf("%s: error = %#v, want validation kind", name, decoded["error"])
+		}
+		if decoded["accepted"] != false {
+			t.Fatalf("%s: accepted = %v", name, decoded["accepted"])
+		}
+	}
+}
+
+func TestMutationConflictEmitsTypedErrorEnvelope(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: &bytes.Buffer{},
+		Env:    emptyEnv,
+		IsTTY:  true,
+	}, testBuildInfo())
+	// The fake adapter refuses to cancel a completed run with a typed
+	// conflict — agents must see error.kind in the JSON envelope.
+	cmd.SetArgs([]string{"cancel", "--run", "569", "--no-tui", "--json", "--fake-scenario", "conflict", "-R", "indrasvat/gh-hound"})
+	code, _ := executeCommand(cmd)
+	if code != 2 {
+		t.Fatalf("conflict exit = %d, want 2\n%s", code, out.String())
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("error path emitted no JSON envelope: %v\n%s", err, out.String())
+	}
+	if decoded["accepted"] != false {
+		t.Fatalf("accepted = %v, want false", decoded["accepted"])
+	}
+	errObj, ok := decoded["error"].(map[string]any)
+	if !ok || errObj["kind"] == "" || errObj["kind"] == nil {
+		t.Fatalf("missing typed error: %#v", decoded)
+	}
 }

@@ -88,6 +88,61 @@ type Download struct {
 	FileCount int    `json:"file_count" xml:"file_count,attr"`
 }
 
+// MutationResult is the pipe envelope for the rerun and cancel verbs.
+// The action enum covers every mutation path; html_url is always
+// reconstructed from repo + run id, never fetched (the mutation
+// endpoints return no body and the one-call budget holds).
+type MutationResult struct {
+	XMLName  xml.Name       `json:"-" xml:"mutation_result"`
+	Repo     string         `json:"repo" xml:"repo,attr"`
+	RunID    int64          `json:"run_id" xml:"run_id,attr"`
+	JobID    int64          `json:"job_id,omitempty" xml:"job_id,attr,omitempty"`
+	Action   string         `json:"action" xml:"action,attr"`
+	Accepted bool           `json:"accepted" xml:"accepted,attr"`
+	HTMLURL  string         `json:"html_url" xml:"html_url,attr"`
+	Error    *MutationError `json:"error,omitempty" xml:"error,omitempty"`
+}
+
+// MutationError is the typed refusal agents branch on when a mutation
+// is not accepted (exit 2): kind mirrors the ActionError taxonomy
+// (validation, permission, conflict, rate_limit, network, unknown).
+type MutationError struct {
+	Kind    string `json:"kind" xml:"kind,attr"`
+	Message string `json:"message" xml:"message,attr"`
+}
+
+func WriteMutation(w io.Writer, format Format, result MutationResult) error {
+	switch format {
+	case "", FormatJSON:
+		encoder := json.NewEncoder(w)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(result)
+	case FormatMarkdown:
+		if _, err := fmt.Fprintf(w, "# gh-hound %s\n\nRepo: `%s`\nRun: `%d`\nAccepted: %t\nURL: %s\n", result.Action, result.Repo, result.RunID, result.Accepted, result.HTMLURL); err != nil {
+			return err
+		}
+		if result.Error != nil {
+			if _, err := fmt.Fprintf(w, "\nError: `%s` — %s\n", result.Error.Kind, result.Error.Message); err != nil {
+				return err
+			}
+		}
+		return nil
+	case FormatXML:
+		if _, err := fmt.Fprintln(w, xml.Header[:len(xml.Header)-1]); err != nil {
+			return err
+		}
+		encoder := xml.NewEncoder(w)
+		encoder.Indent("", "  ")
+		if err := encoder.Encode(result); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(w)
+		return err
+	default:
+		return fmt.Errorf("unsupported output format %q", format)
+	}
+}
+
 func WriteArtifacts(w io.Writer, format Format, result ArtifactsResult) error {
 	switch format {
 	case "", FormatJSON:

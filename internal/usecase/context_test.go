@@ -251,11 +251,11 @@ func (g *launchGitHub) RerunRun(context.Context, string, int64, bool) (usecase.A
 	return usecase.ActionResult{}, errors.New("not implemented")
 }
 
-func (g *launchGitHub) RerunFailedJobs(context.Context, string, int64) (usecase.ActionResult, error) {
+func (g *launchGitHub) RerunFailedJobs(context.Context, string, int64, bool) (usecase.ActionResult, error) {
 	return usecase.ActionResult{}, errors.New("not implemented")
 }
 
-func (g *launchGitHub) RerunJob(context.Context, string, int64) (usecase.ActionResult, error) {
+func (g *launchGitHub) RerunJob(context.Context, string, int64, bool) (usecase.ActionResult, error) {
 	return usecase.ActionResult{}, errors.New("not implemented")
 }
 
