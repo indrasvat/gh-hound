@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/indrasvat/gh-hound/internal/model"
 )
@@ -72,6 +73,39 @@ func locate(t *testing.T, trail *fakeTrail, maxPages int) RegressionVerdict {
 		t.Fatalf("LocateRegression returned error: %v", err)
 	}
 	return verdict
+}
+
+// TestLocateRegressionAnchorsPagesAndSkipsSeamDuplicates pins the
+// pagination-stability contract: page 2+ requests carry the first
+// page's newest created_at as CreatedBefore, and rows re-served across
+// a drifted seam are deduped instead of re-scanned (codex blocker:
+// without the anchor, runs landing mid-walk push the boundary past the
+// page cap and a located regression degrades to inconclusive).
+func TestLocateRegressionAnchorsPagesAndSkipsSeamDuplicates(t *testing.T) {
+	newest := red(10)
+	newest.CreatedAt = time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	trail := &fakeTrail{
+		pages: map[int][]model.Run{
+			// Page 2 re-serves page 1's tail (seam drift) before the
+			// real continuation that holds the clean boundary.
+			1: {newest, red(9), red(8), red(7), red(6)},
+			2: {red(7), red(6), red(5), green(4), red(3)},
+		},
+		rangeInfo: model.CommitRange{TotalCommits: 1},
+	}
+	verdict := locate(t, trail, 10)
+	if verdict.Status != RegressionLocated {
+		t.Fatalf("status = %s, want located\n%#v", verdict.Status, verdict)
+	}
+	if verdict.LastGood.RunNumber != 4 || verdict.FirstBad.RunNumber != 5 {
+		t.Fatalf("boundary = #%d -> #%d, want #4 -> #5", verdict.LastGood.RunNumber, verdict.FirstBad.RunNumber)
+	}
+	if got := trail.lastFilter.CreatedBefore; !got.Equal(newest.CreatedAt) {
+		t.Fatalf("page 2 filter CreatedBefore = %v, want the page-1 anchor %v", got, newest.CreatedAt)
+	}
+	if verdict.RunsScanned != 7 {
+		t.Fatalf("runs scanned = %d, want 7 unique (duplicates must not count)", verdict.RunsScanned)
+	}
 }
 
 func TestLocateRegressionFindsCleanBoundary(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
@@ -33,9 +34,10 @@ func TestListWorkflowRunsScopesPathAndMapsPinnedPayload(t *testing.T) {
 
 	client := NewClient(server.URL, server.Client())
 	runs, err := client.ListWorkflowRuns(context.Background(), "indrasvat/gh-hound", "ci.yml", usecase.RunFilter{
-		Branch:  "main",
-		PerPage: 100,
-		Page:    2,
+		Branch:        "main",
+		PerPage:       100,
+		Page:          2,
+		CreatedBefore: time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC),
 	})
 	if err != nil {
 		t.Fatalf("ListWorkflowRuns returned error: %v", err)
@@ -43,7 +45,7 @@ func TestListWorkflowRunsScopesPathAndMapsPinnedPayload(t *testing.T) {
 	if gotPath != "/repos/indrasvat/gh-hound/actions/workflows/ci.yml/runs" {
 		t.Fatalf("path = %q, want workflow-scoped runs path", gotPath)
 	}
-	if gotQuery != "branch=main&page=2&per_page=100" {
+	if gotQuery != "branch=main&created=%3C%3D2026-06-10T12%3A00%3A00Z&page=2&per_page=100" {
 		t.Fatalf("query = %q", gotQuery)
 	}
 	if len(runs) != 2 {

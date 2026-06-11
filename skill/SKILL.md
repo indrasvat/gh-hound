@@ -74,10 +74,10 @@ Deployment approvals: a `waiting` run is gated on environment review. `approvals
 For testing agent behavior without live CI:
 
 ```bash
-gh hound runs --no-tui --json --fake-scenario failure   # also: green, pending, empty, api_error, waiting
+gh hound runs --no-tui --json --fake-scenario failure   # also: green, pending, empty, api_error, waiting, regression
 ```
 
-The JSON schema lives at `internal/render/testdata/schema.json` in the gh-hound repo; the mutation envelope is under `$defs.mutation_result` and the approvals envelope under `$defs.approvals_result`.
+The JSON schema lives at `internal/render/testdata/schema.json` in the gh-hound repo; the mutation envelope is under `$defs.mutation_result`, the approvals envelope under `$defs.approvals_result`, and the regression verdict under `$defs.diff_result`.
 
 ## Guardrails
 

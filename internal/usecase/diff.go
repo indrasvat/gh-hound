@@ -187,6 +187,7 @@ type runHistoryWalker struct {
 	idx       int
 	exhausted bool
 	capped    bool
+	seen      map[int64]bool
 }
 
 func newRunHistoryWalker(history WorkflowRunHistory, repo, workflow, branch string, maxPages, perPage int) *runHistoryWalker {
@@ -196,38 +197,53 @@ func newRunHistoryWalker(history WorkflowRunHistory, repo, workflow, branch stri
 		workflow: workflow,
 		filter:   RunFilter{Repo: repo, Branch: branch, PerPage: perPage},
 		maxPages: maxPages,
+		seen:     map[int64]bool{},
 	}
 }
 
 func (w *runHistoryWalker) Next(ctx context.Context) (model.Run, bool, error) {
-	for w.idx >= len(w.buf) {
-		if w.exhausted {
-			return model.Run{}, false, nil
+	for {
+		for w.idx >= len(w.buf) {
+			if w.exhausted {
+				return model.Run{}, false, nil
+			}
+			if w.page >= w.maxPages {
+				w.capped = true
+				return model.Run{}, false, nil
+			}
+			w.page++
+			filter := w.filter
+			filter.Page = w.page
+			runs, err := w.history.ListWorkflowRuns(ctx, w.repo, w.workflow, filter)
+			if err != nil {
+				return model.Run{}, false, err
+			}
+			if len(runs) < filter.PerPage {
+				// A short page is the end of recorded history.
+				w.exhausted = true
+			}
+			if w.page == 1 && len(runs) > 0 && w.filter.CreatedBefore.IsZero() {
+				// Anchor later pages to the newest run that existed when
+				// the scan started: runs landing mid-walk would otherwise
+				// shift page seams and re-serve (or skip) rows.
+				w.filter.CreatedBefore = runs[0].CreatedAt
+			}
+			w.buf = runs
+			w.idx = 0
+			if len(runs) == 0 {
+				return model.Run{}, false, nil
+			}
 		}
-		if w.page >= w.maxPages {
-			w.capped = true
-			return model.Run{}, false, nil
+		run := w.buf[w.idx]
+		w.idx++
+		if w.seen[run.ID] {
+			// Same-timestamp arrivals can still slip inside the anchor;
+			// a duplicate row is noise, not history — skip it.
+			continue
 		}
-		w.page++
-		filter := w.filter
-		filter.Page = w.page
-		runs, err := w.history.ListWorkflowRuns(ctx, w.repo, w.workflow, filter)
-		if err != nil {
-			return model.Run{}, false, err
-		}
-		if len(runs) < filter.PerPage {
-			// A short page is the end of recorded history.
-			w.exhausted = true
-		}
-		w.buf = runs
-		w.idx = 0
-		if len(runs) == 0 {
-			return model.Run{}, false, nil
-		}
+		w.seen[run.ID] = true
+		return run, true, nil
 	}
-	run := w.buf[w.idx]
-	w.idx++
-	return run, true, nil
 }
 
 // coldTrailLine voices the capped-scan verdict.

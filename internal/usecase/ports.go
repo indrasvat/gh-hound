@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"io"
+	"time"
 
 	"github.com/indrasvat/gh-hound/internal/model"
 )
@@ -16,6 +17,10 @@ type RunFilter struct {
 	HeadSHA string
 	PerPage int
 	Page    int
+	// CreatedBefore anchors paginated walks: runs created after it are
+	// excluded (`created=<=t` upstream) so page seams stay stable while
+	// new runs land mid-scan.
+	CreatedBefore time.Time
 }
 
 type RequestMeta struct {
