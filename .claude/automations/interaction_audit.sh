@@ -41,6 +41,8 @@ scenarios=(
   log-search-fold
   watch-toggle
   dispatch-fill
+  palette-caches
+  caches-delete-confirm
 )
 
 adapter_for() {
@@ -78,6 +80,8 @@ keys_for() {
     log-search-fold) printf 'enter enter l / t r a i l enter z' ;;
     watch-toggle) printf 'w f d' ;;
     dispatch-fill) printf 'D T v 0 . 1 2 . 0 tab right' ;;
+    palette-caches) printf ': c a c h e s enter' ;;
+    caches-delete-confirm) printf ': c a c h e s enter d' ;;
     *) printf '' ;;
   esac
 }
