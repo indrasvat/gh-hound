@@ -157,7 +157,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.PersistentFlags().StringVar((*string)(&options.Format), "format", "json", "pipe output format: json, md, xml (env HOUND_FORMAT)")
 	cmd.PersistentFlags().StringVar(&options.LogLevel, "log-level", "info", "log level: off, error, warn, info, debug (env HOUND_LOG_LEVEL)")
 	cmd.PersistentFlags().BoolVar(&options.TraceHTTP, "trace-http", false, "trace GitHub API calls to the JSON log (env HOUND_TRACE_HTTP)")
-	cmd.PersistentFlags().StringVar(&options.Fake, "fake-scenario", "", "deterministic fake scenario: green, failure, pending, empty, api_error, conflict, permission (env HOUND_FAKE_SCENARIO)")
+	cmd.PersistentFlags().StringVar(&options.Fake, "fake-scenario", "", "deterministic fake scenario: green, failure, pending, empty, api_error, conflict, permission, waiting, regression, pack (env HOUND_FAKE_SCENARIO)")
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		applyEnv(&options, runtime.Env)
 		return nil
@@ -1931,6 +1931,8 @@ func fakeScenarioFor(scenario string) fake.Scenario {
 		return fake.ScenarioWaiting
 	case "regression":
 		return fake.ScenarioRegression
+	case "pack":
+		return fake.ScenarioPack
 	default:
 		return fake.ScenarioGreen
 	}
@@ -2183,6 +2185,10 @@ func normalizedScenario(options cliOptions) string {
 		return "waiting"
 	case "regression":
 		// Seeded last-green → first-red boundary for the diff verb.
+		return raw
+	case "pack":
+		// Multi-run watch scenario: 3 workflows off one push, staggered
+		// completion, Docs lost at the end.
 		return raw
 	}
 	status := strings.ToLower(strings.TrimSpace(options.Status))

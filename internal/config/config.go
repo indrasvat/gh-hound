@@ -33,10 +33,13 @@ type Config struct {
 	// DiffMaxPages bounds the regression scan's history walk (pages of
 	// 100 runs). Hitting the cap yields an inconclusive verdict.
 	DiffMaxPages int
-	Theme        Theme
-	PollMin      time.Duration
-	PollMax      time.Duration
-	Keybindings  map[string]string
+	// WatchGroupMax caps how many runs one pack board watches; the
+	// group poll budget stays one list call per tick regardless.
+	WatchGroupMax int
+	Theme         Theme
+	PollMin       time.Duration
+	PollMax       time.Duration
+	Keybindings   map[string]string
 }
 
 type LoadOptions struct {
@@ -46,27 +49,29 @@ type LoadOptions struct {
 }
 
 type Overrides struct {
-	DefaultScope *Scope
-	AutoWatch    *bool
-	Welcome      *bool
-	PerPage      *int
-	DiffMaxPages *int
-	Theme        *Theme
-	PollMin      *time.Duration
-	PollMax      *time.Duration
-	Keybindings  map[string]string
+	DefaultScope  *Scope
+	AutoWatch     *bool
+	Welcome       *bool
+	PerPage       *int
+	DiffMaxPages  *int
+	WatchGroupMax *int
+	Theme         *Theme
+	PollMin       *time.Duration
+	PollMax       *time.Duration
+	Keybindings   map[string]string
 }
 
 type fileConfig struct {
-	DefaultScope string            `toml:"default_scope"`
-	AutoWatch    *bool             `toml:"auto_watch"`
-	Welcome      *bool             `toml:"welcome"`
-	PerPage      *int              `toml:"per_page"`
-	DiffMaxPages *int              `toml:"diff_max_pages"`
-	Theme        string            `toml:"theme"`
-	PollMinMS    *int              `toml:"poll_min_ms"`
-	PollMaxMS    *int              `toml:"poll_max_ms"`
-	Keybindings  map[string]string `toml:"keybindings"`
+	DefaultScope  string            `toml:"default_scope"`
+	AutoWatch     *bool             `toml:"auto_watch"`
+	Welcome       *bool             `toml:"welcome"`
+	PerPage       *int              `toml:"per_page"`
+	DiffMaxPages  *int              `toml:"diff_max_pages"`
+	WatchGroupMax *int              `toml:"watch_group_max"`
+	Theme         string            `toml:"theme"`
+	PollMinMS     *int              `toml:"poll_min_ms"`
+	PollMaxMS     *int              `toml:"poll_max_ms"`
+	Keybindings   map[string]string `toml:"keybindings"`
 }
 
 //go:fix inline
@@ -76,15 +81,16 @@ func Ptr[T any](value T) *T {
 
 func Default() Config {
 	return Config{
-		DefaultScope: ScopeBranch,
-		AutoWatch:    false,
-		Welcome:      true,
-		PerPage:      30,
-		DiffMaxPages: 10,
-		Theme:        ThemeBramble,
-		PollMin:      2 * time.Second,
-		PollMax:      30 * time.Second,
-		Keybindings:  map[string]string{},
+		DefaultScope:  ScopeBranch,
+		AutoWatch:     false,
+		Welcome:       true,
+		PerPage:       30,
+		DiffMaxPages:  10,
+		WatchGroupMax: 10,
+		Theme:         ThemeBramble,
+		PollMin:       2 * time.Second,
+		PollMax:       30 * time.Second,
+		Keybindings:   map[string]string{},
 	}
 }
 
@@ -121,6 +127,9 @@ func (c Config) Validate() error {
 	}
 	if c.DiffMaxPages < 1 || c.DiffMaxPages > 100 {
 		return fmt.Errorf("diff_max_pages must be between 1 and 100, got %d", c.DiffMaxPages)
+	}
+	if c.WatchGroupMax < 1 || c.WatchGroupMax > 50 {
+		return fmt.Errorf("watch_group_max must be between 1 and 50, got %d", c.WatchGroupMax)
 	}
 	if c.PollMin <= 0 || c.PollMax <= 0 || c.PollMin > c.PollMax {
 		return fmt.Errorf("poll interval must be positive and min <= max, got min=%s max=%s", c.PollMin, c.PollMax)
@@ -160,6 +169,9 @@ func loadFile(path string, cfg *Config) error {
 	}
 	if fc.DiffMaxPages != nil {
 		cfg.DiffMaxPages = *fc.DiffMaxPages
+	}
+	if fc.WatchGroupMax != nil {
+		cfg.WatchGroupMax = *fc.WatchGroupMax
 	}
 	if fc.Theme != "" {
 		cfg.Theme = Theme(fc.Theme)
@@ -208,6 +220,13 @@ func applyEnv(lookup func(string) (string, bool), cfg *Config) error {
 		}
 		cfg.DiffMaxPages = parsed
 	}
+	if value, ok := lookup("HOUND_WATCH_GROUP_MAX"); ok {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("parse HOUND_WATCH_GROUP_MAX: %w", err)
+		}
+		cfg.WatchGroupMax = parsed
+	}
 	if value, ok := lookup("HOUND_THEME"); ok {
 		cfg.Theme = Theme(value)
 	}
@@ -243,6 +262,9 @@ func applyOverrides(overrides Overrides, cfg *Config) {
 	}
 	if overrides.DiffMaxPages != nil {
 		cfg.DiffMaxPages = *overrides.DiffMaxPages
+	}
+	if overrides.WatchGroupMax != nil {
+		cfg.WatchGroupMax = *overrides.WatchGroupMax
 	}
 	if overrides.Theme != nil {
 		cfg.Theme = *overrides.Theme
