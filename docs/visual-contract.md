@@ -20,7 +20,7 @@ Source of truth: `docs/gh-hound-design.html`. Re-read the matching mock before e
 | ⑩ | help | three-column contextual keymap; legend; Canvas/Layer overlay |
 | ⑪ | diff (the trail) | hound verdict line; ✔ last-good / ✗ first-bad boundary summary with attempt note; suspect rows with aligned sha/author/subject columns, selection bar, long-subject ellipsis; inconclusive state hints at diff_max_pages |
 | ⑫ | caches | kennel header `kennel: 7.2/10 GB · N caches`; pressure gauge colored ok (<50%), run (50–90%), fail (>90%); past 90% the warn line `kennel's almost full — GitHub starts evicting at 10 GB.`; sortable key/ref/size/last-used table with selected-row fill; `/` filter line; empty state `the kennel's empty — nothing cached on this repo.`; delete confirms lead with the match count |
-| ⑬ | workflows (the kennel) | one row per workflow: name, file, themed state badge (✔ active, ◌ asleep, ⊘ muzzled, ⊘ fork-disabled, ✗ deleted; unknown states verbatim with ◇); header columns share the row width math; e toggles only toggleable states (confirm-gated); fork-disabled/deleted carry a why-line instead of the toggle |
+| ⑬ | workflows (the pack) | one row per workflow: name, file, themed state badge (✔ active, ◌ asleep, ⊘ muzzled, ⊘ fork-disabled, ✗ deleted; unknown states verbatim with ◇); header columns share the row width math; e toggles only toggleable states (confirm-gated); fork-disabled/deleted carry a why-line instead of the toggle |
 
 ## Theme Tokens
 

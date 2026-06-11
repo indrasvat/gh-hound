@@ -36,7 +36,7 @@ func kennelReadyApp(t *testing.T, fetches *atomic.Int32) App {
 func paletteJumpToWorkflows(t *testing.T, app App) App {
 	t.Helper()
 	app, _ = app.Update(KeyMsg{Key: ":"})
-	for _, key := range []string{"k", "e", "n", "n", "e", "l"} {
+	for _, key := range []string{"p", "a", "c", "k"} {
 		app, _ = app.Update(KeyMsg{Key: key})
 	}
 	app, _ = app.Update(KeyMsg{Key: "enter"})
@@ -56,14 +56,14 @@ func TestPaletteWorkflowsOpensKennelAsync(t *testing.T) {
 		t.Fatal("workflows load never settled")
 	}
 	view := ansi.Strip(app.ViewSize(100, 30))
-	for _, want := range []string{"the kennel", "✔ active", "◌ asleep", "⊘ fork-disabled"} {
+	for _, want := range []string{"the pack", "✔ active", "◌ asleep", "⊘ fork-disabled"} {
 		if !strings.Contains(view, want) {
-			t.Fatalf("kennel screen missing %q:\n%s", want, view)
+			t.Fatalf("pack screen missing %q:\n%s", want, view)
 		}
 	}
 }
 
-// The Task 220 invariant: the keystroke that opens the kennel must not
+// The Task 220 invariant: the keystroke that opens the pack must not
 // block on the resolver.
 func TestWorkflowsKeystrokeNeverBlocks(t *testing.T) {
 	app := NewScenarioApp("failure", BuildInfo{Version: "test"})
@@ -236,15 +236,15 @@ func TestDispatchPickerBadgesAndRefusesNonActiveWorkflows(t *testing.T) {
 	}
 	view = ansi.Strip(app.ViewSize(100, 30))
 	if !strings.Contains(view, "asleep") || !strings.Contains(view, "workflows") {
-		t.Fatalf("refusal toast must point at the kennel:\n%s", view)
+		t.Fatalf("refusal toast must point at the pack roster:\n%s", view)
 	}
 }
 
 func TestWorkflowsFixturesRender(t *testing.T) {
-	kennel := RenderFixtureSize("workflows", 80, 24)
-	for _, want := range []string{"the kennel", "✔ active", "◌ asleep", "⊘ muzzled", "⊘ fork-disabled", "✗ deleted", "e wake/muzzle"} {
-		if !strings.Contains(kennel, want) {
-			t.Fatalf("workflows fixture missing %q:\n%s", want, kennel)
+	roster := RenderFixtureSize("workflows", 80, 24)
+	for _, want := range []string{"the pack", "✔ active", "◌ asleep", "⊘ muzzled", "⊘ fork-disabled", "✗ deleted", "e wake/muzzle"} {
+		if !strings.Contains(roster, want) {
+			t.Fatalf("workflows fixture missing %q:\n%s", want, roster)
 		}
 	}
 	picker := RenderFixtureSize("dispatch-picker", 80, 24)

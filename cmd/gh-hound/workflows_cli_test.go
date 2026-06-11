@@ -262,7 +262,7 @@ func TestDispatchWorkflowModelsCarryState(t *testing.T) {
 	}
 }
 
-// End-to-end TUI wiring: the live app must resolve the kennel through
+// End-to-end TUI wiring: the live app must resolve the pack through
 // the configured GitHub client and route workflow toggles through the
 // shared ActionHandler.
 func TestDefaultTUIAppWiresWorkflowsSurface(t *testing.T) {
@@ -285,7 +285,7 @@ func TestDefaultTUIAppWiresWorkflowsSurface(t *testing.T) {
 		t.Fatalf("defaultTUIApp: %v", err)
 	}
 	app, _ = app.Update(tui.KeyMsg{Key: ":"})
-	for _, key := range []string{"k", "e", "n", "n", "e", "l"} {
+	for _, key := range []string{"p", "a", "c", "k"} {
 		app, _ = app.Update(tui.KeyMsg{Key: key})
 	}
 	app, _ = app.Update(tui.KeyMsg{Key: "enter"})
@@ -294,9 +294,9 @@ func TestDefaultTUIAppWiresWorkflowsSurface(t *testing.T) {
 		t.Fatal("workflows load did not settle")
 	}
 	view := ansi.Strip(app.ViewSize(120, 32))
-	for _, want := range []string{"the kennel", "◌ asleep", "✔ active"} {
+	for _, want := range []string{"the pack", "◌ asleep", "✔ active"} {
 		if !strings.Contains(view, want) {
-			t.Fatalf("kennel view missing %q:\n%s", want, view)
+			t.Fatalf("pack view missing %q:\n%s", want, view)
 		}
 	}
 

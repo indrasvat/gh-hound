@@ -1,4 +1,4 @@
-// Package workflows is the kennel: every workflow in the repo with
+// Package workflows is the pack roster: every workflow in the repo with
 // its state, and the leash to wake or muzzle the ones that can be
 // toggled. It answers the classic mystery — "my cron workflow stopped
 // running" — without a browser.

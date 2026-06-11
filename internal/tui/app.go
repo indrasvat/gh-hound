@@ -1126,7 +1126,7 @@ func diffScreenHandled(key string) bool {
 	}
 }
 
-// openWorkflows fetches the kennel roster through startLoad — never
+// openWorkflows fetches the pack roster through startLoad — never
 // on the keypress path (Task 220 invariant) — and routes immediately
 // so the shared loading body holds the pane until the list lands.
 func (a App) openWorkflows() App {
@@ -1882,7 +1882,7 @@ func (a App) updateApprovals(msg KeyMsg) (App, bool) {
 }
 
 // workflowToggleFamily reports whether an action is a workflow
-// enable/disable; confirming one flips the kennel badge locally.
+// enable/disable; confirming one flips the pack badge locally.
 func workflowToggleFamily(action usecase.Action) bool {
 	switch action {
 	case usecase.ActionEnableWorkflow, usecase.ActionDisableWorkflow:
@@ -2507,7 +2507,7 @@ func (a *App) dispatchWorkflowByValue(value string) (dispatch.Workflow, bool) {
 }
 
 // dispatchOffDutyRefusal refuses dispatching a non-active workflow: a
-// doomed 422 is not a dispatch. The toast points at the kennel.
+// doomed 422 is not a dispatch. The toast points at the pack roster.
 func dispatchOffDutyRefusal(workflow dispatch.Workflow) (bool, usecase.Resilience) {
 	if workflow.State == "" || workflow.State == model.WorkflowStateActive {
 		return false, usecase.Resilience{}
@@ -2958,9 +2958,9 @@ func (a App) chromeParts() (string, string, string) {
 		return "hound", "the kennel · caches", caches.UsageLine(a.caches.Usage, a.caches.Cap)
 	case RouteWorkflows:
 		if load := a.load; load != nil && load.kind == loadKindWorkflows {
-			return "hound", "the kennel · workflows", "counting…"
+			return "hound", "the pack · workflows", "counting…"
 		}
-		return "hound", "the kennel · workflows", workflowsRight(a.workflows)
+		return "hound", "the pack · workflows", workflowsRight(a.workflows)
 	default:
 		if a.runs.AllGreen() {
 			return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), runsRight(a.runs, a.refreshCount, a.runsMeta)
@@ -3122,7 +3122,7 @@ func paletteItems(workflows []dispatch.Workflow) []palette.Item {
 		{Name: "approvals", Description: "review the deploy gate", Route: "approvals"},
 		{Name: "diff", Description: "who broke main? · the trail", Route: string(RouteDiff)},
 		{Name: "caches", Description: "the kennel · cache usage & eviction", Route: string(RouteCaches)},
-		{Name: "workflows", Description: "the kennel · states, wake & muzzle", Route: string(RouteWorkflows)},
+		{Name: "workflows", Description: "the pack · states, wake & muzzle", Route: string(RouteWorkflows)},
 	}
 	if len(workflows) == 0 {
 		items = append(items, palette.Item{Name: "dispatch", Description: "trigger workflow_dispatch", Route: string(RouteDispatch)})
@@ -3284,7 +3284,7 @@ func (a App) unloadedRouteBody(route Route, width int) (string, bool) {
 	case RouteWorkflows:
 		pendingWorkflows := a.load != nil && a.load.kind == loadKindWorkflows
 		if len(a.workflows.Workflows) == 0 && !pendingWorkflows {
-			message = "the kennel is empty: no workflows loaded"
+			message = "the pack is empty: no workflows loaded"
 		}
 	}
 	if message == "" {

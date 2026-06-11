@@ -144,6 +144,7 @@ type CacheUsage struct {
 	ActiveSizeInBytes int64 `json:"active_size_in_bytes"`
 	ActiveCount       int   `json:"active_count"`
 }
+
 // Workflow states GitHub documents on list-workflows. State stays an
 // open string everywhere: unknown future values render verbatim with
 // a neutral badge and are never rejected.
