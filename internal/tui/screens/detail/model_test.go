@@ -323,3 +323,32 @@ func TestWithDownloadKeepsValueSemantics(t *testing.T) {
 		t.Fatalf("DownloadedCount = %d, want 1", mutated.DownloadedCount())
 	}
 }
+
+// The height budget and the rendered artifacts block must agree in
+// every selection/window/download state (codex r1 finding 5: the old
+// count added an overflow line even when the window hid rows above,
+// not below).
+func TestArtifactsBlockLinesMatchesRenderedBlock(t *testing.T) {
+	artifacts := make([]model.Artifact, 8)
+	for i := range artifacts {
+		artifacts[i] = model.Artifact{ID: int64(900 + i), Name: "artifact", SizeInBytes: 1024}
+	}
+	for _, count := range []int{1, 4, 5, 6, 8} {
+		m := NewModel(model.Run{ID: 1}, nil).WithArtifacts(artifacts[:count])
+		m.Focus = FocusArtifacts
+		for selected := range count {
+			m.SelectedArtifact = selected
+			for _, downloaded := range []bool{false, true} {
+				probe := m
+				if downloaded {
+					probe = m.WithDownload(artifacts[selected].ID, DownloadStatus{State: DownloadStateDone, Path: "/tmp/x"})
+				}
+				rendered := len(renderArtifactsBlock(probe, 80))
+				budget := artifactsBlockLines(probe)
+				if rendered != budget {
+					t.Fatalf("count=%d selected=%d downloaded=%v: rendered %d lines, budget %d", count, selected, downloaded, rendered, budget)
+				}
+			}
+		}
+	}
+}

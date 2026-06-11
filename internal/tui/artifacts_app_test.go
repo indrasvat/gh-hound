@@ -406,3 +406,81 @@ func TestDownloadVerdictSurvivesRunNavigation(t *testing.T) {
 		t.Fatalf("download verdict lost across navigation: %q", state)
 	}
 }
+
+// codex r1 finding 1: a destination-exists outcome arriving while an
+// unrelated confirm is open must not clobber it — the user's queued y
+// would force an overwrite they never saw.
+func TestOverwriteConfirmDefersWhileAnotherConfirmIsOpen(t *testing.T) {
+	app := artifactsTestApp(t, func(model.Artifact, string, bool, func(usecase.DownloadProgress)) (usecase.DownloadResult, error) {
+		return usecase.DownloadResult{}, usecase.DestinationExistsError{Path: "./coverage"}
+	})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = waitForArtifacts(t, app)
+	app, _ = app.Update(KeyMsg{Key: "a"})
+	app, _ = app.Update(KeyMsg{Key: "d"})
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	// Let the failing download land, then open an unrelated confirm
+	// (R = rerun failed) before the drain can ask about overwriting.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if download := app.artifactDownload; download != nil {
+			download.mu.Lock()
+			done := download.done
+			download.mu.Unlock()
+			if done {
+				break
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	app, _ = app.Update(KeyMsg{Key: "R"})
+	if app.TopOverlay() != OverlayConfirm {
+		t.Fatal("R should open the rerun confirm")
+	}
+	rerunView := ansi.Strip(app.ViewSize(120, 40))
+	if strings.Contains(rerunView, "Destination exists") {
+		t.Fatalf("overwrite must not hijack the rerun confirm\n%s", rerunView)
+	}
+	// Ticks while the rerun confirm is open must keep deferring.
+	app, _ = app.Refresh()
+	view := ansi.Strip(app.ViewSize(120, 40))
+	if strings.Contains(view, "Destination exists") {
+		t.Fatalf("overwrite question surfaced under an unrelated confirm\n%s", view)
+	}
+	// Decline the rerun; the parked overwrite question now surfaces.
+	app, _ = app.Update(KeyMsg{Key: "n"})
+	app = refreshUntil(t, app, func(a App) bool {
+		return strings.Contains(ansi.Strip(a.ViewSize(120, 40)), "Destination exists")
+	})
+	if app.TopOverlay() != OverlayConfirm {
+		t.Fatal("the parked overwrite confirm should be open now")
+	}
+}
+
+// codex r1 finding 4: the completion toast advertises o/y only when
+// those keys would act on the downloaded artifact right now.
+func TestDownloadToastDropsActionHintsWhenSelectionMoved(t *testing.T) {
+	release := make(chan struct{})
+	app := artifactsTestApp(t, func(model.Artifact, string, bool, func(usecase.DownloadProgress)) (usecase.DownloadResult, error) {
+		<-release
+		return usecase.DownloadResult{Path: "/tmp/hound-dl/coverage", FileCount: 2}, nil
+	})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = waitForArtifacts(t, app)
+	app, _ = app.Update(KeyMsg{Key: "a"})
+	app, _ = app.Update(KeyMsg{Key: "d"})
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	// Move the selection off the downloading artifact mid-flight.
+	app, _ = app.Update(KeyMsg{Key: "j"})
+	close(release)
+	app = refreshUntil(t, app, func(a App) bool {
+		return a.DetailModel().Download(901).State == detail.DownloadStateDone
+	})
+	view := ansi.Strip(app.ViewSize(120, 40))
+	if !strings.Contains(view, "artifact downloaded") {
+		t.Fatalf("completion toast missing\n%s", view)
+	}
+	if strings.Contains(view, "· o open · y copy path") {
+		t.Fatalf("toast must not advertise o/y while another row is selected\n%s", view)
+	}
+}

@@ -296,10 +296,12 @@ type artifactsFetchState struct {
 }
 
 type artifactDownloadState struct {
-	mu         sync.Mutex
-	artifactID int64
-	name       string
-	force      bool
+	mu sync.Mutex
+	// artifact is the full model so recovery flows (the overwrite
+	// confirm) stay possible after the user navigates away from the
+	// run whose roster the download started from.
+	artifact model.Artifact
+	force    bool
 	// prior is the row's status before this attempt, restored when the
 	// attempt resolves to "destination exists" — that outcome is a
 	// question, not a verdict, and cancelling must not strand the row.
@@ -986,38 +988,55 @@ func (a App) drainArtifactDownload() (App, bool) {
 		// into the row annotation and advance the shared spinner.
 		return a.syncArtifactProgress(download), true
 	}
-	a.artifactDownload = nil
 	if download.err != nil {
 		var exists usecase.DestinationExistsError
 		if errors.As(download.err, &exists) {
+			if a.TopOverlay() == OverlayConfirm {
+				// An unrelated confirm owns the y key right now;
+				// clobbering it could turn the user's queued answer
+				// into a forced overwrite. Park the finished download
+				// and deliver the question once the overlay resolves.
+				return a, false
+			}
 			// Not a failure verdict: the destination predates this
 			// attempt. Restore the row's pre-attempt state (so a
 			// cancelled overwrite strands nothing) and ask; confirm
 			// retries with force.
-			a.detail = a.detail.WithDownload(download.artifactID, download.prior)
-			return a.openOverwriteConfirm(download.artifactID, exists.Path), true
+			a.artifactDownload = nil
+			a.detail = a.detail.WithDownload(download.artifact.ID, download.prior)
+			return a.openOverwriteConfirm(download.artifact, exists.Path), true
 		}
-		a.detail = a.detail.WithDownload(download.artifactID, detail.DownloadStatus{
+		a.artifactDownload = nil
+		a.detail = a.detail.WithDownload(download.artifact.ID, detail.DownloadStatus{
 			State:  detail.DownloadStateFailed,
 			Reason: download.err.Error(),
 		})
 		a.pushErrorToast("artifact-download-failed", usecase.ResilienceFor(download.err, usecase.ErrorContext{}))
 		return a, true
 	}
+	a.artifactDownload = nil
 	files := "files"
 	if download.result.FileCount == 1 {
 		files = "file"
 	}
 	path := absArtifactPath(download.result.Path)
-	a.detail = a.detail.WithDownload(download.artifactID, detail.DownloadStatus{
+	a.detail = a.detail.WithDownload(download.artifact.ID, detail.DownloadStatus{
 		State:     detail.DownloadStateDone,
 		Path:      path,
 		FileCount: download.result.FileCount,
 	})
+	message := fmt.Sprintf("%s → %s (%d %s)", download.artifact.Name, path, download.result.FileCount, files)
+	// Advertise o/y only when they would act on this artifact right
+	// now: the toast must not promise keys that point elsewhere.
+	if a.Route() == RouteDetail && a.detail.Focus == detail.FocusArtifacts {
+		if selected, ok := a.detail.SelectedArtifactModel(); ok && selected.ID == download.artifact.ID {
+			message += " · o open · y copy path"
+		}
+	}
 	a.pushToast("artifact-downloaded", usecase.Resilience{
 		Severity: usecase.SeverityOK,
 		Title:    "artifact downloaded",
-		Message:  fmt.Sprintf("%s → %s (%d %s) · o open · y copy path", download.name, path, download.result.FileCount, files),
+		Message:  message,
 	})
 	return a, true
 }
@@ -1033,7 +1052,7 @@ func (a App) syncArtifactProgress(download *artifactDownloadState) App {
 	if download.extracting.Load() {
 		status.State = detail.DownloadStateExtracting
 	}
-	a.detail = a.detail.WithDownload(download.artifactID, status)
+	a.detail = a.detail.WithDownload(download.artifact.ID, status)
 	a.detail.SpinnerFrame++
 	return a
 }
@@ -1084,7 +1103,7 @@ func (a App) startArtifactDownload(artifact model.Artifact, force bool) App {
 		})
 		return a
 	}
-	state := &artifactDownloadState{artifactID: artifact.ID, name: artifact.Name, force: force, prior: a.detail.Download(artifact.ID)}
+	state := &artifactDownloadState{artifact: artifact, force: force, prior: a.detail.Download(artifact.ID)}
 	a.artifactDownload = state
 	// The row is the progress surface from the first frame: no toast,
 	// the annotation lands where the triggering keypress just was.
@@ -1754,20 +1773,15 @@ func (a App) openDownloadConfirm(artifact model.Artifact) App {
 
 // openOverwriteConfirm follows a DestinationExistsError: same pending-
 // download mechanics, force armed, and a message that names the path
-// being replaced.
-func (a App) openOverwriteConfirm(artifactID int64, path string) App {
-	for _, artifact := range a.detail.Artifacts {
-		if artifact.ID != artifactID {
-			continue
-		}
-		selected := artifact
-		a.pendingDownload = &selected
-		a.pendingDownloadForce = true
-		a.confirm = confirm.New(fmt.Sprintf("Destination exists:\n→ %s\nOverwrite and re-download %q?", absArtifactPath(path), artifact.Name))
-		if a.TopOverlay() != OverlayConfirm {
-			a.overlays = append(a.overlays, OverlayConfirm)
-		}
-		return a
+// being replaced. The artifact comes from the download state, not the
+// current roster, so recovery survives run navigation.
+func (a App) openOverwriteConfirm(artifact model.Artifact, path string) App {
+	selected := artifact
+	a.pendingDownload = &selected
+	a.pendingDownloadForce = true
+	a.confirm = confirm.New(fmt.Sprintf("Destination exists:\n→ %s\nOverwrite and re-download %q?", absArtifactPath(path), artifact.Name))
+	if a.TopOverlay() != OverlayConfirm {
+		a.overlays = append(a.overlays, OverlayConfirm)
 	}
 	return a
 }

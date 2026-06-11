@@ -37,13 +37,20 @@ func ViewSize(m Model, width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
+// artifactsBlockLines mirrors renderArtifactsBlock's window math
+// exactly — the height budget and the rendered block must never
+// disagree, in any selection or download state.
 func artifactsBlockLines(m Model) int {
 	if len(m.Artifacts) == 0 {
 		return 0
 	}
-	visible := min(len(m.Artifacts), artifactsWindow)
-	lines := 2 + visible
-	if len(m.Artifacts) > visible {
+	start := 0
+	if m.SelectedArtifact >= artifactsWindow {
+		start = m.SelectedArtifact - artifactsWindow + 1
+	}
+	end := min(start+artifactsWindow, len(m.Artifacts))
+	lines := 2 + (end - start)
+	if len(m.Artifacts)-end > 0 {
 		lines++
 	}
 	// The selected downloaded artifact carries a path subline.

@@ -1410,7 +1410,7 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 		ArtifactDownloader: func(artifact model.Artifact, destDir string, force bool, onProgress func(usecase.DownloadProgress)) (usecase.DownloadResult, error) {
 			return usecase.ArtifactsService{GitHub: githubClient}.Download(ctx, launch.Repo, artifact, destDir, force, onProgress)
 		},
-		ArtifactDir: artifactDownloadRoot(),
+		ArtifactDir: artifactDownloadRoot(runtime.Env),
 		CachesResolver: func(loadCtx context.Context) (caches.Data, error) {
 			service, err := cachesServiceFor(githubClient, mutationLimiter)
 			if err != nil {
@@ -1485,9 +1485,15 @@ func openBrowser(rawURL string) error {
 // artifactDownloadRoot resolves where TUI artifact downloads extract:
 // $GH_HOUND_ARTIFACT_DIR when set, else the working directory — always
 // absolute, because the TUI shows this path in confirms and rows and a
-// relative "." would hide the one fact the user needs.
-func artifactDownloadRoot() string {
-	root := strings.TrimSpace(os.Getenv("GH_HOUND_ARTIFACT_DIR"))
+// relative "." would hide the one fact the user needs. env is the
+// runtime's injected lookup so tests stay hermetic.
+func artifactDownloadRoot(env func(string) (string, bool)) string {
+	root := ""
+	if env != nil {
+		if value, ok := env("GH_HOUND_ARTIFACT_DIR"); ok {
+			root = strings.TrimSpace(value)
+		}
+	}
 	if root == "" {
 		root = "."
 	}
