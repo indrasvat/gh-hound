@@ -86,6 +86,7 @@ type cliOptions struct {
 	Repo          string
 	Branch        string
 	Status        string
+	Workflow      string
 	Format        render.Format
 	NoTUI         bool
 	JSON          bool
@@ -172,6 +173,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.AddCommand(newApprovalsCommand(runtime, &options))
 	cmd.AddCommand(newRerunCommand(runtime, &options))
 	cmd.AddCommand(newCancelCommand(runtime, &options))
+	cmd.AddCommand(newDiffCommand(runtime, &options))
 	return cmd
 }
 
@@ -1667,6 +1669,8 @@ func fakeScenarioFor(scenario string) fake.Scenario {
 		return fake.ScenarioPermission
 	case "waiting":
 		return fake.ScenarioWaiting
+	case "regression":
+		return fake.ScenarioRegression
 	default:
 		return fake.ScenarioGreen
 	}
@@ -1917,6 +1921,9 @@ func normalizedScenario(options cliOptions) string {
 	case "waiting", "gated":
 		// Deployment-approval scenario: a run holding at the gate.
 		return "waiting"
+	case "regression":
+		// Seeded last-green → first-red boundary for the diff verb.
+		return raw
 	}
 	status := strings.ToLower(strings.TrimSpace(options.Status))
 	switch status {
