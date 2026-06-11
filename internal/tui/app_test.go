@@ -1340,7 +1340,9 @@ func TestFailureOpenBrowserAndCopyExcerpt(t *testing.T) {
 		},
 	})
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app = settleApp(t, app)
 
 	app, handled := app.Update(KeyMsg{Key: "o"})
 	if !handled || opened != report.Job.HTMLURL {
@@ -1469,7 +1471,7 @@ func TestLogRefetchNoticeShowsToastWhileKeepingRecoveredLog(t *testing.T) {
 		DetailResolver: func(model.Run) (detail.Model, error) {
 			return detail.NewModel(run, []model.Job{job}).WithRepo("openclaw/openclaw"), nil
 		},
-		LogResolver: func(model.Run, model.Job) (logscreen.Model, error) {
+		LogResolver: func(model.Run, model.Job, func(read, total int64)) (logscreen.Model, error) {
 			return logscreen.NewModel(logs.Parse("001 recovered log line\n##[error]still visible"), 1, 6), nil
 		},
 		LogRefetchNotice: func(jobID int64) (usecase.LogRefetchNotice, bool) {

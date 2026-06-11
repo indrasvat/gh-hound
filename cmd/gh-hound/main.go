@@ -528,12 +528,20 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			}
 			return failurescreen.NewModel(launch.Repo, run.ID, report), logscreen.NewModel(report.Log, report.Log.Failure.AnchorLine, 6), nil
 		},
-		LogResolver: func(run model.Run, selected model.Job) (logscreen.Model, error) {
+		LogResolver: func(run model.Run, selected model.Job, progress func(read, total int64)) (logscreen.Model, error) {
 			job, err := resolveJobForRun(ctx, githubClient, launch.Repo, run, selected)
 			if err != nil {
 				return logscreen.Model{}, err
 			}
-			raw, err := githubClient.FetchJobLog(ctx, launch.Repo, job.ID)
+			var raw string
+			// Byte progress is a capability, mirroring GitHubLogDiagnostics:
+			// adapters without it fall back to the plain fetch and the
+			// indeterminate spinner.
+			if fetcher, ok := githubClient.(usecase.LogProgressFetcher); ok && progress != nil {
+				raw, err = fetcher.FetchJobLogWithProgress(ctx, launch.Repo, job.ID, progress)
+			} else {
+				raw, err = githubClient.FetchJobLog(ctx, launch.Repo, job.ID)
+			}
 			if err != nil {
 				return logscreen.Model{}, err
 			}

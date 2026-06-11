@@ -11,6 +11,8 @@ import (
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/failure"
+	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -340,5 +342,77 @@ func TestDetailResultForAbandonedRunNeverApplies(t *testing.T) {
 	// run's late result.
 	if got := app.detail.Run.ID; got != 570 {
 		t.Fatalf("detail shows run %d, want 570", got)
+	}
+}
+
+func TestLogOpenShowsByteProgress(t *testing.T) {
+	app := asyncTestApp()
+	release := make(chan struct{})
+	app.logResolver = func(run model.Run, job model.Job, progress func(read, total int64)) (logscreen.Model, error) {
+		progress(2202009, 5033165)
+		<-release
+		return sampleLogModel(), nil
+	}
+	app, _ = app.Update(KeyMsg{Key: "l"})
+	if app.Route() != RouteLog {
+		t.Fatalf("route = %v, want log", app.Route())
+	}
+	if app.load == nil || app.load.kind != loadKindLog {
+		t.Fatal("log open started no load")
+	}
+	// Wait for the resolver goroutine to report progress.
+	deadline := time.Now().Add(time.Second)
+	for {
+		if _, _, read, _ := app.load.snapshot(); read > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("progress never reported")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	app.load.started = time.Now().Add(-200 * time.Millisecond)
+	view := ansi.Strip(app.ViewSized(124))
+	if !strings.Contains(view, "2.1 MB") || !strings.Contains(view, "4.8 MB") || !strings.Contains(view, "▰") {
+		t.Fatalf("log loading view missing byte progress:\n%s", view)
+	}
+	close(release)
+	app = settleApp(t, app)
+	settled := ansi.Strip(app.ViewSized(124))
+	if strings.Contains(settled, "4.8 MB") {
+		t.Fatalf("progress line survived settle:\n%s", settled)
+	}
+}
+
+func TestFailureOpenIsAsync(t *testing.T) {
+	app := asyncTestApp()
+	release := make(chan struct{})
+	app.failureResolver = func(model.Run, model.Job) (failure.Model, logscreen.Model, error) {
+		<-release
+		return sampleFailureModel(), sampleLogModel(), nil
+	}
+	app, _ = app.Update(KeyMsg{Key: "enter"}) // detail (async, instant sample)
+	app = settleApp(t, app)
+	started := time.Now()
+	app, _ = app.Update(KeyMsg{Key: "enter"}) // failure
+	if elapsed := time.Since(started); elapsed > 50*time.Millisecond {
+		t.Fatalf("failure open blocked for %v", elapsed)
+	}
+	if app.Route() != RouteFailure {
+		t.Fatalf("route = %v, want failure", app.Route())
+	}
+	if app.load == nil || app.load.kind != loadKindFailure {
+		t.Fatal("failure open started no load")
+	}
+	app.load.started = time.Now().Add(-200 * time.Millisecond)
+	view := ansi.Strip(app.ViewSized(124))
+	if !strings.Contains(view, "fetching the failure") {
+		t.Fatalf("failure loading body missing:\n%s", view)
+	}
+	close(release)
+	app = settleApp(t, app)
+	settled := ansi.Strip(app.ViewSized(124))
+	if !strings.Contains(settled, "exit 1") {
+		t.Fatalf("failure content missing after settle:\n%s", settled)
 	}
 }

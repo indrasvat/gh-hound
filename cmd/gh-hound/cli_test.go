@@ -258,6 +258,10 @@ func TestDefaultTUIAppDeepRoutesUseGitHubPortData(t *testing.T) {
 	if !handled || app.Route() != tui.RouteLog {
 		t.Fatalf("l did not open live log route: handled=%v route=%s", handled, app.Route())
 	}
+	app, settled := app.SettleLoads(2 * time.Second)
+	if !settled {
+		t.Fatal("log load did not settle")
+	}
 	view := app.ViewSize(120, 32)
 	if github.fetchJobLog != 1 {
 		t.Fatalf("FetchJobLog calls = %d, want 1", github.fetchJobLog)

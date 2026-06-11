@@ -65,7 +65,7 @@ type Options struct {
 	DetailResolver            func(model.Run) (detail.Model, error)
 	RunsResolver              func(usecase.RunFilter) ([]model.Run, error)
 	FailureResolver           func(model.Run, model.Job) (failure.Model, logscreen.Model, error)
-	LogResolver               func(model.Run, model.Job) (logscreen.Model, error)
+	LogResolver               func(model.Run, model.Job, func(read, total int64)) (logscreen.Model, error)
 	WatchResolver             func(model.Run) (watch.Model, error)
 	DispatchResolver          func() (dispatch.Model, error)
 	DispatchWorkflowsResolver func() ([]dispatch.Workflow, error)
@@ -116,7 +116,7 @@ type App struct {
 	detailResolver            func(model.Run) (detail.Model, error)
 	runsResolver              func(usecase.RunFilter) ([]model.Run, error)
 	failureResolver           func(model.Run, model.Job) (failure.Model, logscreen.Model, error)
-	logResolver               func(model.Run, model.Job) (logscreen.Model, error)
+	logResolver               func(model.Run, model.Job, func(read, total int64)) (logscreen.Model, error)
 	watchResolver             func(model.Run) (watch.Model, error)
 	dispatchResolver          func() (dispatch.Model, error)
 	dispatchWorkflowsResolver func() ([]dispatch.Workflow, error)
@@ -141,10 +141,18 @@ type App struct {
 // apply. work returns the apply closure that folds the result (or its
 // error handling) into the App at drain time.
 func (a App) startLoad(kind loadKind, label string, work func() func(App) App) App {
+	return a.startLoadProgress(kind, label, func(func(int64, int64)) func(App) App {
+		return work()
+	})
+}
+
+// startLoadProgress is startLoad for fetches that can report byte
+// progress; work receives the report callback to thread downstream.
+func (a App) startLoadProgress(kind loadKind, label string, work func(progress func(read, total int64)) func(App) App) App {
 	state := &pendingLoad{kind: kind, label: label, started: time.Now()}
 	a.load = state
 	go func() {
-		state.finish(work())
+		state.finish(work(state.progress))
 	}()
 	return a
 }
@@ -302,7 +310,7 @@ func NewScenarioApp(scenario string, build BuildInfo) App {
 	app.failureResolver = func(model.Run, model.Job) (failure.Model, logscreen.Model, error) {
 		return sampleFailureModel(), sampleLogModel(), nil
 	}
-	app.logResolver = func(model.Run, model.Job) (logscreen.Model, error) {
+	app.logResolver = func(model.Run, model.Job, func(read, total int64)) (logscreen.Model, error) {
 		return sampleLogModel(), nil
 	}
 	app.watchResolver = func(model.Run) (watch.Model, error) {
@@ -1597,16 +1605,21 @@ func (a App) loadFailure(run model.Run, job model.Job) App {
 		a.setRouteError(RouteFailure, "failure unavailable: live failure loader is not configured")
 		return a
 	}
-	resolved, fullLog, err := a.failureResolver(run, job)
-	if err != nil {
-		a.setRouteError(RouteFailure, "failure unavailable: "+err.Error())
-		return a
-	}
-	a.failure = resolved
-	a.log = fullLog
-	a.clearRouteError(RouteLog)
-	a.pushLogRefetchToast(job.ID)
-	return a
+	resolver := a.failureResolver
+	return a.startLoad(loadKindFailure, "fetching the failure", func() func(App) App {
+		resolved, fullLog, err := resolver(run, job)
+		return func(app App) App {
+			if err != nil {
+				app.setRouteError(RouteFailure, "failure unavailable: "+err.Error())
+				return app
+			}
+			app.failure = resolved
+			app.log = fullLog
+			app.clearRouteError(RouteLog)
+			app.pushLogRefetchToast(job.ID)
+			return app
+		}
+	})
 }
 
 func (a App) loadLog(run model.Run, job model.Job) App {
@@ -1615,14 +1628,19 @@ func (a App) loadLog(run model.Run, job model.Job) App {
 		a.setRouteError(RouteLog, "log unavailable: live log loader is not configured")
 		return a
 	}
-	resolved, err := a.logResolver(run, job)
-	if err != nil {
-		a.setRouteError(RouteLog, "log unavailable: "+err.Error())
-		return a
-	}
-	a.log = resolved
-	a.pushLogRefetchToast(job.ID)
-	return a
+	resolver := a.logResolver
+	return a.startLoadProgress(loadKindLog, "fetching log", func(progress func(read, total int64)) func(App) App {
+		resolved, err := resolver(run, job, progress)
+		return func(app App) App {
+			if err != nil {
+				app.setRouteError(RouteLog, "log unavailable: "+err.Error())
+				return app
+			}
+			app.log = resolved
+			app.pushLogRefetchToast(job.ID)
+			return app
+		}
+	})
 }
 
 func (a *App) pushLogRefetchToast(jobID int64) {
@@ -2287,8 +2305,14 @@ func (a App) screenBody(width, height int) string {
 		}
 		return detail.ViewSize(detailModel, bodyWidth, bodyHeight(height))
 	case RouteFailure:
+		if load := a.load; load != nil && load.kind == loadKindFailure {
+			return loadingBody(a.theme, load, bodyWidth, time.Now())
+		}
 		return failure.View(a.failure, bodyWidth)
 	case RouteLog:
+		if load := a.load; load != nil && load.kind == loadKindLog {
+			return loadingBody(a.theme, load, bodyWidth, time.Now())
+		}
 		logModel := a.log
 		if rows := bodyHeight(height) - 1; rows > 0 {
 			logModel.Height = rows

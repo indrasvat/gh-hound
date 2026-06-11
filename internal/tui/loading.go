@@ -60,10 +60,30 @@ func (p *pendingLoad) finish(apply func(App) App) {
 	p.done = true
 }
 
+func (p *pendingLoad) progress(read, total int64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.read = read
+	p.total = total
+}
+
 func (p *pendingLoad) snapshot() (done bool, apply func(App) App, read, total int64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.done, p.apply, p.read, p.total
+}
+
+// loadingBody is the shared whole-pane loading state for screens that
+// have nothing useful to show until the fetch lands (failure, log).
+// Same component, same geometry — only the label differs.
+func loadingBody(th theme.Theme, load *pendingLoad, width int, now time.Time) string {
+	line := loadingLine(th, load, width, now)
+	if line == "" {
+		// Inside the grace window the pane stays blank rather than
+		// flashing a frame.
+		return ""
+	}
+	return "\n" + line
 }
 
 // spinnerGlyph derives the frame purely from elapsed time so renders
