@@ -440,9 +440,9 @@ func TestDispatchPickerSelectsExactWorkflow(t *testing.T) {
 		}
 	}
 
-	app, handled = app.Update(KeyMsg{Key: "j"})
+	app, handled = app.Update(KeyMsg{Key: "down"})
 	if !handled {
-		t.Fatalf("j should move workflow picker selection")
+		t.Fatalf("down should move workflow picker selection")
 	}
 	app, handled = app.Update(KeyMsg{Key: "enter"})
 	if !handled || app.TopOverlay() != OverlayNone || app.Route() != RouteDispatch {

@@ -229,7 +229,7 @@ func TestDispatchPickerBadgesAndRefusesNonActiveWorkflows(t *testing.T) {
 	}
 
 	// Pick the asleep workflow: refusal toast, no dispatch form.
-	app, _ = app.Update(KeyMsg{Key: "j"})
+	app, _ = app.Update(KeyMsg{Key: "down"})
 	app, _ = app.Update(KeyMsg{Key: "enter"})
 	if app.Route() == RouteDispatch {
 		t.Fatal("asleep workflow must not open the dispatch form")

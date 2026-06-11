@@ -2545,7 +2545,13 @@ func (a App) executeAction(route Route, request ActionRequest) (App, bool) {
 		a.pushErrorToast("action-failed", usecase.ResilienceFor(err, usecase.ErrorContext{}))
 		return a, false
 	}
-	a.pushToast("action-ok", usecase.ResilienceForSuccess(result))
+	resilience := usecase.ResilienceForSuccess(result)
+	if resilience.Message == "" && request.Workflow.Name != "" {
+		// Run-less actions target a workflow: say WHICH one went back
+		// on duty (QA round 13).
+		resilience.Message = "workflow " + request.Workflow.Name
+	}
+	a.pushToast("action-ok", resilience)
 	return a, true
 }
 
@@ -3757,6 +3763,7 @@ func sampleWorkflows() []model.Workflow {
 		{ID: 125, Name: "Stale Patrol", Path: ".github/workflows/stale.yml", State: model.WorkflowStateDisabledManually, HTMLURL: "https://github.com/indrasvat/gh-hound/actions/workflows/stale.yml"},
 		{ID: 126, Name: "Fork Gate", Path: ".github/workflows/fork-gate.yml", State: model.WorkflowStateDisabledFork, HTMLURL: "https://github.com/indrasvat/gh-hound/actions/workflows/fork-gate.yml"},
 		{ID: 127, Name: "Old Patrol", Path: ".github/workflows/old-patrol.yml", State: model.WorkflowStateDeleted, HTMLURL: "https://github.com/indrasvat/gh-hound/actions/workflows/old-patrol.yml"},
+		{ID: 128, Name: "Mystery Cron", Path: ".github/workflows/mystery.yml", State: "disabled_quarantine", HTMLURL: "https://github.com/indrasvat/gh-hound/actions/workflows/mystery.yml"},
 	}
 }
 

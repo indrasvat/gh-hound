@@ -218,14 +218,19 @@ func rateLimitMessage(base string, retryAfter time.Duration, resetAt time.Time) 
 }
 
 func ResilienceForSuccess(result ActionResult) Resilience {
+	title := firstNonEmpty(result.Message, "Action accepted")
 	message := result.Message
 	if result.RunID != 0 {
 		message = fmt.Sprintf("CI #%d · %s", result.RunID, result.Action)
+	} else if message == title {
+		// Run-less actions (workflow toggles) would otherwise echo the
+		// title as the body — "back on duty. · back on duty." stutters.
+		message = ""
 	}
 	return Resilience{
 		Class:          ErrorClassSuccess,
 		Severity:       SeverityOK,
-		Title:          firstNonEmpty(result.Message, "Action accepted"),
+		Title:          title,
 		Message:        message,
 		RetryAction:    "refresh",
 		KeepCachedView: true,

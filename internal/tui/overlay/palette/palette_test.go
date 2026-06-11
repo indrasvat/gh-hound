@@ -12,7 +12,7 @@ func TestPaletteFiltersMovesAndSelectsRoute(t *testing.T) {
 	if got := m.Visible(); len(got) != 4 || got[0].Name != "runs" {
 		t.Fatalf("visible = %#v", got)
 	}
-	m = m.Update(KeyMsg{Key: "j"})
+	m = m.Update(KeyMsg{Key: "down"})
 	m = m.Update(KeyMsg{Key: "enter"})
 	if m.Intent.Route != "runs --all" {
 		t.Fatalf("intent = %#v", m.Intent)
