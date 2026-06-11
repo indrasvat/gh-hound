@@ -527,7 +527,11 @@ func flakeVerdictLine(report FlakeReport) string {
 		job, _ := report.WorstJob()
 		return fmt.Sprintf("something rustled: %s wobbled %d of the last %d runs — watch it.", job.Job, job.FlakedRuns, report.RunsScanned)
 	case FlakeStatusInsufficient:
-		return fmt.Sprintf("not enough trail to read: only %d completed runs on record.", report.SampleSize)
+		noun := "runs"
+		if report.SampleSize == 1 {
+			noun = "run"
+		}
+		return fmt.Sprintf("not enough trail to read: only %d completed %s on record.", report.SampleSize, noun)
 	default:
 		return fmt.Sprintf("fresh scent — worth chasing: no flake history in the last %d runs.", report.RunsScanned)
 	}

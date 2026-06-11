@@ -23,7 +23,7 @@ func ViewSize(m Model, width, height int) string {
 		lines = append(lines, fitANSI(colorize(sgrDim, fmt.Sprintf("%d runs sniffed on %s · nothing wobbled.", m.Report.RunsScanned, m.Report.Workflow)), width))
 	case usecase.FlakeStatusInsufficient:
 		lines = append(lines,
-			fitANSI(colorize(sgrDim, fmt.Sprintf("only %d completed runs on %s — the hound needs %d to call it.", m.Report.SampleSize, m.Report.Workflow, usecase.FlakeMinSample)), width),
+			fitANSI(colorize(sgrDim, fmt.Sprintf("only %d completed %s on %s — the hound needs %d to call it.", m.Report.SampleSize, runsNoun(m.Report.SampleSize), m.Report.Workflow, usecase.FlakeMinSample)), width),
 			fitANSI(colorize(sgrDim, "no evidence was discarded; what little there is shows below."), width),
 		)
 		lines = append(lines, m.jobLines(width, height)...)
@@ -148,3 +148,10 @@ const (
 	sgrFG     = "\x1b[38;2;234;232;217m"
 	sgrFGSoft = "\x1b[38;2;207;205;187m"
 )
+
+func runsNoun(n int) string {
+	if n == 1 {
+		return "run"
+	}
+	return "runs"
+}

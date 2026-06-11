@@ -323,3 +323,54 @@ func TestEscFromFailureCancelsTheInFlightScan(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+// TestAbandonedScanDrainsSilently pins codex round-2: an intentionally
+// cancelled scan (esc or a palette jump away from failure) must not
+// surface the "scent check unavailable" warning.
+func TestAbandonedScanDrainsSilently(t *testing.T) {
+	app := NewScenarioApp("failure", BuildInfo{Version: "test"})
+	app.flakesResolver = func(ctx context.Context, run model.Run) (usecase.FlakeReport, error) {
+		<-ctx.Done()
+		return usecase.FlakeReport{}, ctx.Err()
+	}
+	app = openFailureScreen(t, app)
+	app, _ = app.Update(KeyMsg{Key: "esc"})
+	deadline := time.Now().Add(2 * time.Second)
+	for app.flakesFetch != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("cancelled scan never drained")
+		}
+		app, _ = app.Refresh()
+		time.Sleep(time.Millisecond)
+	}
+	view := app.View()
+	if strings.Contains(view, "scent check unavailable") {
+		t.Fatalf("abandoned scan must not toast:\n%s", view)
+	}
+}
+
+// TestPaletteJumpFromFailureCancelsTheScan pins the second codex
+// round-2 blocker: palette jumps replace the route stack without
+// PopRoute, and must abandon the scan too.
+func TestPaletteJumpFromFailureCancelsTheScan(t *testing.T) {
+	app := NewScenarioApp("failure", BuildInfo{Version: "test"})
+	var sawCancel atomic.Bool
+	app.flakesResolver = func(ctx context.Context, run model.Run) (usecase.FlakeReport, error) {
+		<-ctx.Done()
+		sawCancel.Store(true)
+		return usecase.FlakeReport{}, ctx.Err()
+	}
+	app = openFailureScreen(t, app)
+	app, _ = app.Update(KeyMsg{Key: ":"})
+	for _, key := range []string{"r", "u", "n", "s"} {
+		app, _ = app.Update(KeyMsg{Key: key})
+	}
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	deadline := time.Now().Add(2 * time.Second)
+	for !sawCancel.Load() {
+		if time.Now().After(deadline) {
+			t.Fatal("palette jump did not cancel the in-flight scan")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}

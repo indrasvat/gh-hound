@@ -1074,9 +1074,7 @@ func (a *App) PopRoute() {
 		// check: the scan must not keep spending API calls after esc
 		// (codex blocker).
 		if leaving == RouteFailure {
-			if fetch := a.flakesFetch; fetch != nil && fetch.cancel != nil {
-				fetch.cancel()
-			}
+			a.abandonFlakesScan()
 		}
 	}
 }
@@ -1322,6 +1320,11 @@ func (a App) drainFlakesFetch() (App, bool) {
 		return a, false
 	}
 	a.flakesFetch = nil
+	if errors.Is(fetch.err, context.Canceled) {
+		// An intentionally abandoned scan is not a failure — the user
+		// navigated away; clear the slot, no toast.
+		return a, true
+	}
 	if fetch.err != nil {
 		// The panel is auxiliary: the failure screen stays usable, but
 		// the miss must not masquerade as a clean trail.
@@ -2035,7 +2038,21 @@ func (a App) updatePalette(msg KeyMsg) (App, bool) {
 	return a, before.Query != a.palette.Query || before.Selected != a.palette.Selected || paletteHandled(msg.Key)
 }
 
+// abandonFlakesScan cancels the in-flight failure-panel scan. Any
+// navigation that leaves the failure screen must call it — the scan
+// must not keep spending API calls behind the user's back.
+func (a *App) abandonFlakesScan() {
+	if fetch := a.flakesFetch; fetch != nil && fetch.cancel != nil {
+		fetch.cancel()
+	}
+}
+
 func (a App) handlePaletteIntent(intent palette.Intent) App {
+	if a.Route() == RouteFailure {
+		// Palette jumps replace the route stack outright and never go
+		// through PopRoute — abandon the scan here too.
+		a.abandonFlakesScan()
+	}
 	switch intent.Route {
 	case "runs":
 		a.PopOverlay()
@@ -3962,7 +3979,11 @@ func (a App) unloadedRouteBody(route Route, width int) (string, bool) {
 	message := ""
 	switch route {
 	case RouteFailure:
-		if a.failure.RunID == 0 && len(a.failure.Report.Log.Lines) == 0 {
+		// Pending-load guard like the sibling routes: during the fetch
+		// the loading body owns the screen, not this error (QA round
+		// 17, pre-existing gap).
+		pendingFailure := a.load != nil && a.load.kind == loadKindFailure
+		if a.failure.RunID == 0 && len(a.failure.Report.Log.Lines) == 0 && !pendingFailure {
 			message = "failure unavailable: select a failed job with live GitHub data loaded"
 		}
 	case RouteLog:
