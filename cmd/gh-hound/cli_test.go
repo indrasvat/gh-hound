@@ -943,6 +943,11 @@ type cliGitHub struct {
 	workflows        []model.Workflow
 	workflowFiles    map[string]string
 	workflowErrors   map[string]error
+	pendingList      []model.PendingDeployment
+	pendingErr       error
+	listPending      int
+	reviews          []usecase.DeploymentReview
+	reviewErr        error
 	err              error
 }
 
@@ -1060,6 +1065,30 @@ func (g *cliGitHub) DownloadArtifact(context.Context, string, int64) (io.ReadClo
 	defer g.mu.Unlock()
 	g.downloadArtifact++
 	return io.NopCloser(strings.NewReader(g.artifactZip)), nil
+}
+
+func (g *cliGitHub) ListPendingDeployments(context.Context, string, int64) ([]model.PendingDeployment, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.listPending++
+	if g.pendingErr != nil {
+		return nil, g.pendingErr
+	}
+	return g.pendingList, nil
+}
+
+func (g *cliGitHub) ReviewPendingDeployments(_ context.Context, _ string, runID int64, review usecase.DeploymentReview) (usecase.ActionResult, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.reviews = append(g.reviews, review)
+	if g.reviewErr != nil {
+		return usecase.ActionResult{}, g.reviewErr
+	}
+	action := usecase.ActionApproveDeployment
+	if review.State == usecase.DeploymentRejected {
+		action = usecase.ActionRejectDeployment
+	}
+	return usecase.ActionResult{Action: action, RunID: runID}, nil
 }
 
 func artifactZipBytes(t *testing.T) string {

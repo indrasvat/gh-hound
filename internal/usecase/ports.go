@@ -45,6 +45,8 @@ type GitHub interface {
 	FetchJobLog(context.Context, string, int64) (string, error)
 	ListArtifacts(context.Context, string, int64) ([]model.Artifact, error)
 	DownloadArtifact(context.Context, string, int64) (io.ReadCloser, error)
+	ListPendingDeployments(context.Context, string, int64) ([]model.PendingDeployment, error)
+	ReviewPendingDeployments(context.Context, string, int64, DeploymentReview) (ActionResult, error)
 	RerunRun(context.Context, string, int64, bool) (ActionResult, error)
 	RerunFailedJobs(context.Context, string, int64, bool) (ActionResult, error)
 	RerunJob(context.Context, string, int64, bool) (ActionResult, error)

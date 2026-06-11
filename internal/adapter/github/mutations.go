@@ -104,6 +104,11 @@ func mapActionHTTPError(status int, header http.Header, payload []byte) error {
 		kind = usecase.ActionErrorConflict
 	case http.StatusTooManyRequests:
 		kind = usecase.ActionErrorRateLimit
+	case http.StatusUnprocessableEntity:
+		// 422 is GitHub's validation refusal (e.g. reviewing an
+		// environment id that is not pending): typed so agents and the
+		// TUI can say why instead of "unknown".
+		kind = usecase.ActionErrorValidation
 	}
 	message := string(payload)
 	if message == "" {

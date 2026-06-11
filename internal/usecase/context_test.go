@@ -336,3 +336,11 @@ func TestForeignRepoDoesNotInheritLocalCheckoutBranch(t *testing.T) {
 		t.Fatalf("explicit --branch lost: %q", explicit.Branch)
 	}
 }
+
+func (g *launchGitHub) ListPendingDeployments(context.Context, string, int64) ([]model.PendingDeployment, error) {
+	return nil, nil
+}
+
+func (g *launchGitHub) ReviewPendingDeployments(context.Context, string, int64, usecase.DeploymentReview) (usecase.ActionResult, error) {
+	return usecase.ActionResult{}, errors.New("not implemented")
+}
