@@ -151,7 +151,7 @@ func TestProductionChromeDoesNotInventMissingGitHubMetadata(t *testing.T) {
 				Conclusion: model.ConclusionFailure,
 			}},
 		},
-		DetailResolver: func(run model.Run) (detail.Model, error) {
+		DetailResolver: func(_ context.Context, run model.Run) (detail.Model, error) {
 			return detail.NewModel(run, []model.Job{{
 				ID:         7001,
 				RunID:      run.ID,
@@ -412,7 +412,7 @@ func TestDispatchPickerSelectsExactWorkflow(t *testing.T) {
 				HeadBranch: "main",
 			}},
 		},
-		DispatchWorkflowsResolver: func() ([]dispatch.Workflow, error) {
+		DispatchWorkflowsResolver: func(context.Context) ([]dispatch.Workflow, error) {
 			return []dispatch.Workflow{
 				{Name: "Release", ID: "release.yml", Ref: "main"},
 				{Name: "Blacksmith Build Artifacts Testbox", ID: "blacksmith.yml", Ref: "main", Inputs: []dispatch.Input{{
@@ -483,7 +483,7 @@ func TestDispatchTextInputConsumesGlobalShortcutLetters(t *testing.T) {
 				Conclusion: model.ConclusionSuccess,
 			}},
 		},
-		DispatchWorkflowsResolver: func() ([]dispatch.Workflow, error) {
+		DispatchWorkflowsResolver: func(context.Context) ([]dispatch.Workflow, error) {
 			return []dispatch.Workflow{{
 				Name: "CI",
 				ID:   "ci.yml",
@@ -665,7 +665,7 @@ func TestRunsArrowKeysNavigateAndSelectedRunOpensDistinctDetail(t *testing.T) {
 			State:  usecase.LaunchStateRuns,
 			Runs:   []model.Run{release, codeQL},
 		},
-		DetailResolver: func(run model.Run) (detail.Model, error) {
+		DetailResolver: func(_ context.Context, run model.Run) (detail.Model, error) {
 			job := model.Job{ID: run.ID + 10, RunID: run.ID, Name: run.Name + " job", Status: run.Status, Conclusion: run.Conclusion}
 			return detail.NewModel(run, []model.Job{job}), nil
 		},
@@ -829,7 +829,7 @@ func TestRunsFilterReloadsServerSupportedQueries(t *testing.T) {
 				HeadBranch:   "main",
 			}},
 		},
-		RunsResolver: func(filter usecase.RunFilter) ([]model.Run, error) {
+		RunsResolver: func(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
 			calls = append(calls, filter)
 			return []model.Run{{
 				ID:           2002,
@@ -890,7 +890,7 @@ func TestRunsEndLoadsNextGitHubPage(t *testing.T) {
 				{ID: 1001, Name: "CI", RunNumber: 1001, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess},
 			},
 		},
-		RunsResolver: func(filter usecase.RunFilter) ([]model.Run, error) {
+		RunsResolver: func(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
 			calls = append(calls, filter)
 			return []model.Run{
 				{ID: 1001, Name: "CI", RunNumber: 1001, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess},
@@ -949,7 +949,7 @@ func TestRefreshReloadsVisibleRunsWithoutKeypress(t *testing.T) {
 				HeadBranch: "main",
 			}},
 		},
-		RunsResolver: func(filter usecase.RunFilter) ([]model.Run, error) {
+		RunsResolver: func(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
 			calls++
 			if filter.Page != 1 || filter.Branch != "main" {
 				t.Fatalf("refresh filter = %#v", filter)
@@ -1023,7 +1023,7 @@ func TestRefreshBacksOffIdleRunsAndResetsWhenRunning(t *testing.T) {
 				HeadBranch: "main",
 			}},
 		},
-		RunsResolver: func(usecase.RunFilter) ([]model.Run, error) {
+		RunsResolver: func(context.Context, usecase.RunFilter) ([]model.Run, error) {
 			next := responses[0]
 			responses = responses[1:]
 			return next, nil
@@ -1068,7 +1068,7 @@ func TestRunsChromeShowsRealRateAndCacheMetadata(t *testing.T) {
 				HeadBranch: "main",
 			}},
 		},
-		RunsResolver: func(usecase.RunFilter) ([]model.Run, error) {
+		RunsResolver: func(context.Context, usecase.RunFilter) ([]model.Run, error) {
 			meta = usecase.RequestMeta{Status: 304, Cache: "hit", RateRemaining: "4998"}
 			return []model.Run{{
 				ID:         9001,
@@ -1127,7 +1127,7 @@ func TestRefreshErrorKeepsCachedRunsAndShowsToast(t *testing.T) {
 				HeadBranch:   "integration",
 			}},
 		},
-		RunsResolver: func(usecase.RunFilter) ([]model.Run, error) {
+		RunsResolver: func(context.Context, usecase.RunFilter) ([]model.Run, error) {
 			return nil, usecase.APIError{
 				Kind:    usecase.APIErrorPermission,
 				Status:  403,
@@ -1171,7 +1171,7 @@ func TestRefreshRateLimitToastShowsAutoResumeMetadata(t *testing.T) {
 				HeadBranch:   "integration",
 			}},
 		},
-		RunsResolver: func(usecase.RunFilter) ([]model.Run, error) {
+		RunsResolver: func(context.Context, usecase.RunFilter) ([]model.Run, error) {
 			return nil, usecase.APIError{
 				Kind:       usecase.APIErrorRateLimit,
 				Status:     403,
@@ -1302,7 +1302,7 @@ func TestDetailOpenBrowserAndCopyUseSelectedJobAndRun(t *testing.T) {
 		Launch:   usecase.LaunchContext{Repo: "openclaw/openclaw", Branch: "main", Scope: usecase.LaunchScopeBranch, State: usecase.LaunchStateRuns, Runs: []model.Run{run}},
 		OpenURL:  func(value string) error { opened = value; return nil },
 		CopyText: func(value string) error { copied = value; return nil },
-		DetailResolver: func(model.Run) (detail.Model, error) {
+		DetailResolver: func(context.Context, model.Run) (detail.Model, error) {
 			return detail.NewModel(run, []model.Job{job}).WithRepo("openclaw/openclaw"), nil
 		},
 	})
@@ -1335,10 +1335,10 @@ func TestFailureOpenBrowserAndCopyExcerpt(t *testing.T) {
 		Launch:   usecase.LaunchContext{Repo: "openclaw/openclaw", Branch: "main", Scope: usecase.LaunchScopeBranch, State: usecase.LaunchStateRuns, Runs: []model.Run{run}},
 		OpenURL:  func(value string) error { opened = value; return nil },
 		CopyText: func(value string) error { copied = value; return nil },
-		DetailResolver: func(model.Run) (detail.Model, error) {
+		DetailResolver: func(context.Context, model.Run) (detail.Model, error) {
 			return detail.NewModel(run, []model.Job{report.Job}).WithRepo("openclaw/openclaw"), nil
 		},
-		FailureResolver: func(model.Run, model.Job) (failurescreen.Model, logscreen.Model, error) {
+		FailureResolver: func(context.Context, model.Run, model.Job) (failurescreen.Model, logscreen.Model, error) {
 			return failurescreen.NewModel("openclaw/openclaw", run.ID, report), logscreen.NewModel(report.Log, 1, 6), nil
 		},
 	})
@@ -1471,7 +1471,7 @@ func TestLogRefetchNoticeShowsToastWhileKeepingRecoveredLog(t *testing.T) {
 			Runs:       []model.Run{run},
 			BranchRuns: []model.Run{run},
 		},
-		DetailResolver: func(model.Run) (detail.Model, error) {
+		DetailResolver: func(context.Context, model.Run) (detail.Model, error) {
 			return detail.NewModel(run, []model.Job{job}).WithRepo("openclaw/openclaw"), nil
 		},
 		LogResolver: func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error) {
@@ -1525,10 +1525,10 @@ func TestFailureRouteShowsLogRefetchToastAfterRecoveredFailureLoad(t *testing.T)
 			Runs:       []model.Run{run},
 			BranchRuns: []model.Run{run},
 		},
-		DetailResolver: func(model.Run) (detail.Model, error) {
+		DetailResolver: func(context.Context, model.Run) (detail.Model, error) {
 			return detail.NewModel(run, []model.Job{job}).WithRepo("openclaw/openclaw"), nil
 		},
-		FailureResolver: func(model.Run, model.Job) (failurescreen.Model, logscreen.Model, error) {
+		FailureResolver: func(context.Context, model.Run, model.Job) (failurescreen.Model, logscreen.Model, error) {
 			return failurescreen.NewModel("openclaw/openclaw", run.ID, report), logscreen.NewModel(report.Log, 1, 6), nil
 		},
 		LogRefetchNotice: func(jobID int64) (usecase.LogRefetchNotice, bool) {
@@ -1694,7 +1694,7 @@ func TestEscClearingServerFilterRestoresUnfilteredRuns(t *testing.T) {
 	app := NewApp(Options{
 		Config: cfg,
 		Launch: usecase.LaunchContext{Repo: "x/y", Branch: "main", State: usecase.LaunchStateRuns, Runs: full},
-		RunsResolver: func(filter usecase.RunFilter) ([]model.Run, error) {
+		RunsResolver: func(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
 			if filter.Status != "" {
 				return running, nil
 			}
@@ -1721,7 +1721,7 @@ func TestPaletteOpenDoesNotToastDispatchResolutionErrors(t *testing.T) {
 	app := NewApp(Options{
 		Config: cfg,
 		Launch: usecase.LaunchContext{Repo: "x/y", State: usecase.LaunchStateRuns, Runs: []model.Run{cliTestRun(1, "CI", "main")}},
-		DispatchWorkflowsResolver: func() ([]dispatch.Workflow, error) {
+		DispatchWorkflowsResolver: func(context.Context) ([]dispatch.Workflow, error) {
 			return nil, errors.New("dispatch ref is unavailable; pass --branch or run from a checkout")
 		},
 	})

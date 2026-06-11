@@ -490,11 +490,11 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 		Config: cfg,
 		Build:  build,
 		Launch: launch,
-		RunsResolver: func(filter usecase.RunFilter) ([]model.Run, error) {
+		RunsResolver: func(loadCtx context.Context, filter usecase.RunFilter) ([]model.Run, error) {
 			if filter.PerPage == 0 {
 				filter.PerPage = cfg.PerPage
 			}
-			return githubClient.ListRuns(ctx, filter)
+			return githubClient.ListRuns(loadCtx, filter)
 		},
 		RunsMetadata: func() (usecase.RequestMeta, bool) {
 			diagnostics, ok := githubClient.(usecase.GitHubDiagnostics)
@@ -510,19 +510,19 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			}
 			return diagnostics.LastLogRefetch(jobID)
 		},
-		DetailResolver: func(run model.Run) (detail.Model, error) {
-			jobs, err := githubClient.ListJobs(ctx, launch.Repo, run.ID)
+		DetailResolver: func(loadCtx context.Context, run model.Run) (detail.Model, error) {
+			jobs, err := githubClient.ListJobs(loadCtx, launch.Repo, run.ID)
 			if err != nil {
 				return detail.Model{}, err
 			}
 			return detail.NewModel(run, jobs).WithRepo(launch.Repo), nil
 		},
-		FailureResolver: func(run model.Run, selected model.Job) (failurescreen.Model, logscreen.Model, error) {
-			job, err := resolveJobForRun(ctx, githubClient, launch.Repo, run, selected)
+		FailureResolver: func(loadCtx context.Context, run model.Run, selected model.Job) (failurescreen.Model, logscreen.Model, error) {
+			job, err := resolveJobForRun(loadCtx, githubClient, launch.Repo, run, selected)
 			if err != nil {
 				return failurescreen.Model{}, logscreen.Model{}, err
 			}
-			report, err := failureService.LoadFailure(ctx, launch.Repo, job)
+			report, err := failureService.LoadFailure(loadCtx, launch.Repo, job)
 			if err != nil {
 				return failurescreen.Model{}, logscreen.Model{}, err
 			}
@@ -547,8 +547,8 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			}
 			return logscreen.NewModel(logs.Parse(raw), 1, 6), nil
 		},
-		WatchResolver: func(run model.Run) (watch.Model, error) {
-			state, err := watchService.Tick(ctx, usecase.WatchState{Repo: launch.Repo, RunID: run.ID, Run: run})
+		WatchResolver: func(loadCtx context.Context, run model.Run) (watch.Model, error) {
+			state, err := watchService.Tick(loadCtx, usecase.WatchState{Repo: launch.Repo, RunID: run.ID, Run: run})
 			if err != nil {
 				return watch.Model{}, err
 			}
@@ -563,8 +563,8 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 				Elapsed: elapsedRun(state.Run),
 			}), nil
 		},
-		DispatchResolver: func() (dispatch.Model, error) {
-			workflows, err := dispatchWorkflowModels(ctx, githubClient, launch)
+		DispatchResolver: func(loadCtx context.Context) (dispatch.Model, error) {
+			workflows, err := dispatchWorkflowModels(loadCtx, githubClient, launch)
 			if err != nil {
 				return dispatch.Model{}, err
 			}
@@ -573,8 +573,8 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			}
 			return dispatch.NewModel(workflows[0]), nil
 		},
-		DispatchWorkflowsResolver: func() ([]dispatch.Workflow, error) {
-			workflows, err := dispatchWorkflowModels(ctx, githubClient, launch)
+		DispatchWorkflowsResolver: func(loadCtx context.Context) ([]dispatch.Workflow, error) {
+			workflows, err := dispatchWorkflowModels(loadCtx, githubClient, launch)
 			if err != nil {
 				return nil, err
 			}

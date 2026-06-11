@@ -28,7 +28,7 @@ func TestStartLoadReturnsImmediately(t *testing.T) {
 	app := asyncTestApp()
 	release := make(chan struct{})
 	startedAt := time.Now()
-	app = app.startLoad(loadKindRuns, "sniffing", func() func(App) App {
+	app = app.startLoad(loadKindRuns, "sniffing", func(context.Context) func(App) App {
 		<-release
 		return func(a App) App { return a }
 	})
@@ -44,7 +44,7 @@ func TestStartLoadReturnsImmediately(t *testing.T) {
 func TestSettleLoadsAppliesResult(t *testing.T) {
 	app := asyncTestApp()
 	var applied atomic.Bool
-	app = app.startLoad(loadKindRuns, "sniffing", func() func(App) App {
+	app = app.startLoad(loadKindRuns, "sniffing", func(context.Context) func(App) App {
 		return func(a App) App {
 			applied.Store(true)
 			return a
@@ -66,7 +66,7 @@ func TestSupersededLoadNeverApplies(t *testing.T) {
 	app := asyncTestApp()
 	var staleApplied atomic.Bool
 	slowDone := make(chan struct{})
-	app = app.startLoad(loadKindRuns, "first", func() func(App) App {
+	app = app.startLoad(loadKindRuns, "first", func(context.Context) func(App) App {
 		time.Sleep(30 * time.Millisecond)
 		close(slowDone)
 		return func(a App) App {
@@ -75,7 +75,7 @@ func TestSupersededLoadNeverApplies(t *testing.T) {
 		}
 	})
 	var freshApplied atomic.Bool
-	app = app.startLoad(loadKindRuns, "second", func() func(App) App {
+	app = app.startLoad(loadKindRuns, "second", func(context.Context) func(App) App {
 		return func(a App) App {
 			freshApplied.Store(true)
 			return a
@@ -103,7 +103,7 @@ func TestEscCancelsPendingLoad(t *testing.T) {
 	app := asyncTestApp()
 	var applied atomic.Bool
 	release := make(chan struct{})
-	app = app.startLoad(loadKindRuns, "sniffing", func() func(App) App {
+	app = app.startLoad(loadKindRuns, "sniffing", func(context.Context) func(App) App {
 		<-release
 		return func(a App) App {
 			applied.Store(true)
@@ -130,7 +130,7 @@ func TestEscCancelsPendingLoad(t *testing.T) {
 func TestPollIntervalTightensWhileLoading(t *testing.T) {
 	app := asyncTestApp()
 	release := make(chan struct{})
-	app = app.startLoad(loadKindDetail, "fetching jobs", func() func(App) App {
+	app = app.startLoad(loadKindDetail, "fetching jobs", func(context.Context) func(App) App {
 		<-release
 		return func(a App) App { return a }
 	})
@@ -143,7 +143,7 @@ func TestPollIntervalTightensWhileLoading(t *testing.T) {
 func TestRefreshAnimatesVisibleSpinner(t *testing.T) {
 	app := asyncTestApp()
 	release := make(chan struct{})
-	app = app.startLoad(loadKindDetail, "fetching jobs", func() func(App) App {
+	app = app.startLoad(loadKindDetail, "fetching jobs", func(context.Context) func(App) App {
 		<-release
 		return func(a App) App { return a }
 	})
@@ -158,7 +158,7 @@ func TestRefreshAnimatesVisibleSpinner(t *testing.T) {
 func TestRefreshQuietInsideGrace(t *testing.T) {
 	app := asyncTestApp()
 	release := make(chan struct{})
-	app = app.startLoad(loadKindDetail, "fetching jobs", func() func(App) App {
+	app = app.startLoad(loadKindDetail, "fetching jobs", func(context.Context) func(App) App {
 		<-release
 		return func(a App) App { return a }
 	})
@@ -176,7 +176,7 @@ func TestSettleLoadsTimesOut(t *testing.T) {
 	app := asyncTestApp()
 	release := make(chan struct{})
 	defer close(release)
-	app = app.startLoad(loadKindLog, "fetching log", func() func(App) App {
+	app = app.startLoad(loadKindLog, "fetching log", func(context.Context) func(App) App {
 		<-release
 		return func(a App) App { return a }
 	})
@@ -189,7 +189,7 @@ func TestRapidLoadCyclesLeakNoGoroutines(t *testing.T) {
 	app := asyncTestApp()
 	baseline := runtime.NumGoroutine()
 	for range 50 {
-		app = app.startLoad(loadKindRuns, "cycle", func() func(App) App {
+		app = app.startLoad(loadKindRuns, "cycle", func(context.Context) func(App) App {
 			time.Sleep(time.Millisecond)
 			return func(a App) App { return a }
 		})
@@ -212,7 +212,7 @@ func TestStatusCycleReloadDoesNotBlock(t *testing.T) {
 	app := asyncTestApp()
 	release := make(chan struct{})
 	var calls atomic.Int32
-	app.runsResolver = func(usecase.RunFilter) ([]model.Run, error) {
+	app.runsResolver = func(context.Context, usecase.RunFilter) ([]model.Run, error) {
 		calls.Add(1)
 		<-release
 		return sampleRunsModel().Context.Runs, nil
@@ -262,7 +262,7 @@ func TestEscDuringReloadKeepsPreviousList(t *testing.T) {
 	before := ansi.Strip(app.ViewSized(124))
 	release := make(chan struct{})
 	defer close(release)
-	app.runsResolver = func(usecase.RunFilter) ([]model.Run, error) {
+	app.runsResolver = func(context.Context, usecase.RunFilter) ([]model.Run, error) {
 		<-release
 		return nil, nil
 	}
@@ -299,7 +299,7 @@ func settleApp(t *testing.T, app App) App {
 func TestDetailOpenPaintsSkeletonImmediately(t *testing.T) {
 	app := asyncTestApp()
 	release := make(chan struct{})
-	app.detailResolver = func(run model.Run) (detail.Model, error) {
+	app.detailResolver = func(_ context.Context, run model.Run) (detail.Model, error) {
 		<-release
 		return sampleDetailModel(), nil
 	}
@@ -330,7 +330,7 @@ func TestDetailOpenPaintsSkeletonImmediately(t *testing.T) {
 func TestDetailResultForAbandonedRunNeverApplies(t *testing.T) {
 	app := asyncTestApp()
 	slow := make(chan struct{})
-	app.detailResolver = func(run model.Run) (detail.Model, error) {
+	app.detailResolver = func(_ context.Context, run model.Run) (detail.Model, error) {
 		if run.ID == 571 {
 			<-slow
 		}
@@ -391,7 +391,7 @@ func TestLogOpenShowsByteProgress(t *testing.T) {
 func TestFailureOpenIsAsync(t *testing.T) {
 	app := asyncTestApp()
 	release := make(chan struct{})
-	app.failureResolver = func(model.Run, model.Job) (failure.Model, logscreen.Model, error) {
+	app.failureResolver = func(context.Context, model.Run, model.Job) (failure.Model, logscreen.Model, error) {
 		<-release
 		return sampleFailureModel(), sampleLogModel(), nil
 	}
@@ -425,7 +425,7 @@ func TestDispatchOpenIsAsync(t *testing.T) {
 	app := asyncTestApp()
 	release := make(chan struct{})
 	app.dispatchWorkflows = nil
-	app.dispatchWorkflowsResolver = func() ([]dispatch.Workflow, error) {
+	app.dispatchWorkflowsResolver = func(context.Context) ([]dispatch.Workflow, error) {
 		<-release
 		return []dispatch.Workflow{sampleDispatchModel().Workflow}, nil
 	}
@@ -463,7 +463,7 @@ func TestRefreshSkipsRoutePollingWhileLoading(t *testing.T) {
 	var pollCalls atomic.Int32
 	release := make(chan struct{})
 	defer close(release)
-	app.runsResolver = func(usecase.RunFilter) ([]model.Run, error) {
+	app.runsResolver = func(context.Context, usecase.RunFilter) ([]model.Run, error) {
 		if pollCalls.Add(1) == 1 {
 			<-release // the load's own fetch holds the queue
 		}
@@ -499,7 +499,7 @@ func TestRefreshSkipsRoutePollingWhileLoading(t *testing.T) {
 func TestWatchOpenIsAsync(t *testing.T) {
 	app := asyncTestApp()
 	release := make(chan struct{})
-	app.watchResolver = func(model.Run) (watch.Model, error) {
+	app.watchResolver = func(context.Context, model.Run) (watch.Model, error) {
 		<-release
 		return sampleWatchModel(), nil
 	}
@@ -528,7 +528,7 @@ func TestRunsReloadAppliesToRequestScope(t *testing.T) {
 	app.runs.Context.RepoRuns = append([]model.Run(nil), app.runs.Context.Runs...)
 	release := make(chan struct{})
 	filtered := []model.Run{{ID: 9999, Name: "CI", RunNumber: 9999, Status: model.StatusCompleted, Conclusion: model.ConclusionFailure, HeadBranch: "fix/parser"}}
-	app.runsResolver = func(usecase.RunFilter) ([]model.Run, error) {
+	app.runsResolver = func(context.Context, usecase.RunFilter) ([]model.Run, error) {
 		<-release
 		return filtered, nil
 	}
@@ -589,7 +589,7 @@ func TestSupersededLoadContextIsCancelled(t *testing.T) {
 	}
 	app, _ = app.Update(KeyMsg{Key: "l"})
 	// Supersede with a runs reload.
-	app.runsResolver = func(usecase.RunFilter) ([]model.Run, error) { return nil, nil }
+	app.runsResolver = func(context.Context, usecase.RunFilter) ([]model.Run, error) { return nil, nil }
 	app = app.reloadRuns("failing")
 	select {
 	case <-cancelled:
@@ -607,7 +607,7 @@ func TestLoadMorePageForAbandonedScopeIsDropped(t *testing.T) {
 	app.runs.Context.RepoRuns = append([]model.Run(nil), app.runs.Context.Runs...)
 	app.runs.Context.HasMore = true
 	release := make(chan struct{})
-	app.runsResolver = func(usecase.RunFilter) ([]model.Run, error) {
+	app.runsResolver = func(context.Context, usecase.RunFilter) ([]model.Run, error) {
 		<-release
 		return []model.Run{{ID: 7777, Name: "CI", RunNumber: 7777, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess}}, nil
 	}

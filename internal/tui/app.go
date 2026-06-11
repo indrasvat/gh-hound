@@ -63,13 +63,13 @@ type Options struct {
 	Config                    config.Config
 	Build                     BuildInfo
 	Launch                    usecase.LaunchContext
-	DetailResolver            func(model.Run) (detail.Model, error)
-	RunsResolver              func(usecase.RunFilter) ([]model.Run, error)
-	FailureResolver           func(model.Run, model.Job) (failure.Model, logscreen.Model, error)
+	DetailResolver            func(context.Context, model.Run) (detail.Model, error)
+	RunsResolver              func(context.Context, usecase.RunFilter) ([]model.Run, error)
+	FailureResolver           func(context.Context, model.Run, model.Job) (failure.Model, logscreen.Model, error)
 	LogResolver               func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error)
-	WatchResolver             func(model.Run) (watch.Model, error)
-	DispatchResolver          func() (dispatch.Model, error)
-	DispatchWorkflowsResolver func() ([]dispatch.Workflow, error)
+	WatchResolver             func(context.Context, model.Run) (watch.Model, error)
+	DispatchResolver          func(context.Context) (dispatch.Model, error)
+	DispatchWorkflowsResolver func(context.Context) ([]dispatch.Workflow, error)
 	RunsMetadata              func() (usecase.RequestMeta, bool)
 	LogRefetchNotice          func(int64) (usecase.LogRefetchNotice, bool)
 	ActionHandler             func(ActionRequest) (usecase.ActionResult, error)
@@ -114,13 +114,13 @@ type App struct {
 	dispatchWorkflows         []dispatch.Workflow
 	pendingAction             *pendingAction
 	routeErrors               map[Route]string
-	detailResolver            func(model.Run) (detail.Model, error)
-	runsResolver              func(usecase.RunFilter) ([]model.Run, error)
-	failureResolver           func(model.Run, model.Job) (failure.Model, logscreen.Model, error)
+	detailResolver            func(context.Context, model.Run) (detail.Model, error)
+	runsResolver              func(context.Context, usecase.RunFilter) ([]model.Run, error)
+	failureResolver           func(context.Context, model.Run, model.Job) (failure.Model, logscreen.Model, error)
 	logResolver               func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error)
-	watchResolver             func(model.Run) (watch.Model, error)
-	dispatchResolver          func() (dispatch.Model, error)
-	dispatchWorkflowsResolver func() ([]dispatch.Workflow, error)
+	watchResolver             func(context.Context, model.Run) (watch.Model, error)
+	dispatchResolver          func(context.Context) (dispatch.Model, error)
+	dispatchWorkflowsResolver func(context.Context) ([]dispatch.Workflow, error)
 	runsMetadata              func() (usecase.RequestMeta, bool)
 	logRefetchNotice          func(int64) (usecase.LogRefetchNotice, bool)
 	actionHandler             func(ActionRequest) (usecase.ActionResult, error)
@@ -141,9 +141,9 @@ type App struct {
 // pointer replacement; the orphaned goroutine's result can never
 // apply. work returns the apply closure that folds the result (or its
 // error handling) into the App at drain time.
-func (a App) startLoad(kind loadKind, label string, work func() func(App) App) App {
-	return a.startLoadProgress(kind, label, func(context.Context, func(int64, int64)) func(App) App {
-		return work()
+func (a App) startLoad(kind loadKind, label string, work func(ctx context.Context) func(App) App) App {
+	return a.startLoadProgress(kind, label, func(ctx context.Context, _ func(int64, int64)) func(App) App {
+		return work(ctx)
 	})
 }
 
@@ -250,7 +250,7 @@ func NewApp(options Options) App {
 	initialDetail := detail.Model{}
 	if run, ok := runsModel.SelectedRun(); ok {
 		if options.DetailResolver != nil {
-			resolved, err := options.DetailResolver(run)
+			resolved, err := options.DetailResolver(context.Background(), run)
 			if err != nil {
 				routeErrors[RouteDetail] = "detail unavailable: " + err.Error()
 			} else {
@@ -309,25 +309,25 @@ func NewScenarioApp(scenario string, build BuildInfo) App {
 	app.watch = sampleWatchModel()
 	app.dispatch = sampleDispatchModel()
 	app.routeErrors = map[Route]string{}
-	app.detailResolver = func(model.Run) (detail.Model, error) {
+	app.detailResolver = func(context.Context, model.Run) (detail.Model, error) {
 		return sampleDetailModel(), nil
 	}
-	app.runsResolver = func(usecase.RunFilter) ([]model.Run, error) {
+	app.runsResolver = func(context.Context, usecase.RunFilter) ([]model.Run, error) {
 		return sampleRunsModel().Context.Runs, nil
 	}
-	app.failureResolver = func(model.Run, model.Job) (failure.Model, logscreen.Model, error) {
+	app.failureResolver = func(context.Context, model.Run, model.Job) (failure.Model, logscreen.Model, error) {
 		return sampleFailureModel(), sampleLogModel(), nil
 	}
 	app.logResolver = func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error) {
 		return sampleLogModel(), nil
 	}
-	app.watchResolver = func(model.Run) (watch.Model, error) {
+	app.watchResolver = func(context.Context, model.Run) (watch.Model, error) {
 		return sampleWatchModel(), nil
 	}
-	app.dispatchResolver = func() (dispatch.Model, error) {
+	app.dispatchResolver = func(context.Context) (dispatch.Model, error) {
 		return sampleDispatchModel(), nil
 	}
-	app.dispatchWorkflowsResolver = func() ([]dispatch.Workflow, error) {
+	app.dispatchWorkflowsResolver = func(context.Context) ([]dispatch.Workflow, error) {
 		return []dispatch.Workflow{sampleDispatchModel().Workflow}, nil
 	}
 	app.actionHandler = func(ActionRequest) (usecase.ActionResult, error) {
@@ -1280,8 +1280,8 @@ func (a App) loadDetail(run model.Run) App {
 		return a.startArtifactsFetch(run)
 	}
 	resolver := a.detailResolver
-	a = a.startLoad(loadKindDetail, "fetching jobs", func() func(App) App {
-		resolved, err := resolver(run)
+	a = a.startLoad(loadKindDetail, "fetching jobs", func(ctx context.Context) func(App) App {
+		resolved, err := resolver(ctx, run)
 		return func(app App) App {
 			if app.detail.Run.ID != run.ID {
 				// The user opened a different run meanwhile; this
@@ -1325,8 +1325,8 @@ func (a App) reloadRuns(query string) App {
 	// The result belongs to the scope that REQUESTED it: a local scope
 	// toggle mid-flight must not receive another scope's rows.
 	requestScope := a.runs.Context.Scope
-	return a.startLoad(loadKindRuns, runsLoadLabel(query), func() func(App) App {
-		resolved, err := resolver(filter)
+	return a.startLoad(loadKindRuns, runsLoadLabel(query), func(ctx context.Context) func(App) App {
+		resolved, err := resolver(ctx, filter)
 		return func(app App) App {
 			if err != nil {
 				return app.handleRunsError(RouteRuns, "runs-filter", "runs filter failed: "+err.Error(), err)
@@ -1389,8 +1389,8 @@ func (a App) loadMoreRuns() App {
 	}
 	resolver := a.runsResolver
 	requestScope := a.runs.Context.Scope
-	return a.startLoad(loadKindRuns, "fetching more runs", func() func(App) App {
-		resolved, err := resolver(filter)
+	return a.startLoad(loadKindRuns, "fetching more runs", func(ctx context.Context) func(App) App {
+		resolved, err := resolver(ctx, filter)
 		return func(app App) App {
 			if err != nil {
 				return app.handleRunsError(RouteRuns, "runs-page", "next page failed: "+err.Error(), err)
@@ -1428,7 +1428,7 @@ func (a App) refreshRuns() (App, bool) {
 	if selected, ok := a.runs.SelectedRun(); ok {
 		selectedID = selected.ID
 	}
-	resolved, err := a.runsResolver(filter)
+	resolved, err := a.runsResolver(context.Background(), filter)
 	if err != nil {
 		a = a.handleRunsError(RouteRuns, "runs-refresh", "refresh failed: "+err.Error(), err)
 		a.pollInterval = nextPollIntervalForRuns(nil, a.pollInterval, a.config)
@@ -1463,7 +1463,7 @@ func (a App) refreshWatch() (App, bool) {
 	if a.watchResolver == nil || a.watch.State.Run.ID == 0 {
 		return a, false
 	}
-	resolved, err := a.watchResolver(a.watch.State.Run)
+	resolved, err := a.watchResolver(context.Background(), a.watch.State.Run)
 	if err != nil {
 		a.setRouteError(RouteWatch, "watch refresh failed: "+err.Error())
 		a.refreshCount++
@@ -1662,8 +1662,8 @@ func (a App) loadFailure(run model.Run, job model.Job) App {
 		return a
 	}
 	resolver := a.failureResolver
-	return a.startLoad(loadKindFailure, "fetching the failure", func() func(App) App {
-		resolved, fullLog, err := resolver(run, job)
+	return a.startLoad(loadKindFailure, "fetching the failure", func(ctx context.Context) func(App) App {
+		resolved, fullLog, err := resolver(ctx, run, job)
 		return func(app App) App {
 			if err != nil {
 				app.setRouteError(RouteFailure, "failure unavailable: "+err.Error())
@@ -1731,8 +1731,8 @@ func (a App) loadWatch(run model.Run) App {
 		return a
 	}
 	resolver := a.watchResolver
-	return a.startLoad(loadKindWatch, "chasing down the run", func() func(App) App {
-		resolved, err := resolver(run)
+	return a.startLoad(loadKindWatch, "chasing down the run", func(ctx context.Context) func(App) App {
+		resolved, err := resolver(ctx, run)
 		return func(app App) App {
 			if err != nil {
 				app.setRouteError(RouteWatch, "watch unavailable: "+err.Error())
@@ -1757,8 +1757,8 @@ func (a App) openDispatch() App {
 		return a
 	}
 	resolver := a.dispatchWorkflowsResolver
-	return a.startLoad(loadKindDispatch, "fetching workflows", func() func(App) App {
-		workflows, err := resolver()
+	return a.startLoad(loadKindDispatch, "fetching workflows", func(ctx context.Context) func(App) App {
+		workflows, err := resolver(ctx)
 		return func(app App) App {
 			if err != nil {
 				app.setRouteError(RouteDispatch, "dispatch unavailable: "+err.Error())
@@ -1807,9 +1807,9 @@ func (a App) loadDispatch() App {
 		a.setRouteError(RouteDispatch, "dispatch unavailable: live workflow loader is not configured")
 		return a
 	}
-	return a.startLoad(loadKindDispatch, "fetching workflows", func() func(App) App {
+	return a.startLoad(loadKindDispatch, "fetching workflows", func(ctx context.Context) func(App) App {
 		if workflowsResolver != nil {
-			if workflows, err := workflowsResolver(); err == nil && len(workflows) > 0 {
+			if workflows, err := workflowsResolver(ctx); err == nil && len(workflows) > 0 {
 				return func(app App) App {
 					app.dispatchWorkflows = append([]dispatch.Workflow(nil), workflows...)
 					app.dispatch = dispatch.NewModel(workflows[0])
@@ -1817,7 +1817,7 @@ func (a App) loadDispatch() App {
 				}
 			}
 		}
-		return dispatchFallbackApply(dispatchResolver)
+		return dispatchFallbackApply(ctx, dispatchResolver)
 	})
 }
 
@@ -1831,19 +1831,19 @@ func (a App) loadDispatchFallback() App {
 		a.setRouteError(RouteDispatch, "dispatch unavailable: live workflow loader is not configured")
 		return a
 	}
-	return a.startLoad(loadKindDispatch, "fetching workflows", func() func(App) App {
-		return dispatchFallbackApply(dispatchResolver)
+	return a.startLoad(loadKindDispatch, "fetching workflows", func(ctx context.Context) func(App) App {
+		return dispatchFallbackApply(ctx, dispatchResolver)
 	})
 }
 
-func dispatchFallbackApply(dispatchResolver func() (dispatch.Model, error)) func(App) App {
+func dispatchFallbackApply(ctx context.Context, dispatchResolver func(context.Context) (dispatch.Model, error)) func(App) App {
 	if dispatchResolver == nil {
 		return func(app App) App {
 			app.setRouteError(RouteDispatch, "dispatch unavailable: live workflow loader is not configured")
 			return app
 		}
 	}
-	resolved, err := dispatchResolver()
+	resolved, err := dispatchResolver(ctx)
 	return func(app App) App {
 		if err != nil {
 			app.setRouteError(RouteDispatch, "dispatch unavailable: "+err.Error())

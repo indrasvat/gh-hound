@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -25,7 +26,7 @@ func artifactsTestApp(t *testing.T, downloader func(model.Artifact, string) (use
 			State: usecase.LaunchStateRuns,
 			Runs:  []model.Run{run},
 		},
-		DetailResolver: func(run model.Run) (detail.Model, error) {
+		DetailResolver: func(_ context.Context, run model.Run) (detail.Model, error) {
 			return detail.NewModel(run, []model.Job{{ID: 7001, Name: "build", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess}}), nil
 		},
 		ArtifactsResolver: func(run model.Run) ([]model.Artifact, error) {
