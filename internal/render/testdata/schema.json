@@ -652,6 +652,84 @@
      }
     }
    }
+  },
+  "watch_group_event": {
+   "description": "One NDJSON line on the watch --group stream: a run's state transition. Run-level only; job/step fields appear ONLY in single-run watch events.",
+   "type": "object",
+   "required": [
+    "type",
+    "ts",
+    "run_id",
+    "workflow",
+    "status",
+    "conclusion"
+   ],
+   "properties": {
+    "type": {
+     "const": "run"
+    },
+    "ts": {
+     "type": "string",
+     "format": "date-time"
+    },
+    "run_id": {
+     "type": "integer"
+    },
+    "workflow": {
+     "type": "string"
+    },
+    "status": {
+     "type": "string"
+    },
+    "conclusion": {
+     "type": "string"
+    }
+   }
+  },
+  "watch_group_summary": {
+   "description": "The terminal object that closes the watch --group stream once the pack settles.",
+   "type": "object",
+   "required": [
+    "type",
+    "ts",
+    "repo",
+    "head_sha",
+    "event",
+    "runs",
+    "running",
+    "home",
+    "lost"
+   ],
+   "properties": {
+    "type": {
+     "const": "summary"
+    },
+    "ts": {
+     "type": "string",
+     "format": "date-time"
+    },
+    "repo": {
+     "type": "string"
+    },
+    "head_sha": {
+     "type": "string"
+    },
+    "event": {
+     "type": "string"
+    },
+    "runs": {
+     "type": "integer"
+    },
+    "running": {
+     "type": "integer"
+    },
+    "home": {
+     "type": "integer"
+    },
+    "lost": {
+     "type": "integer"
+    }
+   }
   }
  }
 }

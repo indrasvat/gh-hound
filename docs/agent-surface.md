@@ -8,6 +8,7 @@
 gh hound runs --no-tui --json
 gh hound runs --status failure --no-tui --json
 gh hound watch --json
+gh hound watch --group --no-tui
 gh hound runs --run <run-id> --no-tui --json
 gh hound runs --run <run-id> --attempt <n> --no-tui --json
 gh hound artifacts --run <run-id> --no-tui --json
@@ -45,6 +46,32 @@ gh hound runs --no-tui --format xml
 | 3 | a selected run is still pending/running | wait, poll, or call `watch` |
 
 `watch --json` is fail-fast: if the watched run becomes red, it exits `1` and includes the failure object immediately.
+
+## Multi-run Watch (the hunt)
+
+A push usually triggers several workflows. `watch --group` watches the whole event group — every run sharing the anchor's `head_sha` AND `event` — as one stream:
+
+```bash
+gh hound watch --group --no-tui              # newest still-live run anchors the hunt
+gh hound watch --group --run <run-id> --no-tui
+```
+
+The stream is NDJSON: one compact JSON object per line, a line per run **state transition** until the group settles, then one terminal summary object that closes the stream.
+
+```json
+{"type":"run","ts":"2026-06-11T08:32:19Z","run_id":30433701,"workflow":"CI","status":"in_progress","conclusion":""}
+{"type":"run","ts":"2026-06-11T08:32:19Z","run_id":30433701,"workflow":"CI","status":"completed","conclusion":"success"}
+{"type":"summary","ts":"2026-06-11T08:32:20Z","repo":"owner/repo","head_sha":"9f8e7d6…","event":"push","runs":3,"running":0,"home":2,"lost":1}
+```
+
+Contract rules agents can rely on (`$defs.watch_group_event` / `$defs.watch_group_summary` in schema.json):
+
+- Group events are **run-level only** (`type, ts, run_id, workflow, status, conclusion`). `job`/`step` fields appear ONLY in single-run `watch` output — the group poll budget never fetches jobs (one runs-list call per tick covers the whole hunt).
+- Runs sharing the sha on a different event (e.g. a chained `workflow_run` deploy) are NOT part of the hunt and never appear on the stream.
+- Hunt size is capped by `watch_group_max` (default 10, env `HOUND_WATCH_GROUP_MAX`).
+- Exit code = worst outcome with the existing semantics: `1` if any run is lost (failure/action_required/timed_out at settle), `0` when the whole hunt comes home, `2` on API/validation errors. `--format md/xml` refuse up front — the stream is NDJSON by contract.
+
+Rehearse deterministically with `--fake-scenario pack`: three workflows off one push, staggered completion, `Docs` lost at the end (exit `1`).
 
 ## Mutations
 
@@ -128,7 +155,8 @@ Rehearse deterministically with `--fake-scenario green` (the fake fleet covers a
 
 ## JSON Contract
 
-The JSON schema lives at `internal/render/testdata/schema.json` (mutation envelope under `$defs.mutation_result`, approvals envelope under `$defs.approvals_result`, regression verdict under `$defs.diff_result`, workflows envelope under `$defs.workflows_result`); the canonical failure fixture lives at `internal/render/testdata/failure.golden.json`.
+The JSON schema lives at `internal/render/testdata/schema.json` (mutation envelope under `$defs.mutation_result`, approvals envelope under `$defs.approvals_result`, regression verdict under `$defs.diff_result`, caches envelope under `$defs.caches_result`, workflows envelope under `$defs.workflows_result`, pack stream under `$defs.watch_group_event` / `$defs.watch_group_summary`); the canonical failure fixture lives at `internal/render/testdata/failure.golden.json`.
+
 
 Each run includes:
 
@@ -164,7 +192,7 @@ For local tests and docs, use fake scenarios:
 ./bin/gh-hound watch --json --fake-scenario failure
 ```
 
-Accepted aliases: `ok`, `green`, `success`; `failure`, `failed`, `failing`; `pending`, `running`, `in_progress`, `queued`; `api_error`, `network_error`, `rate_limited`; `waiting`, `gated`. The `regression` scenario seeds a deterministic last-green → first-red boundary for `diff`.
+Accepted aliases: `ok`, `green`, `success`; `failure`, `failed`, `failing`; `pending`, `running`, `in_progress`, `queued`; `api_error`, `network_error`, `rate_limited`; `waiting`, `gated`. The `regression` scenario seeds a deterministic last-green → first-red boundary for `diff`; `pack` seeds the staggered multi-run group for `watch --group`.
 
 ## Guardrails
 

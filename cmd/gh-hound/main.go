@@ -157,7 +157,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.PersistentFlags().StringVar((*string)(&options.Format), "format", "json", "pipe output format: json, md, xml (env HOUND_FORMAT)")
 	cmd.PersistentFlags().StringVar(&options.LogLevel, "log-level", "info", "log level: off, error, warn, info, debug (env HOUND_LOG_LEVEL)")
 	cmd.PersistentFlags().BoolVar(&options.TraceHTTP, "trace-http", false, "trace GitHub API calls to the JSON log (env HOUND_TRACE_HTTP)")
-	cmd.PersistentFlags().StringVar(&options.Fake, "fake-scenario", "", "deterministic fake scenario: green, failure, pending, empty, api_error, conflict, permission (env HOUND_FAKE_SCENARIO)")
+	cmd.PersistentFlags().StringVar(&options.Fake, "fake-scenario", "", "deterministic fake scenario: green, failure, pending, empty, api_error, conflict, permission, waiting, regression, pack (env HOUND_FAKE_SCENARIO)")
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		applyEnv(&options, runtime.Env)
 		return nil
@@ -772,16 +772,184 @@ func mapRenderCaches(caches []model.Cache) []render.Cache {
 }
 
 func newWatchCommand(runtime commandRuntime, options *cliOptions) *cobra.Command {
-	return &cobra.Command{
+	var group bool
+	cmd := &cobra.Command{
 		Use:   "watch",
 		Short: "Watch the current or selected run",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			options.Status = "in_progress"
+			applyEnv(options, runtime.Env)
 			options.NoTUI = true
 			options.Watch = true
+			if group {
+				return writeGroupWatchResult(cmd.Context(), runtime.Stdout, *options, runtime)
+			}
+			options.Status = "in_progress"
 			return writeResult(cmd.Context(), runtime.Stdout, *options, runtime)
 		},
 	}
+	cmd.Flags().BoolVar(&group, "group", false, "watch the whole event group (same head_sha + event) as NDJSON until the hunt settles")
+	cmd.Flags().Int64Var(&options.RunID, "run", 0, "anchor the group on a specific run ID (default: the newest run in scope)")
+	return cmd
+}
+
+// writeGroupWatchResult is the agent-facing pack watch: NDJSON state
+// transitions per run until the group settles, then one terminal
+// summary object. Exit code = worst outcome (existing semantics:
+// 1 any lost, 0 all home).
+func writeGroupWatchResult(ctx context.Context, w io.Writer, options cliOptions, runtime commandRuntime) error {
+	format := render.Format(options.Format)
+	if format != "" && format != render.FormatJSON {
+		return fmt.Errorf("watch --group emits NDJSON only; --format %s is not supported", format)
+	}
+	cfg, err := defaultConfig(runtime.Env)
+	if err != nil {
+		return err
+	}
+
+	var githubClient usecase.GitHub
+	var repo, branch string
+	if options.Fake != "" {
+		scenario := normalizedScenario(options)
+		if scenario == "api_error" {
+			return errors.New("github api unavailable")
+		}
+		githubClient = fake.New(fakeScenarioFor(scenario))
+		repo = firstNonEmpty(options.Repo, "indrasvat/gh-hound")
+		branch = firstNonEmpty(options.Branch, "main")
+	} else {
+		target, err := resolveTarget(ctx, options, runtime)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			_ = target.close()
+		}()
+		githubClient = target.github
+		repo, branch = target.repo, target.branch
+	}
+
+	listed, err := githubClient.ListRuns(ctx, usecase.RunFilter{Repo: repo, Branch: branch, PerPage: cfg.PerPage})
+	if err != nil {
+		return err
+	}
+	if len(listed) == 0 {
+		return errors.New("no runs found to watch; pass --run <run-id> or push something")
+	}
+	// Anchor on the newest still-live run (the pack worth watching);
+	// when everything has settled, fall back to the newest run.
+	anchor := listed[0]
+	for _, run := range listed {
+		if run.Status != model.StatusCompleted {
+			anchor = run
+			break
+		}
+	}
+	if options.RunID != 0 {
+		found := false
+		for _, run := range listed {
+			if run.ID == options.RunID {
+				anchor = run
+				found = true
+				break
+			}
+		}
+		if !found {
+			anchor, err = githubClient.GetRun(ctx, repo, options.RunID)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	service := usecase.PackWatchService{Runs: githubClient, MinPoll: cfg.PollMin, MaxPoll: cfg.PollMax}
+	state := usecase.PackState{
+		Repo:    repo,
+		HeadSHA: anchor.HeadSHA,
+		Event:   anchor.Event,
+		// The anchor's own branch scopes the ticks: a --run anchor can
+		// live on a branch the launch never resolved, and listing the
+		// wrong branch would never refresh it (ghent Codex P2).
+		Branch: firstNonEmptyString(anchor.HeadBranch, branch),
+		Max:    cfg.WatchGroupMax,
+		Runs:   usecase.PackForRun(listed, anchor, cfg.WatchGroupMax),
+	}
+
+	// Emit a transition line only when a run's state actually moved —
+	// agents tail the stream, repeats are noise.
+	seen := map[int64]string{}
+	emit := func(runs []model.Run) error {
+		now := time.Now().UTC()
+		for _, run := range runs {
+			key := string(run.Status) + "/" + string(run.Conclusion)
+			if seen[run.ID] == key {
+				continue
+			}
+			seen[run.ID] = key
+			event := render.GroupEvent{
+				TS:         now,
+				RunID:      run.ID,
+				Workflow:   firstNonEmpty(run.Name, run.Path, run.DisplayTitle),
+				Status:     string(run.Status),
+				Conclusion: string(run.Conclusion),
+			}
+			if err := render.WriteGroupEvent(w, event); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := emit(state.Runs); err != nil {
+		return err
+	}
+
+	for !packSettled(state.Runs) {
+		wait := state.NextPoll
+		if wait <= 0 {
+			wait = cfg.PollMin
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(wait):
+		}
+		state, err = service.Tick(ctx, state)
+		if err != nil {
+			return err
+		}
+		if err := emit(state.Runs); err != nil {
+			return err
+		}
+	}
+
+	summary := usecase.SummarizePack(state.Runs)
+	if err := render.WriteGroupSummary(w, render.GroupSummary{
+		TS:      time.Now().UTC(),
+		Repo:    repo,
+		HeadSHA: state.HeadSHA,
+		Event:   state.Event,
+		Runs:    len(state.Runs),
+		Running: summary.Running,
+		Home:    summary.Home,
+		Lost:    summary.Lost,
+	}); err != nil {
+		return err
+	}
+	if code := render.ExitCode(render.Result{Runs: mapRenderRuns(state.Runs)}, nil); code != render.ExitOK {
+		return outcomeError{code: code}
+	}
+	return nil
+}
+
+func packSettled(runs []model.Run) bool {
+	if len(runs) == 0 {
+		return false
+	}
+	for _, run := range runs {
+		if run.Status != model.StatusCompleted {
+			return false
+		}
+	}
+	return true
 }
 
 func newDispatchCommand(runtime commandRuntime, info buildInfo, options *cliOptions) *cobra.Command {
@@ -1083,6 +1251,26 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 				Lines:   state.Appended,
 				Elapsed: elapsedRun(state.Run),
 			}), nil
+		},
+		PackResolver: func(loadCtx context.Context, state usecase.PackState) (usecase.PackState, error) {
+			// One head_sha-filtered list call per tick covers the whole
+			// board (usecase.PackWatchService budget).
+			service := usecase.PackWatchService{Runs: githubClient, MinPoll: cfg.PollMin, MaxPoll: cfg.PollMax}
+			return service.Tick(loadCtx, state)
+		},
+		DispatchAttachResolver: func(loadCtx context.Context, workflowID, ref string, since time.Time) (model.Run, error) {
+			// 204-fallback ONLY: modern hosts hand the run id back in the
+			// dispatch body and never reach this resolver.
+			history, ok := githubClient.(usecase.WorkflowRunHistory)
+			if !ok {
+				return model.Run{}, fmt.Errorf("run discovery is unavailable for this adapter")
+			}
+			service := usecase.HandoffService{History: history}
+			return service.DiscoverDispatchedRun(loadCtx, launch.Repo, workflowID, ref, since)
+		},
+		RerunAttachResolver: func(loadCtx context.Context, run model.Run) (model.Run, error) {
+			service := usecase.HandoffService{Runs: githubClient}
+			return service.AwaitRerunStart(loadCtx, launch.Repo, run.ID, run.RunAttempt)
 		},
 		DispatchResolver: func(loadCtx context.Context) (dispatch.Model, error) {
 			workflows, err := dispatchWorkflowModels(loadCtx, githubClient, launch)
@@ -1931,6 +2119,8 @@ func fakeScenarioFor(scenario string) fake.Scenario {
 		return fake.ScenarioWaiting
 	case "regression":
 		return fake.ScenarioRegression
+	case "pack":
+		return fake.ScenarioPack
 	default:
 		return fake.ScenarioGreen
 	}
@@ -2183,6 +2373,10 @@ func normalizedScenario(options cliOptions) string {
 		return "waiting"
 	case "regression":
 		// Seeded last-green → first-red boundary for the diff verb.
+		return raw
+	case "pack":
+		// Multi-run watch scenario: 3 workflows off one push, staggered
+		// completion, Docs lost at the end.
 		return raw
 	}
 	status := strings.ToLower(strings.TrimSpace(options.Status))

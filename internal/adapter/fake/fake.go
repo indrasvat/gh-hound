@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/indrasvat/gh-hound/internal/model"
@@ -31,10 +32,15 @@ const (
 	ScenarioLogRefetch   Scenario = "log_refetch"
 	ScenarioWaiting      Scenario = "waiting"
 	ScenarioRegression   Scenario = "regression"
+	ScenarioPack         Scenario = "pack"
 )
 
 type Adapter struct {
 	scenario Scenario
+	// packMu guards the pack scenario's tick counter: each runs list
+	// advances the staggered-completion clock deterministically.
+	packMu    sync.Mutex
+	packTicks int
 }
 
 func New(scenario Scenario) *Adapter {
@@ -85,6 +91,8 @@ func (a *Adapter) listScenarioRuns() ([]model.Run, error) {
 		return []model.Run{}, nil
 	case ScenarioRegression:
 		return regressionHistory(), nil
+	case ScenarioPack:
+		return a.packRuns(), nil
 	case ScenarioRateLimited:
 		return nil, usecase.APIError{
 			Kind:       usecase.APIErrorRateLimit,
@@ -472,6 +480,75 @@ func job() model.Job {
 			CompletedAt: time.Date(2026, 6, 7, 17, 44, 0, 0, time.UTC),
 		}},
 	}
+}
+
+// packSHA is the head sha the fake pack shares — one push, three
+// workflows, plus a chained workflow_run that must NOT join the pack.
+const packSHA = "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432"
+
+// packRuns seeds the multi-run watch scenario: 3 push workflows that
+// complete in stages as ticks advance (each runs listing is one tick),
+// with Docs going lost at the end so settle exit codes have teeth.
+//
+//	tick 1: CI running · Release queued · Docs queued
+//	tick 2: CI home    · Release running · Docs queued
+//	tick 3: CI home    · Release home    · Docs running
+//	tick 4+: CI home   · Release home    · Docs lost (failure)
+func (a *Adapter) packRuns() []model.Run {
+	a.packMu.Lock()
+	a.packTicks++
+	tick := min(a.packTicks, 4)
+	a.packMu.Unlock()
+
+	// Now-relative clocks keep the board's elapsed column reading
+	// sanely in PTY rehearsals (fixed dates would show day-scale
+	// elapsed for live rows).
+	now := time.Now().UTC()
+	stage := func(member int, run model.Run) model.Run {
+		switch {
+		case tick > member:
+			run.Status = model.StatusCompleted
+			run.Conclusion = model.ConclusionSuccess
+			run.RunStartedAt = now.Add(-4 * time.Minute)
+			run.UpdatedAt = now.Add(-2 * time.Minute)
+		case tick == member:
+			run.Status = model.StatusInProgress
+			run.Conclusion = model.ConclusionNone
+			run.RunStartedAt = now.Add(-time.Minute)
+			run.UpdatedAt = now
+		default:
+			run.Status = model.StatusQueued
+			run.Conclusion = model.ConclusionNone
+			run.RunStartedAt = time.Time{}
+			run.UpdatedAt = now
+		}
+		return run
+	}
+	ci := stage(1, packRun(30433701, 601, "CI", ".github/workflows/ci.yml"))
+	release := stage(2, packRun(30433702, 602, "Release", ".github/workflows/release.yml"))
+	docs := stage(3, packRun(30433703, 603, "Docs", ".github/workflows/docs.yml"))
+	if tick >= 4 {
+		docs.Conclusion = model.ConclusionFailure
+	}
+	// The chained pages deploy shares the sha on a DIFFERENT event:
+	// pack grouping must leave it outside the board.
+	chained := packRun(30433704, 24, "Deploy Pages", ".github/workflows/deploy-pages.yml")
+	chained.Event = "workflow_run"
+	chained.Status = model.StatusCompleted
+	chained.Conclusion = model.ConclusionSuccess
+	return []model.Run{chained, docs, release, ci}
+}
+
+func packRun(id int64, number int, name, path string) model.Run {
+	run := greenRun(number)
+	run.ID = id
+	run.Name = name
+	run.DisplayTitle = "feat: tighten the leash"
+	run.Event = "push"
+	run.HeadSHA = packSHA
+	run.Path = path
+	run.HTMLURL = fmt.Sprintf("https://github.com/indrasvat/gh-hound/actions/runs/%d", id)
+	return run
 }
 
 // regressionHistory seeds the boundary the diff scan must locate:

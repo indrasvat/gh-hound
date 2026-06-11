@@ -9,20 +9,21 @@ import (
 func TestScreenFootersMatchVisualContract(t *testing.T) {
 	contract := readVisualContract(t, "../../../docs/visual-contract.md")
 	expected := map[Screen]string{
-		ScreenWelcome:   "⏎ continue · ? help · q quit",
-		ScreenAllGreen:  "j/k move · s scope · ⏎ open · w watch · D dispatch · / filter · ? help",
-		ScreenRunsList:  "j/k · s scope · ⏎ open · ↻ rerun · ✗ cancel · l log · w watch · f status · / filter · ?",
-		ScreenDetail:    "⏎ expand · ↻ rerun job · R rerun failed · ✗ cancel · ⎋ back · ?",
-		ScreenFailure:   "↻ rerun failed · r rerun job · l full log · o browser · y copy excerpt",
-		ScreenWatch:     "✗ cancel · f follow · d debug · ⎋ detach",
-		ScreenLog:       "j/k scroll · g/G ends · / search · t time · n/N match · z/Z fold · w wrap · ⎋ back",
-		ScreenDispatch:  "⏎ run · ⇥ next · ⎋ cancel",
-		ScreenDiff:      "j/k move · ⏎ first bad · o compare · ⎋ back",
-		ScreenPalette:   "workflows · watch · diff · theme",
-		ScreenCaches:    "j/k move · s sort · / filter · d dig up · D dig up key · ⎋ back · ?",
-		ScreenWorkflows: "j/k move · e wake/muzzle · o browser · ⎋ back",
-		ScreenHelp:      ": palette · ? close · ⎋ close",
-		ScreenToasts:    "⎋ dismiss · g dismiss all · r retry · ? help",
+		ScreenWelcome:    "⏎ continue · ? help · q quit",
+		ScreenAllGreen:   "j/k move · s scope · ⏎ open · w watch · D dispatch · / filter · ? help",
+		ScreenRunsList:   "j/k · s scope · ⏎ open · ↻ rerun · ✗ cancel · l log · w watch · f status · / filter · ?",
+		ScreenDetail:     "⏎ expand · ↻ rerun job · R rerun failed · ✗ cancel · ⎋ back · ?",
+		ScreenFailure:    "↻ rerun failed · r rerun job · l full log · o browser · y copy excerpt",
+		ScreenWatch:      "✗ cancel · f follow · d debug · ⎋ detach",
+		ScreenWatchBoard: "j/k move · ⏎ drill in · f follow worst · ✗ cancel · ⎋ back",
+		ScreenLog:        "j/k scroll · g/G ends · / search · t time · n/N match · z/Z fold · w wrap · ⎋ back",
+		ScreenDispatch:   "⏎ run · ⇥ next · ⎋ cancel",
+		ScreenDiff:       "j/k move · ⏎ first bad · o compare · ⎋ back",
+		ScreenPalette:    "workflows · watch · diff · theme",
+		ScreenCaches:     "j/k move · s sort · / filter · d dig up · D dig up key · ⎋ back · ?",
+		ScreenWorkflows:  "j/k move · e wake/muzzle · o browser · ⎋ back",
+		ScreenHelp:       ": palette · ? close · ⎋ close",
+		ScreenToasts:     "⎋ dismiss · g dismiss all · r retry · ? help",
 	}
 
 	for screen, want := range expected {

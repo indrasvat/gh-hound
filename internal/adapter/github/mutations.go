@@ -43,10 +43,27 @@ func (c *Client) ForceCancelRun(ctx context.Context, repo string, runID int64) (
 	return result, c.postJSON(ctx, resourcePath(repo, "actions/runs/"+strconv.FormatInt(runID, 10)+"/force-cancel"), nil)
 }
 
+// dispatchResponseDTO is the 200 body the dispatches endpoint returns
+// on API v2026-03-10 (live-verified 2026-06-10): the created run's
+// identity, inline. Older hosts answer 204 No Content and every field
+// stays zero — callers fall back to bounded discovery.
+type dispatchResponseDTO struct {
+	WorkflowRunID int64  `json:"workflow_run_id"`
+	RunURL        string `json:"run_url"`
+	HTMLURL       string `json:"html_url"`
+}
+
 func (c *Client) DispatchWorkflow(ctx context.Context, repo, workflowID string, request usecase.DispatchRequest) (usecase.ActionResult, error) {
 	result := usecase.ActionResult{Action: usecase.ActionDispatch, Repo: repo, WorkflowID: workflowID, Message: "Workflow dispatch queued"}
 	escapedWorkflowID := url.PathEscape(workflowID)
-	return result, c.postJSON(ctx, resourcePath(repo, "actions/workflows/"+escapedWorkflowID+"/dispatches"), request)
+	var response dispatchResponseDTO
+	if err := c.postJSONDecode(ctx, resourcePath(repo, "actions/workflows/"+escapedWorkflowID+"/dispatches"), request, &response); err != nil {
+		return result, err
+	}
+	result.WorkflowRunID = response.WorkflowRunID
+	result.RunURL = response.RunURL
+	result.HTMLURL = response.HTMLURL
+	return result, nil
 }
 
 // EnableWorkflow flips a workflow back on. The identifier is what the
@@ -54,21 +71,30 @@ func (c *Client) DispatchWorkflow(ctx context.Context, repo, workflowID string, 
 // verified live 2026-06-10; slashes in paths are escaped, not routed).
 func (c *Client) EnableWorkflow(ctx context.Context, repo, workflowID string) (usecase.ActionResult, error) {
 	result := usecase.ActionResult{Action: usecase.ActionEnableWorkflow, Repo: repo, WorkflowID: workflowID, Message: "Workflow enabled"}
-	return result, c.mutateJSON(ctx, http.MethodPut, resourcePath(repo, "actions/workflows/"+url.PathEscape(workflowID)+"/enable"), nil)
+	return result, c.mutateJSON(ctx, http.MethodPut, resourcePath(repo, "actions/workflows/"+url.PathEscape(workflowID)+"/enable"), nil, nil)
 }
 
 // DisableWorkflow turns a workflow off (state becomes
 // disabled_manually upstream).
 func (c *Client) DisableWorkflow(ctx context.Context, repo, workflowID string) (usecase.ActionResult, error) {
 	result := usecase.ActionResult{Action: usecase.ActionDisableWorkflow, Repo: repo, WorkflowID: workflowID, Message: "Workflow disabled"}
-	return result, c.mutateJSON(ctx, http.MethodPut, resourcePath(repo, "actions/workflows/"+url.PathEscape(workflowID)+"/disable"), nil)
+	return result, c.mutateJSON(ctx, http.MethodPut, resourcePath(repo, "actions/workflows/"+url.PathEscape(workflowID)+"/disable"), nil, nil)
 }
 
 func (c *Client) postJSON(ctx context.Context, resource string, body any) error {
-	return c.mutateJSON(ctx, http.MethodPost, resource, body)
+	return c.mutateJSON(ctx, http.MethodPost, resource, body, nil)
 }
 
-func (c *Client) mutateJSON(ctx context.Context, method, resource string, body any) error {
+// postJSONDecode posts like postJSON and, when the response is 200
+// with a body and out is non-nil, decodes it. 2xx responses without a
+// body (201/202/204) leave out untouched — never an error.
+func (c *Client) postJSONDecode(ctx context.Context, resource string, body, out any) error {
+	return c.mutateJSON(ctx, http.MethodPost, resource, body, out)
+}
+
+// mutateJSON is the one mutation pipe: any method (280's PUT toggles),
+// optional request body, optional 200-body decode (270's dispatch).
+func (c *Client) mutateJSON(ctx context.Context, method, resource string, body, out any) error {
 	return c.queue.Do(ctx, func(ctx context.Context) error {
 		start := time.Now()
 		var reader io.Reader
@@ -98,6 +124,17 @@ func (c *Client) mutateJSON(ctx context.Context, method, resource string, body a
 		}()
 		c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: resource, Status: resp.StatusCode, Duration: time.Since(start), RateRemaining: resp.Header.Get("X-RateLimit-Remaining")})
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			if out != nil && resp.StatusCode == http.StatusOK {
+				payload, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+				if readErr != nil {
+					return readErr
+				}
+				if len(bytes.TrimSpace(payload)) > 0 {
+					if decodeErr := json.Unmarshal(payload, out); decodeErr != nil {
+						return fmt.Errorf("decode github response %s: %w", resource, decodeErr)
+					}
+				}
+			}
 			return nil
 		}
 		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))

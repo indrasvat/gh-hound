@@ -40,6 +40,7 @@ scenarios=(
   failure-actions
   log-search-fold
   watch-toggle
+  pack-board
   dispatch-fill
   palette-caches
   caches-delete-confirm
@@ -49,6 +50,7 @@ adapter_for() {
   case "$1" in
     runs-select) printf 'green' ;;
     watch-toggle) printf 'running' ;;
+    pack-board) printf 'pack' ;;
     failure-log-refetch) printf 'log_refetch' ;;
     *) printf 'failing' ;;
   esac
@@ -79,6 +81,7 @@ keys_for() {
     failure-log-refetch) printf 'enter enter' ;;
     log-search-fold) printf 'enter enter l / t r a i l enter z' ;;
     watch-toggle) printf 'w f d' ;;
+    pack-board) printf 'j w f' ;;
     dispatch-fill) printf 'D T v 0 . 1 2 . 0 tab right' ;;
     palette-caches) printf ': c a c h e s enter' ;;
     caches-delete-confirm) printf ': c a c h e s enter d' ;;

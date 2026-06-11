@@ -318,3 +318,53 @@ func TestFakeWorkflowToggleHonorsScenarioErrors(t *testing.T) {
 		t.Fatalf("permission scenario error = %v", err)
 	}
 }
+
+func TestPackScenarioStaggersCompletionAcrossTicks(t *testing.T) {
+	adapter := New(ScenarioPack)
+	statuses := func() []string {
+		runs, err := adapter.ListRuns(context.Background(), usecase.RunFilter{Repo: "indrasvat/gh-hound"})
+		if err != nil {
+			t.Fatalf("pack list returned error: %v", err)
+		}
+		if len(runs) != 4 {
+			t.Fatalf("pack scenario runs = %d, want 4 (3 pack + 1 chained)", len(runs))
+		}
+		out := make([]string, 0, len(runs))
+		for _, run := range runs {
+			out = append(out, run.Name+":"+string(run.Status)+"/"+string(run.Conclusion))
+		}
+		return out
+	}
+
+	tick1 := statuses()
+	if tick1[3] != "CI:in_progress/" || tick1[2] != "Release:queued/" || tick1[1] != "Docs:queued/" {
+		t.Fatalf("tick 1 = %#v", tick1)
+	}
+	tick2 := statuses()
+	if tick2[3] != "CI:completed/success" || tick2[2] != "Release:in_progress/" {
+		t.Fatalf("tick 2 = %#v", tick2)
+	}
+	tick3 := statuses()
+	if tick3[2] != "Release:completed/success" || tick3[1] != "Docs:in_progress/" {
+		t.Fatalf("tick 3 = %#v", tick3)
+	}
+	tick4 := statuses()
+	if tick4[1] != "Docs:completed/failure" {
+		t.Fatalf("tick 4 = %#v", tick4)
+	}
+	// The settled state holds on later ticks.
+	tick5 := statuses()
+	if tick5[1] != "Docs:completed/failure" || tick5[3] != "CI:completed/success" {
+		t.Fatalf("tick 5 = %#v", tick5)
+	}
+	// All four share the sha; the chained run rides a different event.
+	runs, _ := adapter.ListRuns(context.Background(), usecase.RunFilter{Repo: "indrasvat/gh-hound"})
+	for _, run := range runs {
+		if run.HeadSHA != packSHA {
+			t.Fatalf("pack run %s sha = %q, want shared %q", run.Name, run.HeadSHA, packSHA)
+		}
+	}
+	if runs[0].Event != "workflow_run" {
+		t.Fatalf("chained run event = %q, want workflow_run", runs[0].Event)
+	}
+}

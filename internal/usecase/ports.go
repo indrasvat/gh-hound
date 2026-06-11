@@ -21,6 +21,10 @@ type RunFilter struct {
 	// excluded (`created=<=t` upstream) so page seams stay stable while
 	// new runs land mid-scan.
 	CreatedBefore time.Time
+	// CreatedAfter narrows to runs created at or after it
+	// (`created=>=t` upstream) — the dispatch-discovery fallback's
+	// freshness fence.
+	CreatedAfter time.Time
 }
 
 type RequestMeta struct {

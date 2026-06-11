@@ -1009,6 +1009,7 @@ type cliGitHub struct {
 	toggleErr        error
 	err              error
 
+	runByID          map[int64]model.Run
 	cacheList        []model.Cache
 	cacheUsage       model.CacheUsage
 	cacheCapBytes    int64
@@ -1035,7 +1036,10 @@ func (g *cliGitHub) ListRuns(_ context.Context, filter usecase.RunFilter) ([]mod
 	return g.runs, g.err
 }
 
-func (g *cliGitHub) GetRun(context.Context, string, int64) (model.Run, error) {
+func (g *cliGitHub) GetRun(_ context.Context, _ string, id int64) (model.Run, error) {
+	if run, ok := g.runByID[id]; ok {
+		return run, nil
+	}
 	return model.Run{}, nil
 }
 

@@ -15,6 +15,7 @@ gh hound runs --status failure --no-tui --json   # failure-focused loop
 gh hound runs --all --no-tui --json              # all branches
 gh hound runs -R owner/repo --no-tui --json      # outside a checkout
 gh hound watch --json                            # active run, fail-fast
+gh hound watch --group --no-tui                  # whole event group, NDJSON until the hunt settles
 gh hound runs --run <id> --attempt 2 --no-tui --json   # forensics on a re-run
 gh hound artifacts --no-tui --json               # latest run's artifacts
 gh hound artifacts --run <id> --download <name> --dir <path> --no-tui --json
@@ -37,6 +38,8 @@ Runs are scoped to the current git branch by default. An empty `runs[]` usually 
 - `3`: pending/running; wait and re-poll, or use `watch`.
 
 `watch --json` is fail-fast: it exits `1` the moment the watched run turns red and includes the failure payload immediately.
+
+`watch --group --no-tui` streams the selected run's whole event group (same `head_sha` + `event`) as NDJSON: one `{type:"run", ts, run_id, workflow, status, conclusion}` line per state transition, closed by a `{type:"summary", …, running, home, lost}` object once the hunt settles. Exit `1` if any run is lost, `0` when the hunt comes home. Events are run-level only — drill into a single run with `watch --json` for job/step detail. Rehearse with `--fake-scenario pack`.
 
 ## JSON Shape
 
@@ -94,7 +97,7 @@ For testing agent behavior without live CI:
 gh hound runs --no-tui --json --fake-scenario failure   # also: green, pending, empty, api_error, waiting, regression
 ```
 
-The JSON schema lives at `internal/render/testdata/schema.json` in the gh-hound repo; the mutation envelope is under `$defs.mutation_result`, the approvals envelope under `$defs.approvals_result`, the regression verdict under `$defs.diff_result`, the caches envelope under `$defs.caches_result`, and the workflows envelope under `$defs.workflows_result`.
+The JSON schema lives at `internal/render/testdata/schema.json` in the gh-hound repo; the mutation envelope is under `$defs.mutation_result`, the approvals envelope under `$defs.approvals_result`, the regression verdict under `$defs.diff_result`, the caches envelope under `$defs.caches_result`, the workflows envelope under `$defs.workflows_result`, and the pack stream under `$defs.watch_group_event` / `$defs.watch_group_summary`.
 
 ## Guardrails
 

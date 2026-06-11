@@ -78,3 +78,9 @@ HOUND_FAKE_SCENARIO=pack ./bin/gh-hound            # board via fake
 ## Session Protocol
 1. Pin the one-list-call-per-tick budget in a red test before building the board.
 2. Red → green → refactor; shux pixel-diff pass; tui-qa; dootsabha; landing capture; push; PR; gh-ghent loop.
+
+## Post-build voice note (2026-06-11)
+The board's user-facing voice shipped as **"the hunt"**, not "the pack"
+as drafted above — task 280 landed first and owns "the pack" for the
+workflows surface. Internal identifiers (PackForRun, PackWatchService,
+`--fake-scenario pack`) keep the draft naming.
