@@ -437,6 +437,40 @@ a 24-row pane — real viewport scrolling rehearsable only by shrinking
 the pane (80x12 works). Recommend flaky scenario + a long-log fixture
 for the harness.
 
+Round 19 (feat/artifacts-download-ux, 22894a6, 2026-06-11): PASS —
+task 310 artifacts download UX. All verified live (__vqa-tui failing,
+GH_HOUND_ARTIFACT_DIR=/tmp/qa310-dl): download confirm shows name +
+human size + abs destination on own line (`→ /tmp/qa310-dl/coverage/`),
+multi-line message intact at 80/120/200; y → done state: header chip
+`Artifacts (2 · 1 ✔)`, row edge `✔ 2 files` (green), dim subline
+`↳ <abs> o open · y copy path`, hint flips to `o open folder · y copy
+path · d re-download`, toast carries abs path + action hints; files on
+disk (2). BONUS: immediate post-y snapshot caught the LIVE downloading
+state (`∷ ↓ 0 B…` spinner+byte counter) despite zero-latency fake.
+y on done row → `✔ Copied · /tmp/qa310-dl/coverage`; y on
+non-downloaded old-report → `✔ Copied · <run URL>` (meanings split
+correctly). Overwrite: d→y on existing dest → "Destination exists: →
+<abs> Overwrite and re-download \"coverage\"?" at all 3 sizes; n keeps
+✔ (not stranded), y re-downloads back to ✔. Download state SURVIVES
+esc-to-runs + re-enter (navigation-safe, 2b48efc). Tab cycle
+jobs→steps→artifacts with ● marker + selection preserved; j/k move;
+[expired] badge intact; layouts clean 80x24/120x40/200x60. vqa (30
+screens) + interaction_audit (incl. 3 artifact scenarios asserting the
+NEW strings + fixed /tmp/hound-ia-dl root) + render_hygiene (21,108B/0
+erases — flaky-scenario variant, round-18 P3 adopted) all passed this
+audit; git stayed clean → regenerated PNGs byte-identical to committed.
+33 test pkgs green. NEW P3 (unfiled): detail help overlay View row
+overflows the 80-col help box — fit-truncates to "o open downloaded
+artifact f…", so the y-copy-path help entry is never visible at any
+terminal width (on-screen hint line still teaches it). Fake-lens
+unreachables (unit-pinned per spec, residual): ✗ failed row state,
+extracting… phase, nonzero byte counter. Toast TTL ~5s gotcha: snapshot
+immediately after wait-for; chained text capture misses it. GOTCHA:
+wait-for needles are case-sensitive ("Help" ≠ "help · gh hound") and a
+timed-out wait short-circuits && chains — a "stuck overlay" may just be
+your esc never sent; re-probe before filing. Evidence:
+.shux/out/r19-*.png (17).
+
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.
 **How to apply:** read before every gh-hound audit; update entries when a

@@ -25,8 +25,39 @@ func View(screen keys.Screen, width int) string {
 			views = append(views, text)
 		}
 	}
-	lines := []string{"help · gh hound", "Navigate", strings.Join(nav, " · "), "Actions", strings.Join(actions, " · "), "View", strings.Join(views, " · "), "Legend", icons.Success + " success · " + icons.Failure + " failure · " + icons.InProgress + " running"}
+	lines := []string{"help · gh hound", "Navigate"}
+	lines = append(lines, wrapEntries(nav, width)...)
+	lines = append(lines, "Actions")
+	lines = append(lines, wrapEntries(actions, width)...)
+	lines = append(lines, "View")
+	lines = append(lines, wrapEntries(views, width)...)
+	lines = append(lines, "Legend", icons.Success+" success · "+icons.Failure+" failure · "+icons.InProgress+" running")
 	return fitLines(lines, width)
+}
+
+// wrapEntries flows key entries into · -separated lines that fit the
+// width: a section with many bindings wraps instead of truncating its
+// tail entries into unreadability.
+func wrapEntries(entries []string, width int) []string {
+	if width <= 0 {
+		width = 80
+	}
+	lines := []string{}
+	current := ""
+	for _, entry := range entries {
+		candidate := entry
+		if current != "" {
+			candidate = current + " · " + entry
+		}
+		if current != "" && len([]rune(candidate)) > width {
+			lines = append(lines, current)
+			current = entry
+			continue
+		}
+		current = candidate
+	}
+	lines = append(lines, current)
+	return lines
 }
 
 func fitLines(lines []string, width int) string {

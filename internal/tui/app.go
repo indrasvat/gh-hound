@@ -3755,7 +3755,9 @@ func (a App) overlayTitle() string {
 func (a App) overlayView(width int) string {
 	switch a.TopOverlay() {
 	case OverlayHelp:
-		return help.View(a.footerScreen(), width-20)
+		// Help wraps long sections; it must wrap to the width the
+		// overlay box actually renders, not get truncated by it.
+		return help.View(a.footerScreen(), overlayInnerWidth(width))
 	case OverlayPalette:
 		return palette.View(a.palette, width-20)
 	case OverlayConfirm:

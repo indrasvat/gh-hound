@@ -15,3 +15,19 @@ func TestHelpUsesActiveKeymapAndLegend(t *testing.T) {
 		}
 	}
 }
+
+func TestHelpWrapsLongSectionsInsteadOfTruncating(t *testing.T) {
+	// The detail screen's View section overflows 60 cols; every entry
+	// must survive on some line, none truncated into an ellipsis.
+	view := View(keys.ScreenDetail, 60)
+	for _, want := range []string{"a artifacts", "d download artifact", "o open artifact folder / browser", "y copy artifact path / run URL"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("help view lost %q after wrapping\n%s", want, view)
+		}
+	}
+	for line := range strings.SplitSeq(view, "\n") {
+		if len([]rune(line)) > 60 {
+			t.Fatalf("help line overflows width: %q", line)
+		}
+	}
+}

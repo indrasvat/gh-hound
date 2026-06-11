@@ -8,6 +8,13 @@ metadata:
 - `shux pane wait-for` flag is `--timeout-ms` (NOT `--timeout`); a failed
   wait still lets a later snapshot succeed, but snapshots taken right
   after a flag error are blank frames — recapture.
+- wait-for needles are CASE-SENSITIVE, and a timed-out wait
+  short-circuits `&&` chains — later send-keys in the chain never fire.
+  A seemingly "stuck overlay" may just be an esc that was never sent;
+  re-probe interactively before filing.
+- gh-hound toasts TTL out in ~5s: snapshot in the SAME chained command
+  right after the wait-for; a follow-up text capture usually misses
+  them.
 - Fixture captures: wrap in
   `sh -c 'sleep 2; ./bin/gh-hound __screen --screen X --width W --height H; sleep 300'`,
   `pane set-size` during the initial sleep. The frame is exactly
