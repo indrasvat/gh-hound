@@ -249,10 +249,8 @@
     </div>
     <div class="agents-split">
       <div class="reveal">
-        <p style="color:var(--muted);font-size:0.97rem">Agents don&rsquo;t click dashboards &mdash; they read <span class="mono" style="color:var(--fg-soft)">stdout</span>. Point yours at <span class="sh"><span class="ps1">$</span>gh hound runs --no-tui --json</span> and branch on the exit code. Deterministic fake scenarios let your harness play fetch without ever touching the network.</p>
-        <p style="color:var(--muted);font-size:0.97rem;margin-top:0.8rem">And the leash works both ways: <span class="sh"><span class="ps1">$</span>gh hound rerun --run &lt;id&gt; --failed-only --debug</span> sends the failures back out with debug logging &mdash; <span class="sh"><span class="ps1">$</span>gh hound cancel</span> calls them off. Same JSON, same exit codes, one API call each.</p>
-        <p style="color:var(--muted);font-size:0.97rem;margin-top:0.8rem">When main goes red, <span class="sh"><span class="ps1">$</span>gh hound diff --workflow CI --no-tui --json</span> returns the verdict as data: last good run, first bad run, suspect commits. Exit 1 means a culprit exists &mdash; no bisect, no blame archaeology.</p>
-        <p style="color:var(--muted);font-size:0.97rem;margin-top:0.8rem">And before your agent burns a rerun on a real bug, <span class="sh"><span class="ps1">$</span>gh hound flakes --no-tui --json</span> answers rerun-vs-investigate as JSON: <span class="mono" style="color:var(--fg-soft)">flaky</span> means rerun it, <span class="mono" style="color:var(--fg-soft)">suspect</span> means look closer, evidence attached either way.</p>
+        <p style="color:var(--muted);font-size:0.97rem">Agents don&rsquo;t click dashboards &mdash; they read <span class="mono" style="color:var(--fg-soft)">stdout</span>. Every verb speaks <span class="sh">--no-tui --json</span> in a schema-stable envelope; branch on the exit code. Deterministic fake scenarios let your harness play fetch without ever touching the network.</p>
+        <p style="color:var(--muted);font-size:0.97rem;margin-top:0.8rem">The leash works both ways: <span class="mono" style="color:var(--fg-soft)">rerun</span> sends failures back out, <span class="mono" style="color:var(--fg-soft)">diff</span> names who broke main, <span class="mono" style="color:var(--fg-soft)">flakes</span> calls rerun-vs-investigate &mdash; one verb per tab, evidence attached either way.</p>
         <table class="exit-table">
           <caption>exit codes &middot; barks, translated</caption>
           <tbody>
@@ -263,7 +261,14 @@
           </tbody>
         </table>
       </div>
-      <div class="codeblock reveal">
+      <div class="reveal">
+        <div class="tabs agent-tabs" role="tablist" aria-label="agent verbs">
+          <button class="tab" role="tab" aria-selected="true" data-pane="pane-runs">runs</button>
+          <button class="tab" role="tab" aria-selected="false" data-pane="pane-rerun">rerun</button>
+          <button class="tab" role="tab" aria-selected="false" data-pane="pane-diff">diff</button>
+          <button class="tab" role="tab" aria-selected="false" data-pane="pane-flakes">flakes</button>
+        </div>
+        <div class="codeblock agent-pane" id="pane-runs">
         <div class="codeblock-bar">
           <span class="cmd"><span class="ps1">$</span> gh hound runs --status failure --no-tui --json</span>
           <button class="copy-btn" data-copy="gh hound runs --status failure --no-tui --json" aria-label="Copy agent command">copy</button>
@@ -290,6 +295,71 @@
     }]
   }]
 }<span class="j-dim">  // exit code 1</span></code></pre>
+        </div>
+        <div class="codeblock agent-pane" id="pane-rerun" hidden>
+        <div class="codeblock-bar">
+          <span class="cmd"><span class="ps1">$</span> gh hound rerun --run 30433642 --failed-only --no-tui --json</span>
+          <button class="copy-btn" data-copy="gh hound rerun --run 30433642 --failed-only --no-tui --json" aria-label="Copy rerun command">copy</button>
+        </div>
+        <pre><code>{
+  <span class="j-key">"repo"</span>: <span class="j-str">"indrasvat/gh-hound"</span>,
+  <span class="j-key">"run_id"</span>: <span class="j-num">30433642</span>,
+  <span class="j-key">"action"</span>: <span class="j-str">"rerun_failed"</span>,
+  <span class="j-key">"accepted"</span>: <span class="j-num">true</span>,
+  <span class="j-key">"html_url"</span>: <span class="j-str">"https://github.com/indrasvat/gh-hound/actions/runs/30433642"</span>
+}<span class="j-dim">  // exit code 0 — one API call; cancel calls them off</span></code></pre>
+        </div>
+        <div class="codeblock agent-pane" id="pane-diff" hidden>
+        <div class="codeblock-bar">
+          <span class="cmd"><span class="ps1">$</span> gh hound diff --workflow CI --no-tui --json</span>
+          <button class="copy-btn" data-copy="gh hound diff --workflow CI --no-tui --json" aria-label="Copy diff command">copy</button>
+        </div>
+        <pre><code>{
+  <span class="j-key">"repo"</span>: <span class="j-str">"indrasvat/gh-hound"</span>,
+  <span class="j-key">"workflow"</span>: <span class="j-str">"CI"</span>,
+  <span class="j-key">"status"</span>: <span class="j-str">"located"</span>,
+  <span class="j-key">"last_good"</span>: { <span class="j-key">"run_number"</span>: <span class="j-num">572</span>, <span class="j-key">"head_sha"</span>: <span class="j-str">"c2b3a49"</span>, <span class="j-key">"conclusion"</span>: <span class="j-str">"success"</span> },
+  <span class="j-key">"first_bad"</span>: { <span class="j-key">"run_number"</span>: <span class="j-num">573</span>, <span class="j-key">"head_sha"</span>: <span class="j-str">"d3c4b5a"</span>, <span class="j-key">"conclusion"</span>: <span class="j-red">"failure"</span> },
+  <span class="j-key">"suspect_commits"</span>: [{
+    <span class="j-key">"sha"</span>: <span class="j-str">"d3c4b5a9f0e1..."</span>,
+    <span class="j-key">"author"</span>: <span class="j-str">"indrasvat"</span>,
+    <span class="j-key">"message"</span>: <span class="j-str">"feat: sharpen the lexer"</span>
+  }, {
+    <span class="j-key">"sha"</span>: <span class="j-str">"cc99aa1b2c3d..."</span>,
+    <span class="j-key">"author"</span>: <span class="j-str">"dependabot[bot]"</span>,
+    <span class="j-key">"message"</span>: <span class="j-str">"chore(deps): bump charmbracelet/x/ansi"</span>
+  }],
+  <span class="j-key">"compare_url"</span>: <span class="j-str">"https://github.com/.../compare/c2b3a49...d3c4b5a"</span>,
+  <span class="j-key">"runs_scanned"</span>: <span class="j-num">4</span>,
+  <span class="j-key">"verdict"</span>: <span class="j-str">"scent picked up: #572 was clean, #573 wasn't."</span>
+}<span class="j-dim">  // exit code 1 — a culprit exists; no bisect</span></code></pre>
+        </div>
+        <div class="codeblock agent-pane" id="pane-flakes" hidden>
+        <div class="codeblock-bar">
+          <span class="cmd"><span class="ps1">$</span> gh hound flakes --no-tui --json</span>
+          <button class="copy-btn" data-copy="gh hound flakes --no-tui --json" aria-label="Copy flakes command">copy</button>
+        </div>
+        <pre><code>{
+  <span class="j-key">"repo"</span>: <span class="j-str">"indrasvat/gh-hound"</span>,
+  <span class="j-key">"workflow"</span>: <span class="j-str">"ci.yml"</span>,
+  <span class="j-key">"status"</span>: <span class="j-red">"flaky"</span>,
+  <span class="j-key">"sample_size"</span>: <span class="j-num">6</span>,
+  <span class="j-key">"signals_evaluated"</span>: [<span class="j-str">"attempt_flips"</span>, <span class="j-str">"cross_run_flaps"</span>, <span class="j-str">"retry_masks"</span>],
+  <span class="j-key">"jobs"</span>: [{
+    <span class="j-key">"job"</span>: <span class="j-str">"build"</span>,
+    <span class="j-key">"flake_score"</span>: <span class="j-num">1</span>,
+    <span class="j-key">"verdict"</span>: <span class="j-str">"flaky"</span>,
+    <span class="j-key">"attempt_flips"</span>: <span class="j-num">2</span>,
+    <span class="j-key">"retry_masks"</span>: <span class="j-num">2</span>,
+    <span class="j-key">"evidence"</span>: [{
+      <span class="j-key">"run_number"</span>: <span class="j-num">570</span>,
+      <span class="j-key">"kind"</span>: <span class="j-str">"attempt_flip"</span>,
+      <span class="j-key">"detail"</span>: <span class="j-str">"#570: failed on attempt 1, passed on a later attempt"</span>
+    }]
+  }],
+  <span class="j-key">"verdict"</span>: <span class="j-str">"seen this one before: it's a squirrel — build flaked 2 of the last 6 runs."</span>
+}<span class="j-dim">  // exit code 0 — rerun it, don't investigate</span></code></pre>
+        </div>
       </div>
     </div>
   </section>
@@ -401,7 +471,7 @@
   });
 
   /* screens gallery tabs */
-  var tabs = document.querySelectorAll(".tab");
+  var tabs = document.querySelectorAll(".tab[data-shot]");
   tabs.forEach(function (tab) {
     tab.addEventListener("click", function () {
       tabs.forEach(function (t) { t.setAttribute("aria-selected", "false"); });
@@ -410,6 +480,18 @@
         var active = s.id === tab.dataset.shot;
         s.classList.toggle("active", active);
         if (active) { s.removeAttribute("hidden"); } else { s.setAttribute("hidden", ""); }
+      });
+    });
+  });
+
+  /* agent verb tabs */
+  var verbTabs = document.querySelectorAll(".tab[data-pane]");
+  verbTabs.forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      verbTabs.forEach(function (t) { t.setAttribute("aria-selected", "false"); });
+      tab.setAttribute("aria-selected", "true");
+      document.querySelectorAll(".agent-pane").forEach(function (p) {
+        if (p.id === tab.dataset.pane) { p.removeAttribute("hidden"); } else { p.setAttribute("hidden", ""); }
       });
     });
   });
