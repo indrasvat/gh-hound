@@ -1004,6 +1004,18 @@ type cliGitHub struct {
 	reviews          []usecase.DeploymentReview
 	reviewErr        error
 	err              error
+
+	cacheList        []model.Cache
+	cacheUsage       model.CacheUsage
+	cachesErr        error
+	cacheKeyMatches  int
+	listCaches       int
+	cacheUsageCalls  int
+	deleteCacheByID  int
+	deleteCacheByKey int
+	deletedCacheID   int64
+	deletedCacheKey  string
+	deletedCacheRef  string
 }
 
 func (g *cliGitHub) ListRuns(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {

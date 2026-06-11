@@ -24,6 +24,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/render"
 	"github.com/indrasvat/gh-hound/internal/tui"
 	tuibanner "github.com/indrasvat/gh-hound/internal/tui/banner"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/caches"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/dispatch"
 	failurescreen "github.com/indrasvat/gh-hound/internal/tui/screens/failure"
@@ -171,6 +172,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.AddCommand(newDispatchCommand(runtime, info, &options))
 	cmd.AddCommand(newArtifactsCommand(runtime, &options))
 	cmd.AddCommand(newApprovalsCommand(runtime, &options))
+	cmd.AddCommand(newCachesCommand(runtime, &options))
 	cmd.AddCommand(newRerunCommand(runtime, &options))
 	cmd.AddCommand(newCancelCommand(runtime, &options))
 	cmd.AddCommand(newDiffCommand(runtime, &options))
@@ -592,6 +594,158 @@ func mapRenderPendingDeployments(pending []model.PendingDeployment) []render.Pen
 	return out
 }
 
+// newCachesCommand is the kennel's pipe surface. Deletion goes
+// through unambiguous flags — numeric cache keys are legal, so a
+// shared positional operand would be a foot-gun.
+func newCachesCommand(runtime commandRuntime, options *cliOptions) *cobra.Command {
+	var request cacheDeleteRequest
+	cmd := &cobra.Command{
+		Use:   "caches",
+		Short: "List the Actions cache kennel or dig up stale entries",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			applyEnv(options, runtime.Env)
+			options.NoTUI = true
+			return writeCachesResult(cmd.Context(), runtime.Stdout, *options, runtime, request)
+		},
+	}
+	cmd.Flags().Int64Var(&request.id, "delete-id", 0, "delete one cache by its numeric ID")
+	cmd.Flags().StringVar(&request.key, "delete-key", "", "delete every cache matching this key (or key prefix)")
+	cmd.Flags().StringVar(&request.ref, "ref", "", "limit --delete-key to one git ref (refs/heads/main)")
+	return cmd
+}
+
+// cacheDeleteRequest is the resolved intent of a caches invocation's
+// delete flags; the zero value means list-only.
+type cacheDeleteRequest struct {
+	id  int64
+	key string
+	ref string
+}
+
+func writeCachesResult(ctx context.Context, w io.Writer, options cliOptions, runtime commandRuntime, request cacheDeleteRequest) error {
+	format := render.Format(options.Format)
+	result := render.CachesResult{Repo: firstNonEmpty(options.Repo, "")}
+
+	// Every refusal writes the envelope so agents branch on error.kind
+	// on stdout; exit 2 is never a bare stderr message.
+	refuse := func(deleted *render.CacheDeletion, err error) error {
+		kind, message, field := "unknown", err.Error(), ""
+		if actionErr, ok := usecase.AsActionError(err); ok {
+			kind, message = string(actionErr.Kind), actionErr.Message
+			field = actionErr.Field
+		}
+		result.Deleted = deleted
+		result.Error = &render.MutationError{Kind: kind, Field: field, Message: message}
+		if writeErr := render.WriteCaches(w, format, result); writeErr != nil {
+			return writeErr
+		}
+		return outcomeError{code: render.ExitError}
+	}
+
+	deletion := requestedCacheDeletion(request)
+	if request.id != 0 && request.key != "" {
+		return refuse(deletion, usecase.ActionError{Kind: usecase.ActionErrorValidation, Field: "delete", Message: "--delete-id and --delete-key are mutually exclusive"})
+	}
+	if request.id < 0 {
+		return refuse(deletion, usecase.ActionError{Kind: usecase.ActionErrorValidation, Field: "id", Message: "--delete-id must be a positive cache ID"})
+	}
+	if request.ref != "" && request.key == "" {
+		return refuse(deletion, usecase.ActionError{Kind: usecase.ActionErrorValidation, Field: "ref", Message: "--ref only narrows --delete-key"})
+	}
+
+	var githubClient usecase.GitHub
+	if options.Fake != "" {
+		scenario := normalizedScenario(options)
+		if scenario == "api_error" {
+			return refuse(deletion, usecase.ActionError{Kind: usecase.ActionErrorNetwork, Message: "github api unavailable"})
+		}
+		githubClient = fake.New(fakeScenarioFor(scenario))
+		result.Repo = firstNonEmpty(options.Repo, "indrasvat/gh-hound")
+	} else {
+		target, err := resolveTarget(ctx, options, runtime)
+		if err != nil {
+			return refuse(deletion, err)
+		}
+		defer func() {
+			_ = target.close()
+		}()
+		githubClient = target.github
+		result.Repo = target.repo
+	}
+
+	cachesClient, ok := githubClient.(usecase.GitHubCaches)
+	if !ok {
+		return refuse(deletion, usecase.ActionError{Kind: usecase.ActionErrorUnknown, Message: "this adapter cannot reach the cache kennel"})
+	}
+	service := usecase.CachesService{
+		GitHub:  cachesClient,
+		Limiter: &usecase.MutationLimiter{MinSpacing: time.Second},
+	}
+
+	if deletion != nil {
+		var count int
+		var err error
+		if request.id != 0 {
+			count, err = service.DeleteByID(ctx, result.Repo, request.id)
+		} else {
+			count, err = service.DeleteByKey(ctx, result.Repo, request.key, request.ref)
+		}
+		if err != nil {
+			return refuse(deletion, err)
+		}
+		deletion.Accepted = true
+		deletion.DeletedCount = count
+		result.Deleted = deletion
+		return render.WriteCaches(w, format, result)
+	}
+
+	usage, err := service.Usage(ctx, result.Repo)
+	if err != nil {
+		return refuse(nil, err)
+	}
+	caches, err := service.List(ctx, result.Repo, usecase.CacheFilter{})
+	if err != nil {
+		return refuse(nil, err)
+	}
+	result.Usage = &render.CacheUsage{
+		ActiveSizeInBytes: usage.ActiveSizeInBytes,
+		ActiveCount:       usage.ActiveCount,
+		CapBytes:          usecase.CacheCapFallbackBytes,
+	}
+	result.Caches = mapRenderCaches(caches)
+	return render.WriteCaches(w, format, result)
+}
+
+// requestedCacheDeletion names the delete intent for the envelope, or
+// nil when the invocation is list-only.
+func requestedCacheDeletion(request cacheDeleteRequest) *render.CacheDeletion {
+	switch {
+	case request.id != 0:
+		return &render.CacheDeletion{Action: "delete_id", ID: request.id}
+	case request.key != "":
+		return &render.CacheDeletion{Action: "delete_key", Key: request.key, Ref: request.ref}
+	case request.ref != "":
+		return &render.CacheDeletion{Action: "delete_key", Ref: request.ref}
+	default:
+		return nil
+	}
+}
+
+func mapRenderCaches(caches []model.Cache) []render.Cache {
+	out := make([]render.Cache, 0, len(caches))
+	for _, cache := range caches {
+		out = append(out, render.Cache{
+			ID:             cache.ID,
+			Key:            cache.Key,
+			Ref:            cache.Ref,
+			SizeInBytes:    cache.SizeInBytes,
+			LastAccessedAt: cache.LastAccessedAt,
+			CreatedAt:      cache.CreatedAt,
+		})
+	}
+	return out
+}
+
 func newWatchCommand(runtime commandRuntime, options *cliOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:   "watch",
@@ -1004,9 +1158,47 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 		ArtifactDownloader: func(artifact model.Artifact, destDir string) (usecase.DownloadResult, error) {
 			return usecase.ArtifactsService{GitHub: githubClient}.Download(ctx, launch.Repo, artifact, destDir, false)
 		},
+		CachesResolver: func(loadCtx context.Context) (caches.Data, error) {
+			service, err := cachesServiceFor(githubClient)
+			if err != nil {
+				return caches.Data{}, err
+			}
+			usage, err := service.Usage(loadCtx, launch.Repo)
+			if err != nil {
+				return caches.Data{}, err
+			}
+			items, err := service.List(loadCtx, launch.Repo, usecase.CacheFilter{})
+			if err != nil {
+				return caches.Data{}, err
+			}
+			return caches.Data{Usage: usage, Caches: items}, nil
+		},
+		CacheDeleter: func(loadCtx context.Context, request tui.CacheDeleteRequest) (int, error) {
+			service, err := cachesServiceFor(githubClient)
+			if err != nil {
+				return 0, err
+			}
+			if request.ID != 0 {
+				return service.DeleteByID(loadCtx, launch.Repo, request.ID)
+			}
+			return service.DeleteByKey(loadCtx, launch.Repo, request.Key, "")
+		},
 		OpenURL:  openURLForRuntime(runtime),
 		CopyText: copyTextForRuntime(runtime),
 	}), nil
+}
+
+// cachesServiceFor builds the kennel service when the adapter has the
+// capability; deletes share the one-per-second mutation pacing.
+func cachesServiceFor(githubClient usecase.GitHub) (usecase.CachesService, error) {
+	cachesClient, ok := githubClient.(usecase.GitHubCaches)
+	if !ok {
+		return usecase.CachesService{}, errors.New("this adapter cannot reach the cache kennel")
+	}
+	return usecase.CachesService{
+		GitHub:  cachesClient,
+		Limiter: &usecase.MutationLimiter{MinSpacing: time.Second},
+	}, nil
 }
 
 func openURLForRuntime(runtime commandRuntime) func(string) error {
