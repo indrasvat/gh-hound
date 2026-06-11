@@ -55,6 +55,11 @@ type Model struct {
 	ServerFiltered bool
 	Intent         Intent
 
+	// FlakyRuns marks rows whose workflow has a known flaker, from
+	// verdicts already computed this session (config flake_badges).
+	// The badge never spends API calls of its own.
+	FlakyRuns map[int64]bool
+
 	// Loading state is transient render input set by the app from its
 	// pending load each frame — never persisted on the model, so a
 	// cancelled load can not strand a dimmed list.

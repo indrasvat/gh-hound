@@ -33,6 +33,7 @@ const (
 	ScenarioWaiting      Scenario = "waiting"
 	ScenarioRegression   Scenario = "regression"
 	ScenarioPack         Scenario = "pack"
+	ScenarioFlaky        Scenario = "flaky"
 )
 
 type Adapter struct {
@@ -93,6 +94,8 @@ func (a *Adapter) listScenarioRuns() ([]model.Run, error) {
 		return regressionHistory(), nil
 	case ScenarioPack:
 		return a.packRuns(), nil
+	case ScenarioFlaky:
+		return flakyHistory(), nil
 	case ScenarioRateLimited:
 		return nil, usecase.APIError{
 			Kind:       usecase.APIErrorRateLimit,
@@ -133,7 +136,12 @@ func (a *Adapter) GetRunAttempt(ctx context.Context, repo string, runID int64, a
 	return a.GetRun(ctx, repo, runID)
 }
 
-func (a *Adapter) ListJobsForAttempt(ctx context.Context, repo string, runID int64, _ int) ([]model.Job, error) {
+func (a *Adapter) ListJobsForAttempt(ctx context.Context, repo string, runID int64, attempt int) ([]model.Job, error) {
+	if a.scenario == ScenarioFlaky {
+		if jobs, ok := flakyAttemptJobs(runID, attempt); ok {
+			return jobs, nil
+		}
+	}
 	return a.ListJobs(ctx, repo, runID)
 }
 
@@ -334,6 +342,20 @@ func (a *Adapter) ReviewPendingDeployments(_ context.Context, repo string, runID
 func (a *Adapter) FetchJobLog(context.Context, string, int64) (string, error) {
 	if a.scenario == ScenarioLogRender {
 		return "", usecase.LogRenderError{Message: "link expired"}
+	}
+	if a.scenario == ScenarioFlaky {
+		// A retry wrapper hiding instability inside an eventually-green
+		// step, plus the usual failing tail for the failure screen.
+		return strings.Join([]string{
+			"17:42:53.114Z go test ./... -race",
+			"17:42:53.500Z ##[group]Run nick-fields/retry@v3",
+			"17:42:54.100Z Attempt 1 failed. Retrying in 5 seconds...",
+			"17:43:01.000Z Attempt 2 of 3 succeeded",
+			"17:43:45.200Z === RUN   TestLexIdent/trailing_underscore",
+			"17:43:46.000Z --- FAIL: TestLexIdent/trailing_underscore (0.00s)",
+			"17:43:46.200Z ##[error]Process completed with exit code 1",
+			"##[endgroup]",
+		}, "\n"), nil
 	}
 	// Timestamped like real runner logs (with a 51s gap before the
 	// failing test) so the time-jump picker's clocks and gap entries
@@ -578,6 +600,61 @@ func regressionHistory() []model.Run {
 	older.HeadSHA = "b1a2938"
 
 	return []model.Run{streakHead, cancelled, firstBad, lastGood, older}
+}
+
+// flakyFlipRunNumbers are the runs in the flaky scenario whose first
+// attempt failed and second attempt passed — seeded attempt flips.
+var flakyFlipRunNumbers = map[int]bool{570: true, 568: true}
+
+// flakyHistory seeds the scent the flake scan must recognize: the
+// current failure (#571) atop a window where build flipped on two
+// reruns (#570 and #568) and the retry wrapper masked instability in
+// the step logs.
+func flakyHistory() []model.Run {
+	head := greenRun(571)
+	head.Conclusion = model.ConclusionFailure
+	head.HeadSHA = "f1a2b3c"
+	head.DisplayTitle = "fix parser"
+
+	flipA := greenRun(570)
+	flipA.RunAttempt = 2
+	flipA.HeadSHA = "e5d4c3b"
+
+	mid := greenRun(569)
+	mid.HeadSHA = "d4c3b2a"
+
+	flipB := greenRun(568)
+	flipB.RunAttempt = 2
+	flipB.HeadSHA = "c3b2a19"
+
+	older := greenRun(567)
+	older.HeadSHA = "b2a1908"
+
+	oldest := greenRun(566)
+	oldest.HeadSHA = "a190807"
+
+	return []model.Run{head, flipA, mid, flipB, older, oldest}
+}
+
+// flakyAttemptJobs serves per-attempt job conclusions for the seeded
+// flips: build failed on attempt 1 and passed on attempt 2.
+func flakyAttemptJobs(runID int64, attempt int) ([]model.Job, bool) {
+	number := int(runID - 30433000)
+	if !flakyFlipRunNumbers[number] {
+		return nil, false
+	}
+	flipped := job()
+	flipped.RunID = runID
+	flipped.ID = runID*10 + int64(attempt)
+	if attempt == 1 {
+		flipped.Conclusion = model.ConclusionFailure
+	} else {
+		flipped.Conclusion = model.ConclusionSuccess
+		for i := range flipped.Steps {
+			flipped.Steps[i].Conclusion = model.ConclusionSuccess
+		}
+	}
+	return []model.Job{flipped}, true
 }
 
 // ListWorkflowRuns implements usecase.WorkflowRunHistory over the

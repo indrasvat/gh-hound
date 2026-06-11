@@ -9,6 +9,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
+	flakesscreen "github.com/indrasvat/gh-hound/internal/tui/screens/flakes"
 )
 
 var exitCodeRE = regexp.MustCompile(`exit code (\d+)`)
@@ -29,7 +30,43 @@ func View(m Model, width int) string {
 	for _, line := range m.Excerpt {
 		lines = append(lines, logLine(line, width))
 	}
+	lines = append(lines, flakePanel(m, width)...)
 	return strings.Join(lines, "\n")
+}
+
+// flakePanel renders the scent panel once the async verdict lands.
+// The focused pane is marked with the cursor glyph: tab moves focus,
+// j/k drives whichever pane holds it.
+func flakePanel(m Model, width int) []string {
+	if m.Flake == nil {
+		return nil
+	}
+	flake := *m.Flake
+	header := colorize(sgrRun, icons.Flake+" seen this one before: ") +
+		colorize(sgrFG, fmt.Sprintf("%s flaked %d of last %d runs", flake.Job, flake.FlakedRuns, m.FlakeWindow)) +
+		colorize(sgrDim, fmt.Sprintf(" (%s · score %.2f)", flake.Verdict, flake.Score))
+	lines := []string{
+		"",
+		fitANSI(focusMark(m.PanelFocus)+header, width),
+	}
+	for index, evidence := range flake.Evidence {
+		lines = append(lines, fitANSI(flakesscreen.EvidenceRow(evidence, m.PanelFocus && index == m.PanelSelected), width))
+	}
+	hint := "⇥ inspect evidence"
+	if m.PanelFocus {
+		hint = "j/k move · ⏎ open run · ⇥ back to excerpt"
+	}
+	lines = append(lines, fitANSI(colorize(sgrDim, "  "+hint), width))
+	return lines
+}
+
+// focusMark renders the theme focus marker for the pane that owns
+// j/k.
+func focusMark(focused bool) string {
+	if focused {
+		return colorize(sgrOK, "▌")
+	}
+	return " "
 }
 
 func header(m Model) string {
@@ -72,6 +109,10 @@ func annotationLine(annotation model.Annotation, width int) string {
 
 func errorHeader(m Model, width int) string {
 	left := colorize(sgrDim, fmt.Sprintf("error window · %d of %d lines", visibleLines(m), totalLines(m)))
+	if m.Flake != nil {
+		// Two focusable panes exist: mark the one that owns j/k.
+		left = focusMark(!m.PanelFocus) + left
+	}
 	right := colorize(sgrOK, "⤓ expand full log (l)")
 	return backgroundSafe(joinRightANSI(left, right, width), width, sgrFG, sgrSurfaceBG)
 }
@@ -204,6 +245,7 @@ const (
 	sgrReset     = "\x1b[0m"
 	sgrUnderline = "\x1b[4m"
 	sgrOK        = "\x1b[38;2;79;211;122m"
+	sgrRun       = "\x1b[38;2;224;163;62m"
 	sgrFail      = "\x1b[38;2;226;86;75m"
 	sgrInfo      = "\x1b[38;2;110;156;181m"
 	sgrDim       = "\x1b[38;2;107;112;96m"

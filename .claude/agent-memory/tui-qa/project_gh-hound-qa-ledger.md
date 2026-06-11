@@ -1,6 +1,6 @@
 ---
 name: gh-hound-qa-ledger
-description: Running QA failure/verification ledger for gh-hound TUI audits (rounds 4-16; tasks 220-290 — round 16 PASS, 270 hunt-voice + codex fixes verified in binary; P3 docs residue "Pack board/Pack size" remains)
+description: Running QA failure/verification ledger for gh-hound TUI audits (rounds 4-17; tasks 220-300 — round 17 PASS, flake forensics verified in binary; P3s: pre-existing failure-fetch error-body transient, thin-trail plural slip, clean verdict fake-unreachable)
 metadata:
   type: project
 ---
@@ -359,6 +359,57 @@ false): configuration.md:38 env-table still "Pack board size cap";
 agent-surface.md "Pack size is capped by watch_group_max". Task doc
 carries the post-build voice note (F4 closed). Evidence:
 .shux/out/r16-*.png (6).
+
+Round 17 (feat/300-flake-forensics, f7466a4, 2026-06-11): PASS — flake
+forensics (the scent check), v0.5.0 anchor. All verified in the built
+binary: fixtures flakes/failure-flaky/runs-flaky clean at 80/120/200
+(amber verdict line, blue kind column, selection bar, ~ badge inside
+label column, footer "j/k move · ⏎ open run · ⎋ back"); all 30 vqa
+screens regenerated + passed (brief said 28 — counting drift in the
+brief, not a defect); palette lists ALL 11 surfaces incl. "flakes ·
+flaky or real? · the scent check"; watch-board/workflows/caches/diff/
+approvals fixtures unregressed (rebase stitch clean). Live __vqa-tui
+--scenario flaky: failure paints before the panel (panel arrives async
+off the load slot, frame0 has no panel); tab toggles focus with ▌ mark
+swapping between error-window header and panel header, in-pane hint
+flips to "j/k move · ⏎ open run · ⇥ back to excerpt"; j/k drives the
+focused pane (evidence cursor vs excerpt offset, both observed); enter
+on evidence opens THAT run (#568/c3b2a19, #570/e5d4c3b — not stale);
+esc layering exact with panel focus+cursor preserved; runs `~` badge
+appears only after a verdict lands, 80-col column math intact; cold
+:flakes flips route instantly ("the scent check · sniffing…" frame0,
+220 invariant; "checking the scent" loading label grace-skipped in
+zero-latency fake, string confirmed in binary); cached verdict answers
+the second jump with no load. Verdict chrome: squirrel (flaky, amber)
++ thin trail (insufficient, dim — green scenario has only 3 completed
+runs) seen live; "fresh scent"/"suspect" strings in binary, suspect +
+insufficient live-verified by orchestrator on real repos. Guard toast
+"no run selected — give the hound a trail to sniff" works (scenario
+with no runs). HOUND_FLAKE_BADGES=false live: no panel after 3s, no
+badge even after an explicit verdict, :flakes still works; pinned by
+TestFailureScreenSpendsNoFlakeCallsWhenBadgesOff (real Update path,
+counting resolver — right test shape; cache/rerun-invalidation pins
+likewise real-path). Help on failure lists "⇥ flake panel (when
+scented)" + "j/k scroll excerpt / evidence"; help on flakes contextual.
+619 tests green. NEW P3s (unfiled): (1) PRE-EXISTING (c4dbfc5, NOT
+300): transient "failure unavailable: select a failed job with live
+GitHub data loaded" error body shows during the failure fetch —
+unloadedRouteBody RouteFailure (app.go:3954) lacks the pending-load
+guard its Diff/Flakes/Workflows/Watch siblings have and screenBody
+checks it before the loading body (app.go:3852-3855); ~200ms in fake,
+full fetch live; 300's RouteFlakes case guards correctly. (2) Plural
+slip "only 1 completed runs" in thin-trail copy (usecase/flakes.go:530
++ screens/flakes/view.go:26), live-observed in failing scenario
+(sample=1). (3) Clean/"fresh scent" verdict unreachable in fake lens
+(green=3 completed → thin trail) and the clean VIEW branch ("nothing
+wobbled" line, ok-green header, view.go:23) has no unit test —
+strings-correct on inspection, but unrehearsable; ask for fixture
+enrichment. (4) Help overlay shows an empty "Actions" section on
+action-less screens (flakes). Fake-lens notes: live fake panel shows 4
+evidence rows (retry_mask per flip run) vs fixture's 3 — different
+datasets by design; fake retry_mask details render identical text for
+both runs (shared fake log). Evidence: .shux/out/r17-*.png (23) +
+regenerated .claude/automations/screenshots.
 
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.

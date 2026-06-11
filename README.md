@@ -110,6 +110,7 @@ The local gate includes race-enabled Go tests, large-log performance tests, and 
 - **Status cycle**: `f` on the runs screen cycles all / failing / running / passed through the server filter.
 - **Attempt forensics**: `runs --run <id> --attempt <n>` triages a specific attempt after a re-run -- failed jobs, clean excerpts, exit codes.
 - **The trail**: `diff` walks a workflow's history to the last-green → first-red boundary and names the suspect commits -- the answer `git bisect` re-runs builds for is already in the run history. TUI screen via `:diff`, JSON verdict for agents, `diff_max_pages` bounds the spend.
+- **Flake forensics**: `flakes` answers "real failure or flake?" with a scored, evidenced verdict -- attempt flips, cross-run flapping, and retry-wrapper masking over the last `flake_window` runs. The failure screen recognizes the scent (`seen this one before: flaked 2 of last 50 runs`) with evidence drill-down, known flakers wear a `~` badge on the runs list, and agents branch on `status`: `flaky` -> rerun, `clean` -> investigate.
 - **The pack**: `:workflows` lists every workflow with its state badge -- `✔ active`, `◌ asleep` (fell asleep after 60 quiet days, the classic "my cron stopped" mystery), `⊘ muzzled` (disabled by hand), `⊘ fork-disabled`, `✗ deleted` -- and `e` wakes or muzzles the toggleable ones, confirm-gated. The `workflows` pipe verb lists states and flips them by id or file path. Disabled workflows are named on the empty screen, and the dispatch picker badges them instead of hiding them.
 - **Failure diagnosis**: annotations, failing step, exit code, and de-noised failure excerpts.
 - **Full log viewer**: line-number gutter, fold rows, search, match count, wrap toggle, scrollbar, and syntax-aware highlighting.
@@ -182,6 +183,7 @@ gh hound watch --group --no-tui
 gh hound rerun --run <id> --failed-only --debug --no-tui --json
 gh hound cancel --run <id> --no-tui --json
 gh hound diff --workflow CI --no-tui --json            # who broke main?
+gh hound flakes --workflow CI --no-tui --json          # flaky or real?
 gh hound workflows --no-tui --json                     # every workflow + state (why did my cron stop?)
 gh hound workflows --enable ci.yml --no-tui --json     # wake it: back on duty
 gh hound workflows --disable 290736476 --no-tui --json # muzzle it (id or file path)
@@ -217,6 +219,7 @@ Fixture scenarios are intentionally restricted to non-interactive/test paths. Th
 | Hunt board | `j/k` move, `Enter` drill into one run, `f` follow worst, `x` cancel, `Esc` back |
 | Dispatch | `Tab` next, arrows/select controls, `Enter` run, `Esc` cancel |
 | Trail (diff) | `j/k` move suspects, `Enter` open first bad run, `o` compare in browser, `Esc` back |
+| Scent check (flakes) | `j/k` move evidence, `Enter` open that run, `Esc` back; on the failure screen `Tab` toggles excerpt/panel focus |
 | Kennel (workflows) | `j/k` move, `e` wake/muzzle (confirm-gated), `o` browser, `Esc` back |
 
 ## Configuration
@@ -245,6 +248,12 @@ gh hound diff --workflow CI --no-tui --json | jq '{status, verdict, suspects: .t
 ```
 
 The `diff` verdict is a JSON object agents can branch on: `status` is `located` (exit `1` -- a regression exists), `green`, or `inconclusive` (both exit `0`), with `last_good`, `first_bad`, `suspect_commits[]`, and `compare_url` when the boundary is found.
+
+```bash
+gh hound flakes --workflow CI --no-tui --json | jq '{status, verdict}'
+```
+
+The `flakes` verdict is the rerun-vs-investigate decision: `status` is `flaky` or `suspect` (exit `1` -- rerun or look closer; per-job `flake_score`, signal counts, and `evidence[]` say why) or `clean` / `insufficient_data` (exit `0` -- chase the failure for real). Thresholds are documented in `docs/agent-surface.md`.
 
 Exit codes:
 
@@ -287,7 +296,7 @@ See [docs/development.md](docs/development.md) for the TDD workflow, Makefile ta
 ## Roadmap
 
 - **v1**: current-branch CI, failure diagnosis, logs, watch, rerun/cancel/dispatch, JSON agent surface, release packaging.
-- **v2**: flake detection, multi-repo pulse, deployments, caches, runners. (Artifacts shipped in v0.2.0; run diff against last green shipped as `diff` — the trail.)
+- **v2**: multi-repo pulse, deployments, runners. (Artifacts shipped in v0.2.0; run diff against last green shipped as `diff` — the trail; flake detection shipped as `flakes` — the scent check.)
 - **v3**: JSON-RPC/MCP `serve` mode for lifecycle events and multi-agent CI fix loops.
 
 ## License

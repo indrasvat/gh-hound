@@ -40,6 +40,13 @@ type Config struct {
 	PollMin       time.Duration
 	PollMax       time.Duration
 	Keybindings   map[string]string
+	// FlakeWindow is how many recent runs the flake scan reads per
+	// workflow+branch before issuing a verdict.
+	FlakeWindow int
+	// FlakeBadges marks runs-list rows whose workflow has a known
+	// flaker (from verdicts already computed this session — the badge
+	// never spends API calls of its own).
+	FlakeBadges bool
 }
 
 type LoadOptions struct {
@@ -59,6 +66,8 @@ type Overrides struct {
 	PollMin       *time.Duration
 	PollMax       *time.Duration
 	Keybindings   map[string]string
+	FlakeWindow   *int
+	FlakeBadges   *bool
 }
 
 type fileConfig struct {
@@ -72,6 +81,8 @@ type fileConfig struct {
 	PollMinMS     *int              `toml:"poll_min_ms"`
 	PollMaxMS     *int              `toml:"poll_max_ms"`
 	Keybindings   map[string]string `toml:"keybindings"`
+	FlakeWindow   *int              `toml:"flake_window"`
+	FlakeBadges   *bool             `toml:"flake_badges"`
 }
 
 //go:fix inline
@@ -91,6 +102,8 @@ func Default() Config {
 		PollMin:       2 * time.Second,
 		PollMax:       30 * time.Second,
 		Keybindings:   map[string]string{},
+		FlakeWindow:   50,
+		FlakeBadges:   true,
 	}
 }
 
@@ -130,6 +143,9 @@ func (c Config) Validate() error {
 	}
 	if c.WatchGroupMax < 1 || c.WatchGroupMax > 50 {
 		return fmt.Errorf("watch_group_max must be between 1 and 50, got %d", c.WatchGroupMax)
+	}
+	if c.FlakeWindow < 1 || c.FlakeWindow > 500 {
+		return fmt.Errorf("flake_window must be between 1 and 500, got %d", c.FlakeWindow)
 	}
 	if c.PollMin <= 0 || c.PollMax <= 0 || c.PollMin > c.PollMax {
 		return fmt.Errorf("poll interval must be positive and min <= max, got min=%s max=%s", c.PollMin, c.PollMax)
@@ -172,6 +188,12 @@ func loadFile(path string, cfg *Config) error {
 	}
 	if fc.WatchGroupMax != nil {
 		cfg.WatchGroupMax = *fc.WatchGroupMax
+	}
+	if fc.FlakeWindow != nil {
+		cfg.FlakeWindow = *fc.FlakeWindow
+	}
+	if fc.FlakeBadges != nil {
+		cfg.FlakeBadges = *fc.FlakeBadges
 	}
 	if fc.Theme != "" {
 		cfg.Theme = Theme(fc.Theme)
@@ -227,6 +249,20 @@ func applyEnv(lookup func(string) (string, bool), cfg *Config) error {
 		}
 		cfg.WatchGroupMax = parsed
 	}
+	if value, ok := lookup("HOUND_FLAKE_WINDOW"); ok {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("parse HOUND_FLAKE_WINDOW: %w", err)
+		}
+		cfg.FlakeWindow = parsed
+	}
+	if value, ok := lookup("HOUND_FLAKE_BADGES"); ok {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("parse HOUND_FLAKE_BADGES: %w", err)
+		}
+		cfg.FlakeBadges = parsed
+	}
 	if value, ok := lookup("HOUND_THEME"); ok {
 		cfg.Theme = Theme(value)
 	}
@@ -265,6 +301,12 @@ func applyOverrides(overrides Overrides, cfg *Config) {
 	}
 	if overrides.WatchGroupMax != nil {
 		cfg.WatchGroupMax = *overrides.WatchGroupMax
+	}
+	if overrides.FlakeWindow != nil {
+		cfg.FlakeWindow = *overrides.FlakeWindow
+	}
+	if overrides.FlakeBadges != nil {
+		cfg.FlakeBadges = *overrides.FlakeBadges
 	}
 	if overrides.Theme != nil {
 		cfg.Theme = *overrides.Theme

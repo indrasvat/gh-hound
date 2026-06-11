@@ -27,6 +27,10 @@ const (
 	// Gate marks a run waiting on a deployment review. Text
 	// presentation only (U+25EB), per the theme glyph contract.
 	Gate = "◫"
+	// Flake marks a known flaker (a squirrel on the trail). Plain
+	// ASCII tilde: ambiguous-width glyphs mis-render under terminal
+	// capture, and the badge must survive every breakpoint.
+	Flake = "~"
 )
 
 // SpinnerFrames is the one loading-spinner glyph cycle for the whole

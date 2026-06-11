@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -28,6 +29,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/tui/screens/dispatch"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/empty"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/failure"
+	flakesscreen "github.com/indrasvat/gh-hound/internal/tui/screens/flakes"
 	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/runs"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/watch"
@@ -51,6 +53,7 @@ const (
 	RouteWatchBoard Route = "watch_board"
 	RouteDispatch   Route = "dispatch"
 	RouteDiff       Route = "diff"
+	RouteFlakes     Route = "flakes"
 	RouteCaches     Route = "caches"
 	RouteWorkflows  Route = "workflows"
 )
@@ -85,6 +88,7 @@ type Options struct {
 	DispatchResolver          func(context.Context) (dispatch.Model, error)
 	DispatchWorkflowsResolver func(context.Context) ([]dispatch.Workflow, error)
 	DiffResolver              func(context.Context, model.Run) (usecase.RegressionVerdict, error)
+	FlakesResolver            func(context.Context, model.Run) (usecase.FlakeReport, error)
 	WorkflowsResolver         func(context.Context) ([]model.Workflow, error)
 	RunsMetadata              func() (usecase.RequestMeta, bool)
 	LogRefetchNotice          func(int64) (usecase.LogRefetchNotice, bool)
@@ -139,6 +143,7 @@ type App struct {
 	board                     watch.Board
 	dispatch                  dispatch.Model
 	diff                      diffscreen.Model
+	flakes                    flakesscreen.Model
 	workflows                 workflowsscreen.Model
 	palette                   palette.Model
 	approvals                 approvals.Model
@@ -159,25 +164,31 @@ type App struct {
 	dispatchResolver          func(context.Context) (dispatch.Model, error)
 	dispatchWorkflowsResolver func(context.Context) ([]dispatch.Workflow, error)
 	diffResolver              func(context.Context, model.Run) (usecase.RegressionVerdict, error)
-	workflowsResolver         func(context.Context) ([]model.Workflow, error)
-	runsMetadata              func() (usecase.RequestMeta, bool)
-	logRefetchNotice          func(int64) (usecase.LogRefetchNotice, bool)
-	actionHandler             func(ActionRequest) (usecase.ActionResult, error)
-	approvalsResolver         func(context.Context, model.Run) ([]model.PendingDeployment, error)
-	artifactsResolver         func(model.Run) ([]model.Artifact, error)
-	artifactDownloader        func(model.Artifact, string) (usecase.DownloadResult, error)
-	artifactsFetch            *artifactsFetchState
-	artifactDownload          *artifactDownloadState
-	pendingDownload           *model.Artifact
-	caches                    caches.Model
-	cachesResolver            func(context.Context) (caches.Data, error)
-	cacheDeleter              func(context.Context, CacheDeleteRequest) (int, error)
-	pendingCacheDelete        *CacheDeleteRequest
-	timeJump                  timejump.Model
-	lastToastTick             time.Time
-	openURL                   func(string) error
-	copyText                  func(string) error
-	load                      *pendingLoad
+	flakesResolver            func(context.Context, model.Run) (usecase.FlakeReport, error)
+	// flakeReports caches verdicts per (workflow, branch) for the
+	// session; rerun mutations invalidate it so new attempts re-score.
+	flakeReports       map[string]usecase.FlakeReport
+	flakesFetch        *flakesFetchState
+	flakePanelRun      model.Run
+	workflowsResolver  func(context.Context) ([]model.Workflow, error)
+	runsMetadata       func() (usecase.RequestMeta, bool)
+	logRefetchNotice   func(int64) (usecase.LogRefetchNotice, bool)
+	actionHandler      func(ActionRequest) (usecase.ActionResult, error)
+	approvalsResolver  func(context.Context, model.Run) ([]model.PendingDeployment, error)
+	artifactsResolver  func(model.Run) ([]model.Artifact, error)
+	artifactDownloader func(model.Artifact, string) (usecase.DownloadResult, error)
+	artifactsFetch     *artifactsFetchState
+	artifactDownload   *artifactDownloadState
+	pendingDownload    *model.Artifact
+	caches             caches.Model
+	cachesResolver     func(context.Context) (caches.Data, error)
+	cacheDeleter       func(context.Context, CacheDeleteRequest) (int, error)
+	pendingCacheDelete *CacheDeleteRequest
+	timeJump           timejump.Model
+	lastToastTick      time.Time
+	openURL            func(string) error
+	copyText           func(string) error
+	load               *pendingLoad
 }
 
 // startLoad runs work off the paint path and records the app's single
@@ -351,6 +362,8 @@ func NewApp(options Options) App {
 		dispatchResolver:          options.DispatchResolver,
 		dispatchWorkflowsResolver: options.DispatchWorkflowsResolver,
 		diffResolver:              options.DiffResolver,
+		flakesResolver:            options.FlakesResolver,
+		flakeReports:              map[string]usecase.FlakeReport{},
 		workflowsResolver:         options.WorkflowsResolver,
 		runsMetadata:              options.RunsMetadata,
 		logRefetchNotice:          options.LogRefetchNotice,
@@ -412,6 +425,9 @@ func NewScenarioApp(scenario string, build BuildInfo) App {
 	app.diffResolver = func(context.Context, model.Run) (usecase.RegressionVerdict, error) {
 		return sampleDiffVerdict(), nil
 	}
+	app.flakesResolver = func(context.Context, model.Run) (usecase.FlakeReport, error) {
+		return sampleFlakeReport(), nil
+	}
 	app.workflowsResolver = func(context.Context) ([]model.Workflow, error) {
 		return sampleWorkflows(), nil
 	}
@@ -426,6 +442,9 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 	// Async artifact results apply on the next keypress too, not only
 	// on poll ticks, so the section appears as soon as it is ready.
 	if next, ok := a.drainArtifactsFetch(); ok {
+		a = next
+	}
+	if next, ok := a.drainFlakesFetch(); ok {
 		a = next
 	}
 	if load := a.load; load != nil {
@@ -660,6 +679,22 @@ func RenderFixtureSize(screen string, width, height int) string {
 		trailApp.diff = diffscreen.NewModel(sampleDiffVerdict())
 		trailApp.routes = []Route{RouteRuns, RouteDiff}
 		return trailApp.ViewSize(width, height)
+	case "flakes":
+		scentApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		scentApp.flakes = flakesscreen.NewModel(sampleFlakeReport())
+		scentApp.routes = []Route{RouteRuns, RouteFlakes}
+		return scentApp.ViewSize(width, height)
+	case "failure-flaky":
+		scentApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		report := sampleFlakeReport()
+		scentApp.failure = sampleFailureModel().WithFlake(report.Jobs[0], report.RunsScanned)
+		scentApp.routes = []Route{RouteRuns, RouteDetail, RouteFailure}
+		return scentApp.ViewSize(width, height)
+	case "runs-flaky":
+		badgeApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		badgeApp.runs.FlakyRuns = map[int64]bool{571: true}
+		badgeApp.routes = []Route{RouteRuns}
+		return badgeApp.ViewSize(width, height)
 	case "diff-inconclusive":
 		trailApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
 		trailApp.diff = diffscreen.NewModel(sampleColdTrailVerdict())
@@ -815,7 +850,7 @@ func (a App) PollInterval() time.Duration {
 	}
 	// Tighten the loop while async artifact work or timed toasts are
 	// pending so completions and TTL expiry surface promptly.
-	if a.artifactsFetch != nil || a.artifactDownload != nil || len(a.toasts.Toasts) > 0 {
+	if a.artifactsFetch != nil || a.artifactDownload != nil || a.flakesFetch != nil || len(a.toasts.Toasts) > 0 {
 		if base > time.Second {
 			return time.Second
 		}
@@ -850,6 +885,10 @@ func (a App) Refresh() (App, bool) {
 		return a, changed
 	}
 	if next, ok := a.drainArtifactsFetch(); ok {
+		a = next
+		changed = true
+	}
+	if next, ok := a.drainFlakesFetch(); ok {
 		a = next
 		changed = true
 	}
@@ -1029,7 +1068,14 @@ func (a *App) PushRoute(route Route) {
 
 func (a *App) PopRoute() {
 	if len(a.routes) > 1 {
+		leaving := a.routes[len(a.routes)-1]
 		a.routes = a.routes[:len(a.routes)-1]
+		// Leaving the failure screen abandons its in-flight scent
+		// check: the scan must not keep spending API calls after esc
+		// (codex blocker).
+		if leaving == RouteFailure {
+			a.abandonFlakesScan()
+		}
 	}
 }
 
@@ -1076,6 +1122,8 @@ func (a App) updateRoute(msg KeyMsg) (App, bool) {
 		return a.updateDispatch(msg)
 	case RouteDiff:
 		return a.updateDiff(msg)
+	case RouteFlakes:
+		return a.updateFlakes(msg)
 	case RouteCaches:
 		return a.updateCaches(msg)
 	case RouteWorkflows:
@@ -1142,6 +1190,244 @@ func (a App) openDiff() App {
 func diffScreenHandled(key string) bool {
 	switch key {
 	case "j", "k", "down", "up", "enter", "o", "esc":
+		return true
+	default:
+		return false
+	}
+}
+
+// openFlakes starts the flake scan for the selected run's workflow and
+// routes to the scent check screen. The scan is async (Task 220
+// invariant): the route pushes immediately and the shared loading body
+// holds the pane until the verdict lands.
+func (a App) openFlakes() App {
+	if a.loadBlocked(loadKindFlakes) {
+		return a
+	}
+	run, ok := a.runs.SelectedRun()
+	if !ok {
+		a.pushErrorToast("flakes-no-run", usecase.ResilienceFor(fmt.Errorf("no run selected — give the hound a trail to sniff"), usecase.ErrorContext{}))
+		return a
+	}
+	a.clearRouteError(RouteFlakes)
+	if a.flakesResolver == nil {
+		a.flakes = flakesscreen.Model{}
+		a.setRouteError(RouteFlakes, "flakes unavailable: live flake scan is not configured")
+		a.PushRoute(RouteFlakes)
+		return a
+	}
+	key := a.flakeKeyForRun(run)
+	if report, ok := a.flakeReports[key]; ok {
+		// The session cache answers instantly; no second scan is spent.
+		a.flakes = flakesscreen.NewModel(report)
+		a.PushRoute(RouteFlakes)
+		return a
+	}
+	a.flakes = flakesscreen.Model{}
+	resolver := a.flakesResolver
+	a = a.startLoad(loadKindFlakes, "checking the scent", func(ctx context.Context) func(App) App {
+		report, err := resolver(ctx, run)
+		return func(app App) App {
+			if err != nil {
+				app.setRouteError(RouteFlakes, "flakes unavailable: "+err.Error())
+				return app
+			}
+			app.flakes = flakesscreen.NewModel(report)
+			return app.withFlakeReport(key, report)
+		}
+	})
+	a.PushRoute(RouteFlakes)
+	return a
+}
+
+func (a App) updateFlakes(msg KeyMsg) (App, bool) {
+	before := a.flakes
+	a.flakes = a.flakes.Update(flakesscreen.KeyMsg{Key: msg.Key})
+	switch a.flakes.Intent.Kind {
+	case flakesscreen.IntentOpenRun:
+		if a.loadBlocked(loadKindDetail) {
+			break
+		}
+		a = a.loadDetail(a.flakes.Intent.Run)
+		a.PushRoute(RouteDetail)
+	case flakesscreen.IntentBack:
+		a.PopRoute()
+	}
+	return a, flakesScreenHandled(msg.Key) || before.Selected != a.flakes.Selected || a.flakes.Intent.Kind != flakesscreen.IntentNone
+}
+
+func flakesScreenHandled(key string) bool {
+	switch key {
+	case "j", "k", "down", "up", "enter", "esc":
+		return true
+	default:
+		return false
+	}
+}
+
+// flakesFetchState carries the async failure-panel scent check.
+// Pointer-held so goroutine completion survives App value copies;
+// drained on poll ticks and keypresses (artifacts precedent).
+type flakesFetchState struct {
+	mu     sync.Mutex
+	key    string
+	run    model.Run
+	report usecase.FlakeReport
+	err    error
+	done   bool
+	cancel context.CancelFunc
+}
+
+// startFlakesFetch begins the failure-panel scan off the load slot so
+// the failure paint is never blocked. Gated on flake_badges: off
+// means the failure screen spends zero flake calls (the :flakes jump
+// stays available). Cached verdicts attach without a fetch.
+func (a App) startFlakesFetch(run model.Run) App {
+	if !a.config.FlakeBadges || a.flakesResolver == nil || run.ID == 0 {
+		return a
+	}
+	key := a.flakeKeyForRun(run)
+	if _, ok := a.flakeReports[key]; ok {
+		return a.attachFlakePanel()
+	}
+	if pending := a.flakesFetch; pending != nil && pending.key == key {
+		return a
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	state := &flakesFetchState{key: key, run: run, cancel: cancel}
+	a.flakesFetch = state
+	resolver := a.flakesResolver
+	go func() {
+		defer cancel()
+		report, err := resolver(ctx, run)
+		state.mu.Lock()
+		state.report = report
+		state.err = err
+		state.done = true
+		state.mu.Unlock()
+	}()
+	return a
+}
+
+func (a App) drainFlakesFetch() (App, bool) {
+	fetch := a.flakesFetch
+	if fetch == nil {
+		return a, false
+	}
+	fetch.mu.Lock()
+	defer fetch.mu.Unlock()
+	if !fetch.done {
+		return a, false
+	}
+	a.flakesFetch = nil
+	if errors.Is(fetch.err, context.Canceled) {
+		// An intentionally abandoned scan is not a failure — the user
+		// navigated away; clear the slot, no toast.
+		return a, true
+	}
+	if fetch.err != nil {
+		// The panel is auxiliary: the failure screen stays usable, but
+		// the miss must not masquerade as a clean trail.
+		a.pushToast("flakes-unavailable", usecase.Resilience{
+			Severity: usecase.SeverityWarn,
+			Title:    "scent check unavailable",
+			Message:  "could not score this trail; jump with :flakes to retry",
+		})
+		return a, true
+	}
+	a = a.withFlakeReport(fetch.key, fetch.report)
+	return a, a.Route() == RouteFailure || a.Route() == RouteRuns
+}
+
+// withFlakeReport stores a verdict in the session cache and folds it
+// into every surface that renders from it: run badges and the failure
+// panel.
+func (a App) withFlakeReport(key string, report usecase.FlakeReport) App {
+	reports := make(map[string]usecase.FlakeReport, len(a.flakeReports)+1)
+	maps.Copy(reports, a.flakeReports)
+	reports[key] = report
+	a.flakeReports = reports
+	a = a.applyFlakeBadges()
+	return a.attachFlakePanel()
+}
+
+// applyFlakeBadges marks failing rows whose workflow+branch has a
+// non-clean verdict in the session cache. Badges never spend API
+// calls: no verdict computed, no badge.
+func (a App) applyFlakeBadges() App {
+	if !a.config.FlakeBadges {
+		return a
+	}
+	marks := map[int64]bool{}
+	for _, run := range a.runs.Context.Runs {
+		if !redConclusion(run) {
+			continue
+		}
+		report, ok := a.flakeReports[a.flakeKeyForRun(run)]
+		if !ok {
+			continue
+		}
+		if report.Status == usecase.FlakeStatusFlaky || report.Status == usecase.FlakeStatusSuspect {
+			marks[run.ID] = true
+		}
+	}
+	if len(marks) > 0 || a.runs.FlakyRuns != nil {
+		a.runs.FlakyRuns = marks
+	}
+	return a
+}
+
+// attachFlakePanel folds the cached verdict for the failure screen's
+// run into the panel, when the failing job has a non-clean verdict.
+func (a App) attachFlakePanel() App {
+	run := a.flakePanelRun
+	if run.ID == 0 || a.failure.RunID == 0 {
+		return a
+	}
+	report, ok := a.flakeReports[a.flakeKeyForRun(run)]
+	if !ok {
+		return a
+	}
+	if job, ok := flakeJobFor(report, a.failure.Report.Job.Name, run.Name); ok {
+		a.failure = a.failure.WithFlake(job, report.RunsScanned)
+	}
+	return a
+}
+
+// flakeJobFor finds the verdict entry for the failing job, falling
+// back to the workflow-level entry (flaps without attempt data land
+// there). Only non-clean jobs are listed, so presence is the verdict.
+func flakeJobFor(report usecase.FlakeReport, jobName, workflowName string) (usecase.JobFlake, bool) {
+	for _, job := range report.Jobs {
+		if job.Job == strings.TrimSpace(jobName) {
+			return job, true
+		}
+	}
+	for _, job := range report.Jobs {
+		if job.Job == strings.TrimSpace(workflowName) {
+			return job, true
+		}
+	}
+	return usecase.JobFlake{}, false
+}
+
+// flakeKeyForRun is the session-cache key: the run's workflow identity
+// plus the branch its history would be scanned on.
+func (a App) flakeKeyForRun(run model.Run) string {
+	workflow := firstNonEmpty(run.Path, run.Name)
+	if workflow == "" && run.WorkflowID != 0 {
+		workflow = strconv.FormatInt(run.WorkflowID, 10)
+	}
+	return workflow + "|" + firstNonEmpty(run.HeadBranch, a.runs.Context.Branch)
+}
+
+// redConclusion mirrors the regression-scan red signal for badges.
+func redConclusion(run model.Run) bool {
+	if run.Status != model.StatusCompleted {
+		return false
+	}
+	switch run.Conclusion {
+	case model.ConclusionFailure, model.ConclusionTimedOut, model.ConclusionActionRequired:
 		return true
 	default:
 		return false
@@ -1392,6 +1678,12 @@ func (a App) updateFailure(msg KeyMsg) (App, bool) {
 		a = a.openExternal(failureBrowserURL(a.failure))
 	case failure.IntentCopyExcerpt:
 		a = a.copyExternal("failure-excerpt", failureExcerptText(a.failure))
+	case failure.IntentOpenEvidence:
+		if a.loadBlocked(loadKindDetail) {
+			break
+		}
+		a = a.loadDetail(a.failure.Intent.EvidenceRun)
+		a.PushRoute(RouteDetail)
 	case failure.IntentBack:
 		a.PopRoute()
 	}
@@ -1746,7 +2038,21 @@ func (a App) updatePalette(msg KeyMsg) (App, bool) {
 	return a, before.Query != a.palette.Query || before.Selected != a.palette.Selected || paletteHandled(msg.Key)
 }
 
+// abandonFlakesScan cancels the in-flight failure-panel scan. Any
+// navigation that leaves the failure screen must call it — the scan
+// must not keep spending API calls behind the user's back.
+func (a *App) abandonFlakesScan() {
+	if fetch := a.flakesFetch; fetch != nil && fetch.cancel != nil {
+		fetch.cancel()
+	}
+}
+
 func (a App) handlePaletteIntent(intent palette.Intent) App {
+	if a.Route() == RouteFailure {
+		// Palette jumps replace the route stack outright and never go
+		// through PopRoute — abandon the scan here too.
+		a.abandonFlakesScan()
+	}
 	switch intent.Route {
 	case "runs":
 		a.PopOverlay()
@@ -1790,6 +2096,9 @@ func (a App) handlePaletteIntent(intent palette.Intent) App {
 	case string(RouteDiff):
 		a.PopOverlay()
 		a = a.openDiff()
+	case string(RouteFlakes):
+		a.PopOverlay()
+		a = a.openFlakes()
 	case string(RouteWorkflows):
 		a.PopOverlay()
 		a = a.openWorkflows()
@@ -2464,7 +2773,8 @@ func (a App) loadFailure(run model.Run, job model.Job) App {
 		return a
 	}
 	resolver := a.failureResolver
-	return a.startLoad(loadKindFailure, "fetching the failure", func(ctx context.Context) func(App) App {
+	a.flakePanelRun = run
+	a = a.startLoad(loadKindFailure, "fetching the failure", func(ctx context.Context) func(App) App {
 		resolved, fullLog, err := resolver(ctx, run, job)
 		return func(app App) App {
 			if err != nil {
@@ -2475,9 +2785,15 @@ func (a App) loadFailure(run model.Run, job model.Job) App {
 			app.log = fullLog
 			app.clearRouteError(RouteLog)
 			app.pushLogRefetchToast(job.ID)
-			return app
+			// The scent check starts only AFTER the failure resolved:
+			// the GitHub queue is serial, so a scan racing the failure
+			// fetch could delay the first paint (codex blocker). Gated
+			// on flake_badges; cached verdicts attach without a fetch.
+			app = app.startFlakesFetch(run)
+			return app.attachFlakePanel()
 		}
 	})
+	return a
 }
 
 func (a App) loadLog(run model.Run, job model.Job) App {
@@ -2749,6 +3065,16 @@ func (a App) executeAction(route Route, request ActionRequest) (App, bool) {
 	if err != nil {
 		a.pushErrorToast("action-failed", usecase.ResilienceFor(err, usecase.ErrorContext{}))
 		return a, false
+	}
+	if rerunFamily(request.Action) {
+		// New attempts are about to land: cached verdicts would lie.
+		// Fresh map — App copies share the old one — and the DERIVED
+		// state goes with it: badges and the failure panel must not
+		// keep showing a verdict the rerun just invalidated (ghent
+		// Codex P2).
+		a.flakeReports = map[string]usecase.FlakeReport{}
+		a.runs.FlakyRuns = nil
+		a.failure.Flake = nil
 	}
 	resilience := usecase.ResilienceForSuccess(result)
 	if resilience.Message == "" && request.Workflow.Name != "" {
@@ -3147,7 +3473,7 @@ func detailHandled(key string) bool {
 
 func failureHandled(key string) bool {
 	switch key {
-	case "l", "y", "o", "r", "R", "esc":
+	case "l", "y", "o", "r", "R", "tab", "j", "k", "down", "up", "enter", "esc":
 		return true
 	default:
 		return false
@@ -3210,6 +3536,8 @@ func (a App) footerScreen() keys.Screen {
 		return keys.ScreenDispatch
 	case RouteDiff:
 		return keys.ScreenDiff
+	case RouteFlakes:
+		return keys.ScreenFlakes
 	case RouteCaches:
 		return keys.ScreenCaches
 	case RouteWorkflows:
@@ -3288,6 +3616,11 @@ func (a App) chromeParts() (string, string, string) {
 			return "hound", "the trail", "sniffing…"
 		}
 		return "hound", diffContext(a.diff.Verdict), diffRight(a.diff.Verdict)
+	case RouteFlakes:
+		if load := a.load; load != nil && load.kind == loadKindFlakes {
+			return "hound", "the scent check", "sniffing…"
+		}
+		return "hound", flakesContext(a.flakes.Report), flakesRight(a.flakes.Report)
 	case RouteCaches:
 		if load := a.load; load != nil && load.kind == loadKindCaches {
 			return "hound", "the kennel · caches", "fetching…"
@@ -3317,6 +3650,32 @@ func packContext(b watch.Board) string {
 		}
 	}
 	return context
+}
+
+func flakesContext(report usecase.FlakeReport) string {
+	if strings.TrimSpace(report.Workflow) == "" {
+		return "the scent check"
+	}
+	context := "the scent check " + icons.Breadcrumb + " " + strings.TrimSpace(report.Workflow)
+	if strings.TrimSpace(report.Branch) != "" {
+		context += " · " + strings.TrimSpace(report.Branch)
+	}
+	return context
+}
+
+func flakesRight(report usecase.FlakeReport) string {
+	switch report.Status {
+	case usecase.FlakeStatusFlaky:
+		return "squirrel"
+	case usecase.FlakeStatusSuspect:
+		return "suspect"
+	case usecase.FlakeStatusClean:
+		return "fresh scent"
+	case usecase.FlakeStatusInsufficient:
+		return "thin trail"
+	default:
+		return ""
+	}
 }
 
 func diffContext(verdict usecase.RegressionVerdict) string {
@@ -3472,6 +3831,7 @@ func paletteItems(workflows []dispatch.Workflow) []palette.Item {
 		{Name: "artifacts", Description: "selected run's artifacts", Route: "artifacts"},
 		{Name: "approvals", Description: "review the deploy gate", Route: "approvals"},
 		{Name: "diff", Description: "who broke main? · the trail", Route: string(RouteDiff)},
+		{Name: "flakes", Description: "flaky or real? · the scent check", Route: string(RouteFlakes)},
 		{Name: "caches", Description: "the kennel · cache usage & eviction", Route: string(RouteCaches)},
 		{Name: "workflows", Description: "the pack · states, wake & muzzle", Route: string(RouteWorkflows)},
 	}
@@ -3584,6 +3944,11 @@ func (a App) screenBody(width, height int) string {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())
 		}
 		return diffscreen.ViewSize(a.diff, bodyWidth, bodyHeight(height))
+	case RouteFlakes:
+		if load := a.load; load != nil && load.kind == loadKindFlakes {
+			return loadingBody(a.theme, load, bodyWidth, time.Now())
+		}
+		return flakesscreen.ViewSize(a.flakes, bodyWidth, bodyHeight(height))
 	case RouteCaches:
 		if load := a.load; load != nil && load.kind == loadKindCaches {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())
@@ -3619,7 +3984,11 @@ func (a App) unloadedRouteBody(route Route, width int) (string, bool) {
 	message := ""
 	switch route {
 	case RouteFailure:
-		if a.failure.RunID == 0 && len(a.failure.Report.Log.Lines) == 0 {
+		// Pending-load guard like the sibling routes: during the fetch
+		// the loading body owns the screen, not this error (QA round
+		// 17, pre-existing gap).
+		pendingFailure := a.load != nil && a.load.kind == loadKindFailure
+		if a.failure.RunID == 0 && len(a.failure.Report.Log.Lines) == 0 && !pendingFailure {
 			message = "failure unavailable: select a failed job with live GitHub data loaded"
 		}
 	case RouteLog:
@@ -3639,6 +4008,11 @@ func (a App) unloadedRouteBody(route Route, width int) (string, bool) {
 		pendingDiff := a.load != nil && a.load.kind == loadKindDiff
 		if a.diff.Verdict.Status == "" && !pendingDiff {
 			message = "the trail is empty: select a run and jump with :diff"
+		}
+	case RouteFlakes:
+		pendingFlakes := a.load != nil && a.load.kind == loadKindFlakes
+		if a.flakes.Report.Status == "" && !pendingFlakes {
+			message = "no scent on file: select a run and jump with :flakes"
 		}
 	case RouteWorkflows:
 		pendingWorkflows := a.load != nil && a.load.kind == loadKindWorkflows
@@ -4108,6 +4482,37 @@ func sampleDiffVerdict() usecase.RegressionVerdict {
 		CompareURL:    "https://github.com/indrasvat/gh-hound/compare/c2b3a49...d3c4b5a",
 		RunsScanned:   4,
 		Verdict:       "scent picked up: #572 was clean, #573 wasn't.",
+	}
+}
+
+// sampleFlakeReport mirrors the fake adapter's flaky scenario: build
+// flipped on two reruns and the retry wrapper masked instability.
+func sampleFlakeReport() usecase.FlakeReport {
+	flipA := model.Run{ID: 30433570, Name: "CI", RunNumber: 570, RunAttempt: 2, HeadSHA: "e5d4c3b", HeadBranch: "main", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess}
+	flipB := model.Run{ID: 30433568, Name: "CI", RunNumber: 568, RunAttempt: 2, HeadSHA: "c3b2a19", HeadBranch: "main", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess}
+	return usecase.FlakeReport{
+		Repo:             "indrasvat/gh-hound",
+		Workflow:         "ci.yml",
+		Branch:           "main",
+		Status:           usecase.FlakeStatusFlaky,
+		SampleSize:       6,
+		Window:           50,
+		RunsScanned:      6,
+		SignalsEvaluated: []string{"attempt_flips", "cross_run_flaps", "retry_masks"},
+		Jobs: []usecase.JobFlake{{
+			Job:        "build",
+			Score:      1,
+			Verdict:    usecase.FlakeStatusFlaky,
+			Flips:      2,
+			Masks:      2,
+			FlakedRuns: 2,
+			Evidence: []usecase.FlakeEvidence{
+				{Run: flipA, Attempt: 1, Kind: usecase.SignalAttemptFlip, Detail: "#570: failed on attempt 1, passed on a later attempt"},
+				{Run: flipA, Attempt: 2, Kind: usecase.SignalRetryMask, Detail: "retry wrapper matched (nick-fields/retry): Run nick-fields/retry@v3"},
+				{Run: flipB, Attempt: 1, Kind: usecase.SignalAttemptFlip, Detail: "#568: failed on attempt 1, passed on a later attempt"},
+			},
+		}},
+		Verdict: "seen this one before: it's a squirrel — build flaked 2 of the last 6 runs.",
 	}
 }
 

@@ -157,7 +157,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.PersistentFlags().StringVar((*string)(&options.Format), "format", "json", "pipe output format: json, md, xml (env HOUND_FORMAT)")
 	cmd.PersistentFlags().StringVar(&options.LogLevel, "log-level", "info", "log level: off, error, warn, info, debug (env HOUND_LOG_LEVEL)")
 	cmd.PersistentFlags().BoolVar(&options.TraceHTTP, "trace-http", false, "trace GitHub API calls to the JSON log (env HOUND_TRACE_HTTP)")
-	cmd.PersistentFlags().StringVar(&options.Fake, "fake-scenario", "", "deterministic fake scenario: green, failure, pending, empty, api_error, conflict, permission, waiting, regression, pack (env HOUND_FAKE_SCENARIO)")
+	cmd.PersistentFlags().StringVar(&options.Fake, "fake-scenario", "", "deterministic fake scenario: green, failure, pending, empty, api_error, conflict, permission, waiting, regression, pack, flaky (env HOUND_FAKE_SCENARIO)")
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		applyEnv(&options, runtime.Env)
 		return nil
@@ -176,6 +176,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.AddCommand(newRerunCommand(runtime, &options))
 	cmd.AddCommand(newCancelCommand(runtime, &options))
 	cmd.AddCommand(newDiffCommand(runtime, &options))
+	cmd.AddCommand(newFlakesCommand(runtime, &options))
 	cmd.AddCommand(newWorkflowsCommand(runtime, &options))
 	return cmd
 }
@@ -1303,6 +1304,26 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			// scans the right history (review-required hardening).
 			return service.LocateRegression(loadCtx, launch.Repo, workflow, firstNonEmptyString(run.HeadBranch, launch.Branch))
 		},
+		FlakesResolver: func(loadCtx context.Context, run model.Run) (usecase.FlakeReport, error) {
+			history, hasHistory := githubClient.(usecase.WorkflowRunHistory)
+			if !hasHistory {
+				return usecase.FlakeReport{}, fmt.Errorf("flake scan is unavailable for this adapter")
+			}
+			workflow := workflowSelectorForRun(run)
+			if workflow == "" {
+				return usecase.FlakeReport{}, fmt.Errorf("the selected run has no workflow identity to follow")
+			}
+			service := usecase.FlakesService{
+				History:  history,
+				Attempts: githubClient,
+				Logs:     githubClient,
+				Window:   cfg.FlakeWindow,
+				PerPage:  usecase.DiffPerPage,
+			}
+			// The scent is anchored to the SELECTED run: its branch wins
+			// over the launch branch (diff precedent).
+			return service.Scan(loadCtx, launch.Repo, workflow, firstNonEmptyString(run.HeadBranch, launch.Branch))
+		},
 		DispatchWorkflowsResolver: func(loadCtx context.Context) ([]dispatch.Workflow, error) {
 			workflows, err := dispatchWorkflowModels(loadCtx, githubClient, launch)
 			if err != nil {
@@ -2121,6 +2142,8 @@ func fakeScenarioFor(scenario string) fake.Scenario {
 		return fake.ScenarioRegression
 	case "pack":
 		return fake.ScenarioPack
+	case "flaky":
+		return fake.ScenarioFlaky
 	default:
 		return fake.ScenarioGreen
 	}
@@ -2308,7 +2331,7 @@ func fakeResult(options cliOptions, scenario string) render.Result {
 	}
 	runStatus := "completed"
 	conclusion := "success"
-	if scenario == "failure" {
+	if scenario == "failure" || scenario == "flaky" {
 		conclusion = "failure"
 	}
 	if scenario == "pending" {
@@ -2378,6 +2401,9 @@ func normalizedScenario(options cliOptions) string {
 		// Multi-run watch scenario: 3 workflows off one push, staggered
 		// completion, Docs lost at the end.
 		return raw
+	case "flaky", "flake", "flakes":
+		// Seeded attempt flips + a retry-masked step for flake forensics.
+		return "flaky"
 	}
 	status := strings.ToLower(strings.TrimSpace(options.Status))
 	switch status {

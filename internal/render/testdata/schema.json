@@ -529,6 +529,168 @@
     }
    }
   },
+  "flakes_result": {
+   "type": "object",
+   "description": "Scored flake verdict for one workflow+branch window. Thresholds: each attempt flip adds 0.45, each cross-run flap 0.30, each retry mask 0.20, capped at 1.0; a job at or past 0.6 is flaky, any evidence at all is suspect. status is the worst job verdict and the field agents branch on (exit 1 for flaky|suspect, 0 for clean|insufficient_data, 2 for error); insufficient_data means only that the sample is below 5 signal runs AND evidence-free — evidence is never discarded. Caveat: check-run annotations are only retrievable for the latest attempt, so evidence comes from attempt job conclusions and logs, never annotations. Retry-wrapper masking in runs that never had a failed attempt is not detected (their logs are never fetched under the call budget); signals_evaluated lists what was checked.",
+   "required": [
+    "repo",
+    "workflow",
+    "branch",
+    "status",
+    "sample_size",
+    "window",
+    "runs_scanned",
+    "signals_evaluated",
+    "jobs",
+    "verdict"
+   ],
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "workflow": {
+     "type": "string"
+    },
+    "branch": {
+     "type": "string"
+    },
+    "status": {
+     "enum": [
+      "flaky",
+      "suspect",
+      "clean",
+      "insufficient_data",
+      "error"
+     ]
+    },
+    "sample_size": {
+     "type": "integer"
+    },
+    "window": {
+     "type": "integer"
+    },
+    "runs_scanned": {
+     "type": "integer"
+    },
+    "signals_evaluated": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "attempt_flips",
+       "cross_run_flaps",
+       "retry_masks"
+      ]
+     }
+    },
+    "jobs": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "job",
+       "flake_score",
+       "verdict",
+       "attempt_flips",
+       "cross_run_flaps",
+       "retry_masks",
+       "flaked_runs",
+       "evidence"
+      ],
+      "properties": {
+       "job": {
+        "type": "string",
+        "description": "job name; cross-run flaps without attempt-level job data land on an entry named after the workflow"
+       },
+       "flake_score": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+       },
+       "verdict": {
+        "enum": [
+         "flaky",
+         "suspect"
+        ]
+       },
+       "attempt_flips": {
+        "type": "integer"
+       },
+       "cross_run_flaps": {
+        "type": "integer"
+       },
+       "retry_masks": {
+        "type": "integer"
+       },
+       "flaked_runs": {
+        "type": "integer"
+       },
+       "evidence": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "required": [
+          "run_id",
+          "run_number",
+          "attempt",
+          "kind",
+          "detail"
+         ],
+         "properties": {
+          "run_id": {
+           "type": "integer"
+          },
+          "run_number": {
+           "type": "integer"
+          },
+          "attempt": {
+           "type": "integer",
+           "description": "first failed attempt for attempt_flip evidence; 0 when the signal is not attempt-scoped"
+          },
+          "kind": {
+           "enum": [
+            "attempt_flip",
+            "cross_run_flap",
+            "retry_mask"
+           ]
+          },
+          "detail": {
+           "type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "description": "Only jobs with evidence appear: a clean job never enters the list, so verdict is flaky|suspect by construction."
+    },
+    "verdict": {
+     "type": "string"
+    },
+    "error": {
+     "type": "object",
+     "required": [
+      "kind",
+      "message"
+     ],
+     "properties": {
+      "kind": {
+       "enum": [
+        "validation",
+        "auth",
+        "permission",
+        "not_found",
+        "rate_limit",
+        "network",
+        "unknown"
+       ]
+      },
+      "message": {
+       "type": "string"
+      }
+     }
+    }
+   }
+  },
   "caches_result": {
    "type": "object",
    "required": [

@@ -21,6 +21,7 @@ Source of truth: `docs/gh-hound-design.html`. Re-read the matching mock before e
 | ⑩ | help | three-column contextual keymap; legend; Canvas/Layer overlay |
 | ⑪ | diff (the trail) | hound verdict line; ✔ last-good / ✗ first-bad boundary summary with attempt note; suspect rows with aligned sha/author/subject columns, selection bar, long-subject ellipsis; inconclusive state hints at diff_max_pages |
 | ⑫ | caches | kennel header `kennel: 7.2/10 GB · N caches`; pressure gauge colored ok (<50%), run (50–90%), fail (>90%); past 90% the warn line `kennel's almost full — GitHub starts evicting at 10 GB.`; sortable key/ref/size/last-used table with selected-row fill; `/` filter line; empty state `the kennel's empty — nothing cached on this repo.`; delete confirms lead with the match count |
+| ⑭ | flakes (the scent check) | hound verdict line colored by status (run-amber flaky, fg suspect, ok clean, dim thin trail); per-job score line `~ build · score 1.00 · flaky · 2 flips · 2 masked retries`; evidence rows with selection bar and run-number/kind/detail columns; failure screen grows the flake panel below the excerpt — focused pane marked with the selection bar, tab toggles, j/k drives the focused pane, enter on evidence opens that run; runs rows badge known flakers with `~` inside the label column |
 | ⑬ | workflows (the pack) | one row per workflow: name, file, themed state badge (✔ active, ◌ asleep, ⊘ muzzled, ⊘ fork-disabled, ✗ deleted; unknown states verbatim with ◇); header columns share the row width math; e toggles only toggleable states (confirm-gated); fork-disabled/deleted carry a why-line instead of the toggle |
 
 ## Theme Tokens
@@ -84,6 +85,7 @@ All glyphs are text presentation only. Do not append emoji variation selectors. 
 | dispatch | ▶ |
 | enter | ⏎ |
 | escape | ⎋ |
+| flake badge | ~ |
 
 ## Footers
 
@@ -101,6 +103,7 @@ Footer text must be generated from keymap data, not copied into renderers.
 | log | j/k scroll · g/G ends · / search · t time · n/N match · z/Z fold · w wrap · ⎋ back |
 | dispatch | ⏎ run · ⇥ next · ⎋ cancel |
 | diff | j/k move · ⏎ first bad · o compare · ⎋ back |
+| flakes | j/k move · ⏎ open run · ⎋ back |
 | caches | j/k move · s sort · / filter · d dig up · D dig up key · ⎋ back · ? |
 | workflows | j/k move · e wake/muzzle · o browser · ⎋ back |
 | palette | workflows · watch · diff · theme |
