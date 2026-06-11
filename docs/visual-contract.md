@@ -18,6 +18,7 @@ Source of truth: `docs/gh-hound-design.html`. Re-read the matching mock before e
 | ⑧ | palette | centered overlay; prompt row; filtered list; selected row surface-2 fill plus green left bar |
 | ⑨ | approvals | deploy-gate overlay over the runs screen: env multi-pick rows ([x]/[ ]/[-] checkboxes, ◫ glyph, reviewers line), comment line with documented default, notice line for refusals; opened by A on a waiting run after the shared "checking the gate" load |
 | ⑩ | help | three-column contextual keymap; legend; Canvas/Layer overlay |
+| ⑪ | diff (the trail) | hound verdict line; ✔ last-good / ✗ first-bad boundary summary with attempt note; suspect rows with aligned sha/author/subject columns, selection bar, long-subject ellipsis; inconclusive state hints at diff_max_pages |
 
 ## Theme Tokens
 
@@ -95,7 +96,8 @@ Footer text must be generated from keymap data, not copied into renderers.
 | watch | ✗ cancel · f follow · d debug · ⎋ detach |
 | log | j/k scroll · g/G ends · / search · t time · n/N match · z/Z fold · w wrap · ⎋ back |
 | dispatch | ⏎ run · ⇥ next · ⎋ cancel |
-| palette | workflows · watch · diff (v2) · theme |
+| diff | j/k move · ⏎ first bad · o compare · ⎋ back |
+| palette | workflows · watch · diff · theme |
 | help | : palette · ? close · ⎋ close |
 | toasts | ⎋ dismiss · g dismiss all · r retry · ? help |
 | approvals overlay | j/k move · space pick · y open gate · n keep shut · c comment · ⎋ close |
@@ -131,6 +133,7 @@ per-screen spinner in any later change is a review-blocking defect.
 | failure open | shared loading body |
 | log open (`l`) | shared loading body with byte progress (`▰▰▱▱▱ 2.1 MB/4.8 MB`) when Content-Length is known |
 | dispatch open (`D`) | loading line on the originating runs screen; route flips when resolved |
+| diff open (`:diff`) | shared loading body (`picking up the scent`) on the trail screen |
 
 Palette note: `:` opens with the generic dispatch entry only — the
 per-workflow `dispatch: <name>` items appear once the workflow cache

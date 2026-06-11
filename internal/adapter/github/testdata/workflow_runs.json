@@ -1,0 +1,59 @@
+{
+ "total_count": 14,
+ "workflow_runs": [
+  {
+   "id": 27321133262,
+   "name": "CI",
+   "display_title": "fix: dispatch ref correctness \u2014 foreign-repo context, default-branch \u2026",
+   "status": "completed",
+   "conclusion": "success",
+   "event": "push",
+   "head_branch": "main",
+   "head_sha": "86946ad1f5225d641d0948a45a2781afa3437e04",
+   "path": ".github/workflows/ci.yml",
+   "run_number": 102,
+   "run_attempt": 1,
+   "workflow_id": 290736476,
+   "actor": {
+    "login": "indrasvat"
+   },
+   "triggering_actor": {
+    "login": "indrasvat"
+   },
+   "created_at": "2026-06-11T03:08:24Z",
+   "updated_at": "2026-06-11T03:10:11Z",
+   "run_started_at": "2026-06-11T03:08:24Z",
+   "html_url": "https://github.com/indrasvat/gh-hound/actions/runs/27321133262",
+   "jobs_url": "https://api.github.com/repos/indrasvat/gh-hound/actions/runs/27321133262/jobs",
+   "logs_url": "https://api.github.com/repos/indrasvat/gh-hound/actions/runs/27321133262/logs",
+   "pull_requests": []
+  },
+  {
+   "id": 27319376332,
+   "name": "CI",
+   "display_title": "feat: the leash works both ways \u2014 rerun/cancel pipe verbs, debug logg\u2026",
+   "status": "completed",
+   "conclusion": "success",
+   "event": "push",
+   "head_branch": "main",
+   "head_sha": "196a0800da3107c8162eac8a0aa65d4827b916b0",
+   "path": ".github/workflows/ci.yml",
+   "run_number": 100,
+   "run_attempt": 1,
+   "workflow_id": 290736476,
+   "actor": {
+    "login": "indrasvat"
+   },
+   "triggering_actor": {
+    "login": "indrasvat"
+   },
+   "created_at": "2026-06-11T02:17:23Z",
+   "updated_at": "2026-06-11T02:19:03Z",
+   "run_started_at": "2026-06-11T02:17:23Z",
+   "html_url": "https://github.com/indrasvat/gh-hound/actions/runs/27319376332",
+   "jobs_url": "https://api.github.com/repos/indrasvat/gh-hound/actions/runs/27319376332/jobs",
+   "logs_url": "https://api.github.com/repos/indrasvat/gh-hound/actions/runs/27319376332/logs",
+   "pull_requests": []
+  }
+ ]
+}

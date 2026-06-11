@@ -28,6 +28,7 @@ const (
 	ScenarioLogRender    Scenario = "log_render"
 	ScenarioLogRefetch   Scenario = "log_refetch"
 	ScenarioWaiting      Scenario = "waiting"
+	ScenarioRegression   Scenario = "regression"
 )
 
 type Adapter struct {
@@ -80,6 +81,8 @@ func (a *Adapter) listScenarioRuns() ([]model.Run, error) {
 		return []model.Run{waitingRun(), greenRun(571)}, nil
 	case ScenarioEmpty:
 		return []model.Run{}, nil
+	case ScenarioRegression:
+		return regressionHistory(), nil
 	case ScenarioRateLimited:
 		return nil, usecase.APIError{
 			Kind:       usecase.APIErrorRateLimit,
@@ -416,6 +419,67 @@ func job() model.Job {
 			CompletedAt: time.Date(2026, 6, 7, 17, 44, 0, 0, time.UTC),
 		}},
 	}
+}
+
+// regressionHistory seeds the boundary the diff scan must locate:
+// a red streak (#575, #573) with a cancelled run between (#574),
+// broken by the rerun-flipped green #572 (attempt 2 — the latest-
+// attempt rule), then plain green history.
+func regressionHistory() []model.Run {
+	streakHead := greenRun(575)
+	streakHead.Conclusion = model.ConclusionFailure
+	streakHead.HeadSHA = "f5e6d7c"
+	streakHead.DisplayTitle = "feat: sharpen the lexer"
+
+	cancelled := greenRun(574)
+	cancelled.Conclusion = model.ConclusionCancelled
+	cancelled.HeadSHA = "e4d5c6b"
+
+	firstBad := greenRun(573)
+	firstBad.Conclusion = model.ConclusionFailure
+	firstBad.HeadSHA = "d3c4b5a"
+	firstBad.DisplayTitle = "feat: sharpen the lexer"
+
+	lastGood := greenRun(572)
+	lastGood.RunAttempt = 2
+	lastGood.HeadSHA = "c2b3a49"
+
+	older := greenRun(571)
+	older.HeadSHA = "b1a2938"
+
+	return []model.Run{streakHead, cancelled, firstBad, lastGood, older}
+}
+
+// ListWorkflowRuns implements usecase.WorkflowRunHistory over the
+// scenario fixtures: one page of history, scenario errors intact.
+func (a *Adapter) ListWorkflowRuns(_ context.Context, _ string, _ string, filter usecase.RunFilter) ([]model.Run, error) {
+	if filter.Page > 1 {
+		return []model.Run{}, nil
+	}
+	runs, err := a.listScenarioRuns()
+	if err != nil {
+		return nil, err
+	}
+	return filterFixtureRuns(runs, filter), nil
+}
+
+// CompareCommits implements usecase.CommitComparer with deterministic
+// suspects for the regression scenario.
+func (a *Adapter) CompareCommits(_ context.Context, repo, base, head string) (model.CommitRange, error) {
+	switch a.scenario {
+	case ScenarioRateLimited:
+		return model.CommitRange{}, usecase.APIError{Kind: usecase.APIErrorRateLimit, Status: http.StatusForbidden, Message: "API rate limit exceeded"}
+	case ScenarioNetworkError:
+		return model.CommitRange{}, errors.New("network unavailable")
+	}
+	return model.CommitRange{
+		TotalCommits: 2,
+		HTMLURL:      "https://github.com/" + repo + "/compare/" + base + "..." + head,
+		Commits: []model.Commit{
+			{SHA: "d3c4b5a9f0e1d2c3b4a5968778695a4b3c2d1e0f", Author: "indrasvat", Message: "feat: sharpen the lexer"},
+			{SHA: "cc99aa1b2c3d4e5f60718293a4b5c6d7e8f90a1b", Author: "dependabot[bot]", Message: "chore(deps): bump charmbracelet/x/ansi"},
+		},
+	}, nil
 }
 
 // RefExists implements usecase.RefValidator: fake refs always exist

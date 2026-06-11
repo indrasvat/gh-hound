@@ -30,6 +30,9 @@ type Config struct {
 	AutoWatch    bool
 	Welcome      bool
 	PerPage      int
+	// DiffMaxPages bounds the regression scan's history walk (pages of
+	// 100 runs). Hitting the cap yields an inconclusive verdict.
+	DiffMaxPages int
 	Theme        Theme
 	PollMin      time.Duration
 	PollMax      time.Duration
@@ -47,6 +50,7 @@ type Overrides struct {
 	AutoWatch    *bool
 	Welcome      *bool
 	PerPage      *int
+	DiffMaxPages *int
 	Theme        *Theme
 	PollMin      *time.Duration
 	PollMax      *time.Duration
@@ -58,6 +62,7 @@ type fileConfig struct {
 	AutoWatch    *bool             `toml:"auto_watch"`
 	Welcome      *bool             `toml:"welcome"`
 	PerPage      *int              `toml:"per_page"`
+	DiffMaxPages *int              `toml:"diff_max_pages"`
 	Theme        string            `toml:"theme"`
 	PollMinMS    *int              `toml:"poll_min_ms"`
 	PollMaxMS    *int              `toml:"poll_max_ms"`
@@ -75,6 +80,7 @@ func Default() Config {
 		AutoWatch:    false,
 		Welcome:      true,
 		PerPage:      30,
+		DiffMaxPages: 10,
 		Theme:        ThemeBramble,
 		PollMin:      2 * time.Second,
 		PollMax:      30 * time.Second,
@@ -113,6 +119,9 @@ func (c Config) Validate() error {
 	if c.PerPage < 1 || c.PerPage > 100 {
 		return fmt.Errorf("per_page must be between 1 and 100, got %d", c.PerPage)
 	}
+	if c.DiffMaxPages < 1 || c.DiffMaxPages > 100 {
+		return fmt.Errorf("diff_max_pages must be between 1 and 100, got %d", c.DiffMaxPages)
+	}
 	if c.PollMin <= 0 || c.PollMax <= 0 || c.PollMin > c.PollMax {
 		return fmt.Errorf("poll interval must be positive and min <= max, got min=%s max=%s", c.PollMin, c.PollMax)
 	}
@@ -148,6 +157,9 @@ func loadFile(path string, cfg *Config) error {
 	}
 	if fc.PerPage != nil {
 		cfg.PerPage = *fc.PerPage
+	}
+	if fc.DiffMaxPages != nil {
+		cfg.DiffMaxPages = *fc.DiffMaxPages
 	}
 	if fc.Theme != "" {
 		cfg.Theme = Theme(fc.Theme)
@@ -189,6 +201,13 @@ func applyEnv(lookup func(string) (string, bool), cfg *Config) error {
 		}
 		cfg.PerPage = parsed
 	}
+	if value, ok := lookup("HOUND_DIFF_MAX_PAGES"); ok {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("parse HOUND_DIFF_MAX_PAGES: %w", err)
+		}
+		cfg.DiffMaxPages = parsed
+	}
 	if value, ok := lookup("HOUND_THEME"); ok {
 		cfg.Theme = Theme(value)
 	}
@@ -221,6 +240,9 @@ func applyOverrides(overrides Overrides, cfg *Config) {
 	}
 	if overrides.PerPage != nil {
 		cfg.PerPage = *overrides.PerPage
+	}
+	if overrides.DiffMaxPages != nil {
+		cfg.DiffMaxPages = *overrides.DiffMaxPages
 	}
 	if overrides.Theme != nil {
 		cfg.Theme = *overrides.Theme

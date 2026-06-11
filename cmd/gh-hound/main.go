@@ -86,6 +86,7 @@ type cliOptions struct {
 	Repo          string
 	Branch        string
 	Status        string
+	Workflow      string
 	Format        render.Format
 	NoTUI         bool
 	JSON          bool
@@ -172,6 +173,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.AddCommand(newApprovalsCommand(runtime, &options))
 	cmd.AddCommand(newRerunCommand(runtime, &options))
 	cmd.AddCommand(newCancelCommand(runtime, &options))
+	cmd.AddCommand(newDiffCommand(runtime, &options))
 	return cmd
 }
 
@@ -908,6 +910,27 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 				return dispatch.Model{}, fmt.Errorf("no workflow_dispatch workflows found")
 			}
 			return dispatch.NewModel(workflows[0]), nil
+		},
+		DiffResolver: func(loadCtx context.Context, run model.Run) (usecase.RegressionVerdict, error) {
+			history, hasHistory := githubClient.(usecase.WorkflowRunHistory)
+			comparer, hasComparer := githubClient.(usecase.CommitComparer)
+			if !hasHistory || !hasComparer {
+				return usecase.RegressionVerdict{}, fmt.Errorf("regression scan is unavailable for this adapter")
+			}
+			workflow := workflowSelectorForRun(run)
+			if workflow == "" {
+				return usecase.RegressionVerdict{}, fmt.Errorf("the selected run has no workflow identity to follow")
+			}
+			service := usecase.DiffService{
+				History:  history,
+				Compare:  comparer,
+				MaxPages: cfg.DiffMaxPages,
+				PerPage:  usecase.DiffPerPage,
+			}
+			// The trail is anchored to the SELECTED run: its branch wins
+			// over the launch branch so a repo-wide or all-branches list
+			// scans the right history (review-required hardening).
+			return service.LocateRegression(loadCtx, launch.Repo, workflow, firstNonEmptyString(run.HeadBranch, launch.Branch))
 		},
 		DispatchWorkflowsResolver: func(loadCtx context.Context) ([]dispatch.Workflow, error) {
 			workflows, err := dispatchWorkflowModels(loadCtx, githubClient, launch)
@@ -1667,6 +1690,8 @@ func fakeScenarioFor(scenario string) fake.Scenario {
 		return fake.ScenarioPermission
 	case "waiting":
 		return fake.ScenarioWaiting
+	case "regression":
+		return fake.ScenarioRegression
 	default:
 		return fake.ScenarioGreen
 	}
@@ -1917,6 +1942,9 @@ func normalizedScenario(options cliOptions) string {
 	case "waiting", "gated":
 		// Deployment-approval scenario: a run holding at the gate.
 		return "waiting"
+	case "regression":
+		// Seeded last-green → first-red boundary for the diff verb.
+		return raw
 	}
 	status := strings.ToLower(strings.TrimSpace(options.Status))
 	switch status {

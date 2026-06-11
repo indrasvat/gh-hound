@@ -565,7 +565,7 @@ Per screen below: **purpose · when shown · layout/components · data · contex
 ### §9.8 Command palette — visual ref §⑧
 
 - **Purpose / when:** `:` from anywhere; k9s-style jump.
-- **Layout:** a centred **Canvas/Layer** overlay over a dimmed base. Prompt `❯` + cursor; a `list` filtered as you type; each row `name · description · tag`; selected row green bar + fill. Footer shows other surfaces (`workflows · watch · diff (v2) · theme`).
+- **Layout:** a centred **Canvas/Layer** overlay over a dimmed base. Prompt `❯` + cursor; a `list` filtered as you type; each row `name · description · tag`; selected row green bar + fill. Footer shows other surfaces (`workflows · watch · diff · theme`).
 - **Keys:** type to filter (input mode), `j/k` move, `⏎` go, `Esc` close.
 - **DoD:** opens over any screen; fuzzy filter works; selecting routes correctly; `Esc` pops only the palette; matches §⑧. **KB gate.**
 

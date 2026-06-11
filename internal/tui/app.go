@@ -14,6 +14,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/banner"
+	"github.com/indrasvat/gh-hound/internal/tui/icons"
 	"github.com/indrasvat/gh-hound/internal/tui/keys"
 	"github.com/indrasvat/gh-hound/internal/tui/overlay/approvals"
 	"github.com/indrasvat/gh-hound/internal/tui/overlay/confirm"
@@ -21,6 +22,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/tui/overlay/palette"
 	"github.com/indrasvat/gh-hound/internal/tui/overlay/timejump"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
+	diffscreen "github.com/indrasvat/gh-hound/internal/tui/screens/diff"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/dispatch"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/empty"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/failure"
@@ -44,6 +46,7 @@ const (
 	RouteLog      Route = "log"
 	RouteWatch    Route = "watch"
 	RouteDispatch Route = "dispatch"
+	RouteDiff     Route = "diff"
 )
 
 type Overlay string
@@ -72,6 +75,7 @@ type Options struct {
 	WatchResolver             func(context.Context, model.Run) (watch.Model, error)
 	DispatchResolver          func(context.Context) (dispatch.Model, error)
 	DispatchWorkflowsResolver func(context.Context) ([]dispatch.Workflow, error)
+	DiffResolver              func(context.Context, model.Run) (usecase.RegressionVerdict, error)
 	RunsMetadata              func() (usecase.RequestMeta, bool)
 	LogRefetchNotice          func(int64) (usecase.LogRefetchNotice, bool)
 	ActionHandler             func(ActionRequest) (usecase.ActionResult, error)
@@ -114,6 +118,7 @@ type App struct {
 	log                       logscreen.Model
 	watch                     watch.Model
 	dispatch                  dispatch.Model
+	diff                      diffscreen.Model
 	palette                   palette.Model
 	approvals                 approvals.Model
 	confirm                   confirm.Model
@@ -129,6 +134,7 @@ type App struct {
 	watchResolver             func(context.Context, model.Run) (watch.Model, error)
 	dispatchResolver          func(context.Context) (dispatch.Model, error)
 	dispatchWorkflowsResolver func(context.Context) ([]dispatch.Workflow, error)
+	diffResolver              func(context.Context, model.Run) (usecase.RegressionVerdict, error)
 	runsMetadata              func() (usecase.RequestMeta, bool)
 	logRefetchNotice          func(int64) (usecase.LogRefetchNotice, bool)
 	actionHandler             func(ActionRequest) (usecase.ActionResult, error)
@@ -312,6 +318,7 @@ func NewApp(options Options) App {
 		watchResolver:             options.WatchResolver,
 		dispatchResolver:          options.DispatchResolver,
 		dispatchWorkflowsResolver: options.DispatchWorkflowsResolver,
+		diffResolver:              options.DiffResolver,
 		runsMetadata:              options.RunsMetadata,
 		logRefetchNotice:          options.LogRefetchNotice,
 		actionHandler:             options.ActionHandler,
@@ -366,6 +373,9 @@ func NewScenarioApp(scenario string, build BuildInfo) App {
 	}
 	app.actionHandler = func(ActionRequest) (usecase.ActionResult, error) {
 		return usecase.ActionResult{Message: "accepted"}, nil
+	}
+	app.diffResolver = func(context.Context, model.Run) (usecase.RegressionVerdict, error) {
+		return sampleDiffVerdict(), nil
 	}
 	switch strings.ToLower(scenario) {
 	case "green", "ok", "success":
@@ -602,6 +612,16 @@ func RenderFixtureSize(screen string, width, height int) string {
 		return frameViewSize(app.theme, "hound", "full log", "match 1/1", logscreen.View(m, bodyWidth), keys.FooterForScreen(keys.ScreenLog), width, height, true)
 	case "dispatch":
 		return frameViewSize(app.theme, "hound", "workflow_dispatch", "Release", dispatch.View(sampleDispatchModel(), bodyWidth), keys.FooterForScreen(keys.ScreenDispatch), width, height, true)
+	case "diff":
+		trailApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		trailApp.diff = diffscreen.NewModel(sampleDiffVerdict())
+		trailApp.routes = []Route{RouteRuns, RouteDiff}
+		return trailApp.ViewSize(width, height)
+	case "diff-inconclusive":
+		trailApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		trailApp.diff = diffscreen.NewModel(sampleColdTrailVerdict())
+		trailApp.routes = []Route{RouteRuns, RouteDiff}
+		return trailApp.ViewSize(width, height)
 	case "palette":
 		app, _ = app.Update(KeyMsg{Key: ":"})
 		return app.ViewSize(width, height)
@@ -984,8 +1004,73 @@ func (a App) updateRoute(msg KeyMsg) (App, bool) {
 		return a.updateWatch(msg)
 	case RouteDispatch:
 		return a.updateDispatch(msg)
+	case RouteDiff:
+		return a.updateDiff(msg)
 	default:
 		return a, false
+	}
+}
+
+func (a App) updateDiff(msg KeyMsg) (App, bool) {
+	before := a.diff
+	a.diff = a.diff.Update(diffscreen.KeyMsg{Key: msg.Key})
+	switch a.diff.Intent.Kind {
+	case diffscreen.IntentOpenFirstBad:
+		if a.loadBlocked(loadKindDetail) {
+			break
+		}
+		a = a.loadDetail(a.diff.Verdict.FirstBad)
+		a.PushRoute(RouteDetail)
+	case diffscreen.IntentBrowser:
+		a = a.openExternal(a.diff.Verdict.CompareURL)
+	case diffscreen.IntentBack:
+		a.PopRoute()
+	}
+	return a, diffScreenHandled(msg.Key) || before.Selected != a.diff.Selected || a.diff.Intent.Kind != diffscreen.IntentNone
+}
+
+// openDiff starts the regression scan for the selected run's workflow
+// and routes to the trail screen. The scan is async (Task 220
+// invariant): the route pushes immediately and the shared loading body
+// holds the pane until the verdict lands.
+func (a App) openDiff() App {
+	if a.loadBlocked(loadKindDiff) {
+		return a
+	}
+	run, ok := a.runs.SelectedRun()
+	if !ok {
+		a.pushErrorToast("diff-no-run", usecase.ResilienceFor(fmt.Errorf("no run selected — give the hound a trail to start from"), usecase.ErrorContext{}))
+		return a
+	}
+	a.clearRouteError(RouteDiff)
+	a.diff = diffscreen.Model{}
+	if a.diffResolver == nil {
+		a.setRouteError(RouteDiff, "diff unavailable: live regression scan is not configured")
+		a.PushRoute(RouteDiff)
+		return a
+	}
+	resolver := a.diffResolver
+	a = a.startLoad(loadKindDiff, "picking up the scent", func(ctx context.Context) func(App) App {
+		verdict, err := resolver(ctx, run)
+		return func(app App) App {
+			if err != nil {
+				app.setRouteError(RouteDiff, "diff unavailable: "+err.Error())
+				return app
+			}
+			app.diff = diffscreen.NewModel(verdict)
+			return app
+		}
+	})
+	a.PushRoute(RouteDiff)
+	return a
+}
+
+func diffScreenHandled(key string) bool {
+	switch key {
+	case "j", "k", "down", "up", "enter", "o", "esc":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -1377,6 +1462,9 @@ func (a App) handlePaletteIntent(intent palette.Intent) App {
 		}
 	case string(RouteDispatch):
 		a = a.openDispatchFromPalette(intent.Value)
+	case string(RouteDiff):
+		a.PopOverlay()
+		a = a.openDiff()
 	}
 	return a
 }
@@ -2440,6 +2528,8 @@ func (a App) footerScreen() keys.Screen {
 		return keys.ScreenWatch
 	case RouteDispatch:
 		return keys.ScreenDispatch
+	case RouteDiff:
+		return keys.ScreenDiff
 	default:
 		if a.Route() == RouteRuns && a.runs.AllGreen() {
 			return keys.ScreenAllGreen
@@ -2504,11 +2594,40 @@ func (a App) chromeParts() (string, string, string) {
 		return "hound", runChromeTitle(run), "streaming · follow ●"
 	case RouteDispatch:
 		return "hound", "workflow_dispatch", firstNonEmpty(a.dispatch.Workflow.Name, a.dispatch.Workflow.ID)
+	case RouteDiff:
+		if load := a.load; load != nil && load.kind == loadKindDiff {
+			return "hound", "the trail", "sniffing…"
+		}
+		return "hound", diffContext(a.diff.Verdict), diffRight(a.diff.Verdict)
 	default:
 		if a.runs.AllGreen() {
 			return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), runsRight(a.runs, a.refreshCount, a.runsMeta)
 		}
 		return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), runsRight(a.runs, a.refreshCount, a.runsMeta)
+	}
+}
+
+func diffContext(verdict usecase.RegressionVerdict) string {
+	if strings.TrimSpace(verdict.Workflow) == "" {
+		return "the trail"
+	}
+	context := "the trail " + icons.Breadcrumb + " " + strings.TrimSpace(verdict.Workflow)
+	if strings.TrimSpace(verdict.Branch) != "" {
+		context += " · " + strings.TrimSpace(verdict.Branch)
+	}
+	return context
+}
+
+func diffRight(verdict usecase.RegressionVerdict) string {
+	switch verdict.Status {
+	case usecase.RegressionLocated:
+		return fmt.Sprintf("#%d %s → #%d %s", verdict.LastGood.RunNumber, icons.Success, verdict.FirstBad.RunNumber, icons.Failure)
+	case usecase.RegressionGreen:
+		return "all clean"
+	case usecase.RegressionInconclusive:
+		return "trail cold"
+	default:
+		return ""
 	}
 }
 
@@ -2618,6 +2737,7 @@ func paletteItems(workflows []dispatch.Workflow) []palette.Item {
 		{Name: "run:failed", Description: "filtered to failures", Route: "run:failed"},
 		{Name: "artifacts", Description: "selected run's artifacts", Route: "artifacts"},
 		{Name: "approvals", Description: "review the deploy gate", Route: "approvals"},
+		{Name: "diff", Description: "who broke main? · the trail", Route: string(RouteDiff)},
 	}
 	if len(workflows) == 0 {
 		items = append(items, palette.Item{Name: "dispatch", Description: "trigger workflow_dispatch", Route: string(RouteDispatch)})
@@ -2708,6 +2828,11 @@ func (a App) screenBody(width, height int) string {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())
 		}
 		return dispatch.View(a.dispatch, bodyWidth)
+	case RouteDiff:
+		if load := a.load; load != nil && load.kind == loadKindDiff {
+			return loadingBody(a.theme, load, bodyWidth, time.Now())
+		}
+		return diffscreen.ViewSize(a.diff, bodyWidth, bodyHeight(height))
 	default:
 		return string(a.Route())
 	}
@@ -2747,6 +2872,11 @@ func (a App) unloadedRouteBody(route Route, width int) (string, bool) {
 	case RouteDispatch:
 		if a.dispatch.Workflow.ID == "" && a.dispatch.Workflow.Name == "" {
 			message = "dispatch unavailable: no workflow has been loaded"
+		}
+	case RouteDiff:
+		pendingDiff := a.load != nil && a.load.kind == loadKindDiff
+		if a.diff.Verdict.Status == "" && !pendingDiff {
+			message = "the trail is empty: select a run and jump with :diff"
 		}
 	}
 	if message == "" {
@@ -3142,6 +3272,37 @@ func sampleWatchModel() watch.Model {
 		},
 		Lines: doc.Lines,
 	})
+}
+
+func sampleDiffVerdict() usecase.RegressionVerdict {
+	return usecase.RegressionVerdict{
+		Repo:     "indrasvat/gh-hound",
+		Workflow: "CI",
+		Branch:   "main",
+		Status:   usecase.RegressionLocated,
+		LastGood: model.Run{ID: 30433572, Name: "CI", RunNumber: 572, RunAttempt: 2, HeadSHA: "c2b3a49", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess},
+		FirstBad: model.Run{ID: 30433573, Name: "CI", RunNumber: 573, RunAttempt: 1, HeadSHA: "d3c4b5a", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure},
+		SuspectCommits: []model.Commit{
+			{SHA: "d3c4b5a9f0e1d2c3b4a5968778695a4b3c2d1e0f", Author: "indrasvat", Message: "feat: sharpen the lexer"},
+			{SHA: "cc99aa1b2c3d4e5f60718293a4b5c6d7e8f90a1b", Author: "dependabot[bot]", Message: "chore(deps): bump charmbracelet/x/ansi from 0.11.6 to 0.11.7 with a subject long enough to need the ellipsis"},
+			{SHA: "ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12", Author: "web-flow", Message: "docs: refresh the controls table"},
+		},
+		TotalSuspects: 3,
+		CompareURL:    "https://github.com/indrasvat/gh-hound/compare/c2b3a49...d3c4b5a",
+		RunsScanned:   4,
+		Verdict:       "scent picked up: #572 was clean, #573 wasn't.",
+	}
+}
+
+func sampleColdTrailVerdict() usecase.RegressionVerdict {
+	return usecase.RegressionVerdict{
+		Repo:        "openclaw/openclaw",
+		Workflow:    "CI",
+		Branch:      "main",
+		Status:      usecase.RegressionInconclusive,
+		RunsScanned: 1000,
+		Verdict:     "trail went cold after 1,000 runs.",
+	}
 }
 
 func sampleDispatchModel() dispatch.Model {

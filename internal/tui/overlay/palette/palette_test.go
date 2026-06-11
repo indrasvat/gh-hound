@@ -18,7 +18,7 @@ func TestPaletteFiltersMovesAndSelectsRoute(t *testing.T) {
 		t.Fatalf("intent = %#v", m.Intent)
 	}
 	view := View(m, 80)
-	for _, want := range []string{"❯ ru", "▌runs --all", "workflows · watch · diff (v2) · theme"} {
+	for _, want := range []string{"❯ ru", "▌runs --all", "workflows · watch · diff · theme"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("palette view missing %q\n%s", want, view)
 		}

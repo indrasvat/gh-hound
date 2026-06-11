@@ -283,6 +283,102 @@
     }
    }
   },
+  "diff_result": {
+   "type": "object",
+   "required": [
+    "repo",
+    "workflow",
+    "branch",
+    "status",
+    "suspect_commits",
+    "total_suspects",
+    "runs_scanned",
+    "verdict"
+   ],
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "workflow": {
+     "type": "string"
+    },
+    "branch": {
+     "type": "string"
+    },
+    "status": {
+     "enum": [
+      "located",
+      "green",
+      "inconclusive",
+      "error"
+     ]
+    },
+    "last_good": {
+     "$ref": "#/properties/runs/items"
+    },
+    "first_bad": {
+     "$ref": "#/properties/runs/items"
+    },
+    "suspect_commits": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "required": [
+       "sha",
+       "author",
+       "message"
+      ],
+      "properties": {
+       "sha": {
+        "type": "string"
+       },
+       "author": {
+        "type": "string"
+       },
+       "message": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    "total_suspects": {
+     "type": "integer"
+    },
+    "compare_url": {
+     "type": "string",
+     "format": "uri"
+    },
+    "runs_scanned": {
+     "type": "integer"
+    },
+    "verdict": {
+     "type": "string"
+    },
+    "error": {
+     "type": "object",
+     "required": [
+      "kind",
+      "message"
+     ],
+     "properties": {
+      "kind": {
+       "enum": [
+        "validation",
+        "auth",
+        "permission",
+        "not_found",
+        "rate_limit",
+        "network",
+        "unknown"
+       ]
+      },
+      "message": {
+       "type": "string"
+      }
+     }
+    }
+   }
+  },
   "mutation_result": {
    "type": "object",
    "required": [

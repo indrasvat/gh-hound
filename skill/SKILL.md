@@ -20,6 +20,7 @@ gh hound artifacts --no-tui --json               # latest run's artifacts
 gh hound artifacts --run <id> --download <name> --dir <path> --no-tui --json
 gh hound approvals --run <id> --no-tui --json    # pending deploy gates (exit 1 = awaiting review)
 gh hound approvals --run <id> --approve --env production --comment "lgtm" --no-tui --json
+gh hound diff --workflow CI --no-tui --json      # who broke main? last green vs first bad
 ```
 
 Runs are scoped to the current git branch by default. An empty `runs[]` usually means the branch has no runs — pass `--all` or `--branch <ref>` before concluding CI is missing.
@@ -43,6 +44,18 @@ Artifacts: `gh hound artifacts` lists `{id, name, size_in_bytes, expired, expire
 
 Triage degrades per job: when a job log has expired, `log_excerpt` is empty and `exit_code` falls back to `1`, but `job`, `step`, and `annotations` are always present for every failed job. An empty `failed[]` on a red run means job details could not be listed — fall back to `html_url`.
 
+## Regression Boundary (diff)
+
+When a workflow is red and the question is which commits turned it, do not bisect — the answer is in run history:
+
+```bash
+gh hound diff --workflow CI --no-tui --json
+```
+
+Branch on `status`: `located` (exit `1`) means a regression exists — `last_good`/`first_bad` are full run objects and `suspect_commits[]` (`{sha, author, message}`, capped at 50; `total_suspects` is the full count) is the blame range, with `compare_url` for humans. `green` and `inconclusive` both exit `0` — read `verdict` for the hound's one-liner (`trail went cold after 1,000 runs.` means the page budget ran out; raise `HOUND_DIFF_MAX_PAGES`). Exit `2` carries `error: {kind, message}`. Runs count by their latest attempt: a failure rerun to green is green. A sound loop: `diff --json` -> if `located`, inspect `first_bad` with `runs --run <id> --no-tui --json` -> fix or rerun.
+
+Rehearse with `--fake-scenario regression` (deterministic boundary, exit `1`).
+
 ## Mutations
 
 After diagnosing with `runs --json`, act without leaving the surface:
@@ -61,10 +74,10 @@ Deployment approvals: a `waiting` run is gated on environment review. `approvals
 For testing agent behavior without live CI:
 
 ```bash
-gh hound runs --no-tui --json --fake-scenario failure   # also: green, pending, empty, api_error, waiting
+gh hound runs --no-tui --json --fake-scenario failure   # also: green, pending, empty, api_error, waiting, regression
 ```
 
-The JSON schema lives at `internal/render/testdata/schema.json` in the gh-hound repo; the mutation envelope is under `$defs.mutation_result` and the approvals envelope under `$defs.approvals_result`.
+The JSON schema lives at `internal/render/testdata/schema.json` in the gh-hound repo; the mutation envelope is under `$defs.mutation_result`, the approvals envelope under `$defs.approvals_result`, and the regression verdict under `$defs.diff_result`.
 
 ## Guardrails
 
