@@ -866,9 +866,12 @@ func writeGroupWatchResult(ctx context.Context, w io.Writer, options cliOptions,
 		Repo:    repo,
 		HeadSHA: anchor.HeadSHA,
 		Event:   anchor.Event,
-		Branch:  branch,
-		Max:     cfg.WatchGroupMax,
-		Runs:    usecase.PackForRun(listed, anchor, cfg.WatchGroupMax),
+		// The anchor's own branch scopes the ticks: a --run anchor can
+		// live on a branch the launch never resolved, and listing the
+		// wrong branch would never refresh it (ghent Codex P2).
+		Branch: firstNonEmptyString(anchor.HeadBranch, branch),
+		Max:    cfg.WatchGroupMax,
+		Runs:   usecase.PackForRun(listed, anchor, cfg.WatchGroupMax),
 	}
 
 	// Emit a transition line only when a run's state actually moved —

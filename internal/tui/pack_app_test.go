@@ -413,3 +413,33 @@ func TestPaletteWatchItemOpensThePack(t *testing.T) {
 		t.Fatalf("palette watch route = %s, want watch_board", app.Route())
 	}
 }
+
+// TestHuntBoardScopesPollingToTheSelectedRunsBranch pins the ghent
+// Codex P2 (the 260 trail lesson recurring): a repo-scoped list can
+// select a run from any branch, and the hunt's ticks must poll THAT
+// branch, not the launch branch.
+func TestHuntBoardScopesPollingToTheSelectedRunsBranch(t *testing.T) {
+	var sawBranch atomic.Value
+	app := packTestApp(t, Options{
+		PackResolver: func(_ context.Context, state usecase.PackState) (usecase.PackState, error) {
+			sawBranch.Store(state.Branch)
+			return state, nil
+		},
+	})
+	// Force the selected run onto a branch the launch never had.
+	runs := packTestRuns()
+	for i := range runs {
+		runs[i].HeadBranch = "feat/elsewhere"
+	}
+	app.runs.Context.Runs = runs
+	app.runs.Context.Branch = "main"
+
+	app, _ = app.Update(KeyMsg{Key: "w"})
+	app, ok := app.SettleLoads(time.Second)
+	if !ok {
+		t.Fatal("hunt load did not settle")
+	}
+	if got := sawBranch.Load(); got != "feat/elsewhere" {
+		t.Fatalf("tick branch = %v, want the selected run's feat/elsewhere", got)
+	}
+}

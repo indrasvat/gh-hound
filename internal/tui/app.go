@@ -2166,7 +2166,10 @@ func (a App) openPackWatch(run model.Run) App {
 		return a
 	}
 	a.clearRouteError(RouteWatchBoard)
-	a.board = watch.NewBoard(a.runs.Context.Repo, a.runs.Context.Branch, run, pack)
+	// The hunt is anchored to the SELECTED run: its branch scopes the
+	// polling, not the launch branch — a repo-scoped list can select a
+	// run from any branch (ghent Codex P2, the 260 trail lesson again).
+	a.board = watch.NewBoard(a.runs.Context.Repo, firstNonEmpty(run.HeadBranch, a.runs.Context.Branch), run, pack)
 	a.PushRoute(RouteWatchBoard)
 	if a.packResolver == nil {
 		return a

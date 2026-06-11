@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
 // The pack pipe surface: NDJSON transitions until the group settles,
@@ -110,5 +113,56 @@ func TestWatchGroupRefusesNonJSONFormats(t *testing.T) {
 	code, err := executeCommand(cmd)
 	if code != 2 || err == nil || !strings.Contains(err.Error(), "NDJSON") {
 		t.Fatalf("watch --group --format md code=%d err=%v", code, err)
+	}
+}
+
+// TestWatchGroupRunAnchorKeepsItsOwnBranch pins the ghent Codex P2: a
+// --run anchor fetched via GetRun can live on a branch the launch
+// never resolved; the group ticks must list THAT branch or the anchor
+// is never refreshed and an in-progress hunt waits forever.
+func TestWatchGroupRunAnchorKeepsItsOwnBranch(t *testing.T) {
+	anchor := model.Run{
+		ID: 9100, RunNumber: 91, Name: "CI", Event: "push",
+		HeadBranch: "feat/elsewhere", HeadSHA: "feedface",
+		Status: model.StatusInProgress,
+	}
+	settled := anchor
+	settled.Status = model.StatusCompleted
+	settled.Conclusion = model.ConclusionSuccess
+	github := &cliGitHub{
+		// Batch 0: the anchor-resolution listing (anchor not in it →
+		// GetRun fallback). Batch 1: the first tick settles the hunt.
+		runBatches: [][]model.Run{
+			{{ID: 1, RunNumber: 1, Name: "CI", Event: "push", HeadBranch: "main", HeadSHA: "aaa", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess}},
+			{settled},
+		},
+		runByID: map[int64]model.Run{9100: anchor},
+	}
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Env: mapEnv(map[string]string{
+			"HOUND_POLL_MIN_MS": "5",
+			"HOUND_POLL_MAX_MS": "5",
+		}),
+		IsTTY:  true,
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"watch", "--group", "--no-tui", "--run", "9100"})
+	if code, err := executeCommand(cmd); code != 0 || err != nil {
+		t.Fatalf("watch --group --run code=%d err=%v\n%s", code, err, out.String())
+	}
+	sawAnchorBranch := false
+	for _, filter := range github.filters {
+		if filter.HeadSHA == "feedface" && filter.Branch != "feat/elsewhere" {
+			t.Fatalf("group tick listed branch %q for the anchor, want feat/elsewhere", filter.Branch)
+		}
+		if filter.Branch == "feat/elsewhere" {
+			sawAnchorBranch = true
+		}
+	}
+	if !sawAnchorBranch {
+		t.Fatal("no tick listed the anchor's branch")
 	}
 }
