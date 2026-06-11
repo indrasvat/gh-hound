@@ -112,9 +112,10 @@ def main() -> int:
     # the startup paint (codex: a conjunction here was vacuous).
     if b"fold" not in log_phase and b"scroll" not in log_phase:
         failures.append("log-screen content missing after l — the drive never reached the log screen")
-    if b"\x1b[2J" in scroll:
+    erase_count = scroll.count(b"\x1b[2J")
+    if erase_count:
         failures.append(
-            f"full-screen erase during scroll: {scroll.count(b'\x1b[2J')} occurrences — flicker regression"
+            f"full-screen erase during scroll: {erase_count} occurrences — flicker regression"
         )
     if b"\x1b[?2026h" not in scroll:
         failures.append("no synchronized-output guards in the scroll stream")
