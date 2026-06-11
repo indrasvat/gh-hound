@@ -128,7 +128,17 @@
       <div class="trail-row reveal">
         <p class="trail-q">Where&rsquo;s the build output?</p>
         <div class="keys"><span class="key">a</span><span class="key">d</span></div>
-        <p class="trail-a">List a run&rsquo;s artifacts, then <b>download and extract</b> in place.</p>
+        <p class="trail-a">Download with <b>live progress</b>; the verdict stays on the row &mdash; o opens the folder, y copies the path.</p>
+      </div>
+      <div class="trail-row reveal">
+        <p class="trail-q">Caches near the cap?</p>
+        <div class="keys"><span class="key">:caches</span></div>
+        <p class="trail-a">Pressure against the <b>10&nbsp;GB eviction cap</b>, biggest or stalest first, confirm-gated digs.</p>
+      </div>
+      <div class="trail-row reveal">
+        <p class="trail-q">Noisy workflow needs benching?</p>
+        <div class="keys"><span class="key">:workflows</span></div>
+        <p class="trail-a">Enable or disable in place &mdash; <b>state badges stay truthful</b>, dispatch refuses benched packs.</p>
       </div>
       <div class="trail-row reveal">
         <p class="trail-q">Can my agent consume this?</p>
@@ -222,12 +232,12 @@
         <p>Every fetch is async behind one spinner: dimmed reloads, instant skeletons, byte-progress bars on fat logs. esc cancels the work itself.</p>
       </div>
       <div class="eng reveal">
-        <h3>viewport-only logs</h3>
-        <p>Large logs parse once and render by visible window, with folding and search state kept local.</p>
+        <h3>viewport-only rendering</h3>
+        <p>Large logs parse once and render by visible window; long run lists virtualize, with explicit page-load affordances when GitHub has more.</p>
       </div>
       <div class="eng reveal">
-        <h3>virtualized lists</h3>
-        <p>Long run lists stay smooth, with explicit page-load affordances when GitHub has more.</p>
+        <h3>flicker-free frames</h3>
+        <p>Every frame is line-diffed against the last and flushed as one synchronized write. The screen never blanks, however fast you scroll.</p>
       </div>
     </div>
   </section>
