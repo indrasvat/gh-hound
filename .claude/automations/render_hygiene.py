@@ -74,7 +74,8 @@ def main() -> int:
             os.write(controller, b"k")
             scroll += read_available(controller, 0.1)
         os.write(controller, b"l")  # the log screen
-        scroll += read_available(controller, 2.0)
+        log_phase = read_available(controller, 2.0)
+        scroll += log_phase
         for _ in range(8):
             os.write(controller, b"j")
             scroll += read_available(controller, 0.1)
@@ -101,8 +102,13 @@ def main() -> int:
         failures.append("app did not exit cleanly after q — the drive never completed")
     elif proc.returncode != 0:
         failures.append(f"app exited {proc.returncode} — the drive crashed, the stream proves nothing")
-    if b"log" not in scroll and b"hound" not in startup:
-        failures.append("expected screen content missing from the stream — keys may not have landed")
+    if b"hound" not in startup:
+        failures.append("startup chrome missing from the stream — the app never painted")
+    # The log footer ('fold'/'scroll') only exists on the log screen:
+    # this proves the l keypress actually navigated, independently of
+    # the startup paint (codex: a conjunction here was vacuous).
+    if b"fold" not in log_phase and b"scroll" not in log_phase:
+        failures.append("log-screen content missing after l — the drive never reached the log screen")
     if b"\x1b[2J" in scroll:
         failures.append(
             f"full-screen erase during scroll: {scroll.count(b'\x1b[2J')} occurrences — flicker regression"
