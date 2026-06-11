@@ -1,6 +1,6 @@
 ---
 name: gh-hound-qa-ledger
-description: Running QA failure/verification ledger for gh-hound TUI audits (rounds 4-6; tasks 220 async loading, 240 rerun-confirm debug toggle)
+description: Running QA failure/verification ledger for gh-hound TUI audits (rounds 4-7; tasks 220 async loading, 240 rerun-confirm debug toggle, 230 dispatch ref foreign repos)
 metadata:
   type: project
 ---
@@ -41,6 +41,33 @@ close cleanly; `y` fires accepted toast (`✔ accepted · CI #… ·
 rerun_run`). Known style, not a 240 regression: accepted toast overlays
 the column-header right edge (truncates "Age" to "A…") — established
 toast placement.
+
+Round 7 (branch fix/230-dispatch-ref-foreign-repos, 9054d7e,
+2026-06-10): PASS. Dispatch fixture unchanged at 80/120/200. Live
+against real repos: `dispatch -R openclaw/openclaw` opens the workflow
+chooser (palette pre-filtered to dispatch: entries, real list, clean
+ellipsis truncation) and the form pre-fills ref `main` — NOT the local
+fix/230 branch. Own-repo (`-R indrasvat/gh-hound`) pre-fills the local
+branch, which IS the task-230 contract ("target == local origin →
+local branch") — do not file that as a leak. HOUND_WELCOME=true +
+dispatch verb: enter on welcome opens the chooser with workflows
+loaded (9054d7e). Pipe `dispatch --no-tui --json` exits 2 with
+"dispatch is interactive…" and empty stdout. Untested: bogus-ref typed
+validation error; actual dispatch submission (mutating, skipped by
+design). P3 transient: dispatch-launch backdrop shows "no runs match /"
+with an empty filter token while workflows fetch.
+
+Round 7 addendum (orchestrator L5, 15ca847, 2026-06-10): both
+round-7 gaps closed live. Bogus ref: submitting the dispatch form with
+the unpushed local branch as ref produced the typed red toast
+`Mutation rejected · ref "…" isn't in this yard — pass an existing
+branch or tag` and fired no mutation. Real submission: foreign-repo
+dispatch (`--repo indrasvat/shux`, form pre-filled `ref main ▾`)
+created run 27320888708 (Deploy Pages, event workflow_dispatch,
+head_branch main). Note: the accepted toast TTLs out within ~5s, so
+delayed snapshots miss it — verify submission via the API run record.
+Ref field is render-only in the form (`m.Workflow.Ref`); it is set by
+context resolution and not editable in-form.
 
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.
