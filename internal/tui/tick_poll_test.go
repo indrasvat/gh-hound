@@ -273,3 +273,56 @@ func TestStuckPollSupersededByNewSurface(t *testing.T) {
 		t.Fatal("the superseded poll's context was never cancelled")
 	}
 }
+
+// codex r2 #1: a hung poll must not wedge polling after a non-polling
+// detour (runs → detail → back to runs, same scope/filter). Leaving
+// the polled route cancels the stale poll and frees the slot.
+func TestStuckPollFreedAfterNonPollingDetour(t *testing.T) {
+	cancelled := make(chan struct{})
+	app := runsPollApp(t, func(context.Context, usecase.RunFilter) ([]model.Run, error) {
+		return nil, nil
+	})
+	app = app.startTickPoll(RouteRuns, app.pollIdentity(RouteRuns), func(ctx context.Context) func(App) App {
+		<-ctx.Done()
+		close(cancelled)
+		return func(a App) App { return a }
+	})
+	if app.tickPoll == nil {
+		t.Fatal("the stuck runs poll never started")
+	}
+	// Detour to a non-polling route, then a drain tick fires there.
+	app.routes = append(app.routes, RouteDetail)
+	app, _ = app.drainTickPoll()
+	if app.tickPoll != nil {
+		t.Fatal("leaving the polled route did not free the stuck poll's slot")
+	}
+	select {
+	case <-cancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the stranded poll's context was never cancelled")
+	}
+	// Back on runs, the freed slot accepts a fresh poll.
+	app.routes = app.routes[:len(app.routes)-1]
+	app = app.startRunsPoll()
+	if app.tickPoll == nil || app.tickPoll.route != RouteRuns {
+		t.Fatal("a new runs poll could not start after the detour")
+	}
+}
+
+// Shutdown cancels in-flight background work so goroutines don't
+// outlive the loop.
+func TestShutdownCancelsInflightPoll(t *testing.T) {
+	cancelled := make(chan struct{})
+	app := runsPollApp(t, nil)
+	app = app.startTickPoll(RouteRuns, app.pollIdentity(RouteRuns), func(ctx context.Context) func(App) App {
+		<-ctx.Done()
+		close(cancelled)
+		return func(a App) App { return a }
+	})
+	app.Shutdown()
+	select {
+	case <-cancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Shutdown did not cancel the in-flight poll")
+	}
+}

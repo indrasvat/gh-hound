@@ -378,6 +378,19 @@ func (a App) startTickPoll(route Route, identity string, fetch func(context.Cont
 	return a
 }
 
+// Shutdown cancels any in-flight background work so its goroutines do
+// not outlive the event loop. Called once the loop exits (quit, EOF,
+// or context cancellation); the contexts are background-rooted, so
+// without this an in-flight fetch would run to completion detached.
+func (a App) Shutdown() {
+	if a.load != nil && a.load.cancel != nil {
+		a.load.cancel()
+	}
+	if a.tickPoll != nil && a.tickPoll.cancel != nil {
+		a.tickPoll.cancel()
+	}
+}
+
 // pollDueInterval is the spacing between successive polls of the same
 // surface — the adaptive runs interval, floored at the configured min.
 func (a App) pollDueInterval() time.Duration {
@@ -397,15 +410,30 @@ func (a App) drainTickPoll() (App, bool) {
 	if poll == nil {
 		return a, false
 	}
+	surfaceMatches := a.Route() == poll.route && a.pollIdentity(poll.route) == poll.identity
 	poll.mu.Lock()
 	done := poll.done
 	apply := poll.apply
 	poll.mu.Unlock()
+	if !surfaceMatches {
+		// The poll's surface is gone — the user toggled scope/filter,
+		// switched boards, or took a non-polling detour (detail/log).
+		// Free the slot (cancelling a still-running fetch so a stuck
+		// one can't wedge it) and clear the due-gate so the surface
+		// they land on polls promptly instead of waiting out the
+		// abandoned poll's interval.
+		if !done && poll.cancel != nil {
+			poll.cancel()
+		}
+		a.tickPoll = nil
+		a.lastPollStart = time.Time{}
+		return a, false
+	}
 	if !done {
 		return a, false
 	}
 	a.tickPoll = nil
-	if apply == nil || a.Route() != poll.route || a.pollIdentity(poll.route) != poll.identity {
+	if apply == nil {
 		return a, false
 	}
 	return apply(a), true
