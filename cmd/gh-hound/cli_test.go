@@ -179,7 +179,10 @@ func TestInteractiveTUIRefreshesWithoutKeypress(t *testing.T) {
 	stdin, stdinWriter := io.Pipe()
 	defer func() { _ = stdinWriter.Close() }()
 	defer func() { _ = stdin.Close() }()
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Millisecond)
+	// Budget covers async polling under -race instrumentation: a tick
+	// starts the background poll, a later tick drains it (the synchronous
+	// path applied inline; the async path needs the extra drain tick).
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 	github := &cliGitHub{runBatches: [][]model.Run{
 		{cliRun(910, "CI", model.StatusInProgress, model.ConclusionNone)},
@@ -206,8 +209,8 @@ func TestInteractiveTUIRefreshesWithoutKeypress(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "context deadline exceeded") {
 		t.Fatalf("runTUI err = %v", err)
 	}
-	if len(github.filters) < 2 {
-		t.Fatalf("ListRuns calls = %d, want initial load plus refresh", len(github.filters))
+	if github.filterCount() < 2 {
+		t.Fatalf("ListRuns calls = %d, want initial load plus refresh", github.filterCount())
 	}
 	visible := ansi.Strip(out.String())
 	if !strings.Contains(visible, "⠹") || !strings.Contains(visible, "✔") || !strings.Contains(visible, "live") {
@@ -1018,6 +1021,11 @@ type cliGitHub struct {
 }
 
 func (g *cliGitHub) ListRuns(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
+	// Guarded: route polling is async now, so a poll goroutine can call
+	// this concurrently with the test reading g.filters after runTUI
+	// returns (the poll's background context is not the runTUI context).
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	g.filters = append(g.filters, filter)
 	if len(g.runBatches) > 0 {
 		batch := g.runBatches[0]
@@ -1027,6 +1035,14 @@ func (g *cliGitHub) ListRuns(_ context.Context, filter usecase.RunFilter) ([]mod
 		return batch, g.err
 	}
 	return g.runs, g.err
+}
+
+// filterCount reads the recorded ListRuns calls under the lock — safe
+// to call while an async poll goroutine may still be appending.
+func (g *cliGitHub) filterCount() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return len(g.filters)
 }
 
 func (g *cliGitHub) GetRun(_ context.Context, _ string, id int64) (model.Run, error) {

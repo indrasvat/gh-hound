@@ -199,6 +199,8 @@ type App struct {
 	openURL              func(string) error
 	copyText             func(string) error
 	load                 *pendingLoad
+	tickPoll             *tickPollState
+	lastPollStart        time.Time
 }
 
 // startLoad runs work off the paint path and records the app's single
@@ -281,7 +283,160 @@ func (a App) SettleLoads(timeout time.Duration) (App, bool) {
 		}
 		time.Sleep(time.Millisecond)
 	}
+	for a.tickPoll != nil {
+		if a.tickPoll.ready() {
+			a, _ = a.drainTickPoll()
+			continue
+		}
+		if time.Now().After(deadline) {
+			return a, false
+		}
+		time.Sleep(time.Millisecond)
+	}
 	return a, true
+}
+
+// tickPollState carries a background route poll — the runs list, the
+// single-run watch, or the hunt board — off the event loop. Before
+// Task 28 these resolvers ran synchronously inside Refresh, so a slow
+// poll stalled the very next keystroke; now the fetch runs in a
+// goroutine and its apply closure folds in on a later tick or keypress
+// drain. Pointer-held so goroutine completion survives App value
+// copies. One poll at a time: startTickPoll refuses to start a second.
+type tickPollState struct {
+	mu sync.Mutex
+	// route + identity fingerprint the surface this poll was started
+	// for. A result is applied only if BOTH still match at drain time,
+	// so a poll started before a scope toggle / board switch / route
+	// change can never fold into the surface that replaced it.
+	route    Route
+	identity string
+	cancel   context.CancelFunc
+	apply    func(App) App
+	done     bool
+}
+
+func (s *tickPollState) ready() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.done
+}
+
+// pollIdentity fingerprints a pollable surface's current request shape.
+// Two polls with the same route+identity fetch the same thing; a change
+// here (scope toggle, filter edit, board switch, watched run) makes any
+// in-flight poll stale.
+func (a App) pollIdentity(route Route) string {
+	switch route {
+	case RouteRuns:
+		return fmt.Sprintf("runs|%s|%s", a.runs.Context.Scope, a.runs.Filter)
+	case RouteWatch:
+		return fmt.Sprintf("watch|%d", a.watch.State.Run.ID)
+	case RouteWatchBoard:
+		return fmt.Sprintf("board|%s|%s|%s|%s", a.board.Repo, a.board.Branch, a.board.HeadSHA, a.board.Event)
+	default:
+		return string(route)
+	}
+}
+
+// startTickPoll runs fetch in the background and parks the resulting
+// apply closure for a later drain. fetch runs OFF the event loop on the
+// cancellable context it is handed; it must not touch App, and returns
+// the closure that folds its result in at drain time, against whatever
+// App state is current then (so a selection moved mid-poll still wins).
+//
+// One poll rides at a time. A poll already in flight for the SAME
+// surface (route+identity) is left alone — and on that surface a fresh
+// poll only starts once the adaptive interval has elapsed since the
+// last one began, so the cadence follows the backoff rather than the
+// fast drain ticks. A poll for a DIFFERENT surface supersedes the
+// in-flight one (its context is cancelled, freeing the slot at once) so
+// a stuck or stale fetch can never wedge polling for the new surface.
+func (a App) startTickPoll(route Route, identity string, fetch func(context.Context) func(App) App) App {
+	if a.tickPoll != nil {
+		if a.tickPoll.route == route && a.tickPoll.identity == identity {
+			return a // same surface already in flight — one at a time
+		}
+		if a.tickPoll.cancel != nil {
+			a.tickPoll.cancel() // different surface: supersede the stale poll
+		}
+		a.tickPoll = nil
+	} else if !a.lastPollStart.IsZero() && time.Since(a.lastPollStart) < a.pollDueInterval() {
+		return a // same surface, not due yet — ride the adaptive interval
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	a.lastPollStart = time.Now()
+	state := &tickPollState{route: route, identity: identity, cancel: cancel}
+	a.tickPoll = state
+	go func() {
+		apply := fetch(ctx)
+		state.mu.Lock()
+		state.apply = apply
+		state.done = true
+		state.mu.Unlock()
+	}()
+	return a
+}
+
+// Shutdown cancels any in-flight background work so its goroutines do
+// not outlive the event loop. Called once the loop exits (quit, EOF,
+// or context cancellation); the contexts are background-rooted, so
+// without this an in-flight fetch would run to completion detached.
+func (a App) Shutdown() {
+	if a.load != nil && a.load.cancel != nil {
+		a.load.cancel()
+	}
+	if a.tickPoll != nil && a.tickPoll.cancel != nil {
+		a.tickPoll.cancel()
+	}
+}
+
+// pollDueInterval is the spacing between successive polls of the same
+// surface — the adaptive runs interval, floored at the configured min.
+func (a App) pollDueInterval() time.Duration {
+	if a.pollInterval > 0 {
+		return a.pollInterval
+	}
+	return initialPollInterval(a.config)
+}
+
+// drainTickPoll applies a completed background poll. A result whose
+// surface no longer matches the foreground — the user navigated away,
+// toggled scope, edited the filter, or switched boards while it was in
+// flight — is dropped, freeing the slot, never folded into the wrong
+// screen.
+func (a App) drainTickPoll() (App, bool) {
+	poll := a.tickPoll
+	if poll == nil {
+		return a, false
+	}
+	surfaceMatches := a.Route() == poll.route && a.pollIdentity(poll.route) == poll.identity
+	poll.mu.Lock()
+	done := poll.done
+	apply := poll.apply
+	poll.mu.Unlock()
+	if !surfaceMatches {
+		// The poll's surface is gone — the user toggled scope/filter,
+		// switched boards, or took a non-polling detour (detail/log).
+		// Free the slot (cancelling a still-running fetch so a stuck
+		// one can't wedge it) and clear the due-gate so the surface
+		// they land on polls promptly instead of waiting out the
+		// abandoned poll's interval.
+		if !done && poll.cancel != nil {
+			poll.cancel()
+		}
+		a.tickPoll = nil
+		a.lastPollStart = time.Time{}
+		return a, false
+	}
+	if !done {
+		return a, false
+	}
+	a.tickPoll = nil
+	if apply == nil {
+		return a, false
+	}
+	return apply(a), true
 }
 
 // artifactsFetchState carries an async artifacts listing for the
@@ -462,11 +617,18 @@ func NewScenarioApp(scenario string, build BuildInfo) App {
 	return app
 }
 
-func (a App) Update(msg KeyMsg) (App, bool) {
-	// Async artifact results apply on the next keypress too, not only
-	// on poll ticks, so the section appears as soon as it is ready.
+func (a App) Update(msg KeyMsg) (out App, handled bool) {
+	// Background results apply on the keypress path too, not only on
+	// poll ticks, so a ready section/poll lands as soon as the next key
+	// arrives. Any such application must repaint even if the key itself
+	// is unhandled: the loop only re-renders when handled is true, and
+	// the next tick won't re-drain what already drained — so the fresh
+	// data would otherwise sit invisible until the following poll.
+	repaint := false
+	defer func() { handled = handled || repaint }()
 	if next, ok := a.drainArtifactsFetch(); ok {
 		a = next
+		repaint = true
 	}
 	// A completed download must land before the key routes: otherwise
 	// o/y/d act on a stale "downloading" row. If the drain just
@@ -475,12 +637,20 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 	overlayBefore := a.TopOverlay()
 	if next, ok := a.drainArtifactDownload(); ok {
 		a = next
+		repaint = true
 		if a.TopOverlay() == OverlayConfirm && overlayBefore != OverlayConfirm {
 			return a, true
 		}
 	}
 	if next, ok := a.drainFlakesFetch(); ok {
 		a = next
+		repaint = true
+	}
+	// A completed route poll applies before the key routes, so a
+	// keystroke acts on the freshest list the background fetch produced.
+	if next, ok := a.drainTickPoll(); ok {
+		a = next
+		repaint = true
 	}
 	if load := a.load; load != nil {
 		if done, _, _, _ := load.snapshot(); done {
@@ -719,6 +889,11 @@ func RenderFixtureSize(screen string, width, height int) string {
 		scentApp.flakes = flakesscreen.NewModel(sampleFlakeReport())
 		scentApp.routes = []Route{RouteRuns, RouteFlakes}
 		return scentApp.ViewSize(width, height)
+	case "flakes-clean":
+		scentApp := NewScenarioApp("green", BuildInfo{Version: "v0.1.0"})
+		scentApp.flakes = flakesscreen.NewModel(sampleCleanFlakeReport())
+		scentApp.routes = []Route{RouteRuns, RouteFlakes}
+		return scentApp.ViewSize(width, height)
 	case "failure-flaky":
 		scentApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
 		report := sampleFlakeReport()
@@ -885,12 +1060,32 @@ func (a App) PollInterval() time.Duration {
 	if a.load != nil || a.artifactDownloadLive() {
 		return loadFrameInterval
 	}
+	// A background poll in flight: tick fast so its result drains within
+	// a frame of completing, not a full poll interval later. Never
+	// slower than the configured base, so a sub-frame poll interval
+	// (tests, aggressive configs) still drains on time. The next poll
+	// waits for the adaptive interval (startTickPoll's due-gate), so
+	// this tightens freshness without busy-polling.
+	if a.tickPoll != nil {
+		return min(loadFrameInterval, base)
+	}
 	// Tighten the loop while async artifact work (including a parked
 	// done-download awaiting its overwrite question) or timed toasts
 	// are pending so completions and TTL expiry surface promptly.
 	if a.artifactsFetch != nil || a.artifactDownload != nil || a.flakesFetch != nil || len(a.toasts.Toasts) > 0 {
 		if base > time.Second {
 			return time.Second
+		}
+		return base
+	}
+	// A poll just drained before its interval elapsed (a fast fetch on
+	// a long base): sleep only the time remaining until the next poll
+	// is due, not a fresh full interval — otherwise the pre-due drain
+	// tick would push the next poll out by nearly a whole interval and
+	// roughly double the effective cadence.
+	if !a.lastPollStart.IsZero() {
+		if remaining := a.pollDueInterval() - time.Since(a.lastPollStart); remaining > 0 && remaining < base {
+			return remaining
 		}
 	}
 	return base
@@ -930,16 +1125,22 @@ func (a App) Refresh() (App, bool) {
 		a = next
 		changed = true
 	}
+	// A completed route poll applies here; then a fresh one starts in
+	// the background. The fetch never runs on this goroutine, so a slow
+	// poll cannot stall the next keystroke (Task 28). One poll rides at
+	// a time, so the cadence follows the adaptive interval — a tick
+	// that lands while a poll is still in flight just waits.
+	if next, ok := a.drainTickPoll(); ok {
+		a = next
+		changed = true
+	}
 	switch a.Route() {
 	case RouteRuns:
-		next, refreshed := a.refreshRuns()
-		return next, refreshed || changed
+		return a.startRunsPoll(), changed
 	case RouteWatch:
-		next, refreshed := a.refreshWatch()
-		return next, refreshed || changed
+		return a.startWatchPoll(), changed
 	case RouteWatchBoard:
-		next, refreshed := a.refreshPack()
-		return next, refreshed || changed
+		return a.startPackPoll(), changed
 	default:
 		return a, changed
 	}
@@ -2548,9 +2749,12 @@ func (a App) loadMoreRuns() App {
 	})
 }
 
-func (a App) refreshRuns() (App, bool) {
+// startRunsPoll snapshots the current filter and fetches the runs list
+// in the background. The result folds in via applyRunsRefresh at drain
+// time — never synchronously on the event loop.
+func (a App) startRunsPoll() App {
 	if a.runsResolver == nil {
-		return a, false
+		return a
 	}
 	filter := baseRunsFilter(a.runs.Context, a.config.PerPage)
 	if strings.TrimSpace(a.runs.Filter) != "" {
@@ -2559,16 +2763,28 @@ func (a App) refreshRuns() (App, bool) {
 		}
 	}
 	filter.Page = 1
-	selectedID := int64(0)
-	if selected, ok := a.runs.SelectedRun(); ok {
-		selectedID = selected.ID
-	}
-	resolved, err := a.runsResolver(context.Background(), filter)
+	resolver := a.runsResolver
+	return a.startTickPoll(RouteRuns, a.pollIdentity(RouteRuns), func(ctx context.Context) func(App) App {
+		resolved, err := resolver(ctx, filter)
+		return func(app App) App {
+			return app.applyRunsRefresh(resolved, err)
+		}
+	})
+}
+
+// applyRunsRefresh folds a completed runs poll into the app. Selection
+// is re-read here, not at fetch time, so a cursor moved while the poll
+// was in flight is preserved.
+func (a App) applyRunsRefresh(resolved []model.Run, err error) App {
 	if err != nil {
 		a = a.handleRunsError(RouteRuns, "runs-refresh", "refresh failed: "+err.Error(), err)
 		a.pollInterval = nextPollIntervalForRuns(nil, a.pollInterval, a.config)
 		a.refreshCount++
-		return a, true
+		return a
+	}
+	selectedID := int64(0)
+	if selected, ok := a.runs.SelectedRun(); ok {
+		selectedID = selected.ID
 	}
 	a.clearRouteError(RouteRuns)
 	a.refreshCount++
@@ -2591,24 +2807,42 @@ func (a App) refreshRuns() (App, bool) {
 		}
 	}
 	a.pollInterval = nextPollIntervalForRuns(resolved, a.pollInterval, a.config)
-	return a, true
+	return a
 }
 
-func (a App) refreshWatch() (App, bool) {
+// startWatchPoll fetches the single-run watch in the background; the
+// result folds in via applyWatchRefresh at drain time.
+func (a App) startWatchPoll() App {
 	if a.watchResolver == nil || a.watch.State.Run.ID == 0 {
-		return a, false
+		return a
 	}
-	resolved, err := a.watchResolver(context.Background(), a.watch.State.Run)
+	resolver := a.watchResolver
+	run := a.watch.State.Run
+	return a.startTickPoll(RouteWatch, a.pollIdentity(RouteWatch), func(ctx context.Context) func(App) App {
+		resolved, err := resolver(ctx, run)
+		return func(app App) App {
+			return app.applyWatchRefresh(run, resolved, err)
+		}
+	})
+}
+
+// applyWatchRefresh folds a completed watch poll in. A result for a run
+// the user has since left behind (drilled elsewhere) is ignored so the
+// board never flips to a stale single-run view.
+func (a App) applyWatchRefresh(run model.Run, resolved watch.Model, err error) App {
+	if a.watch.State.Run.ID != run.ID {
+		return a
+	}
 	if err != nil {
 		a.setRouteError(RouteWatch, "watch refresh failed: "+err.Error())
 		a.refreshCount++
-		return a, true
+		return a
 	}
 	a.clearRouteError(RouteWatch)
 	a.refreshCount++
 	a.watch = resolved
 	a.pollInterval = nextPollIntervalForRuns([]model.Run{resolved.State.Run}, a.pollInterval, a.config)
-	return a, true
+	return a
 }
 
 // openPackWatch is the w entry point: watch the selected run's whole
@@ -2696,20 +2930,36 @@ func watchBoardHandled(key string) bool {
 	}
 }
 
-// refreshPack polls the board on the shared tick: one runs-list call
-// covers every member (PackWatchService budget). Settling pushes the
-// hound's verdict toast exactly once, at the transition.
-func (a App) refreshPack() (App, bool) {
+// startPackPoll polls the board on the shared tick: one runs-list call
+// covers every member (PackWatchService budget). The fetch runs in the
+// background; applyPackRefresh folds it in at drain.
+func (a App) startPackPoll() App {
 	if a.packResolver == nil || len(a.board.Runs) == 0 {
-		return a, false
+		return a
 	}
-	before := a.board.Summary()
-	next, err := a.packResolver(context.Background(), a.packState())
+	resolver := a.packResolver
+	state := a.packState()
+	return a.startTickPoll(RouteWatchBoard, a.pollIdentity(RouteWatchBoard), func(ctx context.Context) func(App) App {
+		next, err := resolver(ctx, state)
+		return func(app App) App {
+			return app.applyPackRefresh(next, err)
+		}
+	})
+}
+
+// applyPackRefresh folds a completed pack poll in. The settled-toast
+// transition is computed against the board state at drain time, so it
+// still fires exactly once even though the fetch ran earlier.
+func (a App) applyPackRefresh(next usecase.PackState, err error) App {
+	if len(a.board.Runs) == 0 {
+		return a
+	}
 	if err != nil {
 		a.setRouteError(RouteWatchBoard, "hunt refresh failed: "+err.Error())
 		a.refreshCount++
-		return a, true
+		return a
 	}
+	before := a.board.Summary()
 	a.clearRouteError(RouteWatchBoard)
 	a.refreshCount++
 	a.board = a.board.WithRuns(next.Runs)
@@ -2718,7 +2968,7 @@ func (a App) refreshPack() (App, bool) {
 		a.pushPackSettledToast(after)
 	}
 	a.pollInterval = nextPollIntervalForRuns(next.Runs, a.pollInterval, a.config)
-	return a, true
+	return a
 }
 
 // pushPackSettledToast announces settlement in the hound voice. The
@@ -4700,6 +4950,24 @@ func sampleFlakeReport() usecase.FlakeReport {
 			},
 		}},
 		Verdict: "seen this one before: it's a squirrel — build flaked 2 of the last 6 runs.",
+	}
+}
+
+// sampleCleanFlakeReport is the fresh-scent state — a full window with
+// nothing wobbling. The flaky scenario can never reach it (it always
+// flips), so this fixture is the only lens, human or screenshot, on
+// the clean verdict's ok-green header and "nothing wobbled" line.
+func sampleCleanFlakeReport() usecase.FlakeReport {
+	return usecase.FlakeReport{
+		Repo:             "indrasvat/gh-hound",
+		Workflow:         "ci.yml",
+		Branch:           "main",
+		Status:           usecase.FlakeStatusClean,
+		SampleSize:       8,
+		Window:           50,
+		RunsScanned:      8,
+		SignalsEvaluated: []string{"attempt_flips", "cross_run_flaps", "retry_masks"},
+		Verdict:          "fresh scent — worth chasing: no flake history in the last 8 runs.",
 	}
 }
 

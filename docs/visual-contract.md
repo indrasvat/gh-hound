@@ -23,6 +23,7 @@ Source of truth: `docs/gh-hound-design.html`. Re-read the matching mock before e
 | ⑪ | diff (the trail) | hound verdict line; ✔ last-good / ✗ first-bad boundary summary with attempt note; suspect rows with aligned sha/author/subject columns, selection bar, long-subject ellipsis; inconclusive state hints at diff_max_pages |
 | ⑫ | caches | kennel header `kennel: 7.2/10 GB · N caches`; pressure gauge colored ok (<50%), run (50–90%), fail (>90%); past 90% the warn line `kennel's almost full — GitHub starts evicting at 10 GB.`; sortable key/ref/size/last-used table with selected-row fill; `/` filter line; empty state `the kennel's empty — nothing cached on this repo.`; delete confirms lead with the match count |
 | ⑭ | flakes (the scent check) | hound verdict line colored by status (run-amber flaky, fg suspect, ok clean, dim thin trail); per-job score line `~ build · score 1.00 · flaky · 2 flips · 2 masked retries`; evidence rows with selection bar and run-number/kind/detail columns; failure screen grows the flake panel below the excerpt — focused pane marked with the selection bar, tab toggles, j/k drives the focused pane, enter on evidence opens that run; runs rows badge known flakers with `~` inside the label column |
+| ⑭b | flakes — clean (`flakes-clean` fixture) | the fresh-scent state: ok-green verdict header and a single dim `N runs sniffed on <workflow> · nothing wobbled.` line, no evidence. Unreachable in the flaky fake scenario (it always flips), so this fixture is the only lens on the clean branch |
 | ⑬ | workflows (the pack) | one row per workflow: name, file, themed state badge (✔ active, ◌ asleep, ⊘ muzzled, ⊘ fork-disabled, ✗ deleted; unknown states verbatim with ◇); header columns share the row width math; e toggles only toggleable states (confirm-gated); fork-disabled/deleted carry a why-line instead of the toggle |
 
 ## Theme Tokens
@@ -126,11 +127,22 @@ For each screen at `80x24`, `120x40`, and `200x60`: verify alignment, color mapp
 
 ## Loading States (the Task 220 invariant)
 
-> **No keystroke may block on the network.** The UI repaints within
-> 50ms of the keystroke (previous content dimmed, or a skeleton). If
-> the fetch is still in flight after a 100ms grace window, the shared
-> loading indicator appears. Every fetch is esc-cancellable and stale
-> results are dropped.
+> **No keystroke may block on the network** — and neither may a poll
+> tick. The UI repaints within 50ms of the keystroke (previous content
+> dimmed, or a skeleton). If the fetch is still in flight after a 100ms
+> grace window, the shared loading indicator appears. Every fetch is
+> esc-cancellable and stale results are dropped.
+
+The invariant extends to the periodic tick path: the runs list, the
+single-run watch, and the hunt board poll their resolvers in a
+background goroutine (`tickPoll`), never inline in `Refresh`. A slow
+poll therefore cannot stall the next keystroke. One poll rides at a
+time; its result folds in on the following tick or keypress drain, and
+a result whose route the user has left behind is dropped, never folded
+into the wrong screen. These background polls are silent — no spinner,
+the current data stays on screen until the fresh data quietly replaces
+it (unlike keystroke-initiated loads, which show the dimmed/skeleton
+treatment above).
 
 There is exactly **one** loading indicator in gh-hound
 (`internal/tui/loading.go` + `icons.SpinnerFrames`). A bespoke

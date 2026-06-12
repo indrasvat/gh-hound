@@ -1036,6 +1036,10 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 	defer stopResize()
 	ticker := time.NewTicker(app.PollInterval())
 	defer ticker.Stop()
+	// Cancel in-flight background fetches on every exit path (quit,
+	// EOF, ctx cancellation) so their goroutines don't outlive the
+	// loop. The closure reads the latest app value at return time.
+	defer func() { app.Shutdown() }()
 	for !app.ShouldQuit() {
 		select {
 		case <-ctx.Done():
