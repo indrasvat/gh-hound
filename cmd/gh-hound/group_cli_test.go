@@ -143,6 +143,85 @@ func TestWatchGroupTimeoutClosesTheHunt(t *testing.T) {
 	}
 }
 
+// TestWatchGroupTimeoutWithLostMemberExitsActionNeeded pins the
+// worst-outcome contract at the timeout boundary: when a run in the
+// pack has already failed while a sibling is still in flight, the bound
+// fires but a lost member is a lost hunt — exit 1, not the pending 3,
+// with timed_out:true still flagging that the hunt was cut short.
+func TestWatchGroupTimeoutWithLostMemberExitsActionNeeded(t *testing.T) {
+	// One pack (shared sha + event): CI already lost, Release stuck
+	// in_progress forever. The last batch repeats, so the hunt never
+	// settles and the --timeout always fires.
+	lost := model.Run{ID: 1, RunNumber: 1, Name: "CI", Event: "push", HeadBranch: "main", HeadSHA: "deadbeef", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure}
+	stuck := model.Run{ID: 2, RunNumber: 2, Name: "Release", Event: "push", HeadBranch: "main", HeadSHA: "deadbeef", Status: model.StatusInProgress}
+	github := &cliGitHub{runs: []model.Run{lost, stuck}}
+
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Env: mapEnv(map[string]string{
+			"HOUND_POLL_MIN_MS": "5",
+			"HOUND_POLL_MAX_MS": "5",
+		}),
+		IsTTY:  true,
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"watch", "--group", "--no-tui", "--timeout", "40ms"})
+
+	code, err := executeCommand(cmd)
+	if code != 1 || err == nil {
+		t.Fatalf("watch --group --timeout (lost member) code=%d err=%v out=%s", code, err, out.String())
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	var summary struct {
+		Type     string `json:"type"`
+		Running  int    `json:"running"`
+		Lost     int    `json:"lost"`
+		TimedOut bool   `json:"timed_out"`
+	}
+	if uerr := json.Unmarshal([]byte(lines[len(lines)-1]), &summary); uerr != nil {
+		t.Fatalf("final line is not valid JSON: %v\n%s", uerr, lines[len(lines)-1])
+	}
+	if summary.Type != "summary" || !summary.TimedOut {
+		t.Fatalf("expected a timed_out summary, got %s", lines[len(lines)-1])
+	}
+	if summary.Lost < 1 || summary.Running < 1 {
+		t.Fatalf("timed-out summary must report the lost member AND the live one, got %s", lines[len(lines)-1])
+	}
+}
+
+// TestWatchGroupTimeoutAnchorsOnRun pins that --timeout composes with a
+// --run anchor: the bound still fires and closes with timed_out:true.
+func TestWatchGroupTimeoutAnchorsOnRun(t *testing.T) {
+	stuck := model.Run{ID: 7700, RunNumber: 77, Name: "CI", Event: "push", HeadBranch: "feat/x", HeadSHA: "cafebabe", Status: model.StatusInProgress}
+	github := &cliGitHub{
+		runs:    []model.Run{stuck},
+		runByID: map[int64]model.Run{7700: stuck},
+	}
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Env: mapEnv(map[string]string{
+			"HOUND_POLL_MIN_MS": "5",
+			"HOUND_POLL_MAX_MS": "5",
+		}),
+		IsTTY:  true,
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"watch", "--group", "--no-tui", "--run", "7700", "--timeout", "40ms"})
+
+	code, err := executeCommand(cmd)
+	if code != 3 || err == nil {
+		t.Fatalf("watch --group --run --timeout code=%d err=%v out=%s", code, err, out.String())
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if !strings.Contains(lines[len(lines)-1], `"timed_out":true`) {
+		t.Fatalf("anchored timeout must close with timed_out:true, got %s", lines[len(lines)-1])
+	}
+}
+
 // TestWatchTimeoutWithoutGroupIsRefused pins that --timeout only bounds
 // the blocking --group hunt; on the snapshot path it is meaningless and
 // must be refused up front (exit 2) rather than silently ignored.
@@ -158,6 +237,28 @@ func TestWatchTimeoutWithoutGroupIsRefused(t *testing.T) {
 	code, err := executeCommand(cmd)
 	if code != 2 || err == nil || !strings.Contains(err.Error(), "--group") {
 		t.Fatalf("watch --timeout (no --group) code=%d err=%v", code, err)
+	}
+}
+
+// TestWatchTimeoutRejectsNegativeDuration pins the guard: a negative
+// --timeout is a usage error (exit 2), never a deadline that fires
+// immediately or a silently-ignored zero.
+func TestWatchTimeoutRejectsNegativeDuration(t *testing.T) {
+	for _, args := range [][]string{
+		{"watch", "--group", "--no-tui", "--timeout", "-5s", "--fake-scenario", "pending"},
+		{"watch", "--timeout", "-5s", "--fake-scenario", "pending"},
+	} {
+		var out bytes.Buffer
+		cmd := newRootCommandWithRuntime(commandRuntime{
+			Stdout: &out,
+			Env:    emptyEnv,
+			IsTTY:  true,
+		}, testBuildInfo())
+		cmd.SetArgs(args)
+		code, err := executeCommand(cmd)
+		if code != 2 || err == nil || !strings.Contains(err.Error(), "non-negative") {
+			t.Fatalf("watch %v code=%d err=%v", args, code, err)
+		}
 	}
 }
 

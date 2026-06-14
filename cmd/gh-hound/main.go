@@ -783,8 +783,11 @@ func newWatchCommand(runtime commandRuntime, options *cliOptions) *cobra.Command
 			"--group is the blocking/await mode: it streams the whole event group " +
 			"as NDJSON and blocks until the hunt settles (exit 0 home, 1 lost). " +
 			"Plain `watch --json` only snapshots the active run (exit 3 while pending). " +
-			"For unattended agents, bound the block with --timeout <duration> — on " +
-			"expiry the stream closes with a `timed_out:true` summary and exits 3.",
+			"For unattended agents, bound the block with --timeout <duration>: on " +
+			"expiry the stream closes with a `timed_out:true` summary and exits 3 " +
+			"if runs are still in flight, or 1 if a member has already been lost " +
+			"(worst-outcome, same as a clean settle). The deadline bounds an " +
+			"in-flight poll too, so a hung GitHub call can't outlast it.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyEnv(options, runtime.Env)
 			options.NoTUI = true
@@ -804,7 +807,7 @@ func newWatchCommand(runtime commandRuntime, options *cliOptions) *cobra.Command
 	}
 	cmd.Flags().BoolVar(&group, "group", false, "watch the whole event group (same head_sha + event) as NDJSON, blocking until the hunt settles")
 	cmd.Flags().Int64Var(&options.RunID, "run", 0, "anchor the group on a specific run ID (default: the newest run in scope)")
-	cmd.Flags().DurationVar(&options.WatchTimeout, "timeout", 0, "bound the --group block (e.g. 10m); on expiry close with a timed_out summary and exit 3 (0 = unbounded)")
+	cmd.Flags().DurationVar(&options.WatchTimeout, "timeout", 0, "bound the --group block (e.g. 10m); on expiry close with a timed_out summary and exit 3 in-flight / 1 if lost (0 = unbounded)")
 	return cmd
 }
 
@@ -919,14 +922,17 @@ func writeGroupWatchResult(ctx context.Context, w io.Writer, options cliOptions,
 	}
 
 	// A bounded --timeout closes the hunt early so an unattended agent
-	// never blocks forever on a queued/stuck run. A nil channel never
-	// fires, so the unbounded (timeout == 0) case keeps blocking on the
-	// ctx.Done()/poll select exactly as before.
-	var deadline <-chan time.Time
+	// never blocks forever on a queued/stuck run. The deadline is wired
+	// into the polling context so it bounds an in-flight Tick (a hung
+	// GitHub call) too, not just the sleep between polls. When the
+	// timeout is unset, watchCtx == ctx and the loop blocks exactly as
+	// before. The initial anchor listing above stays on the parent ctx:
+	// it is a single fast call, and the bound is about the hunt.
+	watchCtx := ctx
 	if options.WatchTimeout > 0 {
-		timer := time.NewTimer(options.WatchTimeout)
-		defer timer.Stop()
-		deadline = timer.C
+		var cancel context.CancelFunc
+		watchCtx, cancel = context.WithTimeout(ctx, options.WatchTimeout)
+		defer cancel()
 	}
 
 	timedOut := false
@@ -935,18 +941,31 @@ func writeGroupWatchResult(ctx context.Context, w io.Writer, options cliOptions,
 		if wait <= 0 {
 			wait = cfg.PollMin
 		}
+		pollTimer := time.NewTimer(wait)
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-deadline:
+		case <-watchCtx.Done():
+			pollTimer.Stop()
+			// watchCtx is derived from ctx, so a parent cancel (Ctrl-C)
+			// trips it too — only our own --timeout deadline is a graceful
+			// close; a parent cancel is a hard stop.
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			timedOut = true
-		case <-time.After(wait):
+		case <-pollTimer.C:
 		}
 		if timedOut {
 			break
 		}
-		state, err = service.Tick(ctx, state)
+		state, err = service.Tick(watchCtx, state)
 		if err != nil {
+			// A Tick the --timeout deadline cancelled is a graceful close,
+			// not an API error — fall through to the timed_out summary
+			// instead of surfacing context.DeadlineExceeded as exit 2.
+			if options.WatchTimeout > 0 && watchCtx.Err() != nil && ctx.Err() == nil {
+				timedOut = true
+				break
+			}
 			return err
 		}
 		if err := emit(state.Runs); err != nil {
@@ -968,12 +987,17 @@ func writeGroupWatchResult(ctx context.Context, w io.Writer, options cliOptions,
 	}); err != nil {
 		return err
 	}
-	// A timeout means the hunt never concluded — exit with the pending
-	// code (3), the same "still in flight" signal the snapshot path
-	// uses, distinct from a settled 0 (home) or 1 (lost). The
-	// timed_out marker on the summary lets agents tell it from a real
-	// pending snapshot.
+	// Exit follows the same worst-outcome contract as a clean settle: a
+	// lost member is a lost hunt (exit 1) whether or not its siblings
+	// finished, so a --timeout that fires with a run already lost still
+	// exits 1. Only an in-flight-but-nothing-lost timeout downgrades to
+	// the pending code (3) — the "still hunting" signal the snapshot path
+	// uses. Either way the timed_out marker on the summary tells agents
+	// the hunt was cut short rather than settled.
 	if timedOut {
+		if summary.Lost > 0 {
+			return outcomeError{code: render.ExitActionNeeded}
+		}
 		return outcomeError{code: render.ExitPending}
 	}
 	if code := render.ExitCode(render.Result{Runs: mapRenderRuns(state.Runs)}, nil); code != render.ExitOK {

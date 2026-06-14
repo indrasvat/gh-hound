@@ -71,7 +71,7 @@ Contract rules agents can rely on (`$defs.watch_group_event` / `$defs.watch_grou
 - Group events are **run-level only** (`type, ts, run_id, workflow, status, conclusion`). `job`/`step` fields appear ONLY in single-run `watch` output — the group poll budget never fetches jobs (one runs-list call per tick covers the whole hunt).
 - Runs sharing the sha on a different event (e.g. a chained `workflow_run` deploy) are NOT part of the hunt and never appear on the stream.
 - Hunt size is capped by `watch_group_max` (default 10, env `HOUND_WATCH_GROUP_MAX`).
-- Exit code = worst outcome with the existing semantics: `1` if any run is lost (failure/action_required/timed_out at settle), `0` when the whole hunt comes home, `2` on API/validation errors. `--format md/xml` refuse up front — the stream is NDJSON by contract.
+- Exit code = worst outcome with the existing semantics: `1` if any run is lost (failure/action_required/timed_out at settle), `0` when the whole hunt comes home, `2` on API/validation errors, `3` if a bounded `--timeout` expires with runs still in flight and none lost (see below). `--format md/xml` refuse up front — the stream is NDJSON by contract.
 
 ### Bounded wait (`--timeout`)
 
@@ -81,7 +81,14 @@ For an unattended agent that launches the hunt as a background task, an unbounde
 gh hound watch --group --no-tui --timeout 10m
 ```
 
-On expiry the stream stops, closes with a `{…, "timed_out":true}` summary that still carries the live `running` members, and exits **`3`** — the same pending/in-flight signal the snapshot path uses, distinct from a settled `0` (home) or `1` (lost). Branch on the exit code; the `timed_out` marker tells a timeout apart from a real pending snapshot. Without `--timeout` the block is unbounded (unchanged). `--timeout` requires `--group` (on the snapshot path it is refused with exit `2`); a negative duration is rejected.
+On expiry the stream stops and closes with a `{…, "timed_out":true}` summary that still carries the live `running` (and any `lost`) members. The deadline is wired into the polling context, so it also cancels an **in-flight** poll — a hung GitHub call can't outlast the bound.
+
+Exit follows the **same worst-outcome rule as a clean settle**, capped at pending while runs are live:
+
+- **`1`** if any member is already lost — a lost hunt is a lost hunt whether or not its siblings finished.
+- **`3`** if runs are still in flight and none are lost — the same pending/in-flight signal the snapshot path uses.
+
+So branch on the exit code exactly as you would for a settled hunt; read the `timed_out` marker to know whether the verdict is final (settled) or the watch was cut short and the remaining `running` members still need a re-poll. Without `--timeout` the block is unbounded (unchanged). `--timeout` requires `--group` (on the snapshot path it is refused with exit `2`); a negative duration is rejected with exit `2`.
 
 Rehearse deterministically with `--fake-scenario pack`: three workflows off one push, staggered completion, `Docs` lost at the end (exit `1`). For the timeout path, `--fake-scenario pending --timeout <short>` never settles, so the bound always fires (exit `3`, `timed_out:true`).
 

@@ -894,7 +894,7 @@
     },
     "timed_out": {
      "type": "boolean",
-     "description": "True when a bounded --timeout expired before the hunt settled; the summary then still carries live running members and the command exits 3."
+     "description": "True when a bounded --timeout expired before the hunt settled; the summary then still carries live running (and any lost) members. The command exits 1 if a member is already lost, else 3 (still in flight) — worst-outcome, same as a clean settle."
     }
    }
   }
