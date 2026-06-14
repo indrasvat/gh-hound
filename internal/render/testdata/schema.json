@@ -849,7 +849,7 @@
    }
   },
   "watch_group_summary": {
-   "description": "The terminal object that closes the watch --group stream once the pack settles.",
+   "description": "The terminal object that closes the watch --group stream — emitted when the pack settles, or when a bounded --timeout expires first (timed_out:true).",
    "type": "object",
    "required": [
     "type",
@@ -860,7 +860,8 @@
     "runs",
     "running",
     "home",
-    "lost"
+    "lost",
+    "timed_out"
    ],
    "properties": {
     "type": {
@@ -890,6 +891,10 @@
     },
     "lost": {
      "type": "integer"
+    },
+    "timed_out": {
+     "type": "boolean",
+     "description": "True when a bounded --timeout expired before the hunt settled; the summary then still carries live running (and any lost) members. The command exits 1 if a member is already lost, else 3 (still in flight) — worst-outcome, same as a clean settle."
     }
    }
   }

@@ -29,18 +29,21 @@ type GroupEvent struct {
 	Conclusion string    `json:"conclusion"`
 }
 
-// GroupSummary closes the stream once the pack settles: the scent,
-// the member count, and the hound's tallies.
+// GroupSummary closes the stream: the scent, the member count, and
+// the hound's tallies. It lands when the pack settles OR when a
+// bounded --timeout expires first — `timed_out` tells the two apart
+// (a timed-out summary still carries live `running` members).
 type GroupSummary struct {
-	Type    string    `json:"type"`
-	TS      time.Time `json:"ts"`
-	Repo    string    `json:"repo"`
-	HeadSHA string    `json:"head_sha"`
-	Event   string    `json:"event"`
-	Runs    int       `json:"runs"`
-	Running int       `json:"running"`
-	Home    int       `json:"home"`
-	Lost    int       `json:"lost"`
+	Type     string    `json:"type"`
+	TS       time.Time `json:"ts"`
+	Repo     string    `json:"repo"`
+	HeadSHA  string    `json:"head_sha"`
+	Event    string    `json:"event"`
+	Runs     int       `json:"runs"`
+	Running  int       `json:"running"`
+	Home     int       `json:"home"`
+	Lost     int       `json:"lost"`
+	TimedOut bool      `json:"timed_out"`
 }
 
 func WriteGroupEvent(w io.Writer, event GroupEvent) error {

@@ -109,6 +109,7 @@ type cliOptions struct {
 	Reject        bool
 	Envs          []string
 	Comment       string
+	WatchTimeout  time.Duration
 }
 
 func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Command {
@@ -778,19 +779,35 @@ func newWatchCommand(runtime commandRuntime, options *cliOptions) *cobra.Command
 	cmd := &cobra.Command{
 		Use:   "watch",
 		Short: "Watch the current or selected run",
+		Long: "Watch the current or selected run.\n\n" +
+			"--group is the blocking/await mode: it streams the whole event group " +
+			"as NDJSON and blocks until the hunt settles (exit 0 home, 1 lost). " +
+			"Plain `watch --json` only snapshots the active run (exit 3 while pending). " +
+			"For unattended agents, bound the block with --timeout <duration>: on " +
+			"expiry the stream closes with a `timed_out:true` summary and exits 3 " +
+			"if runs are still in flight, or 1 if a member has already been lost " +
+			"(worst-outcome, same as a clean settle). The deadline bounds an " +
+			"in-flight poll too, so a hung GitHub call can't outlast it.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyEnv(options, runtime.Env)
 			options.NoTUI = true
 			options.Watch = true
+			if options.WatchTimeout < 0 {
+				return errors.New("--timeout must be a non-negative duration")
+			}
 			if group {
 				return writeGroupWatchResult(cmd.Context(), runtime.Stdout, *options, runtime)
+			}
+			if options.WatchTimeout > 0 {
+				return errors.New("--timeout bounds the blocking --group hunt; plain watch only snapshots — pass --group")
 			}
 			options.Status = "in_progress"
 			return writeResult(cmd.Context(), runtime.Stdout, *options, runtime)
 		},
 	}
-	cmd.Flags().BoolVar(&group, "group", false, "watch the whole event group (same head_sha + event) as NDJSON until the hunt settles")
+	cmd.Flags().BoolVar(&group, "group", false, "watch the whole event group (same head_sha + event) as NDJSON, blocking until the hunt settles")
 	cmd.Flags().Int64Var(&options.RunID, "run", 0, "anchor the group on a specific run ID (default: the newest run in scope)")
+	cmd.Flags().DurationVar(&options.WatchTimeout, "timeout", 0, "bound the --group block (e.g. 10m); on expiry close with a timed_out summary and exit 3 in-flight / 1 if lost (0 = unbounded)")
 	return cmd
 }
 
@@ -904,18 +921,51 @@ func writeGroupWatchResult(ctx context.Context, w io.Writer, options cliOptions,
 		return err
 	}
 
+	// A bounded --timeout closes the hunt early so an unattended agent
+	// never blocks forever on a queued/stuck run. The deadline is wired
+	// into the polling context so it bounds an in-flight Tick (a hung
+	// GitHub call) too, not just the sleep between polls. When the
+	// timeout is unset, watchCtx == ctx and the loop blocks exactly as
+	// before. The initial anchor listing above stays on the parent ctx:
+	// it is a single fast call, and the bound is about the hunt.
+	watchCtx := ctx
+	if options.WatchTimeout > 0 {
+		var cancel context.CancelFunc
+		watchCtx, cancel = context.WithTimeout(ctx, options.WatchTimeout)
+		defer cancel()
+	}
+
+	timedOut := false
 	for !packSettled(state.Runs) {
 		wait := state.NextPoll
 		if wait <= 0 {
 			wait = cfg.PollMin
 		}
+		pollTimer := time.NewTimer(wait)
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(wait):
+		case <-watchCtx.Done():
+			pollTimer.Stop()
+			// watchCtx is derived from ctx, so a parent cancel (Ctrl-C)
+			// trips it too — only our own --timeout deadline is a graceful
+			// close; a parent cancel is a hard stop.
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			timedOut = true
+		case <-pollTimer.C:
 		}
-		state, err = service.Tick(ctx, state)
+		if timedOut {
+			break
+		}
+		state, err = service.Tick(watchCtx, state)
 		if err != nil {
+			// A Tick the --timeout deadline cancelled is a graceful close,
+			// not an API error — fall through to the timed_out summary
+			// instead of surfacing context.DeadlineExceeded as exit 2.
+			if options.WatchTimeout > 0 && watchCtx.Err() != nil && ctx.Err() == nil {
+				timedOut = true
+				break
+			}
 			return err
 		}
 		if err := emit(state.Runs); err != nil {
@@ -925,16 +975,30 @@ func writeGroupWatchResult(ctx context.Context, w io.Writer, options cliOptions,
 
 	summary := usecase.SummarizePack(state.Runs)
 	if err := render.WriteGroupSummary(w, render.GroupSummary{
-		TS:      time.Now().UTC(),
-		Repo:    repo,
-		HeadSHA: state.HeadSHA,
-		Event:   state.Event,
-		Runs:    len(state.Runs),
-		Running: summary.Running,
-		Home:    summary.Home,
-		Lost:    summary.Lost,
+		TS:       time.Now().UTC(),
+		Repo:     repo,
+		HeadSHA:  state.HeadSHA,
+		Event:    state.Event,
+		Runs:     len(state.Runs),
+		Running:  summary.Running,
+		Home:     summary.Home,
+		Lost:     summary.Lost,
+		TimedOut: timedOut,
 	}); err != nil {
 		return err
+	}
+	// Exit follows the same worst-outcome contract as a clean settle: a
+	// lost member is a lost hunt (exit 1) whether or not its siblings
+	// finished, so a --timeout that fires with a run already lost still
+	// exits 1. Only an in-flight-but-nothing-lost timeout downgrades to
+	// the pending code (3) — the "still hunting" signal the snapshot path
+	// uses. Either way the timed_out marker on the summary tells agents
+	// the hunt was cut short rather than settled.
+	if timedOut {
+		if summary.Lost > 0 {
+			return outcomeError{code: render.ExitActionNeeded}
+		}
+		return outcomeError{code: render.ExitPending}
 	}
 	if code := render.ExitCode(render.Result{Runs: mapRenderRuns(state.Runs)}, nil); code != render.ExitOK {
 		return outcomeError{code: code}

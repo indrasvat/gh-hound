@@ -90,9 +90,43 @@ func TestSchemaPublishesWatchGroupContract(t *testing.T) {
 	if !ok {
 		t.Fatal("schema.json must define $defs.watch_group_summary")
 	}
-	for _, needle := range []string{"head_sha", "running", "home", "lost"} {
+	for _, needle := range []string{"head_sha", "running", "home", "lost", "timed_out"} {
 		if !strings.Contains(string(summary), needle) {
 			t.Fatalf("watch_group_summary schema missing %q", needle)
+		}
+	}
+}
+
+// TestGroupSummaryCarriesTimedOutMarker pins the bounded-timeout
+// contract: a settled summary reports timed_out:false, a timed-out one
+// reports true so agents can tell a clean conclusion from an aborted
+// wait without re-deriving it from the running tally.
+func TestGroupSummaryCarriesTimedOutMarker(t *testing.T) {
+	ts := time.Date(2026, 6, 13, 9, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name     string
+		timedOut bool
+	}{
+		{"settled", false},
+		{"timed out", true},
+	} {
+		var out bytes.Buffer
+		if err := WriteGroupSummary(&out, GroupSummary{
+			TS: ts, Repo: "indrasvat/gh-hound", HeadSHA: "abc123", Event: "push",
+			Runs: 3, Running: 1, Home: 2, Lost: 0, TimedOut: tc.timedOut,
+		}); err != nil {
+			t.Fatalf("%s: write summary: %v", tc.name, err)
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+			t.Fatalf("%s: summary not valid JSON: %v", tc.name, err)
+		}
+		got, ok := decoded["timed_out"].(bool)
+		if !ok {
+			t.Fatalf("%s: summary missing timed_out marker: %s", tc.name, out.String())
+		}
+		if got != tc.timedOut {
+			t.Fatalf("%s: timed_out = %v, want %v", tc.name, got, tc.timedOut)
 		}
 	}
 }
