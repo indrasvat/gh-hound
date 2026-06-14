@@ -101,6 +101,66 @@ func TestWatchGroupEmitsNDJSONUntilThePackSettles(t *testing.T) {
 	}
 }
 
+// TestWatchGroupTimeoutClosesTheHunt pins the bounded --timeout: the
+// running scenario never settles, so a short --timeout must close the
+// stream with a timed_out:true summary and exit 3 (pending) instead of
+// blocking forever.
+func TestWatchGroupTimeoutClosesTheHunt(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Env: mapEnv(map[string]string{
+			"HOUND_POLL_MIN_MS": "5",
+			"HOUND_POLL_MAX_MS": "5",
+		}),
+		IsTTY: true,
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"watch", "--group", "--no-tui", "--timeout", "40ms", "--fake-scenario", "pending"})
+
+	code, err := executeCommand(cmd)
+	if code != 3 || err == nil {
+		t.Fatalf("watch --group --timeout code=%d err=%v out=%s", code, err, out.String())
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	var summary struct {
+		Type     string `json:"type"`
+		Running  int    `json:"running"`
+		TimedOut bool   `json:"timed_out"`
+	}
+	last := lines[len(lines)-1]
+	if uerr := json.Unmarshal([]byte(last), &summary); uerr != nil {
+		t.Fatalf("final line is not valid JSON: %v\n%s", uerr, last)
+	}
+	if summary.Type != "summary" {
+		t.Fatalf("stream must close with a summary, got %q", last)
+	}
+	if !summary.TimedOut {
+		t.Fatalf("timed-out hunt must carry timed_out:true, got %s", last)
+	}
+	if summary.Running < 1 {
+		t.Fatalf("timed-out summary must still report live running members, got %s", last)
+	}
+}
+
+// TestWatchTimeoutWithoutGroupIsRefused pins that --timeout only bounds
+// the blocking --group hunt; on the snapshot path it is meaningless and
+// must be refused up front (exit 2) rather than silently ignored.
+func TestWatchTimeoutWithoutGroupIsRefused(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Env:    emptyEnv,
+		IsTTY:  true,
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"watch", "--timeout", "5m", "--fake-scenario", "pending"})
+
+	code, err := executeCommand(cmd)
+	if code != 2 || err == nil || !strings.Contains(err.Error(), "--group") {
+		t.Fatalf("watch --timeout (no --group) code=%d err=%v", code, err)
+	}
+}
+
 func TestWatchGroupRefusesNonJSONFormats(t *testing.T) {
 	var out bytes.Buffer
 	cmd := newRootCommandWithRuntime(commandRuntime{

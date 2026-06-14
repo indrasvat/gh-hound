@@ -109,6 +109,7 @@ type cliOptions struct {
 	Reject        bool
 	Envs          []string
 	Comment       string
+	WatchTimeout  time.Duration
 }
 
 func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Command {
@@ -778,19 +779,32 @@ func newWatchCommand(runtime commandRuntime, options *cliOptions) *cobra.Command
 	cmd := &cobra.Command{
 		Use:   "watch",
 		Short: "Watch the current or selected run",
+		Long: "Watch the current or selected run.\n\n" +
+			"--group is the blocking/await mode: it streams the whole event group " +
+			"as NDJSON and blocks until the hunt settles (exit 0 home, 1 lost). " +
+			"Plain `watch --json` only snapshots the active run (exit 3 while pending). " +
+			"For unattended agents, bound the block with --timeout <duration> — on " +
+			"expiry the stream closes with a `timed_out:true` summary and exits 3.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyEnv(options, runtime.Env)
 			options.NoTUI = true
 			options.Watch = true
+			if options.WatchTimeout < 0 {
+				return errors.New("--timeout must be a non-negative duration")
+			}
 			if group {
 				return writeGroupWatchResult(cmd.Context(), runtime.Stdout, *options, runtime)
+			}
+			if options.WatchTimeout > 0 {
+				return errors.New("--timeout bounds the blocking --group hunt; plain watch only snapshots — pass --group")
 			}
 			options.Status = "in_progress"
 			return writeResult(cmd.Context(), runtime.Stdout, *options, runtime)
 		},
 	}
-	cmd.Flags().BoolVar(&group, "group", false, "watch the whole event group (same head_sha + event) as NDJSON until the hunt settles")
+	cmd.Flags().BoolVar(&group, "group", false, "watch the whole event group (same head_sha + event) as NDJSON, blocking until the hunt settles")
 	cmd.Flags().Int64Var(&options.RunID, "run", 0, "anchor the group on a specific run ID (default: the newest run in scope)")
+	cmd.Flags().DurationVar(&options.WatchTimeout, "timeout", 0, "bound the --group block (e.g. 10m); on expiry close with a timed_out summary and exit 3 (0 = unbounded)")
 	return cmd
 }
 
@@ -904,6 +918,18 @@ func writeGroupWatchResult(ctx context.Context, w io.Writer, options cliOptions,
 		return err
 	}
 
+	// A bounded --timeout closes the hunt early so an unattended agent
+	// never blocks forever on a queued/stuck run. A nil channel never
+	// fires, so the unbounded (timeout == 0) case keeps blocking on the
+	// ctx.Done()/poll select exactly as before.
+	var deadline <-chan time.Time
+	if options.WatchTimeout > 0 {
+		timer := time.NewTimer(options.WatchTimeout)
+		defer timer.Stop()
+		deadline = timer.C
+	}
+
+	timedOut := false
 	for !packSettled(state.Runs) {
 		wait := state.NextPoll
 		if wait <= 0 {
@@ -912,7 +938,12 @@ func writeGroupWatchResult(ctx context.Context, w io.Writer, options cliOptions,
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-deadline:
+			timedOut = true
 		case <-time.After(wait):
+		}
+		if timedOut {
+			break
 		}
 		state, err = service.Tick(ctx, state)
 		if err != nil {
@@ -925,16 +956,25 @@ func writeGroupWatchResult(ctx context.Context, w io.Writer, options cliOptions,
 
 	summary := usecase.SummarizePack(state.Runs)
 	if err := render.WriteGroupSummary(w, render.GroupSummary{
-		TS:      time.Now().UTC(),
-		Repo:    repo,
-		HeadSHA: state.HeadSHA,
-		Event:   state.Event,
-		Runs:    len(state.Runs),
-		Running: summary.Running,
-		Home:    summary.Home,
-		Lost:    summary.Lost,
+		TS:       time.Now().UTC(),
+		Repo:     repo,
+		HeadSHA:  state.HeadSHA,
+		Event:    state.Event,
+		Runs:     len(state.Runs),
+		Running:  summary.Running,
+		Home:     summary.Home,
+		Lost:     summary.Lost,
+		TimedOut: timedOut,
 	}); err != nil {
 		return err
+	}
+	// A timeout means the hunt never concluded — exit with the pending
+	// code (3), the same "still in flight" signal the snapshot path
+	// uses, distinct from a settled 0 (home) or 1 (lost). The
+	// timed_out marker on the summary lets agents tell it from a real
+	// pending snapshot.
+	if timedOut {
+		return outcomeError{code: render.ExitPending}
 	}
 	if code := render.ExitCode(render.Result{Runs: mapRenderRuns(state.Runs)}, nil); code != render.ExitOK {
 		return outcomeError{code: code}

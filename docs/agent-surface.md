@@ -53,16 +53,17 @@ gh hound runs --no-tui --format xml
 A push usually triggers several workflows. `watch --group` watches the whole event group — every run sharing the anchor's `head_sha` AND `event` — as one stream:
 
 ```bash
-gh hound watch --group --no-tui              # newest still-live run anchors the hunt
+gh hound watch --group --no-tui              # newest still-live run anchors the hunt; blocks until settled
 gh hound watch --group --run <run-id> --no-tui
+gh hound watch --group --no-tui --timeout 10m   # bound the block for unattended agents
 ```
 
-The stream is NDJSON: one compact JSON object per line, a line per run **state transition** until the group settles, then one terminal summary object that closes the stream.
+`--group` is the **blocking/await** mode — it blocks until the whole hunt settles. (Plain `watch --json` without `--group` only snapshots the active run and exits `3` while pending.) The stream is NDJSON: one compact JSON object per line, a line per run **state transition** until the group settles, then one terminal summary object that closes the stream.
 
 ```json
 {"type":"run","ts":"2026-06-11T08:32:19Z","run_id":30433701,"workflow":"CI","status":"in_progress","conclusion":""}
 {"type":"run","ts":"2026-06-11T08:32:19Z","run_id":30433701,"workflow":"CI","status":"completed","conclusion":"success"}
-{"type":"summary","ts":"2026-06-11T08:32:20Z","repo":"owner/repo","head_sha":"9f8e7d6…","event":"push","runs":3,"running":0,"home":2,"lost":1}
+{"type":"summary","ts":"2026-06-11T08:32:20Z","repo":"owner/repo","head_sha":"9f8e7d6…","event":"push","runs":3,"running":0,"home":2,"lost":1,"timed_out":false}
 ```
 
 Contract rules agents can rely on (`$defs.watch_group_event` / `$defs.watch_group_summary` in schema.json):
@@ -72,7 +73,17 @@ Contract rules agents can rely on (`$defs.watch_group_event` / `$defs.watch_grou
 - Hunt size is capped by `watch_group_max` (default 10, env `HOUND_WATCH_GROUP_MAX`).
 - Exit code = worst outcome with the existing semantics: `1` if any run is lost (failure/action_required/timed_out at settle), `0` when the whole hunt comes home, `2` on API/validation errors. `--format md/xml` refuse up front — the stream is NDJSON by contract.
 
-Rehearse deterministically with `--fake-scenario pack`: three workflows off one push, staggered completion, `Docs` lost at the end (exit `1`).
+### Bounded wait (`--timeout`)
+
+For an unattended agent that launches the hunt as a background task, an unbounded block is a hazard — a workflow that hangs or never gets scheduled hangs the watcher forever. `--timeout <duration>` (Go duration syntax, e.g. `90s`, `10m`, `1h`) bounds it self-contained, with no external `timeout(1)` watchdog:
+
+```bash
+gh hound watch --group --no-tui --timeout 10m
+```
+
+On expiry the stream stops, closes with a `{…, "timed_out":true}` summary that still carries the live `running` members, and exits **`3`** — the same pending/in-flight signal the snapshot path uses, distinct from a settled `0` (home) or `1` (lost). Branch on the exit code; the `timed_out` marker tells a timeout apart from a real pending snapshot. Without `--timeout` the block is unbounded (unchanged). `--timeout` requires `--group` (on the snapshot path it is refused with exit `2`); a negative duration is rejected.
+
+Rehearse deterministically with `--fake-scenario pack`: three workflows off one push, staggered completion, `Docs` lost at the end (exit `1`). For the timeout path, `--fake-scenario pending --timeout <short>` never settles, so the bound always fires (exit `3`, `timed_out:true`).
 
 ## Mutations
 

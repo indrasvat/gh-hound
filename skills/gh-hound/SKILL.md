@@ -15,7 +15,8 @@ gh hound runs --status failure --no-tui --json   # failure-focused loop
 gh hound runs --all --no-tui --json              # all branches
 gh hound runs -R owner/repo --no-tui --json      # outside a checkout
 gh hound watch --json                            # active run, fail-fast
-gh hound watch --group --no-tui                  # whole event group, NDJSON until the hunt settles
+gh hound watch --group --no-tui                  # whole event group, NDJSON, blocks until the hunt settles
+gh hound watch --group --no-tui --timeout 10m    # same, but bound the block (exit 3 + timed_out summary on expiry)
 gh hound runs --run <id> --attempt 2 --no-tui --json   # forensics on a re-run
 gh hound artifacts --no-tui --json               # latest run's artifacts
 gh hound artifacts --run <id> --download <name> --dir <path> --no-tui --json
@@ -40,7 +41,9 @@ Runs are scoped to the current git branch by default. An empty `runs[]` usually 
 
 `watch --json` is fail-fast: it exits `1` the moment the watched run turns red and includes the failure payload immediately.
 
-`watch --group --no-tui` streams the selected run's whole event group (same `head_sha` + `event`) as NDJSON: one `{type:"run", ts, run_id, workflow, status, conclusion}` line per state transition, closed by a `{type:"summary", …, running, home, lost}` object once the hunt settles. Exit `1` if any run is lost, `0` when the hunt comes home. Events are run-level only — drill into a single run with `watch --json` for job/step detail. Rehearse with `--fake-scenario pack`.
+`watch --group --no-tui` is the blocking/await mode: it streams the selected run's whole event group (same `head_sha` + `event`) as NDJSON — one `{type:"run", ts, run_id, workflow, status, conclusion}` line per state transition, closed by a `{type:"summary", …, running, home, lost, timed_out}` object — and **blocks until the hunt settles**. Exit `1` if any run is lost, `0` when the hunt comes home. (Plain `watch --json` without `--group` only snapshots the active run and exits `3` while pending — use `--group` to block.) Events are run-level only — drill into a single run with `watch --json` for job/step detail. Rehearse with `--fake-scenario pack`.
+
+For unattended/background agents, bound the block with `--timeout <duration>` (e.g. `--timeout 10m`) so a queued or stuck run can't hang the watcher forever. On expiry the stream closes with a `{…, "timed_out":true}` summary (still carrying live `running` members) and exits `3` — the same pending signal, distinguishable from a real settle by the `timed_out` marker. Without `--timeout` the block is unbounded (unchanged). `--timeout` requires `--group`.
 
 ## JSON Shape
 

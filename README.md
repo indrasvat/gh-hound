@@ -179,7 +179,8 @@ gh hound watch
 gh hound runs --no-tui --json
 gh hound runs --status failure --no-tui --json
 gh hound watch --json
-gh hound watch --group --no-tui
+gh hound watch --group --no-tui                        # blocks until the hunt settles
+gh hound watch --group --no-tui --timeout 10m          # bounded for unattended agents (exit 3 + timed_out summary)
 gh hound rerun --run <id> --failed-only --debug --no-tui --json
 gh hound cancel --run <id> --no-tui --json
 gh hound diff --workflow CI --no-tui --json            # who broke main?
