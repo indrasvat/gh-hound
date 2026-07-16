@@ -11,6 +11,8 @@ gh hound watch --json
 gh hound watch --group --no-tui
 gh hound runs --run <run-id> --no-tui --json
 gh hound runs --run <run-id> --attempt <n> --no-tui --json
+gh hound queue --run <run-id> --no-tui --json
+gh hound queue --groups --no-tui --json
 gh hound artifacts --run <run-id> --no-tui --json
 gh hound artifacts --run <run-id> --download <name> --dir <path> --no-tui --json
 gh hound runs --artifacts --no-tui --json
@@ -91,6 +93,32 @@ Exit follows the **same worst-outcome rule as a clean settle**, capped at pendin
 So branch on the exit code exactly as you would for a settled hunt; read the `timed_out` marker to know whether the verdict is final (settled) or the watch was cut short and the remaining `running` members still need a re-poll. Without `--timeout` the block is unbounded (unchanged). `--timeout` requires `--group` (on the snapshot path it is refused with exit `2`); a negative duration is rejected with exit `2`.
 
 Rehearse deterministically with `--fake-scenario pack`: three workflows off one push, staggered completion, `Docs` lost at the end (exit `1`). For the timeout path, `--fake-scenario pending --timeout <short>` never settles, so the bound always fires (exit `3`, `timed_out:true`).
+
+## GitHub Queue
+
+When a run is `pending`, ask whether GitHub exposes a concurrency-group blocker before rerunning or guessing:
+
+```bash
+gh hound queue --run <run-id> --no-tui --json
+gh hound queue --job <job-id> --no-tui --json
+gh hound queue --group <name> --no-tui --json
+gh hound queue --groups --no-tui --json
+```
+
+Envelope (`$defs.queue_result`): `{repo, target, fetched_at, status, decision, summary, configured_group_count, groups[], blockers[]}`. `decision.action` is the branch field:
+
+| `status` | `decision.action` | Exit | Agent action |
+| --- | --- | ---: | --- |
+| `blocked` | `wait` | 3 | a named concurrency group has live members ahead; do not rerun blindly |
+| `not_concurrency` | `inspect_gates_or_runner` | 0 | this pending state is not exposed as a concurrency blocker; check gates, runner capacity, or normal watch |
+| `inactive` | `normal_watch` | 0 | named group has no active members |
+| `listed` | `list_only` | 0 | informational listing |
+| `unsupported` | `unsupported` | 0 | host lacks the API; fall back to normal diagnosis |
+| `error` | `error` | 2 | validation, auth, permission, rate, network, or render failure |
+
+`queue` never exits `1` in v1. A proved concurrency block is a wait state, so it uses the same pending code as `watch`. Rehearse with `--fake-scenario queue` (run `30433644` is pending behind `deploy-prod`, exit `3`).
+
+`queue --groups` is a summary listing. It preserves `last_acquired_at` when GitHub returns it, but does not invent `active_member_count` or `members[]` for summaries unless details were fetched.
 
 ## Mutations
 
@@ -200,7 +228,7 @@ Rehearse deterministically with `--fake-scenario green` (the fake fleet covers a
 
 ## JSON Contract
 
-The JSON schema lives at `internal/render/testdata/schema.json` (mutation envelope under `$defs.mutation_result`, approvals envelope under `$defs.approvals_result`, regression verdict under `$defs.diff_result`, caches envelope under `$defs.caches_result`, workflows envelope under `$defs.workflows_result`, pack stream under `$defs.watch_group_event` / `$defs.watch_group_summary`, flake verdict under `$defs.flakes_result`); the canonical failure fixture lives at `internal/render/testdata/failure.golden.json`.
+The JSON schema lives at `internal/render/testdata/schema.json` (mutation envelope under `$defs.mutation_result`, approvals envelope under `$defs.approvals_result`, queue verdict under `$defs.queue_result`, regression verdict under `$defs.diff_result`, caches envelope under `$defs.caches_result`, workflows envelope under `$defs.workflows_result`, pack stream under `$defs.watch_group_event` / `$defs.watch_group_summary`, flake verdict under `$defs.flakes_result`); the canonical failure fixture lives at `internal/render/testdata/failure.golden.json`.
 
 
 Each run includes:

@@ -111,6 +111,7 @@ The local gate includes race-enabled Go tests, large-log performance tests, and 
 - **Attempt forensics**: `runs --run <id> --attempt <n>` triages a specific attempt after a re-run -- failed jobs, clean excerpts, exit codes.
 - **The trail**: `diff` walks a workflow's history to the last-green → first-red boundary and names the suspect commits -- the answer `git bisect` re-runs builds for is already in the run history. TUI screen via `:diff`, JSON verdict for agents, `diff_max_pages` bounds the spend.
 - **Flake forensics**: `flakes` answers "real failure or flake?" with a scored, evidenced verdict -- attempt flips, cross-run flapping, and retry-wrapper masking over the last `flake_window` runs. The failure screen recognizes the scent (`seen this one before: flaked 2 of last 50 runs`) with evidence drill-down, known flakers wear a `~` badge on the runs list, and agents branch on `status`: `flaky` -> rerun, `clean` -> investigate.
+- **GitHub queue**: `queue` explains `pending` runs and jobs through GitHub Actions concurrency groups -- target, blockers, positions when GitHub exposes them, and a `decision.action` agents can branch on. A proved concurrency block exits `3`, not `1`: it is a wait state, not a red CI state.
 - **The pack**: `:workflows` lists every workflow with its state badge -- `✔ active`, `◌ asleep` (fell asleep after 60 quiet days, the classic "my cron stopped" mystery), `⊘ muzzled` (disabled by hand), `⊘ fork-disabled`, `✗ deleted` -- and `e` wakes or muzzles the toggleable ones, confirm-gated. The `workflows` pipe verb lists states and flips them by id or file path. Disabled workflows are named on the empty screen, and the dispatch picker badges them instead of hiding them.
 - **Failure diagnosis**: annotations, failing step, exit code, and de-noised failure excerpts.
 - **Full log viewer**: line-number gutter, fold rows, search, match count, wrap toggle, scrollbar, and syntax-aware highlighting.
@@ -181,6 +182,7 @@ gh hound runs --status failure --no-tui --json
 gh hound watch --json
 gh hound watch --group --no-tui                        # blocks until the hunt settles
 gh hound watch --group --no-tui --timeout 10m          # bounded for unattended agents (timed_out summary; exit 3 in-flight / 1 if lost)
+gh hound queue --run <run-id> --no-tui --json          # why is this pending?
 gh hound rerun --run <id> --failed-only --debug --no-tui --json
 gh hound cancel --run <id> --no-tui --json
 gh hound diff --workflow CI --no-tui --json            # who broke main?

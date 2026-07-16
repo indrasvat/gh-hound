@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0E0F0C">
 <title>gh-hound · Fetch happens.</title>
-<meta name="description" content="gh-hound hunts down broken GitHub Actions runs from your terminal: the failing step, the guilty log line, the rerun verdict. A gh extension with a real TUI for humans and schema-stable JSON for agents.">
+<meta name="description" content="gh-hound hunts down broken GitHub Actions runs from your terminal: the failing step, the guilty log line, pending queue blockers, the rerun verdict. A gh extension with a real TUI for humans and schema-stable JSON for agents.">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -109,6 +109,11 @@
         <p class="trail-q">Flaky or real?</p>
         <div class="keys"><span class="key">gh hound flakes</span></div>
         <p class="trail-a">Reads attempt flips, cross-run flaps and retry masks, then calls it: <b>squirrel or genuine fault</b>.</p>
+      </div>
+      <div class="trail-row reveal">
+        <p class="trail-q">Why is it still pending?</p>
+        <div class="keys"><span class="key">gh hound queue</span></div>
+        <p class="trail-a">Reads the concurrency group and names the <b>older blocker, newer preemptor, or stale-looking lock</b>.</p>
       </div>
       <div class="trail-row reveal">
         <p class="trail-q">Can I retry safely?</p>
@@ -250,7 +255,7 @@
     <div class="agents-split">
       <div class="reveal">
         <p style="color:var(--muted);font-size:0.97rem">Agents don&rsquo;t click dashboards &mdash; they read <span class="mono" style="color:var(--fg-soft)">stdout</span>. Every verb speaks <span class="sh">--no-tui --json</span> in a schema-stable envelope; branch on the exit code. Deterministic fake scenarios let your harness play fetch without ever touching the network.</p>
-        <p style="color:var(--muted);font-size:0.97rem;margin-top:0.8rem">The leash works both ways: <span class="mono" style="color:var(--fg-soft)">rerun</span> sends failures back out, <span class="mono" style="color:var(--fg-soft)">diff</span> names who broke main, <span class="mono" style="color:var(--fg-soft)">flakes</span> calls rerun-vs-investigate &mdash; one verb per tab, evidence attached either way.</p>
+        <p style="color:var(--muted);font-size:0.97rem;margin-top:0.8rem">The leash works both ways: <span class="mono" style="color:var(--fg-soft)">queue</span> explains pending runs, <span class="mono" style="color:var(--fg-soft)">rerun</span> sends failures back out, <span class="mono" style="color:var(--fg-soft)">diff</span> names who broke main, <span class="mono" style="color:var(--fg-soft)">flakes</span> calls rerun-vs-investigate &mdash; one verb per tab, evidence attached either way.</p>
         <table class="exit-table">
           <caption>exit codes &middot; barks, translated</caption>
           <tbody>
@@ -264,6 +269,7 @@
       <div class="reveal">
         <div class="tabs agent-tabs" role="tablist" aria-label="agent verbs">
           <button class="tab" role="tab" aria-selected="true" data-pane="pane-runs">runs</button>
+          <button class="tab" role="tab" aria-selected="false" data-pane="pane-queue">queue</button>
           <button class="tab" role="tab" aria-selected="false" data-pane="pane-rerun">rerun</button>
           <button class="tab" role="tab" aria-selected="false" data-pane="pane-diff">diff</button>
           <button class="tab" role="tab" aria-selected="false" data-pane="pane-flakes">flakes</button>
@@ -295,6 +301,32 @@
     }]
   }]
 }<span class="j-dim">  // exit code 1</span></code></pre>
+        </div>
+        <div class="codeblock agent-pane" id="pane-queue" hidden>
+        <div class="codeblock-bar">
+          <span class="cmd"><span class="ps1">$</span> gh hound queue --run 30433644 --no-tui --json</span>
+          <button class="copy-btn" data-copy="gh hound queue --run 30433644 --no-tui --json" aria-label="Copy queue command">copy</button>
+        </div>
+        <pre><code>{
+  <span class="j-key">"repo"</span>: <span class="j-str">"indrasvat/gh-hound"</span>,
+  <span class="j-key">"target"</span>: { <span class="j-key">"kind"</span>: <span class="j-str">"run"</span>, <span class="j-key">"run_id"</span>: <span class="j-num">30433644</span> },
+  <span class="j-key">"group"</span>: {
+    <span class="j-key">"name"</span>: <span class="j-str">"ci-main"</span>,
+    <span class="j-key">"state"</span>: <span class="j-str">"blocked"</span>,
+    <span class="j-key">"active_member_count"</span>: <span class="j-num">2</span>,
+    <span class="j-key">"blockers"</span>: [{
+      <span class="j-key">"run_id"</span>: <span class="j-num">30433640</span>,
+      <span class="j-key">"status"</span>: <span class="j-str">"in_progress"</span>,
+      <span class="j-key">"workflow"</span>: <span class="j-str">"CI"</span>,
+      <span class="j-key">"html_url"</span>: <span class="j-str">"https://github.com/.../actions/runs/30433640"</span>
+    }]
+  },
+  <span class="j-key">"decision"</span>: {
+    <span class="j-key">"action"</span>: <span class="j-str">"wait_for_blocker"</span>,
+    <span class="j-key">"reason"</span>: <span class="j-str">"run is queued behind an older member of ci-main"</span>
+  },
+  <span class="j-key">"summary"</span>: <span class="j-str">"CI is waiting on run #30433640."</span>
+}<span class="j-dim">  // exit code 3 — pending, but no longer opaque</span></code></pre>
         </div>
         <div class="codeblock agent-pane" id="pane-rerun" hidden>
         <div class="codeblock-bar">

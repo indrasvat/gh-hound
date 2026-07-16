@@ -107,6 +107,27 @@ type GitHubLogDiagnostics interface {
 	LastLogRefetch(jobID int64) (LogRefetchNotice, bool)
 }
 
+type ConcurrencyListOptions struct {
+	PerPage int
+	Before  string
+	After   string
+}
+
+type ConcurrencyAheadFilter struct {
+	AheadOfRun int64
+	AheadOfJob int64
+}
+
+// GitHubConcurrency is an optional adapter capability for GitHub
+// Actions concurrency groups. It stays outside the core GitHub
+// interface so existing test doubles do not grow queue diagnostics
+// accidentally.
+type GitHubConcurrency interface {
+	ListConcurrencyGroups(ctx context.Context, repo string, opts ConcurrencyListOptions) ([]model.ConcurrencyGroupSummary, error)
+	GetConcurrencyGroup(ctx context.Context, repo, groupName string, filter ConcurrencyAheadFilter) (model.ConcurrencyGroup, error)
+	ListRunConcurrencyGroups(ctx context.Context, repo string, runID int64, opts ConcurrencyListOptions) ([]model.ConcurrencyGroup, error)
+}
+
 // RepoInfoProvider is an optional adapter capability: the target
 // repo's default branch, used to pre-fill dispatch refs for foreign
 // repos where the local checkout branch would be a lie.

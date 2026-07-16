@@ -238,6 +238,10 @@ func (c *Client) getRaw(ctx context.Context, resource string, query url.Values) 
 }
 
 func (c *Client) getJSON(ctx context.Context, resource string, query url.Values, out any) error {
+	return c.getJSONWithResponse(ctx, resource, query, out, nil)
+}
+
+func (c *Client) getJSONWithResponse(ctx context.Context, resource string, query url.Values, out any, inspect func(*http.Response)) error {
 	var body []byte
 	err := c.queue.Do(ctx, func(ctx context.Context) error {
 		start := time.Now()
@@ -265,6 +269,9 @@ func (c *Client) getJSON(ctx context.Context, resource string, query url.Values,
 			_ = resp.Body.Close()
 		}()
 		if resp.StatusCode == http.StatusNotModified {
+			if inspect != nil {
+				inspect(resp)
+			}
 			c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: resource, Status: resp.StatusCode, Duration: time.Since(start), IfNoneMatch: ifNoneMatch, RateRemaining: resp.Header.Get("X-RateLimit-Remaining"), Cache: "hit"})
 			cached, ok := c.cache.Body(reqURL)
 			if !ok {
@@ -274,9 +281,15 @@ func (c *Client) getJSON(ctx context.Context, resource string, query url.Values,
 			return nil
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			if inspect != nil {
+				inspect(resp)
+			}
 			c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: resource, Status: resp.StatusCode, Duration: time.Since(start), IfNoneMatch: ifNoneMatch, RateRemaining: resp.Header.Get("X-RateLimit-Remaining"), Cache: "miss"})
 			limited, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 			return mapReadHTTPError(req.Method, resource, resp.StatusCode, resp.Header, bytes.TrimSpace(limited))
+		}
+		if inspect != nil {
+			inspect(resp)
 		}
 		body, err = io.ReadAll(resp.Body)
 		if err != nil {

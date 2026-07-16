@@ -1018,6 +1018,11 @@ type cliGitHub struct {
 	deletedCacheID   int64
 	deletedCacheKey  string
 	deletedCacheRef  string
+
+	concurrencyGroups []model.ConcurrencyGroupSummary
+	concurrencyGroup  model.ConcurrencyGroup
+	runGroups         []model.ConcurrencyGroup
+	concurrencyErr    error
 }
 
 func (g *cliGitHub) ListRuns(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {

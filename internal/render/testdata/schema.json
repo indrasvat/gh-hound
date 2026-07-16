@@ -815,6 +815,327 @@
     }
    }
   },
+  "queue_result": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "repo",
+    "target",
+    "fetched_at",
+    "status",
+    "decision",
+    "summary",
+    "configured_group_count",
+    "groups",
+    "blockers"
+   ],
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "target": {
+     "$ref": "#/$defs/queue_target"
+    },
+    "fetched_at": {
+     "type": "string",
+     "format": "date-time"
+    },
+    "status": {
+     "enum": [
+      "blocked",
+      "not_concurrency",
+      "inactive",
+      "listed",
+      "unsupported",
+      "error"
+     ]
+    },
+    "decision": {
+     "type": "object",
+     "required": [
+      "action",
+      "reason"
+     ],
+     "properties": {
+      "action": {
+       "enum": [
+        "wait",
+        "inspect_gates_or_runner",
+        "normal_watch",
+        "list_only",
+        "unsupported",
+        "error"
+       ]
+      },
+      "confidence": {
+       "type": "string"
+      },
+      "reason": {
+       "type": "string"
+      },
+      "next_commands": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     }
+    },
+    "summary": {
+     "type": "string"
+    },
+    "configured_group_count": {
+     "type": "integer"
+    },
+    "groups": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/queue_group"
+     }
+    },
+    "blockers": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/queue_blocker"
+     }
+    },
+    "error": {
+     "$ref": "#/$defs/queue_error"
+    }
+   }
+  },
+  "queue_target": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "kind"
+   ],
+   "properties": {
+    "kind": {
+     "enum": [
+      "run",
+      "job",
+      "group",
+      "list",
+      "unknown"
+     ]
+    },
+    "run_id": {
+     "type": "integer"
+    },
+    "job_id": {
+     "type": "integer"
+    },
+    "group_name": {
+     "type": "string"
+    }
+   },
+   "oneOf": [
+    {
+     "required": [
+      "kind",
+      "run_id"
+     ],
+     "properties": {
+      "kind": {
+       "const": "run"
+      }
+     }
+    },
+    {
+     "required": [
+      "kind",
+      "job_id"
+     ],
+     "properties": {
+      "kind": {
+       "const": "job"
+      }
+     }
+    },
+    {
+     "required": [
+      "kind",
+      "group_name"
+     ],
+     "properties": {
+      "kind": {
+       "const": "group"
+      }
+     }
+    },
+    {
+     "required": [
+      "kind"
+     ],
+     "properties": {
+      "kind": {
+       "const": "list"
+      }
+     }
+    },
+    {
+     "required": [
+      "kind"
+     ],
+     "properties": {
+      "kind": {
+       "const": "unknown"
+      }
+     }
+    }
+   ]
+  },
+  "queue_group": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "group_name",
+    "scope",
+    "state",
+    "blocked_by_count",
+    "members"
+   ],
+   "properties": {
+    "group_name": {
+     "type": "string"
+    },
+    "group_url": {
+     "type": "string"
+    },
+    "last_acquired_at": {
+     "type": "string",
+     "format": "date-time"
+    },
+    "scope": {
+     "enum": [
+      "workflow",
+      "job",
+      "mixed",
+      "unknown"
+     ]
+    },
+    "state": {
+     "enum": [
+      "blocked",
+      "not_concurrency",
+      "inactive",
+      "listed",
+      "unsupported",
+      "error"
+     ]
+    },
+    "configured_group_count": {
+     "type": "integer"
+    },
+    "active_member_count": {
+     "type": "integer"
+    },
+    "target_position": {
+     "type": "integer"
+    },
+    "blocked_by_count": {
+     "type": "integer"
+    },
+    "members": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/queue_member"
+     }
+    }
+   }
+  },
+  "queue_member": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "run_id",
+    "status"
+   ],
+   "properties": {
+    "run_id": {
+     "type": "integer"
+    },
+    "run_name": {
+     "type": "string"
+    },
+    "run_html_url": {
+     "type": "string"
+    },
+    "job_id": {
+     "type": "integer"
+    },
+    "job_name": {
+     "type": "string"
+    },
+    "job_html_url": {
+     "type": "string"
+    },
+    "status": {
+     "type": "string"
+    },
+    "position": {
+     "type": "integer"
+    },
+    "target": {
+     "type": "boolean"
+    },
+    "blocks_target": {
+     "type": "boolean"
+    }
+   }
+  },
+  "queue_blocker": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "group_name",
+    "run_id",
+    "status"
+   ],
+   "properties": {
+    "group_name": {
+     "type": "string"
+    },
+    "run_id": {
+     "type": "integer"
+    },
+    "job_id": {
+     "type": "integer"
+    },
+    "status": {
+     "type": "string"
+    }
+   }
+  },
+  "queue_error": {
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+    "kind",
+    "message"
+   ],
+   "properties": {
+    "kind": {
+     "enum": [
+      "validation",
+      "auth",
+      "permission",
+      "conflict",
+      "rate_limit",
+      "network",
+      "not_found",
+      "unknown"
+     ]
+    },
+    "field": {
+     "type": "string"
+    },
+    "message": {
+     "type": "string"
+    }
+   }
+  },
   "watch_group_event": {
    "description": "One NDJSON line on the watch --group stream: a run's state transition. Run-level only; job/step fields appear ONLY in single-run watch events.",
    "type": "object",

@@ -25,6 +25,7 @@ Source of truth: `docs/gh-hound-design.html`. Re-read the matching mock before e
 | ⑭ | flakes (the scent check) | hound verdict line colored by status (run-amber flaky, fg suspect, ok clean, dim thin trail); per-job score line `~ build · score 1.00 · flaky · 2 flips · 2 masked retries`; evidence rows with selection bar and run-number/kind/detail columns; failure screen grows the flake panel below the excerpt — focused pane marked with the selection bar, tab toggles, j/k drives the focused pane, enter on evidence opens that run; runs rows badge known flakers with `~` inside the label column |
 | ⑭b | flakes — clean (`flakes-clean` fixture) | the fresh-scent state: ok-green verdict header and a single dim `N runs sniffed on <workflow> · nothing wobbled.` line, no evidence. Unreachable in the flaky fake scenario (it always flips), so this fixture is the only lens on the clean branch |
 | ⑬ | workflows (the pack) | one row per workflow: name, file, themed state badge (✔ active, ◌ asleep, ⊘ muzzled, ⊘ fork-disabled, ✗ deleted; unknown states verbatim with ◇); header columns share the row width math; e toggles only toggleable states (confirm-gated); fork-disabled/deleted carry a why-line instead of the toggle |
+| ⑮ | queue (GitHub queue) | read-only concurrency diagnostics opened by `:queue`; hound verdict line names `blocked`, `not_concurrency`, `inactive`, `listed`, or `unsupported`; blocked rows use ◌ info for the target and ⠹ run for the holder; 80x24 is single-column, 120x40 keeps selected-member detail visible, 200x60 adds only useful diagnosis columns; no ambient runs-list chips in v1; 100-member overflow scrolls or summarizes without layout corruption |
 
 ## Theme Tokens
 
@@ -108,6 +109,7 @@ Footer text must be generated from keymap data, not copied into renderers.
 | flakes | j/k move · ⏎ open run · ⎋ back |
 | caches | j/k move · s sort · / filter · d dig up · D dig up key · ⎋ back · ? |
 | workflows | j/k move · e wake/muzzle · o browser · ⎋ back |
+| queue | j/k move · ⏎ open run · y copy JSON · ⎋ back · ? |
 | palette | workflows · watch · diff · theme |
 | help | : palette · ? close · ⎋ close |
 | toasts | ⎋ dismiss · g dismiss all · r retry · ? help |
