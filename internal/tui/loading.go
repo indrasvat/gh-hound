@@ -38,6 +38,7 @@ const (
 	loadKindDiff      loadKind = "diff"
 	loadKindFlakes    loadKind = "flakes"
 	loadKindCaches    loadKind = "caches"
+	loadKindQueue     loadKind = "queue"
 	loadKindWorkflows loadKind = "workflows"
 )
 

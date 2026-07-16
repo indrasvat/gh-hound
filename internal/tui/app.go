@@ -33,6 +33,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/tui/screens/failure"
 	flakesscreen "github.com/indrasvat/gh-hound/internal/tui/screens/flakes"
 	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
+	queuescreen "github.com/indrasvat/gh-hound/internal/tui/screens/queue"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/runs"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/watch"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/welcome"
@@ -57,6 +58,7 @@ const (
 	RouteDiff       Route = "diff"
 	RouteFlakes     Route = "flakes"
 	RouteCaches     Route = "caches"
+	RouteQueue      Route = "queue"
 	RouteWorkflows  Route = "workflows"
 )
 
@@ -91,6 +93,7 @@ type Options struct {
 	DispatchWorkflowsResolver func(context.Context) ([]dispatch.Workflow, error)
 	DiffResolver              func(context.Context, model.Run) (usecase.RegressionVerdict, error)
 	FlakesResolver            func(context.Context, model.Run) (usecase.FlakeReport, error)
+	QueueResolver             func(context.Context, model.Run) (model.ConcurrencyReport, error)
 	WorkflowsResolver         func(context.Context) ([]model.Workflow, error)
 	RunsMetadata              func() (usecase.RequestMeta, bool)
 	LogRefetchNotice          func(int64) (usecase.LogRefetchNotice, bool)
@@ -150,6 +153,7 @@ type App struct {
 	dispatch                  dispatch.Model
 	diff                      diffscreen.Model
 	flakes                    flakesscreen.Model
+	queue                     queuescreen.Model
 	workflows                 workflowsscreen.Model
 	palette                   palette.Model
 	approvals                 approvals.Model
@@ -171,6 +175,7 @@ type App struct {
 	dispatchWorkflowsResolver func(context.Context) ([]dispatch.Workflow, error)
 	diffResolver              func(context.Context, model.Run) (usecase.RegressionVerdict, error)
 	flakesResolver            func(context.Context, model.Run) (usecase.FlakeReport, error)
+	queueResolver             func(context.Context, model.Run) (model.ConcurrencyReport, error)
 	// flakeReports caches verdicts per (workflow, branch) for the
 	// session; rerun mutations invalidate it so new attempts re-score.
 	flakeReports       map[string]usecase.FlakeReport
@@ -541,6 +546,7 @@ func NewApp(options Options) App {
 		dispatchWorkflowsResolver: options.DispatchWorkflowsResolver,
 		diffResolver:              options.DiffResolver,
 		flakesResolver:            options.FlakesResolver,
+		queueResolver:             options.QueueResolver,
 		flakeReports:              map[string]usecase.FlakeReport{},
 		workflowsResolver:         options.WorkflowsResolver,
 		runsMetadata:              options.RunsMetadata,
@@ -606,6 +612,10 @@ func NewScenarioApp(scenario string, build BuildInfo) App {
 	}
 	app.flakesResolver = func(context.Context, model.Run) (usecase.FlakeReport, error) {
 		return sampleFlakeReport(), nil
+	}
+	app.queue = queuescreen.NewModel(sampleQueueReport())
+	app.queueResolver = func(context.Context, model.Run) (model.ConcurrencyReport, error) {
+		return sampleQueueReport(), nil
 	}
 	app.workflowsResolver = func(context.Context) ([]model.Workflow, error) {
 		return sampleWorkflows(), nil
@@ -782,6 +792,9 @@ func (a App) ViewSize(width, height int) string {
 		}
 	} else {
 		body = toastLayer(a.theme, body, a.toasts, contentWidth(width))
+		if len(a.toasts.Toasts) > 0 {
+			footer = keys.FooterForScreen(keys.ScreenToasts)
+		}
 	}
 	return frameViewSize(a.theme, title, context, right, body, footer, width, height, true)
 }
@@ -829,6 +842,9 @@ func RenderFixtureSize(screen string, width, height int) string {
 	case "runs-waiting":
 		app.runs = sampleWaitingRunsModel()
 		return frameViewSize(app.theme, "hound", "⎇ branch main · @indrasvat", "◔ 4,981/5k live", runs.View(app.runs, bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
+	case "queue":
+		app.queue = queuescreen.NewModel(sampleQueueReport())
+		return frameViewSize(app.theme, "hound", queueContext(app.queue.Report), queueRight(app.queue.Report), queuescreen.ViewSize(app.queue, bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenQueue), width, height, true)
 	case "approvals":
 		app.runs = sampleWaitingRunsModel()
 		app.routes = []Route{RouteRuns}
@@ -1454,6 +1470,8 @@ func (a App) updateRoute(msg KeyMsg) (App, bool) {
 		return a.updateFlakes(msg)
 	case RouteCaches:
 		return a.updateCaches(msg)
+	case RouteQueue:
+		return a.updateQueue(msg)
 	case RouteWorkflows:
 		return a.updateWorkflows(msg)
 	default:
@@ -1587,6 +1605,68 @@ func (a App) updateFlakes(msg KeyMsg) (App, bool) {
 func flakesScreenHandled(key string) bool {
 	switch key {
 	case "j", "k", "down", "up", "enter", "esc":
+		return true
+	default:
+		return false
+	}
+}
+
+// openQueue diagnoses whether the selected run is blocked by a
+// GitHub Actions concurrency group. Like diff/flakes, it routes
+// immediately and resolves off the paint path.
+func (a App) openQueue() App {
+	if a.loadBlocked(loadKindQueue) {
+		return a
+	}
+	run, ok := a.runs.SelectedRun()
+	if !ok {
+		a.pushErrorToast("queue-no-run", usecase.ResilienceFor(fmt.Errorf("no run selected — choose the pending run first"), usecase.ErrorContext{}))
+		return a
+	}
+	a.clearRouteError(RouteQueue)
+	a.queue = queuescreen.Model{}
+	if a.queueResolver == nil {
+		a.setRouteError(RouteQueue, "queue unavailable: live concurrency diagnostics are not configured")
+		a.PushRoute(RouteQueue)
+		return a
+	}
+	resolver := a.queueResolver
+	a = a.startLoad(loadKindQueue, "reading GitHub queue", func(ctx context.Context) func(App) App {
+		report, err := resolver(ctx, run)
+		return func(app App) App {
+			if err != nil {
+				app.setRouteError(RouteQueue, "queue unavailable: "+err.Error())
+				return app
+			}
+			app.queue = queuescreen.NewModel(report)
+			return app
+		}
+	})
+	a.PushRoute(RouteQueue)
+	return a
+}
+
+func (a App) updateQueue(msg KeyMsg) (App, bool) {
+	before := a.queue
+	a.queue = a.queue.Update(queuescreen.KeyMsg{Key: msg.Key})
+	switch a.queue.Intent.Kind {
+	case queuescreen.IntentOpenRun:
+		if a.loadBlocked(loadKindDetail) {
+			break
+		}
+		a = a.loadDetail(a.queue.Intent.Run)
+		a.PushRoute(RouteDetail)
+	case queuescreen.IntentCopy:
+		a = a.copyExternal("queue-json", a.queue.Intent.Text)
+	case queuescreen.IntentBack:
+		a.PopRoute()
+	}
+	return a, queueScreenHandled(msg.Key) || before.Selected != a.queue.Selected || a.queue.Intent.Kind != queuescreen.IntentNone
+}
+
+func queueScreenHandled(key string) bool {
+	switch key {
+	case "j", "k", "down", "up", "g", "G", "enter", "y", "esc":
 		return true
 	default:
 		return false
@@ -2375,7 +2455,7 @@ func (a App) updatePalette(msg KeyMsg) (App, bool) {
 	case "?":
 		a.overlays = append(a.overlays, OverlayHelp)
 		return a, true
-	case "q", "ctrl+c":
+	case "ctrl+c":
 		a.quit = true
 		return a, true
 	}
@@ -2441,6 +2521,9 @@ func (a App) handlePaletteIntent(intent palette.Intent) App {
 	case string(RouteCaches):
 		a.PopOverlay()
 		a = a.openCaches()
+	case string(RouteQueue):
+		a.PopOverlay()
+		a = a.openQueue()
 	case string(RouteDispatch):
 		a = a.openDispatchFromPalette(intent.Value)
 	case string(RouteDiff):
@@ -3975,6 +4058,8 @@ func (a App) footerScreen() keys.Screen {
 		return keys.ScreenFlakes
 	case RouteCaches:
 		return keys.ScreenCaches
+	case RouteQueue:
+		return keys.ScreenQueue
 	case RouteWorkflows:
 		return keys.ScreenWorkflows
 	default:
@@ -4063,6 +4148,11 @@ func (a App) chromeParts() (string, string, string) {
 			return "hound", "the kennel · caches", "fetching…"
 		}
 		return "hound", "the kennel · caches", caches.UsageLine(a.caches.Usage, a.caches.Cap)
+	case RouteQueue:
+		if load := a.load; load != nil && load.kind == loadKindQueue {
+			return "hound", "GitHub queue", "reading…"
+		}
+		return "hound", queueContext(a.queue.Report), queueRight(a.queue.Report)
 	case RouteWorkflows:
 		if load := a.load; load != nil && load.kind == loadKindWorkflows {
 			return "hound", "the pack · workflows", "counting…"
@@ -4137,6 +4227,35 @@ func diffRight(verdict usecase.RegressionVerdict) string {
 	default:
 		return ""
 	}
+}
+
+func queueContext(report model.ConcurrencyReport) string {
+	context := "GitHub queue"
+	switch report.Target.Kind {
+	case model.ConcurrencyTargetRun:
+		if report.Target.RunID != 0 {
+			context += fmt.Sprintf(" %s run %d", icons.Breadcrumb, report.Target.RunID)
+		}
+	case model.ConcurrencyTargetJob:
+		if report.Target.JobID != 0 {
+			context += fmt.Sprintf(" %s job %d", icons.Breadcrumb, report.Target.JobID)
+		}
+	case model.ConcurrencyTargetGroup:
+		if strings.TrimSpace(report.Target.GroupName) != "" {
+			context += " " + icons.Breadcrumb + " " + strings.TrimSpace(report.Target.GroupName)
+		}
+	}
+	return context
+}
+
+func queueRight(report model.ConcurrencyReport) string {
+	if report.Status == "" {
+		return ""
+	}
+	if report.Status == model.ConcurrencyStatusBlocked {
+		return fmt.Sprintf("%d ahead", len(report.Blockers))
+	}
+	return string(report.Status)
 }
 
 func workflowsRight(m workflowsscreen.Model) string {
@@ -4269,6 +4388,7 @@ func paletteItems(workflows []dispatch.Workflow) []palette.Item {
 		{Name: "approvals", Description: "review the deploy gate", Route: "approvals"},
 		{Name: "diff", Description: "who broke main? · the trail", Route: string(RouteDiff)},
 		{Name: "flakes", Description: "flaky or real? · the scent check", Route: string(RouteFlakes)},
+		{Name: "queue", Description: "GitHub queue · concurrency blockers", Route: string(RouteQueue)},
 		{Name: "caches", Description: "the kennel · cache usage & eviction", Route: string(RouteCaches)},
 		{Name: "workflows", Description: "the pack · states, wake & muzzle", Route: string(RouteWorkflows)},
 	}
@@ -4391,6 +4511,11 @@ func (a App) screenBody(width, height int) string {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())
 		}
 		return caches.ViewSize(a.caches, bodyWidth, bodyHeight(height), time.Now())
+	case RouteQueue:
+		if load := a.load; load != nil && load.kind == loadKindQueue {
+			return loadingBody(a.theme, load, bodyWidth, time.Now())
+		}
+		return queuescreen.ViewSize(a.queue, bodyWidth, bodyHeight(height))
 	case RouteWorkflows:
 		if load := a.load; load != nil && load.kind == loadKindWorkflows {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())
@@ -4455,6 +4580,11 @@ func (a App) unloadedRouteBody(route Route, width int) (string, bool) {
 		pendingWorkflows := a.load != nil && a.load.kind == loadKindWorkflows
 		if len(a.workflows.Workflows) == 0 && !pendingWorkflows {
 			message = "the pack is empty: no workflows loaded"
+		}
+	case RouteQueue:
+		pendingQueue := a.load != nil && a.load.kind == loadKindQueue
+		if a.queue.Report.Status == "" && !pendingQueue {
+			message = "GitHub queue unavailable: select a run and jump with :queue"
 		}
 	}
 	if message == "" {
@@ -4640,6 +4770,49 @@ func sampleDetailModel() detail.Model {
 
 func DetailModelForRun(run model.Run) detail.Model {
 	return detail.NewModel(run, nil)
+}
+
+func sampleQueueReport() model.ConcurrencyReport {
+	pos0, pos1 := 0, 1
+	holder := model.ConcurrencyMember{
+		RunID:        30433642,
+		RunName:      "Deploy",
+		RunHTMLURL:   "https://github.com/indrasvat/gh-hound/actions/runs/30433642",
+		Status:       model.StatusInProgress,
+		Position:     &pos0,
+		BlocksTarget: true,
+	}
+	target := model.ConcurrencyMember{
+		RunID:      30433644,
+		RunName:    "Deploy",
+		RunHTMLURL: "https://github.com/indrasvat/gh-hound/actions/runs/30433644",
+		Status:     model.StatusPending,
+		Position:   &pos1,
+		Target:     true,
+	}
+	groupCount := 1
+	group := model.ConcurrencyGroup{
+		GroupName:            "deploy-prod",
+		GroupURL:             "https://api.github.com/repos/indrasvat/gh-hound/actions/concurrency_groups/deploy-prod",
+		ConfiguredGroupCount: &groupCount,
+		ActiveMemberCount:    2,
+		TargetPosition:       &pos1,
+		Members:              []model.ConcurrencyMember{holder, target},
+	}
+	return model.ConcurrencyReport{
+		Repo:   "indrasvat/gh-hound",
+		Target: model.ConcurrencyTarget{Kind: model.ConcurrencyTargetRun, RunID: 30433644},
+		Status: model.ConcurrencyStatusBlocked,
+		Decision: model.ConcurrencyDecision{
+			Action:     model.ConcurrencyActionWait,
+			Confidence: "high",
+			Reason:     "target is pending behind a GitHub Actions concurrency group",
+		},
+		Summary:              "1 item(s) ahead of target",
+		ConfiguredGroupCount: 1,
+		Groups:               []model.ConcurrencyGroup{group},
+		Blockers:             []model.ConcurrencyMember{holder},
+	}
 }
 
 func job(id int64, name string, conclusion model.Conclusion, started time.Time, elapsed time.Duration) model.Job {

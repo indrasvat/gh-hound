@@ -159,7 +159,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.PersistentFlags().StringVar((*string)(&options.Format), "format", "json", "pipe output format: json, md, xml (env HOUND_FORMAT)")
 	cmd.PersistentFlags().StringVar(&options.LogLevel, "log-level", "info", "log level: off, error, warn, info, debug (env HOUND_LOG_LEVEL)")
 	cmd.PersistentFlags().BoolVar(&options.TraceHTTP, "trace-http", false, "trace GitHub API calls to the JSON log (env HOUND_TRACE_HTTP)")
-	cmd.PersistentFlags().StringVar(&options.Fake, "fake-scenario", "", "deterministic fake scenario: green, failure, pending, empty, api_error, conflict, permission, waiting, regression, pack, flaky (env HOUND_FAKE_SCENARIO)")
+	cmd.PersistentFlags().StringVar(&options.Fake, "fake-scenario", "", "deterministic fake scenario: green, failure, pending, empty, api_error, conflict, permission, waiting, regression, pack, flaky, queue (env HOUND_FAKE_SCENARIO)")
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		applyEnv(&options, runtime.Env)
 		return nil
@@ -179,6 +179,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.AddCommand(newCancelCommand(runtime, &options))
 	cmd.AddCommand(newDiffCommand(runtime, &options))
 	cmd.AddCommand(newFlakesCommand(runtime, &options))
+	cmd.AddCommand(newQueueCommand(runtime, &options))
 	cmd.AddCommand(newWorkflowsCommand(runtime, &options))
 	return cmd
 }
@@ -1395,6 +1396,14 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			// over the launch branch (diff precedent).
 			return service.Scan(loadCtx, launch.Repo, workflow, firstNonEmptyString(run.HeadBranch, launch.Branch))
 		},
+		QueueResolver: func(loadCtx context.Context, run model.Run) (model.ConcurrencyReport, error) {
+			concurrency, ok := githubClient.(usecase.GitHubConcurrency)
+			if !ok {
+				return model.ConcurrencyReport{}, fmt.Errorf("this GitHub adapter does not expose Actions concurrency groups")
+			}
+			service := usecase.QueueService{GitHub: concurrency, Jobs: githubClient}
+			return service.InspectRun(loadCtx, launch.Repo, run.ID)
+		},
 		DispatchWorkflowsResolver: func(loadCtx context.Context) ([]dispatch.Workflow, error) {
 			workflows, err := dispatchWorkflowModels(loadCtx, githubClient, launch)
 			if err != nil {
@@ -2233,6 +2242,8 @@ func fakeScenarioFor(scenario string) fake.Scenario {
 		return fake.ScenarioPack
 	case "flaky":
 		return fake.ScenarioFlaky
+	case "queue":
+		return fake.ScenarioQueue
 	default:
 		return fake.ScenarioGreen
 	}
@@ -2493,6 +2504,9 @@ func normalizedScenario(options cliOptions) string {
 	case "flaky", "flake", "flakes":
 		// Seeded attempt flips + a retry-masked step for flake forensics.
 		return "flaky"
+	case "queue":
+		// Seeded Actions concurrency-group blocker for queue diagnostics.
+		return "queue"
 	}
 	status := strings.ToLower(strings.TrimSpace(options.Status))
 	switch status {

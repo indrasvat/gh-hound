@@ -34,6 +34,7 @@ const (
 	ScenarioRegression   Scenario = "regression"
 	ScenarioPack         Scenario = "pack"
 	ScenarioFlaky        Scenario = "flaky"
+	ScenarioQueue        Scenario = "queue"
 )
 
 type Adapter struct {
@@ -96,6 +97,13 @@ func (a *Adapter) listScenarioRuns() ([]model.Run, error) {
 		return a.packRuns(), nil
 	case ScenarioFlaky:
 		return flakyHistory(), nil
+	case ScenarioQueue:
+		run := greenRun(644)
+		run.ID = queueRunID
+		run.Status = model.StatusPending
+		run.Conclusion = model.ConclusionNone
+		run.HTMLURL = "https://github.com/indrasvat/gh-hound/actions/runs/30433644"
+		return []model.Run{run, greenRun(642)}, nil
 	case ScenarioRateLimited:
 		return nil, usecase.APIError{
 			Kind:       usecase.APIErrorRateLimit,
@@ -145,8 +153,13 @@ func (a *Adapter) ListJobsForAttempt(ctx context.Context, repo string, runID int
 	return a.ListJobs(ctx, repo, runID)
 }
 
-func (a *Adapter) GetJob(context.Context, string, int64) (model.Job, error) {
-	return job(), nil
+func (a *Adapter) GetJob(ctx context.Context, repo string, id int64) (model.Job, error) {
+	j := job()
+	if a.scenario == ScenarioQueue && id == queueJobID {
+		j.ID = queueJobID
+		j.RunID = queueRunID
+	}
+	return j, nil
 }
 
 // ListWorkflows covers every documented workflow state so badge,
@@ -449,6 +462,52 @@ func (a *Adapter) actionResult(action usecase.Action, repo string, runID, jobID 
 
 func fakeRateLimitReset() time.Time {
 	return time.Date(2026, 6, 9, 20, 4, 0, 0, time.UTC)
+}
+
+const (
+	queueRunID    int64 = 30433644
+	queueHolderID int64 = 30433642
+	queueJobID    int64 = 798245260
+)
+
+func (a *Adapter) ListConcurrencyGroups(context.Context, string, usecase.ConcurrencyListOptions) ([]model.ConcurrencyGroupSummary, error) {
+	if a.scenario == ScenarioQueue {
+		at := time.Date(2026, 7, 15, 4, 10, 0, 0, time.UTC)
+		return []model.ConcurrencyGroupSummary{{
+			GroupName:      "deploy-prod",
+			GroupURL:       "https://api.github.com/repos/indrasvat/gh-hound/actions/concurrency_groups/deploy-prod",
+			LastAcquiredAt: &at,
+		}}, nil
+	}
+	return []model.ConcurrencyGroupSummary{}, nil
+}
+
+func (a *Adapter) GetConcurrencyGroup(_ context.Context, _ string, groupName string, _ usecase.ConcurrencyAheadFilter) (model.ConcurrencyGroup, error) {
+	if a.scenario != ScenarioQueue || !model.SameConcurrencyGroup(groupName, "deploy-prod") {
+		return model.ConcurrencyGroup{GroupName: groupName}, nil
+	}
+	pos0, pos1 := 0, 1
+	return model.ConcurrencyGroup{
+		GroupName:         "deploy-prod",
+		GroupURL:          "https://api.github.com/repos/indrasvat/gh-hound/actions/concurrency_groups/deploy-prod",
+		ActiveMemberCount: 2,
+		TargetPosition:    &pos1,
+		Members: []model.ConcurrencyMember{
+			{RunID: queueHolderID, RunName: "Deploy", RunHTMLURL: "https://github.com/indrasvat/gh-hound/actions/runs/30433642", Status: model.StatusInProgress, Position: &pos0},
+			{RunID: queueRunID, RunName: "Deploy", RunHTMLURL: "https://github.com/indrasvat/gh-hound/actions/runs/30433644", Status: model.StatusPending, Position: &pos1, Target: true},
+		},
+	}, nil
+}
+
+func (a *Adapter) ListRunConcurrencyGroups(ctx context.Context, repo string, runID int64, _ usecase.ConcurrencyListOptions) ([]model.ConcurrencyGroup, error) {
+	if a.scenario != ScenarioQueue || runID != queueRunID {
+		return []model.ConcurrencyGroup{}, nil
+	}
+	group, err := a.GetConcurrencyGroup(ctx, repo, "deploy-prod", usecase.ConcurrencyAheadFilter{AheadOfRun: runID})
+	if err != nil {
+		return nil, err
+	}
+	return []model.ConcurrencyGroup{group}, nil
 }
 
 func greenRun(number int) model.Run {

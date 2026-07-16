@@ -17,6 +17,7 @@ const (
 	ScreenDiff       Screen = "diff"
 	ScreenFlakes     Screen = "flakes"
 	ScreenCaches     Screen = "caches"
+	ScreenQueue      Screen = "queue"
 	ScreenWorkflows  Screen = "workflows"
 	ScreenPalette    Screen = "palette"
 	ScreenHelp       Screen = "help"
@@ -125,6 +126,13 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "/", Action: "filter", Help: "filter", ShowInFooter: true},
 		{Key: "d", Action: "dig_up", Help: "dig up", ShowInFooter: true},
 		{Key: "D", Action: "dig_up_key", Help: "dig up key", ShowInFooter: true},
+		{Key: "esc", Display: "⎋", Action: "back", Help: "back", ShowInFooter: true},
+		{Key: "?", Action: "help", Help: "", ShowInFooter: true},
+	},
+	ScreenQueue: {
+		{Key: "j/k", Action: "move", Help: "move", ShowInFooter: true},
+		{Key: "enter", Display: "⏎", Action: "open_run", Help: "open run", ShowInFooter: true},
+		{Key: "y", Action: "copy_json", Help: "copy JSON", ShowInFooter: true},
 		{Key: "esc", Display: "⎋", Action: "back", Help: "back", ShowInFooter: true},
 		{Key: "?", Action: "help", Help: "", ShowInFooter: true},
 	},
