@@ -98,6 +98,24 @@ func TestQueueResultFromReportPreservesActiveMemberCount(t *testing.T) {
 	}
 }
 
+func TestQueueResultFromReportPreservesKnownZeroActiveMemberCount(t *testing.T) {
+	report := model.ConcurrencyReport{
+		Repo:      "indrasvat/gh-hound",
+		Status:    model.ConcurrencyStatusListed,
+		FetchedAt: time.Date(2026, 7, 16, 20, 0, 0, 0, time.UTC),
+		Target:    model.ConcurrencyTarget{Kind: model.ConcurrencyTargetGroup, GroupName: "deploy-prod"},
+		Decision: model.ConcurrencyDecision{
+			Action: model.ConcurrencyActionListOnly,
+			Reason: "listed concurrency group members",
+		},
+		Groups: []model.ConcurrencyGroup{{GroupName: "deploy-prod"}},
+	}
+	result := QueueResultFromReport(report)
+	if result.Groups[0].ActiveMemberCount == nil || *result.Groups[0].ActiveMemberCount != 0 {
+		t.Fatalf("active_member_count = %v, want known zero", result.Groups[0].ActiveMemberCount)
+	}
+}
+
 func TestQueueMarkdownAndXMLAreStructured(t *testing.T) {
 	result := fixtureQueueResult()
 	var md bytes.Buffer

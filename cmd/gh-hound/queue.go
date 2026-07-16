@@ -111,6 +111,9 @@ func writeQueueResult(ctx context.Context, w io.Writer, options cliOptions, runt
 	case request.groups:
 		groupResult, err := queueGroupsResult(ctx, repo, concurrency)
 		if err != nil {
+			if isQueueUnsupported(ctx, err, request, repo, githubClient) {
+				return writeQueueUnsupported(w, format, result)
+			}
 			return refuse(queueErrorKind(err), "", err.Error())
 		}
 		if err := render.WriteQueue(w, format, groupResult); err != nil {
@@ -134,6 +137,9 @@ func writeQueueResult(ctx context.Context, w io.Writer, options cliOptions, runt
 		report, err = service.InspectRun(ctx, repo, request.runID)
 	}
 	if err != nil {
+		if isQueueUnsupported(ctx, err, request, repo, githubClient) {
+			return writeQueueUnsupported(w, format, result)
+		}
 		return refuse(queueErrorKind(err), "", err.Error())
 	}
 	result = render.QueueResultFromReport(report)
@@ -149,6 +155,44 @@ func writeQueueResult(ctx context.Context, w io.Writer, options cliOptions, runt
 func isQueueInactive(err error) bool {
 	var apiErr usecase.APIError
 	return errors.As(err, &apiErr) && apiErr.Kind == usecase.APIErrorNotFound
+}
+
+type queueRunGetter interface {
+	GetRun(context.Context, string, int64) (model.Run, error)
+}
+
+func isQueueUnsupported(ctx context.Context, err error, request queueRequest, repo string, githubClient any) bool {
+	var apiErr usecase.APIError
+	if !errors.As(err, &apiErr) || apiErr.Kind != usecase.APIErrorNotFound {
+		return false
+	}
+	switch {
+	case request.groupName != "":
+		return false
+	case request.runID > 0:
+		runs, ok := githubClient.(queueRunGetter)
+		if !ok {
+			return true
+		}
+		_, lookupErr := runs.GetRun(ctx, repo, request.runID)
+		return lookupErr == nil
+	default:
+		return true
+	}
+}
+
+func writeQueueUnsupported(w io.Writer, format render.Format, result render.QueueResult) error {
+	result.Status = string(model.ConcurrencyStatusUnsupported)
+	result.Decision = render.QueueDecision{
+		Action:     string(model.ConcurrencyActionUnsupported),
+		Confidence: "high",
+		Reason:     "this GitHub host does not expose Actions concurrency groups",
+	}
+	result.Summary = "Actions concurrency groups are unavailable on this GitHub host"
+	if err := render.WriteQueue(w, format, result); err != nil {
+		return err
+	}
+	return nil
 }
 
 func validateQueueRequest(request queueRequest) error {

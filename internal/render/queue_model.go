@@ -7,15 +7,11 @@ import (
 func QueueResultFromReport(report model.ConcurrencyReport) QueueResult {
 	groups := make([]QueueGroup, 0, len(report.Groups))
 	for _, group := range report.Groups {
-		var activeMemberCount *int
-		if len(group.Members) > 0 {
-			count := len(group.Members)
-			activeMemberCount = &count
+		count := group.ActiveMemberCount
+		if count == 0 && len(group.Members) > 0 {
+			count = len(group.Members)
 		}
-		if group.ActiveMemberCount > 0 {
-			count := group.ActiveMemberCount
-			activeMemberCount = &count
-		}
+		activeMemberCount := &count
 		members := make([]QueueMember, 0, len(group.Members))
 		for _, member := range group.Members {
 			members = append(members, QueueMember{
@@ -73,9 +69,6 @@ func queueGroupState(status model.ConcurrencyStatus, group model.ConcurrencyGrou
 	}
 	if group.BlockedByCount() > 0 {
 		return string(model.ConcurrencyStatusBlocked)
-	}
-	if len(group.Members) == 0 {
-		return string(model.ConcurrencyStatusNotConcurrency)
 	}
 	return string(model.ConcurrencyStatusNotConcurrency)
 }

@@ -206,7 +206,6 @@ func buildQueueReport(repo string, target model.ConcurrencyTarget, groups []mode
 		Repo:                 repo,
 		Target:               target,
 		FetchedAt:            time.Now().UTC(),
-		Groups:               groups,
 		ConfiguredGroupCount: configuredGroupCount(groups),
 	}
 	for i := range groups {
@@ -248,6 +247,15 @@ func markConcurrencyTargets(groups []model.ConcurrencyGroup, target model.Concur
 	for i := range out {
 		members := make([]model.ConcurrencyMember, len(out[i].Members))
 		copy(members, out[i].Members)
+		hasExactJobTarget := false
+		if target.Kind == model.ConcurrencyTargetJob {
+			for _, member := range members {
+				if member.RunID == target.RunID && member.JobID != nil && *member.JobID == target.JobID {
+					hasExactJobTarget = true
+					break
+				}
+			}
+		}
 		for j := range members {
 			switch target.Kind {
 			case model.ConcurrencyTargetRun:
@@ -255,7 +263,7 @@ func markConcurrencyTargets(groups []model.ConcurrencyGroup, target model.Concur
 					members[j].Target = true
 				}
 			case model.ConcurrencyTargetJob:
-				if members[j].RunID == target.RunID && (members[j].JobID == nil || *members[j].JobID == target.JobID) {
+				if members[j].RunID == target.RunID && queueMemberMatchesJobTarget(members[j], target.JobID, hasExactJobTarget) {
 					members[j].Target = true
 				}
 			}
@@ -267,6 +275,13 @@ func markConcurrencyTargets(groups []model.ConcurrencyGroup, target model.Concur
 		out[i].Members = members
 	}
 	return out
+}
+
+func queueMemberMatchesJobTarget(member model.ConcurrencyMember, jobID int64, hasExactJobTarget bool) bool {
+	if member.JobID != nil {
+		return *member.JobID == jobID
+	}
+	return !hasExactJobTarget
 }
 
 func mergeConfiguredQueueEvidence(configured, live model.ConcurrencyGroup, target model.ConcurrencyTarget, filter ConcurrencyAheadFilter) model.ConcurrencyGroup {

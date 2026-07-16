@@ -289,6 +289,45 @@ func TestQueueServiceInspectJobMarksWorkflowScopedTarget(t *testing.T) {
 	}
 }
 
+func TestQueueServiceInspectJobPrefersExactJobTarget(t *testing.T) {
+	ctx := context.Background()
+	jobID := int64(798245260)
+	holderJobID := int64(798245259)
+	pos0, pos1, pos2 := 0, 1, 2
+	github := &queueTestGitHub{
+		job: model.Job{ID: jobID, RunID: 30433644, Name: "build"},
+		runGroups: []model.ConcurrencyGroup{{
+			GroupName: "ci-build",
+			Members: []model.ConcurrencyMember{
+				{RunID: 30433644, Status: model.StatusPending, Position: &pos1},
+				{RunID: 30433644, JobID: &jobID, Status: model.StatusPending, Position: &pos2},
+			},
+		}},
+		group: model.ConcurrencyGroup{
+			GroupName: "ci-build",
+			Members: []model.ConcurrencyMember{
+				{RunID: 30433642, JobID: &holderJobID, Status: model.StatusInProgress, Position: &pos0},
+				{RunID: 30433644, Status: model.StatusPending, Position: &pos1},
+				{RunID: 30433644, JobID: &jobID, Status: model.StatusPending, Position: &pos2},
+			},
+		},
+	}
+
+	report, err := (QueueService{GitHub: github, Jobs: github}).InspectJob(ctx, "indrasvat/gh-hound", jobID)
+	if err != nil {
+		t.Fatalf("InspectJob returned error: %v", err)
+	}
+	if report.Groups[0].Members[1].Target {
+		t.Fatalf("workflow-scoped same-run member should not be target when exact job member exists: %#v", report.Groups[0].Members)
+	}
+	if !report.Groups[0].Members[2].Target {
+		t.Fatalf("exact job member was not marked target: %#v", report.Groups[0].Members)
+	}
+	if got := report.BlockedByCount(); got != 2 {
+		t.Fatalf("blocked-by count = %d, want members before exact job target", got)
+	}
+}
+
 func TestQueueServiceInspectJobResolvesParentRun(t *testing.T) {
 	ctx := context.Background()
 	jobID := int64(798245260)

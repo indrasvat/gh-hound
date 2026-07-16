@@ -89,6 +89,49 @@ func TestQueueGroupsAPIErrorReturnsTypedEnvelope(t *testing.T) {
 	}
 }
 
+func TestQueueGroupsEndpointNotFoundReturnsUnsupported(t *testing.T) {
+	github := &cliGitHub{
+		concurrencyErr: usecase.APIError{Kind: usecase.APIErrorNotFound, Status: 404, Message: "Not Found"},
+	}
+	code, out, err := runQueueCommand(t, commandRuntime{
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main", Actor: "indrasvat"}},
+		IsTTY:  true,
+	}, "--groups", "--no-tui", "--json")
+	if code != 0 || err != nil {
+		t.Fatalf("exit = %d err = %v, want unsupported exit 0\n%s", code, err, out)
+	}
+	decoded := decodeJSON(t, []byte(out))
+	if decoded["status"] != string(model.ConcurrencyStatusUnsupported) {
+		t.Fatalf("status = %v, want unsupported\n%s", decoded["status"], out)
+	}
+	decision := decoded["decision"].(map[string]any)
+	if decision["action"] != string(model.ConcurrencyActionUnsupported) {
+		t.Fatalf("decision.action = %v, want unsupported\n%s", decision["action"], out)
+	}
+}
+
+func TestQueueRunEndpointNotFoundAfterRunLookupReturnsUnsupported(t *testing.T) {
+	github := &cliGitHub{
+		runByID: map[int64]model.Run{
+			30433644: {ID: 30433644, Status: model.StatusPending},
+		},
+		concurrencyErr: usecase.APIError{Kind: usecase.APIErrorNotFound, Status: 404, Message: "Not Found"},
+	}
+	code, out, err := runQueueCommand(t, commandRuntime{
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main", Actor: "indrasvat"}},
+		IsTTY:  true,
+	}, "--run", "30433644", "--no-tui", "--json")
+	if code != 0 || err != nil {
+		t.Fatalf("exit = %d err = %v, want unsupported exit 0\n%s", code, err, out)
+	}
+	decoded := decodeJSON(t, []byte(out))
+	if decoded["status"] != string(model.ConcurrencyStatusUnsupported) {
+		t.Fatalf("status = %v, want unsupported\n%s", decoded["status"], out)
+	}
+}
+
 func TestQueueRequiresExactlyOneTargetMode(t *testing.T) {
 	code, out, _ := runQueueCommand(t, commandRuntime{IsTTY: true},
 		"--run", "30433644", "--groups", "--no-tui", "--json", "--fake-scenario", "queue")
