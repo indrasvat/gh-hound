@@ -7,6 +7,8 @@
 ```bash
 gh hound runs --no-tui --json
 gh hound runs --status failure --no-tui --json
+gh hound runs --all --no-tui --json
+gh hound runs --branch <ref> --no-tui --json
 gh hound watch --json
 gh hound watch --group --no-tui
 gh hound runs --run <run-id> --no-tui --json
@@ -38,6 +40,28 @@ gh hound runs --no-tui --format xml
 ```
 
 `--json` always forces JSON and disables the TUI. Piped stdout also defaults to JSON. Every CLI flag has an environment-variable equivalent where documented in `--help`.
+
+## Targeting Release And Tag Workflows
+
+`runs` is branch-scoped by default because normal PR fix loops start from the current checkout branch. Release, tag-push, and branchless workflows can live outside that branch filter. When a branch-scoped query returns an empty `runs[]`, the envelope may include:
+
+```json
+{
+  "diagnostic": {
+    "kind": "target_mismatch",
+    "scope": "branch",
+    "message": "No runs matched branch \"release/v1\". Release, tag, or branchless workflows may live outside branch scope; try repo-wide discovery or target a run id.",
+    "next_commands": [
+      "gh hound runs -R owner/repo --all --no-tui --json",
+      "gh hound runs -R owner/repo --branch <ref> --no-tui --json",
+      "gh hound runs -R owner/repo --run <id> --no-tui --json",
+      "gh hound watch -R owner/repo --group --run <run-id> --no-tui --timeout 10m"
+    ]
+  }
+}
+```
+
+Branch on `diagnostic.kind == "target_mismatch"` before concluding that CI is absent. A sound release/tag loop is: try the scoped query, widen with `--all` or an explicit `--branch <ref>` if the diagnostic appears, then pin the exact run with `--run <id>` for forensics or `watch -R owner/repo --group --run <id> --timeout 10m` for a bounded await.
 
 ## Exit Codes
 
@@ -228,7 +252,7 @@ Rehearse deterministically with `--fake-scenario green` (the fake fleet covers a
 
 ## JSON Contract
 
-The JSON schema lives at `internal/render/testdata/schema.json` (mutation envelope under `$defs.mutation_result`, approvals envelope under `$defs.approvals_result`, queue verdict under `$defs.queue_result`, regression verdict under `$defs.diff_result`, caches envelope under `$defs.caches_result`, workflows envelope under `$defs.workflows_result`, pack stream under `$defs.watch_group_event` / `$defs.watch_group_summary`, flake verdict under `$defs.flakes_result`); the canonical failure fixture lives at `internal/render/testdata/failure.golden.json`.
+The JSON schema lives at `internal/render/testdata/schema.json` (`diagnostic` on the top-level runs result, mutation envelope under `$defs.mutation_result`, approvals envelope under `$defs.approvals_result`, queue verdict under `$defs.queue_result`, regression verdict under `$defs.diff_result`, caches envelope under `$defs.caches_result`, workflows envelope under `$defs.workflows_result`, pack stream under `$defs.watch_group_event` / `$defs.watch_group_summary`, flake verdict under `$defs.flakes_result`); the canonical failure fixture lives at `internal/render/testdata/failure.golden.json`.
 
 
 Each run includes:
@@ -236,6 +260,8 @@ Each run includes:
 - `id`, `workflow`, `run_number`, `event`, `head_branch`, `head_sha`.
 - `status`, `conclusion`, `created_at`, `html_url`.
 - `failed[]` entries with `job`, `step`, `exit_code`, `annotations[]`, and `log_excerpt`.
+
+Empty branch-scoped results can include top-level `diagnostic` with `kind`, `scope`, `message`, and `next_commands[]`. The currently documented kind is `target_mismatch`.
 
 `runs --run <id>` narrows the listing to one run (any branch); add `--attempt <n>` to triage a specific attempt's jobs and logs -- the forensics path for failures that were later re-run to green. `--attempt` requires `--run` (exit `2` otherwise). Failure excerpts are timestamp-stripped and end at the terminal `##[error]` line.
 
@@ -261,6 +287,7 @@ For local tests and docs, use fake scenarios:
 ./bin/gh-hound runs --no-tui --json --fake-scenario green
 ./bin/gh-hound runs --no-tui --json --fake-scenario failure
 ./bin/gh-hound runs --no-tui --json --fake-scenario pending
+./bin/gh-hound runs --branch release/v1 --no-tui --json --fake-scenario empty
 ./bin/gh-hound runs --no-tui --json --fake-scenario api_error
 ./bin/gh-hound watch --json --fake-scenario failure
 ```

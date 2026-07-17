@@ -167,7 +167,11 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 
 	if len(runs) == 0 && result.Scope == LaunchScopeBranch {
 		result.Scope = LaunchScopeRepo
-		result.Notice = fmt.Sprintf("no runs on %s — showing all branches", result.Branch)
+		if diagnostic, ok := EmptyBranchRunDiagnostic(result.Repo, result.Branch); ok {
+			result.Notice = diagnostic.Message + " Showing all branches now."
+		} else {
+			result.Notice = fmt.Sprintf("no runs on %s — showing all branches", result.Branch)
+		}
 		runs, err = s.GitHub.ListRuns(ctx, RunFilter{Repo: result.Repo, PerPage: perPage, Page: result.Page})
 		if err != nil {
 			result.State = LaunchStateError

@@ -852,36 +852,42 @@ func writeGroupWatchResult(ctx context.Context, w io.Writer, options cliOptions,
 	if err != nil {
 		return err
 	}
-	if len(listed) == 0 {
-		return errors.New("no runs found to watch; pass --run <run-id> or push something")
-	}
-	// Anchor on the newest still-live run (the pack worth watching);
-	// when everything has settled, fall back to the newest run.
-	anchor := listed[0]
-	for _, run := range listed {
-		if run.Status != model.StatusCompleted {
-			anchor = run
-			break
-		}
-	}
+	var anchor model.Run
 	if options.RunID != 0 {
-		found := false
 		for _, run := range listed {
 			if run.ID == options.RunID {
 				anchor = run
-				found = true
 				break
 			}
 		}
-		if !found {
+		if anchor.ID == 0 {
 			anchor, err = githubClient.GetRun(ctx, repo, options.RunID)
 			if err != nil {
 				return err
 			}
 		}
+		if anchor.ID == 0 {
+			return fmt.Errorf("run %d not found", options.RunID)
+		}
+	} else if len(listed) == 0 {
+		return errors.New("no runs found to watch; pass --run <run-id> or push something")
+	} else {
+		// Anchor on the newest still-live run (the pack worth watching);
+		// when everything has settled, fall back to the newest run.
+		anchor = listed[0]
+		for _, run := range listed {
+			if run.Status != model.StatusCompleted {
+				anchor = run
+				break
+			}
+		}
 	}
 
 	service := usecase.PackWatchService{Runs: githubClient, MinPoll: cfg.PollMin, MaxPoll: cfg.PollMax}
+	packBranch := firstNonEmptyString(anchor.HeadBranch, branch)
+	if options.RunID != 0 {
+		packBranch = strings.TrimSpace(anchor.HeadBranch)
+	}
 	state := usecase.PackState{
 		Repo:    repo,
 		HeadSHA: anchor.HeadSHA,
@@ -889,7 +895,7 @@ func writeGroupWatchResult(ctx context.Context, w io.Writer, options cliOptions,
 		// The anchor's own branch scopes the ticks: a --run anchor can
 		// live on a branch the launch never resolved, and listing the
 		// wrong branch would never refresh it (ghent Codex P2).
-		Branch: firstNonEmptyString(anchor.HeadBranch, branch),
+		Branch: packBranch,
 		Max:    cfg.WatchGroupMax,
 		Runs:   usecase.PackForRun(listed, anchor, cfg.WatchGroupMax),
 	}
@@ -2081,7 +2087,37 @@ func liveResult(ctx context.Context, options cliOptions, runtime commandRuntime)
 	if options.WithApprovals {
 		attachApprovals(ctx, usecase.ApprovalsService{GitHub: githubClient}, repo, runs, renderRuns)
 	}
-	return render.Result{Repo: repo, Branch: branch, Runs: renderRuns}, nil
+	diagnostic := runDiagnosticForOptions(ctx, githubClient, options, repo, branch, renderRuns)
+	return render.Result{Repo: repo, Branch: branch, Runs: renderRuns, Diagnostic: diagnostic}, nil
+}
+
+func runDiagnosticForOptions(ctx context.Context, githubClient usecase.GitHub, options cliOptions, repo, branch string, runs []render.Run) *render.Diagnostic {
+	if len(runs) > 0 || options.RunID != 0 || options.All || strings.TrimSpace(branch) == "" {
+		return nil
+	}
+	if strings.TrimSpace(options.Status) != "" && githubClient != nil {
+		branchRuns, err := githubClient.ListRuns(ctx, usecase.RunFilter{Repo: repo, Branch: branch, PerPage: 1})
+		if err != nil {
+			return nil
+		}
+		if len(branchRuns) > 0 {
+			return nil
+		}
+	}
+	return renderDiagnosticForEmptyBranch(repo, branch)
+}
+
+func renderDiagnosticForEmptyBranch(repo, branch string) *render.Diagnostic {
+	diagnostic, ok := usecase.EmptyBranchRunDiagnostic(repo, branch)
+	if !ok {
+		return nil
+	}
+	return &render.Diagnostic{
+		Kind:         string(diagnostic.Kind),
+		Scope:        diagnostic.Scope,
+		Message:      diagnostic.Message,
+		NextCommands: append([]string{}, diagnostic.NextCommands...),
+	}
 }
 
 // attachApprovals fills pending_environments for waiting runs in
@@ -2439,7 +2475,9 @@ func fakeResult(options cliOptions, scenario string) render.Result {
 		conclusion = ""
 	}
 	if scenario == "empty" {
-		return render.Result{Repo: repo, Branch: branch, Runs: []render.Run{}}
+		runs := []render.Run{}
+		diagnostic := runDiagnosticForOptions(context.Background(), nil, options, repo, branch, runs)
+		return render.Result{Repo: repo, Branch: branch, Runs: runs, Diagnostic: diagnostic}
 	}
 	run := render.Run{
 		ID:         30433642,

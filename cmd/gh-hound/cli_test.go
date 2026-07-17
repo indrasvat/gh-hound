@@ -665,6 +665,167 @@ func TestAgentSurfaceFakeScenariosExitCodesAndSchema(t *testing.T) {
 	}
 }
 
+func TestRunsEmptyBranchScopedJSONIncludesTargetMismatchDiagnostic(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: io.Discard,
+		Env:    emptyEnv,
+		IsTTY:  true,
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--no-tui", "--json", "--fake-scenario", "empty", "--branch", "release/v1"})
+
+	code, err := executeCommand(cmd)
+	if err != nil || code != 0 {
+		t.Fatalf("empty branch query code=%d err=%v out=%s", code, err, out.String())
+	}
+	decoded := decodeJSON(t, out.Bytes())
+	diagnostic := decoded["diagnostic"].(map[string]any)
+	if diagnostic["kind"] != "target_mismatch" || diagnostic["scope"] != "branch" {
+		t.Fatalf("wrong diagnostic: %#v\n%s", diagnostic, out.String())
+	}
+	commands := diagnostic["next_commands"].([]any)
+	joined := make([]string, 0, len(commands))
+	for _, command := range commands {
+		joined = append(joined, command.(string))
+	}
+	allCommands := strings.Join(joined, "\n")
+	for _, want := range []string{"--all --no-tui --json", "--run <id> --no-tui --json", "watch -R indrasvat/gh-hound --group --run <run-id> --no-tui --timeout 10m"} {
+		if !strings.Contains(allCommands, want) {
+			t.Fatalf("diagnostic commands missing %q:\n%s", want, allCommands)
+		}
+	}
+}
+
+func TestRunsEmptyBranchDiagnosticIsQuietForRepoWideDiscovery(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: io.Discard,
+		Env:    emptyEnv,
+		IsTTY:  true,
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--all", "--no-tui", "--json", "--fake-scenario", "empty"})
+
+	code, err := executeCommand(cmd)
+	if err != nil || code != 0 {
+		t.Fatalf("empty repo-wide query code=%d err=%v out=%s", code, err, out.String())
+	}
+	decoded := decodeJSON(t, out.Bytes())
+	if _, ok := decoded["diagnostic"]; ok {
+		t.Fatalf("diagnostic should be quiet for repo-wide discovery:\n%s", out.String())
+	}
+}
+
+func TestRunsStatusFilteredEmptyBranchIncludesTargetMismatchDiagnostic(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: io.Discard,
+		Env:    emptyEnv,
+		IsTTY:  true,
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--status", "failure", "--no-tui", "--json", "--fake-scenario", "empty", "--branch", "release/v1"})
+
+	code, err := executeCommand(cmd)
+	if err != nil || code != 0 {
+		t.Fatalf("empty filtered branch query code=%d err=%v out=%s", code, err, out.String())
+	}
+	decoded := decodeJSON(t, out.Bytes())
+	diagnostic := decoded["diagnostic"].(map[string]any)
+	if diagnostic["kind"] != "target_mismatch" {
+		t.Fatalf("wrong diagnostic: %#v\n%s", diagnostic, out.String())
+	}
+}
+
+func TestRunsStatusFilteredActiveBranchWithoutMatchesStaysQuiet(t *testing.T) {
+	github := &cliGitHub{runs: []model.Run{{
+		ID:         1001,
+		RunNumber:  11,
+		Name:       "CI",
+		Event:      "pull_request",
+		HeadBranch: "main",
+		HeadSHA:    "abc123",
+		Status:     model.StatusCompleted,
+		Conclusion: model.ConclusionSuccess,
+	}}}
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: io.Discard,
+		Env:    emptyEnv,
+		IsTTY:  true,
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--status", "failure", "--no-tui", "--json"})
+
+	code, err := executeCommand(cmd)
+	if err != nil || code != 0 {
+		t.Fatalf("filtered active branch query code=%d err=%v out=%s", code, err, out.String())
+	}
+	decoded := decodeJSON(t, out.Bytes())
+	if _, ok := decoded["diagnostic"]; ok {
+		t.Fatalf("diagnostic should be quiet when branch has runs but none match the status:\n%s", out.String())
+	}
+	if github.filterCount() != 2 {
+		t.Fatalf("expected filtered query plus unfiltered branch probe, got %d filters: %#v", github.filterCount(), github.filters)
+	}
+}
+
+func TestRunsStatusFilteredProbeFailureDoesNotFailSuccessfulListing(t *testing.T) {
+	github := &cliGitHub{
+		runBatches: [][]model.Run{
+			{},
+			nil,
+		},
+		runErrors: []error{
+			nil,
+			usecase.APIError{Kind: usecase.APIErrorRateLimit, Status: 403, Message: "secondary rate limit"},
+		},
+	}
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: io.Discard,
+		Env:    emptyEnv,
+		IsTTY:  true,
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--status", "failure", "--no-tui", "--json"})
+
+	code, err := executeCommand(cmd)
+	if err != nil || code != 0 {
+		t.Fatalf("filtered empty listing with advisory probe failure code=%d err=%v out=%s", code, err, out.String())
+	}
+	decoded := decodeJSON(t, out.Bytes())
+	if _, ok := decoded["diagnostic"]; ok {
+		t.Fatalf("diagnostic should be omitted when the advisory probe fails:\n%s", out.String())
+	}
+}
+
+func TestRunsEmptyBranchMarkdownIncludesFallbackCommands(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: io.Discard,
+		Env:    emptyEnv,
+		IsTTY:  true,
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--no-tui", "--format", "md", "--fake-scenario", "empty", "--branch", "release/v1"})
+
+	code, err := executeCommand(cmd)
+	if err != nil || code != 0 {
+		t.Fatalf("empty markdown code=%d err=%v out=%s", code, err, out.String())
+	}
+	for _, want := range []string{"## Diagnostic", "target_mismatch", "--all --no-tui --json", "--run <id> --no-tui --json"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("markdown missing %q\n%s", want, out.String())
+		}
+	}
+}
+
 func TestAgentSurfaceAPIErrorExitsTwo(t *testing.T) {
 	var out bytes.Buffer
 	cmd := newRootCommandWithRuntime(commandRuntime{
@@ -978,6 +1139,7 @@ type cliGitHub struct {
 	dispatchCalls    int
 	runs             []model.Run
 	runBatches       [][]model.Run
+	runErrors        []error
 	jobs             []model.Job
 	jobLog           string
 	annotations      []model.Annotation
@@ -1032,14 +1194,19 @@ func (g *cliGitHub) ListRuns(_ context.Context, filter usecase.RunFilter) ([]mod
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.filters = append(g.filters, filter)
+	err := g.err
+	if len(g.runErrors) > 0 {
+		err = g.runErrors[0]
+		g.runErrors = g.runErrors[1:]
+	}
 	if len(g.runBatches) > 0 {
 		batch := g.runBatches[0]
 		if len(g.runBatches) > 1 {
 			g.runBatches = g.runBatches[1:]
 		}
-		return batch, g.err
+		return batch, err
 	}
-	return g.runs, g.err
+	return g.runs, err
 }
 
 // filterCount reads the recorded ListRuns calls under the lock — safe
@@ -1455,6 +1622,13 @@ func TestRunsRunFlagNarrowsAndAttemptEnriches(t *testing.T) {
 	}
 	if !strings.Contains(decoded.Runs[0].Failed[0].LogExcerpt, "401 Unauthorized") {
 		t.Fatalf("attempt log must drive the excerpt:\n%s", out.String())
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(out.Bytes(), &raw); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
+	}
+	if _, ok := raw["diagnostic"]; ok {
+		t.Fatalf("--run output must not carry target-mismatch diagnostics:\n%s", out.String())
 	}
 	if github.attemptJobCalls != 1 {
 		t.Fatalf("attempt-scoped job listing must be used, got %d calls", github.attemptJobCalls)

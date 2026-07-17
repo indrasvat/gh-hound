@@ -166,6 +166,35 @@
      }
     }
    }
+  },
+  "diagnostic": {
+   "type": "object",
+   "required": [
+    "kind",
+    "scope",
+    "message",
+    "next_commands"
+   ],
+   "properties": {
+    "kind": {
+     "type": "string",
+     "enum": [
+      "target_mismatch"
+     ]
+    },
+    "scope": {
+     "type": "string"
+    },
+    "message": {
+     "type": "string"
+    },
+    "next_commands": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   }
   }
  },
  "$defs": {

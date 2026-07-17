@@ -13,6 +13,7 @@ Use when inspecting GitHub Actions CI with `gh hound` — fix loops, PR checks, 
 gh hound runs --no-tui --json                    # current branch's runs
 gh hound runs --status failure --no-tui --json   # failure-focused loop
 gh hound runs --all --no-tui --json              # all branches
+gh hound runs --branch <ref> --no-tui --json     # explicit branch/ref when local branch is wrong
 gh hound runs -R owner/repo --no-tui --json      # outside a checkout
 gh hound watch --json                            # active run, fail-fast
 gh hound watch --group --no-tui                  # whole event group, NDJSON, blocks until the hunt settles
@@ -34,7 +35,7 @@ gh hound workflows --no-tui --json               # workflow states (why did my c
 gh hound workflows --enable <id|path> --no-tui --json   # wake a disabled workflow
 ```
 
-Runs are scoped to the current git branch by default. An empty `runs[]` usually means the branch has no runs — pass `--all` or `--branch <ref>` before concluding CI is missing.
+Runs are scoped to the current git branch by default. An empty branch-scoped `runs[]` can be a target mismatch, especially for release, tag-push, or branchless workflows. If the top-level `diagnostic.kind` is `target_mismatch`, follow `diagnostic.next_commands[]`: widen with `--all`, pass `--branch <ref>`, inspect `--run <id>`, or use `watch -R owner/repo --group --run <id> --timeout 10m` for a bounded await. Do not conclude CI is absent until you have tried one of those target-correcting commands.
 
 ## Exit Codes
 
@@ -72,7 +73,9 @@ Every queue envelope includes `fetched_at`. Treat `--groups` as a summary surfac
 
 ## JSON Shape
 
-Top level: `repo`, `branch`, `runs[]`. Each run: `id`, `workflow`, `run_number`, `event`, `head_branch`, `head_sha`, `status`, `conclusion`, `created_at`, `html_url`, `failed[]`.
+Top level: `repo`, `branch`, `runs[]`, optional `diagnostic`. Each run: `id`, `workflow`, `run_number`, `event`, `head_branch`, `head_sha`, `status`, `conclusion`, `created_at`, `html_url`, `failed[]`.
+
+`diagnostic` appears only for actionable empty listings. For `target_mismatch`, branch on `kind`, read the human `message`, and execute one of `next_commands[]` instead of silently stopping.
 
 Each `failed[]` entry: `job`, `step`, `exit_code`, `annotations[]` (`path`, `line`, `level`, `message`), `log_excerpt`.
 
@@ -143,6 +146,7 @@ For testing agent behavior without live CI:
 
 ```bash
 gh hound runs --no-tui --json --fake-scenario failure   # also: green, pending, empty, api_error, waiting, regression, flaky
+gh hound runs --branch release/v1 --no-tui --json --fake-scenario empty   # emits target_mismatch
 ```
 
 The JSON schema lives at `internal/render/testdata/schema.json` in the gh-hound repo; the mutation envelope is under `$defs.mutation_result`, the approvals envelope under `$defs.approvals_result`, the queue verdict under `$defs.queue_result`, the regression verdict under `$defs.diff_result`, the caches envelope under `$defs.caches_result`, the workflows envelope under `$defs.workflows_result`, the pack stream under `$defs.watch_group_event` / `$defs.watch_group_summary`, and the flake verdict under `$defs.flakes_result`.

@@ -254,7 +254,7 @@
     </div>
     <div class="agents-split">
       <div class="reveal">
-        <p style="color:var(--muted);font-size:0.97rem">Agents don&rsquo;t click dashboards &mdash; they read <span class="mono" style="color:var(--fg-soft)">stdout</span>. Every verb speaks <span class="sh">--no-tui --json</span> in a schema-stable envelope; branch on the exit code. Deterministic fake scenarios let your harness play fetch without ever touching the network.</p>
+        <p style="color:var(--muted);font-size:0.97rem">Agents don&rsquo;t click dashboards &mdash; they read <span class="mono" style="color:var(--fg-soft)">stdout</span>. Every verb speaks <span class="sh">--no-tui --json</span> in a schema-stable envelope; branch on the exit code. Empty branch results can carry a <span class="mono" style="color:var(--fg-soft)">target_mismatch</span> diagnostic so release and tag workflows get widened or pinned by run id instead of missed.</p>
         <p style="color:var(--muted);font-size:0.97rem;margin-top:0.8rem">The leash works both ways: <span class="mono" style="color:var(--fg-soft)">queue</span> explains pending runs, <span class="mono" style="color:var(--fg-soft)">rerun</span> sends failures back out, <span class="mono" style="color:var(--fg-soft)">diff</span> names who broke main, <span class="mono" style="color:var(--fg-soft)">flakes</span> calls rerun-vs-investigate &mdash; one verb per tab, evidence attached either way.</p>
         <table class="exit-table">
           <caption>exit codes &middot; barks, translated</caption>
@@ -472,7 +472,7 @@
         <a href="https://github.com/indrasvat/gh-hound/blob/main/docs/agent-surface.md">Agent surface</a>
         <a href="https://github.com/indrasvat/gh-hound/blob/main/docs/configuration.md">Configuration</a>
         <a href="https://github.com/indrasvat/gh-hound/blob/main/docs/development.md">Development</a>
-        <a href="https://github.com/indrasvat/gh-hound/blob/main/skill/SKILL.md">Agent skill</a>
+        <a href="https://github.com/indrasvat/gh-hound/blob/main/skills/gh-hound/SKILL.md">Agent skill</a>
       </div>
     </div>
     <div class="foot-meta">

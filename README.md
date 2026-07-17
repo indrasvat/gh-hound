@@ -179,6 +179,7 @@ gh hound watch
 # Agent/script path
 gh hound runs --no-tui --json
 gh hound runs --status failure --no-tui --json
+gh hound runs --all --no-tui --json                         # branch miss / release or tag discovery
 gh hound watch --json
 gh hound watch --group --no-tui                        # blocks until the hunt settles
 gh hound watch --group --no-tui --timeout 10m          # bounded for unattended agents (timed_out summary; exit 3 in-flight / 1 if lost)
@@ -247,8 +248,11 @@ Use JSON for automation:
 
 ```bash
 gh hound runs --status failure --no-tui --json | jq '.runs[0].failed[0]'
+gh hound runs --all --no-tui --json                    # widen when branch-scoped runs are empty
 gh hound diff --workflow CI --no-tui --json | jq '{status, verdict, suspects: .total_suspects}'
 ```
+
+Branch-scoped `runs` stays the default for normal PR work. When that scoped query is empty, JSON may include `diagnostic.kind: "target_mismatch"` with concrete next commands for release/tag workflows: widen with `--all`, pass an explicit `--branch <ref>`, or target `--run <id>`.
 
 The `diff` verdict is a JSON object agents can branch on: `status` is `located` (exit `1` -- a regression exists), `green`, or `inconclusive` (both exit `0`), with `last_good`, `first_bad`, `suspect_commits[]`, and `compare_url` when the boundary is found.
 

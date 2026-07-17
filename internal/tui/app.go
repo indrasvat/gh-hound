@@ -815,6 +815,12 @@ func RenderFixtureSize(screen string, width, height int) string {
 		return frameViewSize(app.theme, "hound", "⎇ branch main · @indrasvat", "◔ 4,981/5k live", runs.View(sampleAllGreenModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenAllGreen), width, height, true)
 	case "runs":
 		return frameViewSize(app.theme, "hound", "⎇ branch fix/parser · @indrasvat", "◔ 4,981/5k live 304", runs.View(sampleRunsModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
+	case "no-runs":
+		return frameViewSize(app.theme, "hound", "⎇ branch release/v1 · @indrasvat", "0 runs", empty.View(empty.Model{
+			Kind:   empty.KindNoRuns,
+			Repo:   "indrasvat/gh-hound",
+			Branch: "release/v1",
+		}, bodyWidth), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
 	case "runs-loading":
 		// Deterministic loading states: started is pinned 250ms back so
 		// the spinner sits stably on frame 2 and the grace window has
