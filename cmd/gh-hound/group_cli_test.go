@@ -327,3 +327,53 @@ func TestWatchGroupRunAnchorKeepsItsOwnBranch(t *testing.T) {
 		t.Fatal("no tick listed the anchor's branch")
 	}
 }
+
+// TestWatchGroupRunAnchorSurvivesEmptyBranchListing pins issue #51's
+// release/tag path: an explicit --run can point at a workflow outside
+// the launch branch scope, so an empty initial branch list must not
+// stop the watch before GetRun has a chance to anchor the hunt.
+func TestWatchGroupRunAnchorSurvivesEmptyBranchListing(t *testing.T) {
+	anchor := model.Run{
+		ID: 9200, RunNumber: 92, Name: "Release", Event: "release",
+		HeadBranch: "release/v1", HeadSHA: "facefeed",
+		Status: model.StatusInProgress,
+	}
+	settled := anchor
+	settled.Status = model.StatusCompleted
+	settled.Conclusion = model.ConclusionSuccess
+	github := &cliGitHub{
+		runBatches: [][]model.Run{
+			{},
+			{settled},
+		},
+		runByID: map[int64]model.Run{9200: anchor},
+	}
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Env: mapEnv(map[string]string{
+			"HOUND_POLL_MIN_MS": "5",
+			"HOUND_POLL_MAX_MS": "5",
+		}),
+		IsTTY:  true,
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"watch", "--group", "--no-tui", "--run", "9200"})
+
+	if code, err := executeCommand(cmd); code != 0 || err != nil {
+		t.Fatalf("watch --group --run with empty branch listing code=%d err=%v\n%s", code, err, out.String())
+	}
+	if !strings.Contains(out.String(), `"run_id":9200`) || !strings.Contains(out.String(), `"type":"summary"`) {
+		t.Fatalf("watch output missing anchored run and summary:\n%s", out.String())
+	}
+	sawAnchorBranch := false
+	for _, filter := range github.filters {
+		if filter.Branch == "release/v1" && filter.HeadSHA == "facefeed" {
+			sawAnchorBranch = true
+		}
+	}
+	if !sawAnchorBranch {
+		t.Fatalf("no tick listed the explicit run's branch: %#v", github.filters)
+	}
+}

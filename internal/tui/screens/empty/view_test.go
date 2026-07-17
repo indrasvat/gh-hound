@@ -41,3 +41,16 @@ func TestViewSurfacesNoticeOnEmptyStates(t *testing.T) {
 		}
 	}
 }
+
+func TestNoRunsViewGuidesReleaseAndTagFallback(t *testing.T) {
+	view := View(Model{
+		Kind:   KindNoRuns,
+		Repo:   "indrasvat/gh-hound",
+		Branch: "release/v1",
+	}, 120)
+	for _, want := range []string{"gh hound runs --all", "gh hound runs --run <id>"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("empty view missing %q:\n%s", want, view)
+		}
+	}
+}

@@ -15,15 +15,16 @@ import (
 
 func TestLaunchServiceHandlesPRD82Fallbacks(t *testing.T) {
 	tests := []struct {
-		name       string
-		repository fakeRepository
-		github     *launchGitHub
-		request    usecase.LaunchRequest
-		wantScope  usecase.LaunchScope
-		wantState  usecase.LaunchState
-		wantNotice string
-		wantError  string
-		wantCalls  []usecase.RunFilter
+		name               string
+		repository         fakeRepository
+		github             *launchGitHub
+		request            usecase.LaunchRequest
+		wantScope          usecase.LaunchScope
+		wantState          usecase.LaunchState
+		wantNotice         string
+		wantNoticeContains []string
+		wantError          string
+		wantCalls          []usecase.RunFilter
 	}{
 		{
 			name:       "branch zero runs widens to repo-wide",
@@ -35,9 +36,13 @@ func TestLaunchServiceHandlesPRD82Fallbacks(t *testing.T) {
 				},
 				workflows: []model.Workflow{{ID: 1, Name: "CI", State: "active"}},
 			},
-			wantScope:  usecase.LaunchScopeRepo,
-			wantState:  usecase.LaunchStateAllGreen,
-			wantNotice: "no runs on fix/parser — showing all branches",
+			wantScope: usecase.LaunchScopeRepo,
+			wantState: usecase.LaunchStateAllGreen,
+			wantNoticeContains: []string{
+				`No runs matched branch "fix/parser".`,
+				"Release, tag, or branchless workflows may live outside branch scope",
+				"Showing all branches now.",
+			},
 			wantCalls: []usecase.RunFilter{
 				{Repo: "indrasvat/gh-hound", Branch: "fix/parser", PerPage: 30, Page: 1},
 				{Repo: "indrasvat/gh-hound", PerPage: 30, Page: 1},
@@ -122,6 +127,11 @@ func TestLaunchServiceHandlesPRD82Fallbacks(t *testing.T) {
 			}
 			if tt.wantNotice != "" && got.Notice != tt.wantNotice {
 				t.Fatalf("notice = %q, want %q", got.Notice, tt.wantNotice)
+			}
+			for _, want := range tt.wantNoticeContains {
+				if !strings.Contains(got.Notice, want) {
+					t.Fatalf("notice = %q, want substring %q", got.Notice, want)
+				}
 			}
 			if tt.wantError != "" && !strings.Contains(got.ErrorMessage, tt.wantError) {
 				t.Fatalf("error = %q, want substring %q", got.ErrorMessage, tt.wantError)

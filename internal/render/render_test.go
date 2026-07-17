@@ -78,6 +78,57 @@ func TestMarkdownAndXMLRenderersAreStructured(t *testing.T) {
 	}
 }
 
+func TestDiagnosticRendersAcrossFormats(t *testing.T) {
+	result := Result{
+		Repo:   "indrasvat/gh-hound",
+		Branch: "release/v1",
+		Runs:   []Run{},
+		Diagnostic: &Diagnostic{
+			Kind:    "target_mismatch",
+			Scope:   "branch",
+			Message: "No runs matched branch.",
+			NextCommands: []string{
+				"gh hound runs -R indrasvat/gh-hound --all --no-tui --json",
+				"gh hound runs -R indrasvat/gh-hound --run <id> --no-tui --json",
+			},
+		},
+	}
+
+	var jsonOut bytes.Buffer
+	if err := Write(&jsonOut, FormatJSON, result); err != nil {
+		t.Fatalf("Write JSON returned error: %v", err)
+	}
+	var decoded struct {
+		Diagnostic *Diagnostic `json:"diagnostic"`
+	}
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatalf("JSON is invalid: %v\n%s", err, jsonOut.String())
+	}
+	if decoded.Diagnostic == nil || decoded.Diagnostic.Kind != "target_mismatch" || len(decoded.Diagnostic.NextCommands) != 2 {
+		t.Fatalf("diagnostic missing from JSON: %s", jsonOut.String())
+	}
+
+	var md bytes.Buffer
+	if err := Write(&md, FormatMarkdown, result); err != nil {
+		t.Fatalf("Write markdown returned error: %v", err)
+	}
+	for _, want := range []string{"## Diagnostic", "`target_mismatch`", "gh hound runs -R indrasvat/gh-hound --all --no-tui --json"} {
+		if !strings.Contains(md.String(), want) {
+			t.Fatalf("markdown missing %q\n%s", want, md.String())
+		}
+	}
+
+	var xmlOut bytes.Buffer
+	if err := Write(&xmlOut, FormatXML, result); err != nil {
+		t.Fatalf("Write XML returned error: %v", err)
+	}
+	for _, want := range []string{`<diagnostic`, `kind="target_mismatch"`, `<command>gh hound runs -R indrasvat/gh-hound --all --no-tui --json</command>`} {
+		if !strings.Contains(xmlOut.String(), want) {
+			t.Fatalf("XML missing %q\n%s", want, xmlOut.String())
+		}
+	}
+}
+
 func TestExitCodeMapping(t *testing.T) {
 	tests := []struct {
 		name string

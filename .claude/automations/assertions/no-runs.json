@@ -1,0 +1,1 @@
+{"contains": ["No workflow runs were found for indrasvat/gh-hound on release/v1.", "For release/tag workflows, try:", "gh hound runs --all", "gh hound runs --run <id>"], "forbid": ["--no-tui --json"]}

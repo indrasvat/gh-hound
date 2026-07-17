@@ -79,6 +79,7 @@ Use deterministic fake scenarios:
 ```bash
 make build
 ./bin/gh-hound runs --no-tui --json --fake-scenario failure | jq '.runs[0].failed[0]'
+./bin/gh-hound runs --branch release/v1 --no-tui --json --fake-scenario empty | jq '.diagnostic'
 ./bin/gh-hound watch --json --fake-scenario failure | jq '.runs[0].failed[0].step'
 ```
 

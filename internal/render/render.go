@@ -23,10 +23,18 @@ const (
 type Format string
 
 type Result struct {
-	XMLName xml.Name `json:"-" xml:"result"`
-	Repo    string   `json:"repo" xml:"repo,attr"`
-	Branch  string   `json:"branch" xml:"branch,attr"`
-	Runs    []Run    `json:"runs" xml:"runs>run"`
+	XMLName    xml.Name    `json:"-" xml:"result"`
+	Repo       string      `json:"repo" xml:"repo,attr"`
+	Branch     string      `json:"branch" xml:"branch,attr"`
+	Runs       []Run       `json:"runs" xml:"runs>run"`
+	Diagnostic *Diagnostic `json:"diagnostic,omitempty" xml:"diagnostic,omitempty"`
+}
+
+type Diagnostic struct {
+	Kind         string   `json:"kind" xml:"kind,attr"`
+	Scope        string   `json:"scope" xml:"scope,attr"`
+	Message      string   `json:"message" xml:"message"`
+	NextCommands []string `json:"next_commands" xml:"next_commands>command"`
 }
 
 type Run struct {
@@ -134,6 +142,7 @@ func WriteApprovals(w io.Writer, format Format, result ApprovalsResult) error {
 	case "", FormatJSON:
 		encoder := json.NewEncoder(w)
 		encoder.SetIndent("", "  ")
+		encoder.SetEscapeHTML(false)
 		return encoder.Encode(result)
 	case FormatMarkdown:
 		if _, err := fmt.Fprintf(w, "# gh-hound approvals\n\nRepo: `%s`\nRun: `%d`\n\n| Environment | Wait | Can approve | Reviewers |\n| --- | --- | --- | --- |\n", result.Repo, result.RunID); err != nil {
@@ -206,6 +215,7 @@ func WriteMutation(w io.Writer, format Format, result MutationResult) error {
 	case "", FormatJSON:
 		encoder := json.NewEncoder(w)
 		encoder.SetIndent("", "  ")
+		encoder.SetEscapeHTML(false)
 		return encoder.Encode(result)
 	case FormatMarkdown:
 		if _, err := fmt.Fprintf(w, "# gh-hound %s\n\nRepo: `%s`\nRun: `%d`\nAccepted: %t\nURL: %s\n", result.Action, result.Repo, result.RunID, result.Accepted, result.HTMLURL); err != nil {
@@ -275,6 +285,7 @@ func Write(w io.Writer, format Format, result Result) error {
 	case "", FormatJSON:
 		encoder := json.NewEncoder(w)
 		encoder.SetIndent("", "  ")
+		encoder.SetEscapeHTML(false)
 		return encoder.Encode(result)
 	case FormatMarkdown:
 		return writeMarkdown(w, result)
@@ -313,6 +324,19 @@ func ExitCode(result Result, err error) int {
 func writeMarkdown(w io.Writer, result Result) error {
 	if _, err := fmt.Fprintf(w, "# gh-hound\n\nRepo: `%s`\nBranch: `%s`\n\n", result.Repo, result.Branch); err != nil {
 		return err
+	}
+	if result.Diagnostic != nil {
+		if _, err := fmt.Fprintf(w, "## Diagnostic\n\nKind: `%s`\n\n%s\n\nNext commands:\n", result.Diagnostic.Kind, result.Diagnostic.Message); err != nil {
+			return err
+		}
+		for _, command := range result.Diagnostic.NextCommands {
+			if _, err := fmt.Fprintf(w, "- `%s`\n", command); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintln(w); err != nil {
+			return err
+		}
 	}
 	for _, run := range result.Runs {
 		title := strings.TrimSpace(fmt.Sprintf("%s #%d", run.Workflow, run.RunNumber))

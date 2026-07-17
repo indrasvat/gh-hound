@@ -71,6 +71,9 @@ func body(model Model) []string {
 		lines := []string{
 			fmt.Sprintf("No workflow runs were found for %s on %s.", model.Repo, model.Branch),
 			"Push the branch or use --all to show runs across every branch.",
+			"For release/tag workflows, try:",
+			"gh hound runs --all",
+			"gh hound runs --run <id>",
 		}
 		// The launch notice carries the "why are there no runs" answer
 		// (disabled workflows included) — surface it, don't drop it.
