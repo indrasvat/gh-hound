@@ -773,6 +773,38 @@ func TestRunsStatusFilteredActiveBranchWithoutMatchesStaysQuiet(t *testing.T) {
 	}
 }
 
+func TestRunsStatusFilteredProbeFailureDoesNotFailSuccessfulListing(t *testing.T) {
+	github := &cliGitHub{
+		runBatches: [][]model.Run{
+			{},
+			nil,
+		},
+		runErrors: []error{
+			nil,
+			usecase.APIError{Kind: usecase.APIErrorRateLimit, Status: 403, Message: "secondary rate limit"},
+		},
+	}
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: io.Discard,
+		Env:    emptyEnv,
+		IsTTY:  true,
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--status", "failure", "--no-tui", "--json"})
+
+	code, err := executeCommand(cmd)
+	if err != nil || code != 0 {
+		t.Fatalf("filtered empty listing with advisory probe failure code=%d err=%v out=%s", code, err, out.String())
+	}
+	decoded := decodeJSON(t, out.Bytes())
+	if _, ok := decoded["diagnostic"]; ok {
+		t.Fatalf("diagnostic should be omitted when the advisory probe fails:\n%s", out.String())
+	}
+}
+
 func TestRunsEmptyBranchMarkdownIncludesFallbackCommands(t *testing.T) {
 	var out bytes.Buffer
 	cmd := newRootCommandWithRuntime(commandRuntime{
@@ -1107,6 +1139,7 @@ type cliGitHub struct {
 	dispatchCalls    int
 	runs             []model.Run
 	runBatches       [][]model.Run
+	runErrors        []error
 	jobs             []model.Job
 	jobLog           string
 	annotations      []model.Annotation
@@ -1161,14 +1194,19 @@ func (g *cliGitHub) ListRuns(_ context.Context, filter usecase.RunFilter) ([]mod
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.filters = append(g.filters, filter)
+	err := g.err
+	if len(g.runErrors) > 0 {
+		err = g.runErrors[0]
+		g.runErrors = g.runErrors[1:]
+	}
 	if len(g.runBatches) > 0 {
 		batch := g.runBatches[0]
 		if len(g.runBatches) > 1 {
 			g.runBatches = g.runBatches[1:]
 		}
-		return batch, g.err
+		return batch, err
 	}
-	return g.runs, g.err
+	return g.runs, err
 }
 
 // filterCount reads the recorded ListRuns calls under the lock — safe

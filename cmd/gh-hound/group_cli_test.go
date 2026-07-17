@@ -377,3 +377,53 @@ func TestWatchGroupRunAnchorSurvivesEmptyBranchListing(t *testing.T) {
 		t.Fatalf("no tick listed the explicit run's branch: %#v", github.filters)
 	}
 }
+
+// TestWatchGroupRunAnchorKeepsBranchlessScope pins branchless release
+// and tag workflows: if GitHub reports no head_branch for the explicit
+// run, the pack tick must stay repo-wide instead of falling back to
+// the checkout branch and starving the anchor refresh.
+func TestWatchGroupRunAnchorKeepsBranchlessScope(t *testing.T) {
+	anchor := model.Run{
+		ID: 9300, RunNumber: 93, Name: "Release", Event: "release",
+		HeadBranch: "", HeadSHA: "b16b00b5",
+		Status: model.StatusInProgress,
+	}
+	settled := anchor
+	settled.Status = model.StatusCompleted
+	settled.Conclusion = model.ConclusionSuccess
+	github := &cliGitHub{
+		runBatches: [][]model.Run{
+			{},
+			{settled},
+		},
+		runByID: map[int64]model.Run{9300: anchor},
+	}
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Env: mapEnv(map[string]string{
+			"HOUND_POLL_MIN_MS": "5",
+			"HOUND_POLL_MAX_MS": "5",
+		}),
+		IsTTY:  true,
+		GitHub: github,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"watch", "--group", "--no-tui", "--run", "9300"})
+
+	if code, err := executeCommand(cmd); code != 0 || err != nil {
+		t.Fatalf("watch --group --run for branchless anchor code=%d err=%v\n%s", code, err, out.String())
+	}
+	sawBranchlessTick := false
+	for _, filter := range github.filters {
+		if filter.HeadSHA == "b16b00b5" {
+			if filter.Branch != "" {
+				t.Fatalf("branchless explicit run tick listed branch %q, want repo-wide", filter.Branch)
+			}
+			sawBranchlessTick = true
+		}
+	}
+	if !sawBranchlessTick {
+		t.Fatalf("no tick listed the branchless explicit run: %#v", github.filters)
+	}
+}

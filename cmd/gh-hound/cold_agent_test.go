@@ -17,6 +17,9 @@ func TestColdContextAgentsFollowTargetMismatchHint(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell-based cold agent harness is Unix-only")
 	}
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq not found in PATH; skipping cold agent harness")
+	}
 	binDir := t.TempDir()
 	writeExecutable(t, filepath.Join(binDir, "gh"), `#!/bin/sh
 set -eu

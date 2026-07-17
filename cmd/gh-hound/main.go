@@ -884,6 +884,10 @@ func writeGroupWatchResult(ctx context.Context, w io.Writer, options cliOptions,
 	}
 
 	service := usecase.PackWatchService{Runs: githubClient, MinPoll: cfg.PollMin, MaxPoll: cfg.PollMax}
+	packBranch := firstNonEmptyString(anchor.HeadBranch, branch)
+	if options.RunID != 0 {
+		packBranch = strings.TrimSpace(anchor.HeadBranch)
+	}
 	state := usecase.PackState{
 		Repo:    repo,
 		HeadSHA: anchor.HeadSHA,
@@ -891,7 +895,7 @@ func writeGroupWatchResult(ctx context.Context, w io.Writer, options cliOptions,
 		// The anchor's own branch scopes the ticks: a --run anchor can
 		// live on a branch the launch never resolved, and listing the
 		// wrong branch would never refresh it (ghent Codex P2).
-		Branch: firstNonEmptyString(anchor.HeadBranch, branch),
+		Branch: packBranch,
 		Max:    cfg.WatchGroupMax,
 		Runs:   usecase.PackForRun(listed, anchor, cfg.WatchGroupMax),
 	}
@@ -2083,27 +2087,24 @@ func liveResult(ctx context.Context, options cliOptions, runtime commandRuntime)
 	if options.WithApprovals {
 		attachApprovals(ctx, usecase.ApprovalsService{GitHub: githubClient}, repo, runs, renderRuns)
 	}
-	diagnostic, err := runDiagnosticForOptions(ctx, githubClient, options, repo, branch, renderRuns)
-	if err != nil {
-		return render.Result{}, err
-	}
+	diagnostic := runDiagnosticForOptions(ctx, githubClient, options, repo, branch, renderRuns)
 	return render.Result{Repo: repo, Branch: branch, Runs: renderRuns, Diagnostic: diagnostic}, nil
 }
 
-func runDiagnosticForOptions(ctx context.Context, githubClient usecase.GitHub, options cliOptions, repo, branch string, runs []render.Run) (*render.Diagnostic, error) {
+func runDiagnosticForOptions(ctx context.Context, githubClient usecase.GitHub, options cliOptions, repo, branch string, runs []render.Run) *render.Diagnostic {
 	if len(runs) > 0 || options.RunID != 0 || options.All || strings.TrimSpace(branch) == "" {
-		return nil, nil
+		return nil
 	}
 	if strings.TrimSpace(options.Status) != "" && githubClient != nil {
 		branchRuns, err := githubClient.ListRuns(ctx, usecase.RunFilter{Repo: repo, Branch: branch, PerPage: 1})
 		if err != nil {
-			return nil, err
+			return nil
 		}
 		if len(branchRuns) > 0 {
-			return nil, nil
+			return nil
 		}
 	}
-	return renderDiagnosticForEmptyBranch(repo, branch), nil
+	return renderDiagnosticForEmptyBranch(repo, branch)
 }
 
 func renderDiagnosticForEmptyBranch(repo, branch string) *render.Diagnostic {
@@ -2475,7 +2476,7 @@ func fakeResult(options cliOptions, scenario string) render.Result {
 	}
 	if scenario == "empty" {
 		runs := []render.Run{}
-		diagnostic, _ := runDiagnosticForOptions(context.Background(), nil, options, repo, branch, runs)
+		diagnostic := runDiagnosticForOptions(context.Background(), nil, options, repo, branch, runs)
 		return render.Result{Repo: repo, Branch: branch, Runs: runs, Diagnostic: diagnostic}
 	}
 	run := render.Run{
