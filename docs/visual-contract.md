@@ -122,6 +122,8 @@ Footer text must be generated from keymap data, not copied into renderers.
 | toasts | ⎋ dismiss · g dismiss all · r retry · ? help |
 | approvals overlay | j/k move · space pick · y open gate · n keep shut · c comment · ⎋ close |
 
+The toasts footer drops `r retry` when no visible toast can retry.
+
 ## Breakpoints
 
 | Geometry | Rule |

@@ -152,11 +152,8 @@ func (m Model) foldTotals() (folds, hidden int) {
 	return folds, hidden
 }
 
-// CompactRows is the row count of the compact view with every fold closed.
-func (m Model) CompactRows() int {
-	folds, hidden := m.foldTotals()
-	return len(m.Document.Lines) - hidden + folds
-}
+// Rows is how many rows the view has now, folds open or closed.
+func (m Model) Rows() int { return len(m.rows()) }
 
 // Folded reports whether the compact view is showing and has folds.
 func (m Model) Folded() bool { return m.Compact && m.activePlan() != nil && m.FoldCount() > 0 }

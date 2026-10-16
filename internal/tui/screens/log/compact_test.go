@@ -52,8 +52,8 @@ func TestCompactViewFoldsThePoll(t *testing.T) {
 	if !strings.Contains(out, "timed out waiting for cluster") {
 		t.Fatalf("timeout line not visible:\n%s", out)
 	}
-	if m.CompactRows() >= len(doc.Lines)/10 {
-		t.Fatalf("compact rows %d for %d lines", m.CompactRows(), len(doc.Lines))
+	if m.Rows() >= len(doc.Lines)/10 {
+		t.Fatalf("compact rows %d for %d lines", m.Rows(), len(doc.Lines))
 	}
 }
 
@@ -183,6 +183,37 @@ func TestRepeatRowKeepsCountWhenNarrow(t *testing.T) {
 			t.Fatalf("row wider than 50: %q", l)
 		}
 	}
+}
+
+func TestRepeatRowKeepsWarningAndCountFirst(t *testing.T) {
+	title := "×1,234 2-line block · 10:00 → 11:59 · region us-east-1a → us-west-2b (40 values) · 12 changing ids · ⚠ 18 error-like inside"
+	row := plain(renderRepeat(42, 3, title, 1234, true, 80))
+	if !strings.Contains(row, "⚠ 18 error-like") || !strings.HasSuffix(strings.TrimRight(row, " "), "1,234 lines hidden") {
+		t.Fatalf("80 cols must keep the warning and count: %q", row)
+	}
+	for _, width := range []int{40, 30, 24} {
+		row := plain(renderRepeat(42, 3, title, 1234, true, width))
+		if w := ansi.StringWidth(row); w > width {
+			t.Fatalf("width %d: row is %d wide: %q", width, w, row)
+		}
+		if !strings.Contains(row, "1,234") || !strings.Contains(row, "×1,234") {
+			t.Fatalf("width %d lost the count: %q", width, row)
+		}
+	}
+}
+
+func TestOpenRepeatHeaderLeavesTheNumberToItsLine(t *testing.T) {
+	m := compactModel(t, pollLog(), 40).Update(KeyMsg{Key: "Z"})
+	lines := strings.Split(plain(View(m, 100)), "\n")
+	for i, l := range lines {
+		if strings.Contains(l, "▾ ×") {
+			if strings.TrimSpace(l[:4]) != "" || i+1 >= len(lines) || !strings.HasPrefix(lines[i+1], "00") {
+				t.Fatalf("open header gutter %q, next %q", l, lines[min(i+1, len(lines)-1)])
+			}
+			return
+		}
+	}
+	t.Fatal("no open repeat header")
 }
 
 func TestWrapContinuesLongLines(t *testing.T) {

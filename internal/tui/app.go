@@ -829,7 +829,11 @@ func (a App) ViewSize(width, height int) string {
 	} else {
 		body = toastLayer(a.theme, body, a.toasts, contentWidth(width))
 		if len(a.toasts.Toasts) > 0 {
-			footer = keys.FooterForScreen(keys.ScreenToasts)
+			retry := false
+			for _, t := range a.toasts.Toasts {
+				retry = retry || t.RetryAction != ""
+			}
+			footer = keys.ToastFooter(retry)
 		}
 	}
 	return frameViewSize(a.theme, title, context, right, body, footer, width, height, true)
@@ -2236,8 +2240,7 @@ func (a App) updateLog(msg KeyMsg) (App, bool) {
 		a.PopRoute()
 		return a, true
 	}
-	searchChanged := before.Search.Query != a.log.Search.Query || before.Search.Current != a.log.Search.Current || before.Search.Total != a.log.Search.Total
-	return a, logHandled(msg.Key) || before.Offset != a.log.Offset || before.Wrap != a.log.Wrap || before.Compact != a.log.Compact || searchChanged
+	return a, logHandled(msg.Key) || a.log.Changed(before)
 }
 
 func (a App) updateWatch(msg KeyMsg) (App, bool) {
@@ -4547,7 +4550,7 @@ func logRight(m logscreen.Model) string {
 		return fmt.Sprintf("match %d/%d", m.Search.Current, m.Search.Total)
 	}
 	if m.Folded() {
-		return fmt.Sprintf("%s lines → %s rows", groupThousands(len(m.Document.Lines)), groupThousands(m.CompactRows()))
+		return fmt.Sprintf("%s lines → %s rows", groupThousands(len(m.Document.Lines)), groupThousands(m.Rows()))
 	}
 	return groupThousands(len(m.Document.Lines)) + " lines"
 }

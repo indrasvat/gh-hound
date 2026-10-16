@@ -188,6 +188,18 @@ func FooterForScreen(screen Screen) string {
 	return footerString(footerByScreen[screen])
 }
 
+// ToastFooter is the toast layer's footer; retry shows only when a toast
+// offers one.
+func ToastFooter(retry bool) string {
+	var shown []Binding
+	for _, b := range footerByScreen[ScreenToasts] {
+		if b.ShowInFooter && (retry || b.Action != "retry") {
+			shown = append(shown, b)
+		}
+	}
+	return footerString(shown)
+}
+
 // FooterForScreenWidth drops the lowest-Keep hints (rightmost first) until
 // the footer fits width; screens without Keep values are returned whole.
 func FooterForScreenWidth(screen Screen, width int) string {

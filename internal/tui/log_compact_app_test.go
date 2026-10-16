@@ -94,8 +94,9 @@ func TestCompactWithNothingToFoldShowsAToast(t *testing.T) {
 	if !handled {
 		t.Fatal("c not handled")
 	}
-	if view := ansi.Strip(app.ViewSize(120, 30)); !strings.Contains(view, "nothing to fold") {
-		t.Fatalf("missing toast:\n%s", view)
+	view := ansi.Strip(app.ViewSize(120, 30))
+	if !strings.Contains(view, "nothing to fold") || strings.Contains(view, "r retry") {
+		t.Fatalf("want the toast without a retry hint:\n%s", view)
 	}
 }
 
@@ -128,3 +129,30 @@ func TestLogFooterFitsAt80Columns(t *testing.T) {
 		}
 	}
 }
+
+func TestLogKeysThatChangeTheViewAreHandled(t *testing.T) {
+	app := openLog(t, logApp(t, config.Default(), noisyRaw()))
+	for _, key := range []string{"down", "down", "up"} {
+		var handled bool
+		if app, handled = app.Update(KeyMsg{Key: key}); !handled {
+			t.Fatalf("%s moved the log but was not handled", key)
+		}
+	}
+	app, _ = app.Update(KeyMsg{Key: "/"})
+	app, handled := app.Update(KeyMsg{Key: "space"})
+	if !handled || !strings.Contains(ansi.Strip(app.ViewSize(120, 30)), "/ ▌") {
+		t.Fatalf("space in search input: handled=%v\n%s", handled, ansi.Strip(app.ViewSize(120, 30)))
+	}
+}
+
+func TestLogTitleCountsTheRowsOnScreen(t *testing.T) {
+	app := openLog(t, logApp(t, config.Default(), noisyRaw()))
+	closed := ansi.Strip(app.ViewSize(120, 30))
+	app, _ = app.Update(KeyMsg{Key: "Z"})
+	opened := ansi.Strip(app.ViewSize(120, 30))
+	if !strings.Contains(opened, "483 lines → 484 rows") || strings.Contains(closed, "→ 484 rows") {
+		t.Fatalf("Z should count the opened rows:\nclosed: %s\nopened: %s", firstLine(closed), firstLine(opened))
+	}
+}
+
+func firstLine(s string) string { l, _, _ := strings.Cut(s, "\n"); return l }

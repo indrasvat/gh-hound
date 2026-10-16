@@ -15,7 +15,7 @@ func View(m Model, width int) string {
 		width = 80
 	}
 	m.Width = width
-	lines := []string{fit(header(m)+"  "+scrollIndicator(m), width)}
+	lines := []string{fitANSI(strings.TrimSpace(colorize(sgrHeader, header(m))+"  "+scrollIndicator(m)), width)}
 	budget := max(m.Height, 1)
 	_, skip := m.position()
 	for i, row := range m.visibleRows() {
@@ -100,17 +100,6 @@ func scrollIndicator(m Model) string {
 	return colorize(sgrLineNo, string(bar))
 }
 
-func fit(value string, width int) string {
-	value = strings.TrimSpace(value)
-	if ansi.StringWidth(value) <= width {
-		return value
-	}
-	if width <= 1 {
-		return "…"
-	}
-	return ansi.Truncate(value, width, "…")
-}
-
 func foldGlyph(collapsed bool) string {
 	if collapsed {
 		return "▸"
@@ -125,27 +114,44 @@ func renderFold(number, gutterW int, title string, count int, collapsed bool, wi
 	return backgroundSafe(gutter+" "+label+" "+countText, width, sgrFG, sgrFoldBG)
 }
 
-// renderRepeat draws a repeat fold on its own band; the summary yields to
-// width, the hidden-line count never does.
+// renderRepeat draws a repeat fold on its own band. Width goes to the fold's
+// size, the hidden count, the error warning, then the varying values.
 func renderRepeat(number, gutterW int, title string, count int, collapsed bool, width int) string {
 	marker := "⋯"
 	if !collapsed {
 		marker = "▾"
 	}
-	countText := groupDigits(count) + " line" + plural(count) + " hidden"
 	head, rest, _ := strings.Cut(title, " · ")
 	main, severe, _ := strings.Cut(rest, fold.SevereGlyph+" ")
 	main = strings.TrimSuffix(main, " · ")
-	lead := gutterW + 3 + ansi.StringWidth(head)
-	room := width - lead - 2 - ansi.StringWidth(countText) - 1
+	avail := width - gutterW - 3 - 1 // gutter, marker, right padding
+	digits := groupDigits(count)
+	countText := digits
+	for _, c := range []string{digits + " line" + plural(count) + " hidden", digits + " hidden"} {
+		if ansi.StringWidth(head)+1+ansi.StringWidth(c) <= avail {
+			countText = c
+			break
+		}
+	}
+	head = fitPlainWidth(head, avail-1-ansi.StringWidth(countText))
+	room := avail - ansi.StringWidth(head) - 1 - ansi.StringWidth(countText)
+	warning := ""
+	if severe != "" && room >= 6 {
+		warning = fitPlainWidth(fold.SevereGlyph+" "+severe, room-3)
+		room -= 3 + ansi.StringWidth(warning)
+	}
 	label := colorize(sgrRepeatHead, head)
-	if main != "" && room > 3 {
+	if main != "" && room > 4 {
 		label += colorize(sgrFold, " · "+fitPlainWidth(main, room-3))
 	}
-	if severe != "" && ansi.StringWidth(label)+ansi.StringWidth(severe)+5 <= width-gutterW-3-ansi.StringWidth(countText)-1 {
-		label += colorize(sgrFold, " · ") + colorize(sgrFail, fold.SevereGlyph+" "+severe)
+	if warning != "" {
+		label += colorize(sgrFold, " · ") + colorize(sgrFail, warning)
 	}
-	left := colorize(sgrLineNo, gutterText(number, gutterW)) + " " + colorize(sgrRepeat, marker) + " " + label
+	gutter := strings.Repeat(" ", gutterW) // an open fold's first line carries the number
+	if collapsed {
+		gutter = colorize(sgrLineNo, gutterText(number, gutterW))
+	}
+	left := gutter + " " + colorize(sgrRepeat, marker) + " " + label
 	gap := max(1, width-ansi.StringWidth(left)-ansi.StringWidth(countText)-1)
 	return backgroundSafe(left+strings.Repeat(" ", gap)+colorize(sgrDim, countText), width, sgrFG, sgrRepeatBG)
 }
@@ -382,6 +388,7 @@ const (
 	sgrFoldBG     = "\x1b[48;2;27;29;23m"
 	sgrRepeat     = "\x1b[38;2;110;156;181m"
 	sgrRepeatHead = "\x1b[1;38;2;110;156;181m"
+	sgrHeader     = sgrRepeatHead
 	sgrRepeatBG   = "\x1b[48;2;20;28;33m"
 	sgrSearchBG   = "\x1b[48;2;43;33;24m"
 )

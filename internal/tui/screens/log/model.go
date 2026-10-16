@@ -374,6 +374,14 @@ func (m Model) visibleRows() []viewRow {
 	return rows[top:min(len(rows), top+max(m.Height, 1))]
 }
 
+// Changed reports whether m would draw differently from before.
+func (m Model) Changed(before Model) bool {
+	return m.rev != before.rev || m.Offset != before.Offset || m.topRow != before.topRow ||
+		m.skip != before.skip || m.Wrap != before.Wrap || m.InputMode != before.InputMode ||
+		m.input != before.input || m.Search.Query != before.Search.Query ||
+		m.Search.Current != before.Search.Current || m.Search.Total != before.Search.Total
+}
+
 func (m Model) isMatch(line int) bool {
 	return m.hits[line]
 }
