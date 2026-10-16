@@ -109,7 +109,7 @@ func foldGlyph(collapsed bool) string {
 
 func renderFold(number, gutterW int, title string, count int, collapsed bool, width int) string {
 	gutter := colorize(sgrLineNo, gutterText(number, gutterW))
-	label := colorize(sgrFold, fmt.Sprintf("%s %s", foldGlyph(collapsed), title))
+	label := colorize(sgrOK, foldGlyph(collapsed)) + " " + colorize(sgrFold, title)
 	countText := colorize(sgrDim, groupDigits(count)+" line"+plural(count))
 	return backgroundSafe(gutter+" "+label+" "+countText, width, sgrFG, sgrFoldBG)
 }
@@ -126,8 +126,12 @@ func renderRepeat(number, gutterW int, title string, count int, collapsed bool, 
 	main = strings.TrimSuffix(main, " · ")
 	avail := width - gutterW - 3 - 1 // gutter, marker, right padding
 	digits := groupDigits(count)
+	full, short := digits+" line"+plural(count)+" hidden", digits+" hidden"
+	if !collapsed {
+		full, short = digits+" line"+plural(count), digits
+	}
 	countText := digits
-	for _, c := range []string{digits + " line" + plural(count) + " hidden", digits + " hidden"} {
+	for _, c := range []string{full, short} {
 		if ansi.StringWidth(head)+1+ansi.StringWidth(c) <= avail {
 			countText = c
 			break

@@ -4565,7 +4565,7 @@ func groupThousands(n int) string {
 
 func failureRight(m failure.Model) string {
 	if m.TotalLines > 0 {
-		return fmt.Sprintf("%d log lines", m.TotalLines)
+		return groupThousands(m.TotalLines) + " log lines"
 	}
 	return ""
 }

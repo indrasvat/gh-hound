@@ -207,7 +207,7 @@ func TestOpenRepeatHeaderLeavesTheNumberToItsLine(t *testing.T) {
 	lines := strings.Split(plain(View(m, 100)), "\n")
 	for i, l := range lines {
 		if strings.Contains(l, "▾ ×") {
-			if strings.TrimSpace(l[:4]) != "" || i+1 >= len(lines) || !strings.HasPrefix(lines[i+1], "00") {
+			if strings.TrimSpace(l[:4]) != "" || strings.Contains(l, "hidden") || i+1 >= len(lines) || !strings.HasPrefix(lines[i+1], "00") {
 				t.Fatalf("open header gutter %q, next %q", l, lines[min(i+1, len(lines)-1)])
 			}
 			return
