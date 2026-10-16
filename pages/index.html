@@ -156,7 +156,7 @@
   <section id="screens" class="wrap">
     <div class="section-head reveal">
       <h2>Best in show.</h2>
-      <p class="lede">One tab per trick: failure forensics, log time travel, a live watch, the palette, the deploy gate, the trail, the scent check, the good ending. Every frame rendered by <span class="hound">gh-hound</span> itself &mdash; the full log is this repo's own CI, caught red-handed.</p>
+      <p class="lede">One tab per trick: failure forensics, log time travel, a live watch, filters, the palette, the deploy gate, the trail, the scent check, the good ending. Every frame rendered by <span class="hound">gh-hound</span> itself &mdash; the full log is this repo's own CI, caught red-handed.</p>
     </div>
     <div class="tabs reveal" role="tablist" aria-label="gh-hound screens">
       <button class="tab" role="tab" aria-selected="true" data-shot="shot-detail">run detail</button>
@@ -164,6 +164,7 @@
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-log">full log</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-time">time travel</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-watch">watch</button>
+      <button class="tab" role="tab" aria-selected="false" data-shot="shot-filters">filters</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-palette">palette</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-approvals">approvals</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-diff">the trail</button>
@@ -190,6 +191,10 @@
       <figure class="shot" id="shot-watch" role="tabpanel" hidden>
         <div class="term"><img src="/assets/shots/watch.png" alt="The hunt board: one row per run in the event group with live states, aggregate counts, and follow-worst mode" loading="lazy" width="2242" height="540"></div>
         <figcaption class="shot-caption">the hunt · w watches the whole event group, f follows the worst</figcaption>
+      </figure>
+      <figure class="shot" id="shot-filters" role="tabpanel" hidden>
+        <div class="term"><img src="/assets/shots/filters.png" alt="Runs list on vercel/next.js filtered to actor:dependabot[bot] status:failure: five failing dependabot runs across push, pull_request and dynamic events, with an Actor column" loading="lazy" width="2242" height="620"></div>
+        <figcaption class="shot-caption">live capture on vercel/next.js · / stacks actor:, status:, branch:, event: · filtered by GitHub</figcaption>
       </figure>
       <figure class="shot" id="shot-palette" role="tabpanel" hidden>
         <div class="term"><img src="/assets/shots/palette.png" alt="Command palette overlay listing jump targets like runs, failures, artifacts and dispatch" loading="lazy" width="2242" height="780"></div>
