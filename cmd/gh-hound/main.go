@@ -164,7 +164,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.PersistentFlags().StringVar((*string)(&options.Format), "format", "json", "pipe output format: json, md, xml (env HOUND_FORMAT)")
 	cmd.PersistentFlags().StringVar(&options.LogLevel, "log-level", "info", "log level: off, error, warn, info, debug (env HOUND_LOG_LEVEL)")
 	cmd.PersistentFlags().BoolVar(&options.TraceHTTP, "trace-http", false, "trace GitHub API calls to the JSON log (env HOUND_TRACE_HTTP)")
-	cmd.PersistentFlags().StringVar(&options.Fake, "fake-scenario", "", "deterministic fake scenario: green, failure, pending, empty, api_error, conflict, permission, waiting, regression, pack, flaky, queue (env HOUND_FAKE_SCENARIO)")
+	cmd.PersistentFlags().StringVar(&options.Fake, "fake-scenario", "", "deterministic fake scenario: green, failure, pending, empty, api_error, conflict, permission, waiting, regression, pack, flaky, queue, noisy (env HOUND_FAKE_SCENARIO)")
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		applyEnv(&options, runtime.Env)
 		return nil
@@ -2071,6 +2071,14 @@ func resultForOptions(ctx context.Context, options cliOptions, runtime commandRu
 	if scenario == "api_error" || scenario == "network_error" || scenario == "rate_limited" {
 		return render.Result{}, errors.New("github api unavailable")
 	}
+	if scenario == "noisy" {
+		runtime.GitHub = fake.New(fake.ScenarioNoisy)
+		runtime.Repo = staticRepositoryContext{context: usecase.RepositoryContext{
+			Repo: firstNonEmpty(options.Repo, "indrasvat/gh-hound"), Branch: firstNonEmpty(options.Branch, "main"), Actor: "indrasvat",
+		}}
+		options.Fake = ""
+		return liveResult(ctx, options, runtime)
+	}
 	return fakeResult(options, scenario), nil
 }
 
@@ -2374,6 +2382,8 @@ func fakeScenarioFor(scenario string) fake.Scenario {
 		return fake.ScenarioFlaky
 	case "queue":
 		return fake.ScenarioQueue
+	case "noisy":
+		return fake.ScenarioNoisy
 	default:
 		return fake.ScenarioGreen
 	}
@@ -2405,6 +2415,20 @@ func attachFailures(ctx context.Context, triage usecase.TriageService, repo stri
 	wg.Wait()
 }
 
+func mapRenderRepeats(repeats []usecase.Repeat) []render.Repeat {
+	if len(repeats) == 0 {
+		return nil
+	}
+	out := make([]render.Repeat, 0, len(repeats))
+	for _, r := range repeats {
+		out = append(out, render.Repeat{
+			StartLine: r.StartLine, EndLine: r.EndLine, Cycles: r.Cycles, BlockLines: r.Period,
+			HiddenLines: r.Hidden, From: r.From, To: r.To, Summary: r.Summary,
+		})
+	}
+	return out
+}
+
 func mapRenderFailures(failures []usecase.RunFailure) []render.Failure {
 	out := make([]render.Failure, 0, len(failures))
 	for _, failure := range failures {
@@ -2423,6 +2447,7 @@ func mapRenderFailures(failures []usecase.RunFailure) []render.Failure {
 			ExitCode:    failure.ExitCode,
 			Annotations: annotations,
 			LogExcerpt:  failure.LogExcerpt,
+			Repeats:     mapRenderRepeats(failure.Repeats),
 		})
 	}
 	return out
@@ -2648,6 +2673,9 @@ func normalizedScenario(options cliOptions) string {
 	case "queue":
 		// Seeded Actions concurrency-group blocker for queue diagnostics.
 		return "queue"
+	case "noisy":
+		// A failing run whose log is mostly repeats, through real triage.
+		return "noisy"
 	}
 	status := strings.ToLower(strings.TrimSpace(options.Status))
 	switch status {

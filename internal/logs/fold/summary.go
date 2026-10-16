@@ -48,6 +48,7 @@ func Summarize(seg Segment, lines []string, n Normalizer) Summary {
 	type acc struct {
 		values      map[string]bool
 		first, last string
+		samples     int
 	}
 	accs := map[pos]*acc{}
 	var order []pos
@@ -90,6 +91,7 @@ func Summarize(seg Segment, lines []string, n Normalizer) Summary {
 				a.values[slot.Value] = true
 			}
 			a.last = slot.Value
+			a.samples++
 		}
 	}
 	s.Shapes = len(shapes)
@@ -102,7 +104,8 @@ func Summarize(seg Segment, lines []string, n Normalizer) Summary {
 			continue
 		}
 		v := SlotVariation{Distinct: len(a.values), First: a.first, Last: a.last}
-		if len(a.values) <= fewLimit {
+		// list values only when they recur; all-distinct values are a range
+		if len(a.values) <= fewLimit && a.samples > len(a.values) {
 			for val := range a.values {
 				v.Few = append(v.Few, val)
 			}
@@ -140,6 +143,14 @@ func isClock(v string) bool {
 func isDigit(c byte) bool { return c >= '0' && c <= '9' }
 
 func isHexLetter(c byte) bool { c |= 0x20; return c >= 'a' && c <= 'f' }
+
+// Span is the fold's first and last wall-clock time (HH:MM:SS), if any.
+func (s Summary) Span() (string, string) {
+	if s.TimeFrom == "" {
+		return "", ""
+	}
+	return shortClock(s.TimeFrom), shortClock(s.TimeTo)
+}
 
 // Marker is the one-line stand-in for a fold in plain text output.
 func (s Summary) Marker() string {

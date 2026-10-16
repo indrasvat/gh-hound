@@ -40,6 +40,8 @@ const (
 	// resolve @me.
 	ScenarioActors     Scenario = "actors"
 	ScenarioActorsAnon Scenario = "actors_anon"
+	// ScenarioNoisy is a failing run whose job log is mostly repeats.
+	ScenarioNoisy Scenario = "noisy"
 )
 
 type Adapter struct {
@@ -101,7 +103,7 @@ func (a *Adapter) listScenarioRuns() ([]model.Run, error) {
 	switch a.scenario {
 	case ScenarioGreen:
 		return []model.Run{greenRun(571), greenRun(570), greenRun(569)}, nil
-	case ScenarioFailing, ScenarioLogRefetch:
+	case ScenarioFailing, ScenarioLogRefetch, ScenarioNoisy:
 		run := greenRun(571)
 		run.Conclusion = model.ConclusionFailure
 		return []model.Run{run}, nil
@@ -380,6 +382,9 @@ func (a *Adapter) ReviewPendingDeployments(_ context.Context, repo string, runID
 func (a *Adapter) FetchJobLog(context.Context, string, int64) (string, error) {
 	if a.scenario == ScenarioLogRender {
 		return "", usecase.LogRenderError{Message: "link expired"}
+	}
+	if a.scenario == ScenarioNoisy {
+		return noisyLog(), nil
 	}
 	if a.scenario == ScenarioFlaky {
 		// A retry wrapper hiding instability inside an eventually-green

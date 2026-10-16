@@ -125,6 +125,46 @@
         },
         "log_excerpt": {
          "type": "string"
+        },
+        "repeats": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "required": [
+           "start_line",
+           "end_line",
+           "cycles",
+           "block_lines",
+           "hidden_lines",
+           "summary"
+          ],
+          "properties": {
+           "start_line": {
+            "type": "integer"
+           },
+           "end_line": {
+            "type": "integer"
+           },
+           "cycles": {
+            "type": "integer"
+           },
+           "block_lines": {
+            "type": "integer"
+           },
+           "hidden_lines": {
+            "type": "integer"
+           },
+           "from": {
+            "type": "string"
+           },
+           "to": {
+            "type": "string"
+           },
+           "summary": {
+            "type": "string"
+           }
+          }
+         }
         }
        }
       }

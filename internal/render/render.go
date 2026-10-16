@@ -80,6 +80,21 @@ type Failure struct {
 	ExitCode    int          `json:"exit_code" xml:"exit_code,attr"`
 	Annotations []Annotation `json:"annotations" xml:"annotations>annotation"`
 	LogExcerpt  string       `json:"log_excerpt" xml:"log_excerpt"`
+	Repeats     []Repeat     `json:"repeats,omitempty" xml:"repeats>repeat,omitempty"`
+}
+
+// Repeat is a run of repeating log lines folded out of the excerpt.
+// Cycles is 0 for lines recurring in any order; BlockLines is then the
+// number of distinct lines.
+type Repeat struct {
+	StartLine   int    `json:"start_line" xml:"start_line,attr"`
+	EndLine     int    `json:"end_line" xml:"end_line,attr"`
+	Cycles      int    `json:"cycles" xml:"cycles,attr"`
+	BlockLines  int    `json:"block_lines" xml:"block_lines,attr"`
+	HiddenLines int    `json:"hidden_lines" xml:"hidden_lines,attr"`
+	From        string `json:"from,omitempty" xml:"from,attr,omitempty"`
+	To          string `json:"to,omitempty" xml:"to,attr,omitempty"`
+	Summary     string `json:"summary" xml:"summary,attr"`
 }
 
 type Annotation struct {
@@ -350,6 +365,16 @@ func writeMarkdown(w io.Writer, result Result) error {
 		for _, failure := range run.Failed {
 			if _, err := fmt.Fprintf(w, "\n### %s · %s\n\nExit code: `%d`\n\n```text\n%s\n```\n", failure.Job, failure.Step, failure.ExitCode, failure.LogExcerpt); err != nil {
 				return err
+			}
+			if len(failure.Repeats) > 0 {
+				if _, err := fmt.Fprint(w, "\nRepeats folded out of the log:\n\n"); err != nil {
+					return err
+				}
+			}
+			for _, r := range failure.Repeats {
+				if _, err := fmt.Fprintf(w, "- L%d–L%d: %s (%d lines hidden)\n", r.StartLine, r.EndLine, r.Summary, r.HiddenLines); err != nil {
+					return err
+				}
 			}
 		}
 	}

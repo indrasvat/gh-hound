@@ -125,3 +125,22 @@ func TestTitleAndMarker(t *testing.T) {
 	}
 	t.Fatal("no fold")
 }
+
+func TestSummaryListsOnlyRecurringValues(t *testing.T) {
+	var lines []string
+	for i, ms := range []int{110, 299, 336, 73} {
+		lines = append(lines, fmt.Sprintf("probe took %dms request-id: %08x-%04x", ms, 0x7094ba37+i*7919, 0x018f+i))
+	}
+	seg := Segment{Kind: Folded, Start: 1, End: 3, Run: Run{Start: 0, Period: 1, Count: 4}}
+	got := Summarize(seg, lines, Shape{}).Title()
+	if strings.Contains(got, "|") {
+		t.Fatalf("all-distinct values listed: %q", got)
+	}
+	if !strings.Contains(got, "110ms → 73ms (4 values)") || !strings.Contains(got, "changing id") {
+		t.Fatalf("want range and id count: %q", got)
+	}
+	codes := []string{"exit code 0", "exit code 0", "exit code 2", "exit code 0"}
+	if got := Summarize(Segment{Kind: Folded, Start: 1, End: 3, Run: Run{Period: 1, Count: 4}}, codes, Shape{}).Title(); strings.Contains(got, "|") {
+		t.Fatalf("semantic codes are part of the shape, not a slot: %q", got)
+	}
+}

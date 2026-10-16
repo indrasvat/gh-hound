@@ -4,7 +4,6 @@ import (
 	"context"
 	"regexp"
 	"strconv"
-	"strings"
 
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/model"
@@ -24,13 +23,13 @@ type RunFailure struct {
 	ExitCode    int
 	Annotations []model.Annotation
 	LogExcerpt  string
+	Repeats     []Repeat
 }
 
 const (
 	// fallbackExitCode is reported when the job failed but the log is
 	// unavailable or carries no "exit code N" marker.
 	fallbackExitCode = 1
-	excerptTailLines = 8
 )
 
 var exitCodeRE = regexp.MustCompile(`exit code ([0-9]+)`)
@@ -66,7 +65,7 @@ func (s TriageService) LoadRunFailuresAttempt(ctx context.Context, repo string, 
 		failure := RunFailure{Job: job, Step: firstFailedStep(job), ExitCode: fallbackExitCode}
 		if raw, logErr := s.GitHub.FetchJobLog(ctx, repo, job.ID); logErr == nil {
 			document := logs.Parse(raw)
-			failure.LogExcerpt = excerptFor(document)
+			failure.LogExcerpt, failure.Repeats = excerpt(ctx, document)
 			if code, ok := exitCodeFrom(document); ok {
 				failure.ExitCode = code
 			}
@@ -95,23 +94,6 @@ func firstFailedStep(job model.Job) model.Step {
 		}
 	}
 	return model.Step{}
-}
-
-// excerptFor prefers the parser's failure window and falls back to the
-// log tail. Both come from the parsed document, so masking and
-// timestamp stripping already applied.
-func excerptFor(document logs.Document) string {
-	lines := document.Failure.Lines
-	if !document.Failure.Found {
-		all := document.Lines
-		start := max(0, len(all)-excerptTailLines)
-		lines = all[start:]
-	}
-	parts := make([]string, 0, len(lines))
-	for _, line := range lines {
-		parts = append(parts, logs.StripTimestamp(line.Text))
-	}
-	return strings.TrimSpace(strings.Join(parts, "\n"))
 }
 
 func exitCodeFrom(document logs.Document) (int, bool) {
