@@ -782,7 +782,7 @@ func (a App) ViewSize(width, height int) string {
 	body := a.screenBody(width, height)
 	footer := keys.FooterForScreen(a.footerScreen())
 	if a.TopOverlay() != OverlayNone {
-		body = overlayBox(a.theme, a.overlayTitle(), a.overlayView(width), width)
+		body = overlayBox(a.theme, a.overlayTitle(), a.overlayView(width, height), width)
 		footer = keys.FooterForScreen(keys.ScreenHelp)
 		if a.TopOverlay() == OverlayPalette {
 			footer = keys.FooterForScreen(keys.ScreenPalette)
@@ -4143,14 +4143,20 @@ func (a App) overlayTitle() string {
 	}
 }
 
-func (a App) overlayView(width int) string {
+func (a App) overlayView(width, height int) string {
 	switch a.TopOverlay() {
 	case OverlayHelp:
 		// Help wraps long sections; it must wrap to the width the
 		// overlay box actually renders, not get truncated by it.
 		return help.View(a.footerScreen(), overlayInnerWidth(width))
 	case OverlayPalette:
-		return palette.View(a.palette, width-20)
+		// Box chrome (4 rows) plus the palette's prompt and footer (3)
+		// leave the rest of the body for items.
+		maxItems := 0
+		if height > 0 {
+			maxItems = max(bodyHeight(height)-7, 3)
+		}
+		return palette.ViewSize(a.palette, width-20, maxItems)
 	case OverlayConfirm:
 		return confirm.View(a.confirm, width-20)
 	case OverlayTimeJump:

@@ -1,7 +1,1 @@
-{
-  "contains": [
-    ": jump to…",
-    "runs --all",
-    "dispatch · trigger workflow_dispatch"
-  ]
-}
+{"contains": [": jump to…", "runs --all", "My runs · actor:@me in this scope", "… 4 more · ↑/↓ scroll"]}

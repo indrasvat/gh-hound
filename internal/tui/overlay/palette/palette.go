@@ -1,6 +1,7 @@
 package palette
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
@@ -102,8 +103,24 @@ func (m Model) Visible() []Item {
 }
 
 func View(m Model, width int) string {
+	return ViewSize(m, width, 0)
+}
+
+// ViewSize renders at most maxItems item rows (0 means all). A longer
+// list scrolls with the selection and its last row counts the rest, so
+// the overlay never outgrows a small frame.
+func ViewSize(m Model, width, maxItems int) string {
 	lines := []string{": jump to…", icons.Prompt + " " + m.Query}
-	for i, item := range m.Visible() {
+	visible := m.Visible()
+	start, end, more := 0, len(visible), 0
+	if maxItems > 0 && len(visible) > maxItems {
+		rows := max(maxItems-1, 1)
+		start = min(max(m.Selected-rows+1, 0), len(visible)-rows)
+		end = start + rows
+		more = len(visible) - rows
+	}
+	for i := start; i < end; i++ {
+		item := visible[i]
 		prefix := " "
 		if i == m.Selected {
 			prefix = icons.Cursor
@@ -113,6 +130,9 @@ func View(m Model, width int) string {
 			row += " · " + item.Tag
 		}
 		lines = append(lines, fit(row, width))
+	}
+	if more > 0 {
+		lines = append(lines, fit(fmt.Sprintf(" … %d more · ↑/↓ scroll", more), width))
 	}
 	lines = append(lines, "workflows · watch · diff · theme")
 	return strings.Join(lines, "\n")
