@@ -292,6 +292,18 @@ footer .sig{color:var(--ok);font-family:"JetBrains Mono",monospace}
 /* runs list */
 .runs .tr,.runs .colhead.g{grid-template-columns:16px minmax(74px,1.5fr) minmax(78px,1.4fr) 40px 80px 44px;display:grid;gap:10px}
 .runs .colhead.g{align-items:center}
+/* runs list with actors + filter input (②b) */
+.runs.actors .tr,.runs.actors .colhead.g{grid-template-columns:44px 16px minmax(90px,2fr) minmax(70px,1fr) minmax(70px,1fr) 44px 40px}
+.tr .actor{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tr .actor.na{color:var(--dim)}
+.filterin{display:flex;gap:8px;align-items:center;background:var(--surface);color:var(--fg);padding:3px 13px;margin:0 0 1px}
+.filterin .p{color:var(--ok);font-weight:700}
+.filterin .cur{display:inline-block;width:.6em;height:1.05em;background:var(--ok);vertical-align:text-bottom}
+.filterin .ph{color:var(--dim);font-style:italic}
+.fhint{color:var(--subtle);padding:1px 13px 4px}
+.fsum{padding:1px 13px 4px;color:var(--subtle)} .fsum .q{color:var(--info)} .fsum .me{color:var(--ok)}
+.ferr{color:var(--fail);padding:1px 13px}
+.attrib{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:7px 13px;color:var(--fg-soft)}
 
 /* sparkline (ntcharts / custom block map) */
 .spk{display:flex;align-items:flex-end;gap:2px;height:13px}
@@ -753,6 +765,32 @@ footer .sig{color:var(--ok);font-family:"JetBrains Mono",monospace}
     <div class="t-foot"><span><k>⏎</k>open</span><span><k>↻</k>rerun</span><span><k>✗</k>cancel</span><span><k>l</k>logs</span><span><k>w</k>watch</span><span><k>/</k>filter</span><span><k>?</k>help</span></div>
   </div>
   <p class="renders">renders: <b>bubbles/v2/table</b> · selection = Background() fill + green bar · live cell via <b>spinner</b> · gradient focus border via <b>BorderForegroundBlend()</b></p>
+
+  <p class="cap"><b>②b</b> My runs — <code>/</code> opens a shaded input under the column header with a cursor, a hint row of usable examples, and the applied query pre-filled. Enter applies; Esc restores. Actor sits after Workflow / detail; Duration then Event yield at narrow widths, Actor and Age never do.</p>
+  <div class="t focus">
+    <div class="t-head"><span class="mk">hound</span><span class="cr"><span class="cr-branch">⎇ trunk</span><span class="sep">·</span><span>@indrasvat</span></span><span class="rt"><span>30 runs loaded</span><span class="pulse">live</span></span></div>
+    <div class="t-body runs actors">
+      <div class="colhead g"><span>#</span><span>St</span><span>Workflow / detail</span><span>Actor</span><span>Event</span><span>Dur.</span><span>Age</span></div>
+      <div class="filterin"><span class="p">/</span><span>actor:@me status:failure</span><span class="cur"></span></div>
+      <div class="fhint">actor:@me · actor:login · status:failure · branch:trunk · event:push</div>
+      <div class="tr cur"><span class="num">#701</span><span class="st fail">✗</span><span class="b">CI · fix: flaky lexer test</span><span class="actor">@indrasvat</span><span class="ev">push</span><span class="spk"><i style="height:35%"></i><i style="height:60%"></i><i style="height:100%"></i><i style="height:70%"></i></span><span class="age">12m</span></div>
+      <div class="tr"><span class="num">#700</span><span class="st ok">✔</span><span class="b">Release · chore(deps): bump x/term</span><span class="actor">@dependabot[bot]</span><span class="ev">push</span><span class="spk"><i style="height:30%"></i><i style="height:50%"></i><i style="height:65%"></i></span><span class="age">36m</span></div>
+      <div class="tr"><span class="num">#699</span><span class="st cancel">⊘</span><span class="b">CI · imported run</span><span class="actor na">unavailable</span><span class="ev">push</span><span class="spk"><i style="height:25%"></i></span><span class="age">2h</span></div>
+    </div>
+    <div class="t-foot"><span><k>⏎</k>apply</span><span><k>⎋</k>cancel</span><span><k>ctrl+u</k>clear</span></div>
+  </div>
+  <div class="t" style="margin-top:12px">
+    <div class="t-body runs actors">
+      <div class="fsum"><span class="q">/actor:@me status:failure</span> <span class="me">→ @indrasvat</span> · 2 runs · Esc clear</div>
+      <div class="fsum"><span class="q">/fix</span> · 3 of 30 loaded · Esc clear</div>
+      <div class="fsum" style="color:var(--fg-soft)">No runs match actor:@me status:failure on branch trunk.</div>
+      <div class="fhint">/ edit · Esc clear</div>
+      <div class="ferr">✗ can't resolve @me: not signed in to GitHub (set GH_TOKEN or run gh auth login)</div>
+      <div class="fhint">actor:&lt;login&gt; still works · / edit · Esc clear</div>
+      <div class="attrib"><span>cli/cli › CI #423 › trunk · @ff67d76</span><span>Started by @alice · Attempt 2 · Re-run by @bob</span></div>
+    </div>
+  </div>
+  <p class="renders">applied summary says what it counted (server rows vs loaded rows) · empty and error states name their cause and never fall back to another filter's rows · detail attribution sits on the breadcrumb row</p>
 
   <p class="cap"><b>③</b> Run detail — master-detail. Jobs left, the selected job's step timeline right; the failed step is highlighted, not hunted for.</p>
   <div class="t-scroll"><div class="t">

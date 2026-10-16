@@ -90,7 +90,7 @@ The GIF is deliberately secondary: static shux captures are the visual truth; VH
 
 `gh-hound` is built around the parts of the GitHub Actions API that matter for fast CI triage:
 
-- **Server-side filtering** for runs: branch, status/conclusion, event, and repo-wide scope.
+- **Server-side filtering** for runs: actor, branch, status/conclusion, event, head SHA, and repo-wide scope.
 - **ETag-aware polling**: unchanged resources use conditional requests; idle views avoid burning the primary rate budget.
 - **Serial request queue**: API calls and mutations are paced to avoid secondary rate-limit spikes.
 - **Cache-first rendering**: the TUI paints from local state; network work returns through messages instead of blocking keystrokes.
@@ -101,13 +101,14 @@ The local gate includes race-enabled Go tests, large-log performance tests, and 
 
 ## Features
 
-- **Runs home**: branch or repo-wide list, all-green state, status glyphs, run numbers, filters, summary counts, and rate/cache metadata.
+- **Runs home**: branch or repo-wide list, all-green state, status glyphs, run numbers, who started each run, filters, summary counts, and rate/cache metadata.
+- **My runs**: `/actor:@me` (or `:` → My runs) narrows to runs you started, resolved from the credentials gh-hound already uses — never `git config`. Filters combine (`actor:@me status:failure branch:main`), reach past the first page, and survive `f`, `s`, refresh, paging, and detail round-trips. Run detail names who started a run and who re-ran it.
 - **Run detail**: master-detail job/step view with responsive collapse at narrow terminal sizes.
 - **Artifacts**: list a run's artifacts in detail view, download and auto-extract with confirmation; expired artifacts are flagged and refused up front. The confirm shows the absolute destination (`$GH_HOUND_ARTIFACT_DIR` or the working directory), the row streams live progress (byte counter, then `extracting…`), and a finished download keeps a ✔ verdict with its path inline — `o` opens the extracted folder, `y` copies its path, and re-downloading into an existing destination offers a guarded overwrite instead of a dead-end error.
 - **Deployment approvals**: waiting runs wear a gate badge; `A` opens the gate overlay — pick environments, approve or reject with confirmation — and the `approvals` pipe verb does the same for agents. The `gh` CLI has no equivalent.
 - **Cache kennel**: the `caches` verb and palette screen show Actions cache pressure against the 10 GB eviction cap — themed gauge, sortable list (biggest or stalest first), key filter, and confirm-gated deletes by ID or key with the match count shown before anything is dug up. Past 90% the kennel warns before GitHub starts evicting.
 - **Time navigation**: a `t` modal on the log screen with a landmark picker (step boundaries, the failure window, the slowest gaps), typed jumps (`17:43`, `+30s`, `-2m`), and `A-B` range filtering.
-- **Status cycle**: `f` on the runs screen cycles all / failing / running / passed through the server filter.
+- **Status cycle**: `f` on the runs screen cycles the `status:` token (failure / in progress / success / all) and keeps the rest of the filter.
 - **Attempt forensics**: `runs --run <id> --attempt <n>` triages a specific attempt after a re-run -- failed jobs, clean excerpts, exit codes.
 - **The trail**: `diff` walks a workflow's history to the last-green → first-red boundary and names the suspect commits -- the answer `git bisect` re-runs builds for is already in the run history. TUI screen via `:diff`, JSON verdict for agents, `diff_max_pages` bounds the spend.
 - **Flake forensics**: `flakes` answers "real failure or flake?" with a scored, evidenced verdict -- attempt flips, cross-run flapping, and retry-wrapper masking over the last `flake_window` runs. The failure screen recognizes the scent (`seen this one before: flaked 2 of last 50 runs`) with evidence drill-down, known flakers wear a `~` badge on the runs list, and agents branch on `status`: `flaky` -> rerun, `clean` -> investigate.
@@ -179,6 +180,7 @@ gh hound watch
 # Agent/script path
 gh hound runs --no-tui --json
 gh hound runs --status failure --no-tui --json
+gh hound runs --actor @me --status failure --no-tui --json   # my failing runs on this branch
 gh hound runs --all --no-tui --json                         # branch miss / release or tag discovery
 gh hound watch --json
 gh hound watch --group --no-tui                        # blocks until the hunt settles
@@ -215,6 +217,7 @@ Fixture scenarios are intentionally restricted to non-interactive/test paths. Th
 | --- | --- |
 | Global | `?` help, `:` palette, `T` theme, `q`/`Ctrl+C` quit, `Esc` back |
 | Runs | `j/k` or arrows move, `g/G` top/bottom, `s` scope, `Enter` open, `f` status cycle, `/` filter, `l` logs, `w` watch, `A` approvals (waiting runs) |
+| Filter `/` | type a query, `Enter` apply, `Esc` cancel (restores the applied filter), `Ctrl+U` clear; `Esc` on the list clears the applied filter |
 | Actions | `r` rerun, `R` rerun failed, `x` cancel, `X` force cancel, `D` dispatch |
 | Detail | `Tab` focus, `n` next failure, `l` logs, `a` artifacts, `d` download (overwrite-guarded re-download), `o`/`y` open folder / copy path on a downloaded artifact (browser / run URL otherwise), `J/K` next/previous run |
 | Failure | `l` full log, `o` browser, `y` copy excerpt, `r` rerun job |
@@ -225,6 +228,18 @@ Fixture scenarios are intentionally restricted to non-interactive/test paths. Th
 | Trail (diff) | `j/k` move suspects, `Enter` open first bad run, `o` compare in browser, `Esc` back |
 | Scent check (flakes) | `j/k` move evidence, `Enter` open that run, `Esc` back; on the failure screen `Tab` toggles excerpt/panel focus |
 | Kennel (workflows) | `j/k` move, `e` wake/muzzle (confirm-gated), `o` browser, `Esc` back |
+
+### Filter syntax
+
+| Token | Finds |
+| --- | --- |
+| `actor:@me` | runs you started (the login your token authenticates as) |
+| `actor:<login>` | runs a login started; bots like `dependabot[bot]` work |
+| `status:<s>` | `failure`, `success`, `in_progress`, `queued`, … (`failing`, `running`, `passed` also work) |
+| `branch:<ref>` / `event:<e>` / `sha:<sha>` | head branch, trigger event, head commit |
+| anything else | text search over the loaded rows (workflow, title, branch, run number) |
+
+Qualifiers are answered by GitHub and combine; text narrows what is loaded. The summary says which: `· 12 runs` for a server query, `· 3 of 30 loaded` for a text search.
 
 ## Configuration
 
@@ -251,6 +266,8 @@ gh hound runs --status failure --no-tui --json | jq '.runs[0].failed[0]'
 gh hound runs --all --no-tui --json                    # widen when branch-scoped runs are empty
 gh hound diff --workflow CI --no-tui --json | jq '{status, verdict, suspects: .total_suspects}'
 ```
+
+`--actor <login|@me>` (or `HOUND_ACTOR`) narrows `runs` to one actor; the flag beats the variable, and an explicit `--run` always shows that run (`--actor` with `--run` is refused; `HOUND_ACTOR` is ignored). If `@me` cannot be resolved the command exits `2` with the reason instead of listing everyone's runs. Every run carries `actor` and `triggering_actor` (the latter differs after a re-run by someone else).
 
 Branch-scoped `runs` stays the default for normal PR work. When that scoped query is empty, JSON may include `diagnostic.kind: "target_mismatch"` with concrete next commands for release/tag workflows: widen with `--all`, pass an explicit `--branch <ref>`, or target `--run <id>`.
 

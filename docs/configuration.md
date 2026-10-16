@@ -36,6 +36,7 @@ log_level = "info"      # off | error | warn | info | debug
 | `HOUND_REPO` | Repository override, higher priority than `GH_REPO` |
 | `HOUND_BRANCH` | Branch/ref override |
 | `HOUND_STATUS` | Runs filter, such as `failure` or `in_progress` |
+| `HOUND_ACTOR` | Runs started by a login, or `@me` for the authenticated user; `--actor` wins, and `--run` ignores it |
 | `HOUND_ALL` | Show all branches when true |
 | `HOUND_DIFF_MAX_PAGES` | Page budget for the `diff` regression scan (default 10) |
 | `HOUND_WATCH_GROUP_MAX` | Hunt board size cap for multi-run watch (default 10) |
