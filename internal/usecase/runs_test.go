@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/indrasvat/gh-hound/internal/adapter/fake"
+	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -128,5 +129,16 @@ func TestEmptyBranchRunDiagnosticKeepsActorConstraint(t *testing.T) {
 	alice, _ := usecase.EmptyBranchRunDiagnostic("cli/cli", "trunk", "alice")
 	if !strings.HasPrefix(alice.Message, "No runs by @alice matched") {
 		t.Fatalf("message = %q", alice.Message)
+	}
+}
+
+func TestKeepActorRunsDropsGitHubsLooseMatches(t *testing.T) {
+	runs := []model.Run{{ID: 1, Actor: "BagToad"}, {ID: 2, Actor: "cli-triage[bot]"}, {ID: 3, Actor: "bagtoad"}, {ID: 4}}
+	kept := usecase.KeepActorRuns(runs, "@BagToad")
+	if len(kept) != 2 || kept[0].ID != 1 || kept[1].ID != 3 {
+		t.Fatalf("kept = %+v", kept)
+	}
+	if len(usecase.KeepActorRuns(runs, "")) != 4 {
+		t.Fatal("no actor keeps every run")
 	}
 }

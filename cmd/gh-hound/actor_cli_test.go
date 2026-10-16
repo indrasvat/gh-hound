@@ -172,3 +172,17 @@ func TestRunsActorFakeScenario(t *testing.T) {
 		t.Fatalf("an actor miss is not a target mismatch: %s", out)
 	}
 }
+
+func TestRunsActorDropsLooseGitHubMatches(t *testing.T) {
+	bot := actorTestRun()
+	bot.ID, bot.Actor, bot.TriggeringActor = 1002, "cli-triage[bot]", "cli-triage[bot]"
+	github := &cliGitHub{runs: []model.Run{actorTestRun(), bot}}
+	_, out, err := runActorCLI(t, github, nil, "runs", "--actor", "alice", "--all", "--no-tui", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := decodeJSON(t, []byte(out))["runs"].([]any)
+	if len(runs) != 1 || runs[0].(map[string]any)["actor"] != "alice" {
+		t.Fatalf("--actor must list only that actor's runs: %s", out)
+	}
+}

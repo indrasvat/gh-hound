@@ -2817,7 +2817,7 @@ func (a App) reloadRuns() App {
 				}
 				return app
 			}
-			app = app.storeRuns(requestScope, key, resolved)
+			app = app.storeRuns(requestScope, key, resolved.rows)
 			if app.runs.Context.Scope != requestScope {
 				// The user moved to another scope while this was in
 				// flight: the result stays parked in its cache slot.
@@ -2825,24 +2825,40 @@ func (a App) reloadRuns() App {
 			}
 			app.runs.Context.Page = 1
 			app.runs.Context.PerPage = perPageFor(app.runs.Context, app.config.PerPage)
-			app.runs.Context.HasMore = len(resolved) >= app.runs.Context.PerPage
+			app.runs.Context.HasMore = resolved.full
 			app.runs.Selected = 0
 			return app
 		}
 	})
 }
 
+// fetchedRuns is one list-runs page after actor narrowing. Full says
+// GitHub filled the page, so more may follow even when narrowing kept
+// few rows.
+type fetchedRuns struct {
+	rows []model.Run
+	full bool
+}
+
 // fetchRuns resolves actor:@me through the shared identity lookup, then
 // lists runs. An unresolved @me is an error, never an unfiltered list.
-func fetchRuns(ctx context.Context, resolver func(context.Context, usecase.RunFilter) ([]model.Run, error), viewer *viewerCache, filter usecase.RunFilter, actor string) ([]model.Run, error) {
+func fetchRuns(ctx context.Context, resolver func(context.Context, usecase.RunFilter) ([]model.Run, error), viewer *viewerCache, filter usecase.RunFilter, actor string) (fetchedRuns, error) {
 	if actor == runs.MeActor {
 		login, err := viewer.Resolve(ctx)
 		if err != nil {
-			return nil, err
+			return fetchedRuns{}, err
 		}
 		filter.Actor = login
 	}
-	return resolver(ctx, filter)
+	page, err := resolver(ctx, filter)
+	if err != nil {
+		return fetchedRuns{}, err
+	}
+	perPage := filter.PerPage
+	if perPage <= 0 {
+		perPage = config.Default().PerPage
+	}
+	return fetchedRuns{rows: usecase.KeepActorRuns(page, filter.Actor), full: len(page) >= perPage}, nil
 }
 
 // storeRuns records rows for a scope with the server filter they were
@@ -2946,11 +2962,12 @@ func (a App) loadMoreRuns() App {
 			}
 			app.runs.Context.Page = nextPage
 			app.runs.Context.PerPage = perPage
-			_ = app.appendActiveRuns(resolved)
-			// A full page that deduped to nothing still means deeper pages
-			// exist (high-velocity repos shift runs between pages); latching
-			// HasMore=false there froze pagination on openclaw-sized repos.
-			app.runs.Context.HasMore = len(resolved) >= perPage
+			_ = app.appendActiveRuns(resolved.rows)
+			// A full page that deduped (or narrowed) to nothing still means
+			// deeper pages exist (high-velocity repos shift runs between
+			// pages); latching HasMore=false there froze pagination on
+			// openclaw-sized repos.
+			app.runs.Context.HasMore = resolved.full
 			return app
 		}
 	})
@@ -2979,7 +2996,8 @@ func (a App) startRunsPoll() App {
 // is re-read here, not at fetch time, so a cursor moved while the poll
 // was in flight is preserved. Rows fetched under another filter are
 // replaced, not merged: a poll is also how a failed query heals.
-func (a App) applyRunsRefresh(resolved []model.Run, err error, key string) App {
+func (a App) applyRunsRefresh(fetched fetchedRuns, err error, key string) App {
+	resolved := fetched.rows
 	current := a.runs.DataCurrent()
 	if err != nil {
 		if !current {
@@ -3001,10 +3019,10 @@ func (a App) applyRunsRefresh(resolved []model.Run, err error, key string) App {
 	if current {
 		merged := append(slices.Clone(resolved), dedupeNewRuns(resolved, a.runs.Context.Runs)...)
 		a = a.storeRuns(a.runs.Context.Scope, key, merged)
-		a.runs.Context.HasMore = len(resolved) >= perPage || a.runs.Context.HasMore
+		a.runs.Context.HasMore = fetched.full || a.runs.Context.HasMore
 	} else {
 		a = a.storeRuns(a.runs.Context.Scope, key, resolved)
-		a.runs.Context.HasMore = len(resolved) >= perPage
+		a.runs.Context.HasMore = fetched.full
 	}
 	a.runs.Context.Page = max(a.runs.Context.Page, 1)
 	a.runs.Context.PerPage = perPage

@@ -126,7 +126,9 @@ func (m Model) Update(msg KeyMsg) Model {
 		if total > 0 {
 			m.Selected = total - 1
 		}
-		if m.Context.HasMore && total > 0 {
+		// A filtered page can narrow to nothing while GitHub still has
+		// more: G keeps hunting.
+		if m.Context.HasMore && (total > 0 || m.Filter != "") {
 			m.Intent = Intent{Kind: IntentLoadMore}
 		}
 	case "s":

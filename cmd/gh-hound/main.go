@@ -2160,6 +2160,7 @@ func liveResult(ctx context.Context, options cliOptions, runtime commandRuntime)
 	if err != nil {
 		return render.Result{}, err
 	}
+	runs = usecase.KeepActorRuns(runs, filter.Actor)
 	runs = filterRunsByConclusion(runs, options.Status)
 	renderRuns := mapRenderRuns(runs)
 	attachFailures(ctx, usecase.TriageService{GitHub: githubClient}, repo, runs, renderRuns)

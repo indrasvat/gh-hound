@@ -183,6 +183,8 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 		result.ErrorMessage = launchErrorMessage(err)
 		return result
 	}
+	full := len(runs) >= perPage
+	runs = KeepActorRuns(runs, actor)
 	if result.Scope == LaunchScopeBranch {
 		result.BranchRuns = runs
 	}
@@ -200,6 +202,8 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 			result.ErrorMessage = launchErrorMessage(err)
 			return result
 		}
+		full = len(runs) >= perPage
+		runs = KeepActorRuns(runs, actor)
 		result.RepoRuns = runs
 	} else if result.Scope == LaunchScopeBranch {
 		result.RepoRuns = s.sniffRepoRuns(ctx, result.Repo, perPage, actor)
@@ -211,7 +215,9 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 	}
 
 	result.Runs = runs
-	result.HasMore = perPage > 0 && len(runs) >= perPage
+	// More pages exist when GitHub filled this one, whatever the actor
+	// narrowing kept.
+	result.HasMore = perPage > 0 && full
 	if result.Scope == LaunchScopeBranch && len(result.BranchRuns) == 0 {
 		result.BranchRuns = runs
 	}
@@ -314,7 +320,7 @@ func (s LaunchService) sniffRepoRuns(ctx context.Context, repo string, perPage i
 	if err != nil {
 		return nil
 	}
-	return runs
+	return KeepActorRuns(runs, actor)
 }
 
 func (s LaunchService) currentRepository(ctx context.Context) (RepositoryContext, error) {

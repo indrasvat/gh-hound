@@ -441,7 +441,11 @@ func emptyLines(m Model, st styles, width, matches int) []string {
 	}
 	lines := []string{fitANSI("  "+colorize(st.fgSoft, message), width)}
 	if strings.TrimSpace(m.Filter) != "" {
-		lines = append(lines, dimLine(st, "  / edit · Esc clear", width))
+		hint := "  / edit · Esc clear"
+		if m.Context.HasMore {
+			hint = "  G search older runs · / edit · Esc clear"
+		}
+		lines = append(lines, dimLine(st, hint, width))
 	}
 	return lines
 }

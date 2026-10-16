@@ -76,3 +76,24 @@ func TestLaunchActorMeFailureIsExplainedNotBroadened(t *testing.T) {
 		t.Fatalf("no listing may run without the actor: %d calls", len(github.calls))
 	}
 }
+
+func TestLaunchActorNarrowsLooseMatchesAndKeepsHasMore(t *testing.T) {
+	page := []model.Run{}
+	for i := range 30 {
+		run := greenRun(i+1, "main")
+		run.Actor = "cli-triage[bot]"
+		if i == 0 {
+			run.Actor = "alice"
+		}
+		page = append(page, run)
+	}
+	github := &launchGitHub{runsByBranch: map[string][]model.Run{"main": page, "": page}}
+	launch := usecase.LaunchService{
+		Config:     config.Default(),
+		GitHub:     github,
+		Repository: fakeRepository{context: usecase.RepositoryContext{Repo: "cli/cli", Branch: "main"}},
+	}.Resolve(context.Background(), usecase.LaunchRequest{Actor: "alice"})
+	if len(launch.Runs) != 1 || launch.Runs[0].Actor != "alice" || len(launch.RepoRuns) != 1 || !launch.HasMore {
+		t.Fatalf("runs=%d repo=%d hasMore=%v", len(launch.Runs), len(launch.RepoRuns), launch.HasMore)
+	}
+}

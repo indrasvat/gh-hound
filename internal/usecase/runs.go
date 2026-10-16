@@ -134,3 +134,21 @@ func ResolveActor(ctx context.Context, github GitHub, actor string) (string, err
 	}
 	return login, nil
 }
+
+// KeepActorRuns narrows runs to those login started. GitHub's actor
+// parameter is looser: it also returns runs tied to the login's pushes
+// (scheduled and bot runs on their commits) whose actor is someone
+// else, which would contradict the Actor column.
+func KeepActorRuns(runs []model.Run, login string) []model.Run {
+	login = strings.TrimPrefix(strings.TrimSpace(login), "@")
+	if login == "" {
+		return runs
+	}
+	kept := make([]model.Run, 0, len(runs))
+	for _, run := range runs {
+		if strings.EqualFold(run.Actor, login) {
+			kept = append(kept, run)
+		}
+	}
+	return kept
+}

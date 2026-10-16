@@ -433,3 +433,61 @@ func TestRunsHelpWithFilterSyntaxFitsSmallestFrame(t *testing.T) {
 		}
 	}
 }
+
+// GitHub's actor parameter also returns runs tied to the login's pushes
+// that someone else started; the list must still show only the actor's.
+func TestActorFilterDropsGitHubsLooseMatchesButKeepsPaging(t *testing.T) {
+	page := []model.Run{}
+	for i := range 30 {
+		actor := "cli-triage[bot]"
+		if i%3 == 0 {
+			actor = "BagToad"
+		}
+		page = append(page, actorRun(int64(900-i), actor, "trunk", model.ConclusionSuccess))
+	}
+	var requests []usecase.RunFilter
+	app := newActorApp(&actorRuns{rows: actorRows()}, nil)
+	app.runsResolver = func(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
+		requests = append(requests, filter)
+		if filter.Page > 1 {
+			return []model.Run{actorRun(100, "cli-triage[bot]", "trunk", model.ConclusionSuccess)}, nil
+		}
+		return page, nil // loose: GitHub ignored most of the actor filter
+	}
+	app = settleApp(t, typeQuery(t, app, "actor:BagToad"))
+	screen := view(app)
+	if strings.Contains(screen, "@cli-triage[bot]") || !strings.Contains(screen, "/actor:BagToad · 10+ runs") {
+		t.Fatalf("loose matches leaked or paging lost:\n%s", screen)
+	}
+	app = settleApp(t, typeKeys(t, app, "G"))
+	if last := requests[len(requests)-1]; last.Page != 2 || last.Actor != "BagToad" {
+		t.Fatalf("G request = %+v", last)
+	}
+	if strings.Contains(view(app), "@cli-triage[bot]") || app.runs.Context.HasMore {
+		t.Fatalf("short last page must end paging without leaking rows:\n%s", view(app))
+	}
+}
+
+func TestEmptyFilteredPageStillOffersOlderRuns(t *testing.T) {
+	page := []model.Run{}
+	for i := range 30 {
+		page = append(page, actorRun(int64(900-i), "cli-triage[bot]", "trunk", model.ConclusionSuccess))
+	}
+	var requests []usecase.RunFilter
+	app := newActorApp(&actorRuns{rows: actorRows()}, nil)
+	app.runsResolver = func(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
+		requests = append(requests, filter)
+		if filter.Page > 1 {
+			return []model.Run{actorRun(42, "carol", "trunk", model.ConclusionSuccess)}, nil
+		}
+		return page, nil
+	}
+	app = settleApp(t, typeQuery(t, app, "actor:carol"))
+	if !strings.Contains(view(app), "G search older runs") {
+		t.Fatalf("empty first page must offer older runs:\n%s", view(app))
+	}
+	app = settleApp(t, typeKeys(t, app, "G"))
+	if !strings.Contains(view(app), "@carol") || requests[len(requests)-1].Page != 2 {
+		t.Fatalf("G on an empty filtered page must fetch the next one:\n%s", view(app))
+	}
+}
