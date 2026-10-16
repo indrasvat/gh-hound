@@ -2,7 +2,7 @@
 
 ## Status
 
-IN PROGRESS — issue #55. Out-of-scope defects found while scoping are filed as #56.
+IMPLEMENTED — issue #55. `make ci`, `make vqa`, interaction audit and render hygiene pass; live-verified read-only on cli/cli, indrasvat/gh-hound and microsoft/vscode; three cold QA rounds and three adversarial reviews, each finding fixed with a regression test. Out-of-scope defects found while scoping are filed as #56. Remaining: website screenshots (T14) and the PR review loop (T15).
 
 ## Ownership Boundary
 
@@ -36,18 +36,24 @@ Empty values, repeated keys, invalid logins and unknown statuses are input error
 
 ## Task List
 
-- [ ] T1 Task doc, visual contract, design reference (input, hints, applied summary, empty/error states, Actor column, attribution).
-- [ ] T2 Query parser (`internal/tui/screens/runs/query.go`) with table tests.
-- [ ] T3 Identity port (`usecase.ViewerProvider`), GitHub `GET /user`, fake identity + `actors` scenario (actor variety, filters, paging).
-- [ ] T4 Render: `actor` / `triggering_actor` in JSON/MD/XML, schema, golden.
-- [ ] T5 CLI: `--actor`, `HOUND_ACTOR`, `@me`, `--run` guard, actor-aware diagnostics, fake path.
-- [ ] T6 Launch: actor-aware branch fallback, notice and empty state.
-- [ ] T7 Runs table: shared column spec (header == rows), Actor column, narrow-width yield (Duration, then Event), theme tokens.
-- [ ] T8 Filter input: draft/applied split, shaded input + cursor + placeholder, hint row, Enter/Esc semantics, inline errors, applied summary with accurate counts, empty/error states, footer + help syntax.
-- [ ] T9 App: identity state, query generation guard, scope caches keyed by server filter, refresh/pagination/back keep the filter, `f`/`s` keep actor, palette My runs / All actors, header identity.
-- [ ] T10 Detail attribution: `Started by @alice · Attempt 2 · Re-run by @bob`.
-- [ ] T11 256-colour fallback on the TTY writer.
-- [ ] T12 Fixtures, assertions, interaction scenarios; README, configuration, agent surface, skill.
-- [ ] T13 Verification: `make ci`, `make vqa`, interaction audit, render hygiene; shux sessions on fakes and on `cli/cli`, `indrasvat/gh-hound`, a foreign repo; both themes, 256-colour, 80x24/120x40/200x60; cold-context QA and review agents.
+- [x] T1 Task doc, visual contract, design reference (input, hints, applied summary, empty/error states, Actor column, attribution).
+- [x] T2 Query parser (`internal/tui/screens/runs/query.go`) with table tests.
+- [x] T3 Identity port (`usecase.ViewerProvider`), GitHub `GET /user`, fake identity + `actors` scenario (actor variety, filters, paging).
+- [x] T4 Render: `actor` / `triggering_actor` in JSON/MD/XML, schema, golden.
+- [x] T5 CLI: `--actor`, `HOUND_ACTOR`, `@me`, `--run` guard, actor-aware diagnostics, fake path.
+- [x] T6 Launch: actor-aware branch fallback, notice and empty state.
+- [x] T7 Runs table: shared column spec (header == rows), Actor column, narrow-width yield (Duration, then Event), theme tokens.
+- [x] T8 Filter input: draft/applied split, shaded input + cursor + placeholder, hint row, Enter/Esc semantics, inline errors, applied summary with accurate counts, empty/error states, footer + help syntax.
+- [x] T9 App: identity state, query generation guard, scope caches keyed by server filter, refresh/pagination/back keep the filter, `f`/`s` keep actor, palette My runs / All actors, header identity.
+- [x] T10 Detail attribution: `Started by @alice · Attempt 2 · Re-run by @bob`.
+- [x] T11 256-colour fallback on the TTY writer.
+- [x] T12 Fixtures, assertions, interaction scenarios; README, configuration, agent surface, skill.
+- [x] T13 Verification: `make ci`, `make vqa`, interaction audit, render hygiene; shux sessions on fakes and on `cli/cli`, `indrasvat/gh-hound`, a foreign repo; both themes, 256-colour, 80x24/120x40/200x60; cold-context QA and review agents.
 - [ ] T14 Website: copy + runs/My-runs screenshots (deploy only after approval).
 - [ ] T15 PR closing #55 with evidence comment (screenshots, video) and the review loop.
+
+## Found Along The Way
+
+- GitHub's `actor=` list-runs parameter is loose (it also returns other users' runs tied to the login's pushes); results are narrowed to the run actor, and the CLI reads up to 5 pages to fill an actor's page.
+- The live renderer never drew the frame's right border (an erase in the pending-wrap cell, since #38); rows are now erased before they are painted.
+- At 80x24 the palette clipped its own tail and border; it now windows its items.

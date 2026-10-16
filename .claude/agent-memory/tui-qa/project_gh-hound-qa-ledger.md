@@ -610,6 +610,27 @@ visibleNotice). render_hygiene PASS at 14ea5e6 and dd87e1c.
 TOOLING: no PIL — crop PNGs with `magick X.png -gravity East -crop WxH+0+0`;
 awk length() is byte-based on macOS — use python for border checks.
 
+Round 21d (issue #55 FINAL-2, pinned clean clone 5058643, XDG_RUNTIME_DIR=/tmp/hqa4, 2026-10-16): PASS (no P0/P1/P2 introduced by #55).
+VERIFIED FIXED at 5058643: poll no longer re-latches "+ / G load more" on an
+exhausted scope (fake all scope 40, 40s of 5s polls); branch-miss notice
+wraps whole at 80x24 (live indrasvat/gh-hound --actor @me, s); palette
+"all" -> All actors first; Esc during --latency reload with ?/: open closes
+the overlay AND restores alice rows; Esc also dismisses toast; Esc from
+errored @me view restores the reason; ESC[2K-per-row renderer: right
+border on every frame 80/120/200 incl scroll/overlay/resize storm, and
+diffed-vs-full-repaint PNGs byte-identical (only ticking Age cells differ).
+render_hygiene PASS (22455 bytes, 0 erases). Live cli/cli #423 attribution
+exact. openclaw: actor+status server filter 7.3s, G pages 30->39->82->114.
+PRE-EXISTING (main f977c1d too): `?` inside help pushes a SECOND help layer
+(`? ? ?` needs 3 Esc) though footer says "? close"; runs footer at 80
+truncates "/ …" hiding filter/?; palette selected row has no surface-2 fill.
+STILL OPEN P3s: 200-col: label capped at 90 + actor cap 32 + event cap 28
+leaves ~20 dead cols right of Age while cli/cli titles truncate; 80-col
+header with long branch drops "@login"/"N runs loaded · live" ("· @i…");
+pending filter preview shows "no runs loaded" header + "0/0 · G load more"
+(stale HasMore) until the server answers; notice "Showing all branches
+now." on branch scope; 256-colour fill faint.
+
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.
 **How to apply:** read before every gh-hound audit; update entries when a

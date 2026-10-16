@@ -39,5 +39,11 @@ metadata:
   unfolded — force real viewport scroll with an 80x12 pane, or use
   flaky scenario (6 rows) for selection movement.
 
+- `shux pane capture` returns only the LAST 50 lines by default — at
+  200x60 the header/top border silently vanish from text checks. Always
+  pass `-l 80` (or more) for 60-row panes.
+- render_hygiene.py has no BIN knob (hard-codes ./bin/gh-hound): run it
+  from the pinned clean clone after `cp <binary> bin/gh-hound`.
+
 **How to apply:** reuse these in every gh-hound audit capture loop.
 Related: [[gh-hound-qa-ledger]].
