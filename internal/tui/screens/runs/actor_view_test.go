@@ -204,3 +204,17 @@ func TestLongAppliedQueryKeepsItsCountAndRunNumbersSearch(t *testing.T) {
 		t.Fatal("#701 must find run 701")
 	}
 }
+
+func TestLongNoticesAndEmptyMessagesWrapWhole(t *testing.T) {
+	m := actorModel()
+	m.Context.Notice = `None of your runs matched branch "indrasvat/show-workflow-actors-and-make-my-runs-filtering". Release, tag, or branchless workflows may live outside branch scope; try repo-wide discovery or target a run id.`
+	m = m.Apply("actor:@me")
+	m.Context.Branch = "indrasvat/show-workflow-actors-and-make-my-runs-filtering"
+	m.DataKeys = map[usecase.LaunchScope]string{usecase.LaunchScopeBranch: m.ServerKey()}
+	m.Context.Runs, m.Context.BranchRuns = nil, nil
+	view := ansi.Strip(ViewSize(m, 78, 22, time.Now()))
+	flat := strings.Join(strings.Fields(view), " ")
+	if !strings.Contains(flat, "or target a run id.") || !strings.Contains(flat, "show-workflow-actors-and-make-my-runs-filtering.") || strings.Contains(view, "…") {
+		t.Fatalf("advice clipped:\n%s", view)
+	}
+}

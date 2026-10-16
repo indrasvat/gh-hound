@@ -153,9 +153,17 @@ func columnsFor(width int) runColumns {
 		c.event = 0
 		c.label = width - c.fixedWidth()
 	}
-	// Spare width beyond a long title stays on the right, so Actor sits
-	// near the run it describes on wide terminals.
-	c.label = min(max(c.label, 8), maxLabelWidth)
+	c.label = max(c.label, 8)
+	if c.label > maxLabelWidth {
+		// Spare width beyond a long title goes to Actor and Event before
+		// it is left blank, so Actor stays near the run it describes and
+		// wide terminals truncate less instead of just padding.
+		c.label = maxLabelWidth
+		c.actor = min(c.actor+(width-c.fixedWidth()-c.label)/2, 32)
+		if c.event > 0 {
+			c.event = min(c.event+width-c.fixedWidth()-c.label, 28)
+		}
+	}
 	return c
 }
 
@@ -441,7 +449,10 @@ func emptyLines(m Model, st styles, width, matches int) []string {
 	default:
 		message = fmt.Sprintf("No runs match %s %s.", m.Filter, where)
 	}
-	lines := []string{fitANSI("  "+colorize(st.fgSoft, message), width)}
+	lines := []string{}
+	for _, line := range wrapWords(message, max(width-4, 8)) {
+		lines = append(lines, fitANSI("  "+colorize(st.fgSoft, line), width))
+	}
 	if strings.TrimSpace(m.Filter) != "" {
 		hint := "  / edit · Esc clear"
 		if m.Context.HasMore {
@@ -467,15 +478,12 @@ func failureLines(st styles, reason string, width int) []string {
 }
 
 // noticeLines wraps the launch notice (branch-miss advice, repo
-// activity) so its advice is read whole, at most three rows.
+// activity) so its advice is read whole.
 func noticeLines(st styles, notice string, width int) []string {
 	if notice == "" {
 		return nil
 	}
 	lines := wrapWords(notice, max(width-4, 8))
-	if len(lines) > 3 {
-		lines = append(lines[:2], lines[2]+" "+strings.Join(lines[3:], " "))
-	}
 	for i, line := range lines {
 		lines[i] = dimLine(st, "  "+line, width)
 	}

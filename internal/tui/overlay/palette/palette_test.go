@@ -77,3 +77,11 @@ func TestViewSizeWindowsLongListsAroundSelection(t *testing.T) {
 		t.Fatalf("unbounded view shows %d items", got)
 	}
 }
+
+func TestNamePrefixMatchesLead(t *testing.T) {
+	m := New([]Item{{Name: "runs --all", Description: "runs across all branches"}, {Name: "All actors", Description: "clear the actor filter"}})
+	m.Query = "all"
+	if got := m.Visible(); len(got) != 2 || got[0].Name != "All actors" {
+		t.Fatalf("visible = %+v", got)
+	}
+}

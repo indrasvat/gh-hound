@@ -58,7 +58,7 @@ func renderHeader(th theme.Theme, title, context, right string, width int) strin
 	ctx := lipgloss.NewStyle().Foreground(lipgloss.Color(th.Dim)).Render(context)
 	right = lipgloss.NewStyle().Foreground(lipgloss.Color(th.Dim)).Render(right)
 	raw := title + " " + context + " " + right
-	spacer := max(width-visibleLen(raw), 1)
+	spacer := max(width-visibleLen(raw), 2)
 	line := mark + " " + ctx + strings.Repeat(" ", spacer) + right
 	return fitPlain(line, width)
 }

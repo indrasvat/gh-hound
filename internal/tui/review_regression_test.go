@@ -277,3 +277,41 @@ func TestLaunchFilteredScopeKeepsPagingOnToggle(t *testing.T) {
 		t.Fatalf("narrowed launch rows must keep paging: hasMore=%v load=%v", app.runs.Context.HasMore, app.load != nil)
 	}
 }
+
+// Final QA D2: a page-1 poll re-latched "more pages" after the last
+// page had loaded, so "G load more" came back and did nothing.
+func TestPollNeverRelatchesMorePagesAfterTheLastPage(t *testing.T) {
+	rows := []model.Run{}
+	for i := range 40 {
+		rows = append(rows, actorRun(int64(900-i), "alice", "trunk", model.ConclusionSuccess))
+	}
+	app := newActorApp(&actorRuns{rows: rows}, nil)
+	app.runsResolver = func(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
+		if filter.Page > 1 {
+			return rows[30:], nil
+		}
+		return rows[:30], nil
+	}
+	app = settleApp(t, typeQuery(t, app, "actor:alice"))
+	app = settleApp(t, typeKeys(t, app, "G"))
+	if app.runs.Context.HasMore {
+		t.Fatal("a short last page ends paging")
+	}
+	app, _ = pollCycle(t, app)
+	if app.runs.Context.HasMore || strings.Contains(view(app), "G load more") {
+		t.Fatalf("a page-1 poll re-latched more pages:\n%s", view(app))
+	}
+}
+
+// Final QA D5: the footer promises ⎋ dismiss while a toast shows.
+func TestEscCancellingReloadAlsoDismissesToast(t *testing.T) {
+	gate := make(chan struct{})
+	defer close(gate)
+	server := &actorRuns{rows: actorRows(), gates: map[string]chan struct{}{"bob": gate}}
+	app := newActorApp(server, nil)
+	app.pushToast("x", usecase.Resilience{Severity: usecase.SeverityWarn, Title: "t", Message: "m"})
+	app = typeKeys(t, typeQuery(t, app, "actor:bob"), "esc")
+	if len(app.toasts.Toasts) != 0 || app.runs.Filter != "" {
+		t.Fatalf("toasts=%d filter=%q", len(app.toasts.Toasts), app.runs.Filter)
+	}
+}

@@ -92,14 +92,18 @@ func (m Model) Visible() []Item {
 		return append([]Item(nil), m.Items...)
 	}
 	query := strings.ToLower(m.Query)
-	out := []Item{}
+	// Names that start with the query lead, so typing a name picks it.
+	var leading, rest []Item
 	for _, item := range m.Items {
 		haystack := strings.ToLower(item.Name + " " + item.Description)
-		if strings.Contains(haystack, query) {
-			out = append(out, item)
+		switch {
+		case strings.HasPrefix(strings.ToLower(item.Name), query):
+			leading = append(leading, item)
+		case strings.Contains(haystack, query):
+			rest = append(rest, item)
 		}
 	}
-	return out
+	return append(leading, rest...)
 }
 
 func View(m Model, width int) string {

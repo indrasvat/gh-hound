@@ -702,6 +702,8 @@ func (a App) Update(msg KeyMsg) (out App, handled bool) {
 				// rows are on screen, never leaving a new filter over them.
 				a = a.restoreRunsView(*revert)
 				if len(a.overlays) == 0 && a.Route() == RouteRuns {
+					// The footer promises ⎋ dismiss while a toast shows.
+					a.toasts, _ = a.toasts.Update(toast.KeyMsg{Key: msg.Key})
 					return a, true
 				}
 				// The same Esc still closes the overlay or screen on top.
@@ -3088,7 +3090,11 @@ func (a App) applyRunsRefresh(fetched fetchedRuns, err error, key string) App {
 	if current {
 		merged := append(slices.Clone(resolved), dedupeNewRuns(resolved, a.runs.Context.Runs)...)
 		a = a.storeRuns(a.runs.Context.Scope, key, merged)
-		a.runs.Context.HasMore = fetched.full || a.runs.Context.HasMore
+		// A page-1 poll says nothing about deeper pages once more are
+		// loaded: only the last page fetched decides whether G has more.
+		if a.runs.Context.Page <= 1 {
+			a.runs.Context.HasMore = fetched.full
+		}
 	} else {
 		// Replacing another query's rows: paging starts over.
 		a = a.storeRuns(a.runs.Context.Scope, key, resolved)
