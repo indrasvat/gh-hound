@@ -1124,18 +1124,20 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 		return err
 	}
 	defer restore()
+	out := runtime.Stdout
 	if runtime.IsTTY {
+		out = tuiOutput(runtime.Stdout, runtime.Env)
 		// Alt screen + hidden cursor for the app's lifetime: scrollback
 		// stays clean and the cursor never strobes during repaints.
-		if _, err := io.WriteString(runtime.Stdout, enterAlt+hideCursor); err != nil {
+		if _, err := io.WriteString(out, enterAlt+hideCursor); err != nil {
 			return err
 		}
 		defer func() {
-			_, _ = io.WriteString(runtime.Stdout, showCursor+leaveAlt)
+			_, _ = io.WriteString(out, showCursor+leaveAlt)
 		}()
 	}
 
-	renderer := newFrameRenderer(runtime.Stdout)
+	renderer := newFrameRenderer(out)
 	render := func() error {
 		if runtime.IsTTY {
 			return renderer.Render(app.ViewSize(width, height))

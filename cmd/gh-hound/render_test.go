@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"io"
 	"strings"
 	"testing"
 )
@@ -114,5 +116,34 @@ func TestRendererIdenticalFrameWritesNoRowContent(t *testing.T) {
 	want := beginSync + endSync
 	if update != want {
 		t.Fatalf("identical frame should flush only the empty sync guards, got %q", update)
+	}
+}
+
+func TestTUIOutputDownsamplesOnlyKnownLowColorTerminals(t *testing.T) {
+	frame := beginSync + "\x1b[2;1H\x1b[38;2;79;211;122mok\x1b[0m" + eraseToEnd + endSync
+	tests := []struct {
+		name      string
+		env       map[string]string
+		truecolor bool
+	}{
+		{"256-colour terminal", map[string]string{"TERM": "xterm-256color", "TTY_FORCE": "1"}, false},
+		{"truecolor advertised", map[string]string{"TERM": "xterm-256color", "COLORTERM": "truecolor", "TTY_FORCE": "1"}, true},
+		{"multiplexer advertising truecolor", map[string]string{"TERM": "tmux-256color", "COLORTERM": "truecolor", "TTY_FORCE": "1"}, true},
+		{"unknown terminal passes through", map[string]string{"TTY_FORCE": "1"}, true},
+	}
+	for _, tt := range tests {
+		var out bytes.Buffer
+		if _, err := io.WriteString(tuiOutput(&out, mapEnv(tt.env)), frame); err != nil {
+			t.Fatal(err)
+		}
+		got := out.String()
+		if strings.Contains(got, "38;2;") != tt.truecolor {
+			t.Fatalf("%s: truecolor kept = %v, want %v: %q", tt.name, !tt.truecolor, tt.truecolor, got)
+		}
+		for _, keep := range []string{beginSync, "\x1b[2;1H", eraseToEnd, endSync, "ok"} {
+			if !strings.Contains(got, keep) {
+				t.Fatalf("%s: renderer sequence %q lost: %q", tt.name, keep, got)
+			}
+		}
 	}
 }

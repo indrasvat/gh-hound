@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/charmbracelet/colorprofile"
 )
 
 // Terminal control sequences the renderer speaks. The contract (pinned
@@ -85,4 +87,27 @@ func (r *frameRenderer) Render(view string) error {
 	r.prev = lines
 	_, err := r.out.Write(r.buf.Bytes())
 	return err
+}
+
+// tuiOutput downsamples the TUI's truecolor styling on terminals that
+// only speak 256 or 16 colours. A terminal advertising truecolor
+// (COLORTERM) is never downgraded, and anything detection cannot place
+// passes through untouched: only SGR colours are rewritten, never the
+// cursor and screen sequences the renderer depends on.
+func tuiOutput(w io.Writer, lookup func(string) (string, bool)) io.Writer {
+	if colorTerm, _ := lookup("COLORTERM"); strings.EqualFold(colorTerm, "truecolor") || strings.EqualFold(colorTerm, "24bit") {
+		return w
+	}
+	var environ []string
+	for _, key := range []string{"TERM", "COLORTERM", "TMUX", "TTY_FORCE"} {
+		if value, ok := lookup(key); ok {
+			environ = append(environ, key+"="+value)
+		}
+	}
+	switch profile := colorprofile.Detect(w, environ); profile {
+	case colorprofile.ANSI256, colorprofile.ANSI:
+		return &colorprofile.Writer{Forward: w, Profile: profile}
+	default:
+		return w
+	}
 }
