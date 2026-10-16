@@ -94,7 +94,9 @@ async def converge_grid(window, session, cols, rows):
             iterm2.Frame(iterm2.Point(RETINA_X, frame.origin.y), iterm2.Size(width, height))
         )
         await asyncio.sleep(0.35)
-        grid = session.grid_size
+        # The session object's grid_size is a stale snapshot; re-read it.
+        app = await iterm2.async_get_app(session.connection)
+        grid = app.get_session_by_id(session.session_id).grid_size
         if grid.width == cols and grid.height == rows:
             return True
         cell_w = width / max(grid.width, 1)

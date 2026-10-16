@@ -68,9 +68,9 @@
     </div>
     <figure class="hero-term rise d4">
       <div class="term">
-        <img src="/assets/shots/runs.png" alt="gh-hound runs screen: a branch-scoped list of workflow runs with status glyphs, events, duration sparklines and rate budget" width="2242" height="712" fetchpriority="high">
+        <img src="/assets/shots/runs.png" alt="gh-hound runs screen: a branch-scoped list of workflow runs with status glyphs, actors, events, duration sparklines and rate budget, with the / filter open on actor:@me status:failure" width="2240" height="782" fetchpriority="high">
       </div>
-      <figcaption>the runs home: status, event, duration sparkline, age, rate budget · f cycles the status filter</figcaption>
+      <figcaption>the runs home: status, actor, event, duration sparkline, age, rate budget · / filters by actor:@me, status, branch</figcaption>
     </figure>
   </header>
 
@@ -222,7 +222,7 @@
     <div class="eng-grid">
       <div class="eng reveal">
         <h3>server-side filtering</h3>
-        <p>Branch, status, event and repo-wide scope are filtered by the API, not in your terminal.</p>
+        <p>Branch, status, event, actor and repo-wide scope are filtered by the API, not in your terminal.</p>
       </div>
       <div class="eng reveal">
         <h3>etag polling</h3>
