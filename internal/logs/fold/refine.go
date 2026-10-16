@@ -16,6 +16,13 @@ type RefineInput struct {
 	spans      [][]Span // captured during normalization by a KeySpanner
 	arena      []Span
 	slots      [][]Slot // Slotter fallback, computed on demand
+	sc         stopCheck
+}
+
+// stopped counts work steps, polling Stop every few thousand.
+func (in *RefineInput) stopped(work int) bool {
+	in.sc.stop = in.Stop
+	return in.sc.add(uint(work))
 }
 
 // ValuesAt returns line i's masked values.
@@ -71,6 +78,9 @@ func (o Outlier) Refine(in *RefineInput) []int {
 		if !r.Set {
 			// compare by cycle position, even when positions share a shape
 			for pos := range r.Period {
+				if in.stopped(1) {
+					return nil
+				}
 				members := make([]int, 0, r.Count)
 				for c := range r.Count {
 					members = append(members, r.Start+c*r.Period+pos)
@@ -89,6 +99,9 @@ func (o Outlier) Refine(in *RefineInput) []int {
 			groups[g] = append(groups[g], i)
 		}
 		for _, g := range order {
+			if in.stopped(1) {
+				return nil
+			}
 			protect = append(protect, o.outliers(groups[g], in)...)
 		}
 	}
@@ -102,11 +115,17 @@ func (o Outlier) outliers(members []int, in *RefineInput) []int {
 	slots := make([][]string, len(members))
 	for c, i := range members {
 		slots[c] = in.ValuesAt(i, nil)
+		if in.stopped(1 + len(slots[c])) {
+			return nil
+		}
 	}
 	var protect []int
 	for idx := range slots[0] {
 		counts := map[string]int{}
 		for c := range members {
+			if in.stopped(1) {
+				return nil
+			}
 			if idx < len(slots[c]) {
 				counts[slots[c][idx]]++
 			}
@@ -120,6 +139,9 @@ func (o Outlier) outliers(members []int, in *RefineInput) []int {
 		allowed := max(1, int(o.Minority*float64(len(members))))
 		var changes []int
 		for c := 1; c < len(members); c++ {
+			if in.stopped(1) {
+				return nil
+			}
 			if idx < len(slots[c]) && idx < len(slots[c-1]) && slots[c][idx] != slots[c-1][idx] {
 				changes = append(changes, members[c])
 			}

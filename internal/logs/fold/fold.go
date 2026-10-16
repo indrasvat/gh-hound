@@ -69,12 +69,16 @@ type stopCheck struct {
 	hit   bool
 }
 
-func (s *stopCheck) tick() bool {
+func (s *stopCheck) tick() bool { return s.add(1) }
+
+// add counts n steps of work and polls each time 4096 more have passed.
+func (s *stopCheck) add(n uint) bool {
 	if s.hit {
 		return true
 	}
-	s.ticks++
-	if s.stop != nil && s.ticks&4095 == 0 && s.stop() {
+	before := s.ticks
+	s.ticks += n
+	if s.stop != nil && s.ticks>>12 != before>>12 && s.stop() {
 		s.hit = true
 	}
 	return s.hit

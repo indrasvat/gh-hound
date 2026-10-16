@@ -144,3 +144,21 @@ func TestSummaryListsOnlyRecurringValues(t *testing.T) {
 		t.Fatalf("semantic codes are part of the shape, not a slot: %q", got)
 	}
 }
+
+func TestOutlierHonoursStop(t *testing.T) {
+	lines := make([]string, 20_000)
+	for i := range lines {
+		lines[i] = strings.Repeat("123 ", 750)
+	}
+	keys := make([]string, len(lines))
+	for i := range keys {
+		keys[i] = Shape{}.Normalize(lines[i])
+	}
+	in := &RefineInput{Lines: lines, Keys: keys, Normalizer: Shape{}, Runs: []Run{{Start: 0, Period: 1, Count: len(lines)}}}
+	start := time.Now()
+	in.Stop = func() bool { return time.Since(start) > 10*time.Millisecond }
+	NewOutlier().Refine(in)
+	if took := time.Since(start); took > raceSlowdown*60*time.Millisecond {
+		t.Fatalf("outlier refiner ignored stop for %v", took)
+	}
+}

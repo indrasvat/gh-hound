@@ -102,6 +102,9 @@ const maxRefineRounds = 8
 func (e Engine) refineToFixpoint(in *RefineInput, ids []int, opts Options) []Run {
 	runs := e.Detector.Detect(ids, opts)
 	for round := 0; round < maxRefineRounds && len(e.Refiners) > 0; round++ {
+		if in.stopped(1) {
+			return nil
+		}
 		flagged := e.refine(in, runs)
 		pinnedAny := false
 		for _, i := range flagged {
