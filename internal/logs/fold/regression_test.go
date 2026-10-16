@@ -102,3 +102,26 @@ func TestSemanticValueWindow(t *testing.T) {
 		}
 	}
 }
+
+func TestTitleAndMarker(t *testing.T) {
+	var lines []string
+	for i := range 40 {
+		lines = append(lines, fmt.Sprintf("10:00:%02d poll: not ready", i), fmt.Sprintf("10:00:%02d retry error 0x%04x", i, i*7919))
+	}
+	p, _ := Default().SafePlan(lines, DefaultLimits())
+	for _, seg := range p.Segments {
+		if seg.Kind != Folded {
+			continue
+		}
+		s := Summarize(seg, lines, Default().Normalizer)
+		want := "×40 2-line block · 10:00:00 → 10:00:39 · 1 changing id · ⚠ 38 error-like inside"
+		if got := s.Title(); got != want {
+			t.Errorf("Title = %q\nwant  %q", got, want)
+		}
+		if got, want := s.Marker(), "⋯ "+want+" · 76 lines hidden (L3–L78)"; got != want {
+			t.Errorf("Marker = %q\nwant   %q", got, want)
+		}
+		return
+	}
+	t.Fatal("no fold")
+}

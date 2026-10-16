@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/logs"
+	"github.com/indrasvat/gh-hound/internal/logs/fold"
 )
 
 func View(m Model, width int) string {
@@ -14,14 +15,39 @@ func View(m Model, width int) string {
 		width = 80
 	}
 	lines := []string{fit(header(m)+"  "+scrollIndicator(m), width)}
+	gutter := gutterWidth(len(m.Document.Lines))
+	budget := max(m.Height, 1)
 	for _, row := range m.visibleRows() {
-		if row.IsFold {
-			lines = append(lines, renderFold(row.Line.Number, row.Fold.Title, row.Fold.CollapsedCount, row.Collapsed, width))
-			continue
+		if budget == 0 {
+			break
 		}
-		lines = append(lines, renderLine(row.Line, m.isMatch(row.Line.Number), width))
+		switch row.kind {
+		case rowGroup:
+			f := m.groups[row.line]
+			lines = append(lines, renderFold(row.line, gutter, f.Title, f.CollapsedCount, !row.open, width))
+			budget--
+		case rowRepeat:
+			lines = append(lines, renderRepeat(row.line, gutter, m.repeatTitle(row), row.end-row.line+1, !row.open, width))
+			budget--
+		default:
+			line := m.Document.Lines[row.line-1]
+			rendered := renderLine(line, gutter, m.isMatch(line.Number), m.Wrap, width)
+			if len(rendered) > budget {
+				rendered = rendered[:budget]
+			}
+			lines = append(lines, rendered...)
+			budget -= len(rendered)
+		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func gutterWidth(lines int) int {
+	return max(3, len(fmt.Sprint(lines)))
+}
+
+func gutterText(number, width int) string {
+	return fmt.Sprintf("%0*d", width, number)
 }
 
 func header(m Model) string {
@@ -32,22 +58,33 @@ func header(m Model) string {
 		return fmt.Sprintf("log · [%s] · ⎋ clear", m.RangeLabel)
 	}
 	if m.LastJump != "" && m.Search.Query == "" {
-		return fmt.Sprintf("log · t→%s", m.LastJump)
+		head := fmt.Sprintf("log · t→%s", m.LastJump)
+		if m.Folded() {
+			head += " · compact"
+		}
+		return head
 	}
 	if m.Search.Query != "" {
-		return fmt.Sprintf("log · /%s · match %d/%d", m.Search.Query, m.Search.Current, m.Search.Total)
+		head := fmt.Sprintf("log · /%s · match %d/%d", m.Search.Query, m.Search.Current, m.Search.Total)
+		if m.Folded() {
+			head += " · compact"
+		}
+		return head
+	}
+	if m.Folded() {
+		return "log · compact"
 	}
 	return "log"
 }
 
 // scrollIndicator is a compact viewport-position gauge for the header.
 func scrollIndicator(m Model) string {
-	total := len(m.Document.Lines)
+	total := len(m.rows())
 	if total <= 0 || m.Height <= 0 || total <= m.Height {
 		return ""
 	}
 	cells := 8
-	pos := (m.Offset - 1) * (cells - 1) / max(total-m.Height, 1)
+	pos := m.top() * (cells - 1) / max(total-m.Height, 1)
 	if pos >= cells {
 		pos = cells - 1
 	}
@@ -67,25 +104,83 @@ func fit(value string, width int) string {
 	return ansi.Truncate(value, width, "…")
 }
 
-func renderFold(number int, title string, count int, collapsed bool, width int) string {
-	glyph := "▾"
+func foldGlyph(collapsed bool) string {
 	if collapsed {
-		glyph = "▸"
+		return "▸"
 	}
-	gutter := colorize(sgrLineNo, fmt.Sprintf("%03d", number))
-	label := colorize(sgrFold, fmt.Sprintf("%s %s", glyph, title))
+	return "▾"
+}
+
+func renderFold(number, gutterW int, title string, count int, collapsed bool, width int) string {
+	gutter := colorize(sgrLineNo, gutterText(number, gutterW))
+	label := colorize(sgrFold, fmt.Sprintf("%s %s", foldGlyph(collapsed), title))
 	countText := colorize(sgrDim, fmt.Sprintf("%d lines", count))
 	return backgroundSafe(gutter+" "+label+" "+countText, width, sgrFG, sgrFoldBG)
 }
 
-func renderLine(line logs.Line, searchHit bool, width int) string {
-	gutter := colorize(sgrLineNo, fmt.Sprintf("%03d", line.Number))
-	value := gutter + " " + renderLogText(line)
-	if searchHit {
-		value = colorize(sgrSearch, "› search-hit") + " " + value
-		return backgroundSafe(value, width, sgrFG, sgrSearchBG)
+// renderRepeat draws a repeat fold like a group fold; the title yields to
+// width, the line count never does.
+func renderRepeat(number, gutterW int, title string, count int, collapsed bool, width int) string {
+	countText := groupDigits(count) + " lines"
+	room := width - gutterW - 3 - ansi.StringWidth(countText) - 1
+	main, severe, _ := strings.Cut(title, " · "+fold.SevereGlyph+" ")
+	label := colorize(sgrFold, fitPlainWidth(main, room))
+	if severe != "" && ansi.StringWidth(main)+3+ansi.StringWidth(severe)+2 <= room {
+		label += colorize(sgrFold, " · ") + colorize(sgrFail, fold.SevereGlyph+" "+severe)
 	}
-	return fitANSI(value, width)
+	value := colorize(sgrLineNo, gutterText(number, gutterW)) + " " + colorize(sgrFold, foldGlyph(collapsed)+" ") + label + " " + colorize(sgrDim, countText)
+	return backgroundSafe(value, width, sgrFG, sgrFoldBG)
+}
+
+func fitPlainWidth(value string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if ansi.StringWidth(value) <= width {
+		return value
+	}
+	return ansi.Truncate(value, width, "…")
+}
+
+func groupDigits(n int) string {
+	s := fmt.Sprint(n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
+}
+
+// renderLine returns one screen line, or several when wrapping.
+func renderLine(line logs.Line, gutterW int, searchHit, wrap bool, width int) []string {
+	gutter := colorize(sgrLineNo, gutterText(line.Number, gutterW))
+	text := renderLogText(line)
+	prefix := ""
+	if searchHit {
+		prefix = colorize(sgrSearch, "› search-hit") + " "
+	}
+	if !wrap {
+		value := prefix + gutter + " " + text
+		if searchHit {
+			return []string{backgroundSafe(value, width, sgrFG, sgrSearchBG)}
+		}
+		return []string{fitANSI(value, width)}
+	}
+	lead := ansi.StringWidth(prefix) + gutterW + 1
+	parts := strings.Split(ansi.Hardwrap(text, max(1, width-lead), true), "\n")
+	out := make([]string, 0, len(parts))
+	for i, part := range parts {
+		head := prefix + gutter + " "
+		if i > 0 {
+			head = strings.Repeat(" ", lead-2) + colorize(sgrDim, "↪") + " "
+		}
+		value := head + part
+		if searchHit {
+			out = append(out, backgroundSafe(value, width, sgrFG, sgrSearchBG))
+		} else {
+			out = append(out, fitANSI(value, width))
+		}
+	}
+	return out
 }
 
 func renderLogText(line logs.Line) string {

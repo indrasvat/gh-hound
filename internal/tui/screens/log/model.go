@@ -1,10 +1,10 @@
 package log
 
 import (
-	"slices"
 	"strings"
 
 	"github.com/indrasvat/gh-hound/internal/logs"
+	"github.com/indrasvat/gh-hound/internal/logs/fold"
 )
 
 type KeyMsg struct {
@@ -31,6 +31,16 @@ type Model struct {
 	input      string
 	collapsed  map[int]bool
 	Search     SearchState
+	// Compact shows the fold plan's view; it needs a plan (SetPlan).
+	Compact   bool
+	plan      *fold.Plan
+	rangePlan *fold.Plan
+	open      map[int]bool
+	hits      map[int]bool
+	groups    map[int]logs.Fold
+	rev       int
+	cache     *rowCache
+	topRow    int
 }
 
 func NewModel(doc logs.Document, offset, height int) Model {
@@ -40,11 +50,19 @@ func NewModel(doc logs.Document, offset, height int) Model {
 	if height <= 0 {
 		height = 10
 	}
+	groups := make(map[int]logs.Fold, len(doc.Folds))
+	for _, f := range doc.Folds {
+		groups[f.StartLine] = f
+	}
 	return Model{
+		groups:    groups,
 		Document:  doc,
 		Offset:    offset,
 		Height:    height,
 		collapsed: map[int]bool{},
+		open:      map[int]bool{},
+		cache:     &rowCache{},
+		topRow:    -1,
 	}
 }
 
@@ -58,17 +76,17 @@ func (m Model) Update(msg KeyMsg) Model {
 			m = m.ClearRange()
 		}
 	case "j", "down":
-		m.Offset = min(m.Offset+1, m.maxTop())
+		m.scrollTo(m.top() + 1)
 	case "k", "up":
-		m.Offset = max(m.minTop(), m.Offset-1)
+		m.scrollTo(m.top() - 1)
 	case "g":
-		m.Offset = m.minTop()
+		m.scrollTo(0)
 	case "G":
-		m.Offset = m.maxTop()
+		m.scrollTo(m.maxTopRow())
 	case "ctrl+d":
-		m.Offset = min(m.Offset+m.Height/2, m.maxTop())
+		m.scrollTo(m.top() + m.Height/2)
 	case "ctrl+u":
-		m.Offset = max(m.minTop(), m.Offset-m.Height/2)
+		m.scrollTo(m.top() - m.Height/2)
 	case "/":
 		m.InputMode = true
 		m.input = ""
@@ -78,8 +96,12 @@ func (m Model) Update(msg KeyMsg) Model {
 		m.moveMatch(-1)
 	case "z":
 		m.setCollapsed(true)
+		m.setRepeatsOpen(false)
 	case "Z":
 		m.setCollapsed(false)
+		m.setRepeatsOpen(true)
+	case "c":
+		m.toggleCompact()
 	case "w":
 		m.Wrap = !m.Wrap
 	}
@@ -93,6 +115,10 @@ func (m Model) updateInput(msg KeyMsg) Model {
 	case "enter":
 		m.InputMode = false
 		m.Search = buildSearch(m.Document, m.input)
+		m.hits = make(map[int]bool, len(m.Search.Matches))
+		for _, line := range m.Search.Matches {
+			m.hits[line] = true
+		}
 		m.gotoCurrentMatch()
 	case "backspace":
 		if len(m.input) > 0 {
@@ -117,6 +143,7 @@ func (m Model) updateInput(msg KeyMsg) Model {
 // queried wall-clock moment.
 func (m Model) JumpTo(query string) Model {
 	m.jumpToTime(query)
+	m.reveal(m.Offset)
 	return m
 }
 
@@ -124,6 +151,7 @@ func (m Model) JumpTo(query string) Model {
 func (m Model) JumpToLine(line int) Model {
 	if line >= 1 && line <= len(m.Document.Lines) {
 		m.Offset = line
+		m.reveal(line)
 	}
 	return m
 }
@@ -131,6 +159,12 @@ func (m Model) JumpToLine(line int) Model {
 // JumpRelative moves by a signed number of seconds from the line at
 // the top of the viewport, clamping to the log's stamped span.
 func (m Model) JumpRelative(deltaSeconds float64) Model {
+	m = m.jumpRelative(deltaSeconds)
+	m.reveal(m.Offset)
+	return m
+}
+
+func (m Model) jumpRelative(deltaSeconds float64) Model {
 	timeline := logs.Timeline(m.Document)
 	if len(timeline) == 0 {
 		return m
@@ -166,6 +200,8 @@ func (m Model) SetRange(start, end int, label string) Model {
 	m.RangeEnd = end
 	m.RangeLabel = label
 	m.Offset = start
+	m.planRange()
+	m.rev++
 	return m
 }
 
@@ -173,14 +209,16 @@ func (m Model) ClearRange() Model {
 	m.RangeStart = 0
 	m.RangeEnd = 0
 	m.RangeLabel = ""
+	m.rangePlan = nil
+	m.rev++
 	return m
 }
 
-// VisibleRowNumbers exposes the rendered line numbers (tests, header).
+// VisibleRowNumbers exposes each visible row's anchor line (tests).
 func (m Model) VisibleRowNumbers() []int {
 	numbers := []int{}
 	for _, row := range m.visibleRows() {
-		numbers = append(numbers, row.Line.Number)
+		numbers = append(numbers, row.line)
 	}
 	return numbers
 }
@@ -260,26 +298,6 @@ func clockBefore(query, clock string) bool {
 	return query < clock
 }
 
-// maxTop is the highest top-of-viewport line that still fills the
-// screen (Height counts body rows; the header is budgeted by the
-// caller). An active range bounds scrolling to its window.
-func (m Model) maxTop() int {
-	last := len(m.Document.Lines)
-	if m.RangeLabel != "" {
-		last = min(last, m.RangeEnd)
-	}
-	top := max(m.minTop(), last-max(m.Height, 1)+1)
-	return top
-}
-
-// minTop is the lowest top-of-viewport line: 1, or the range start.
-func (m Model) minTop() int {
-	if m.RangeLabel != "" {
-		return max(1, m.RangeStart)
-	}
-	return 1
-}
-
 func (m Model) Collapsed(line int) bool {
 	return m.collapsed[line]
 }
@@ -288,9 +306,10 @@ func (m *Model) setCollapsed(value bool) {
 	if m.collapsed == nil {
 		m.collapsed = map[int]bool{}
 	}
-	for _, fold := range m.Document.Folds {
-		m.collapsed[fold.StartLine] = value
+	for _, f := range m.Document.Folds {
+		m.collapsed[f.StartLine] = value
 	}
+	m.rev++
 }
 
 func (m *Model) moveMatch(delta int) {
@@ -313,6 +332,7 @@ func (m *Model) gotoCurrentMatch() {
 		return
 	}
 	line := m.Search.Matches[m.Search.Current-1]
+	m.reveal(line)
 	if line > m.Offset {
 		m.Offset = max(1, line-1)
 	} else {
@@ -339,39 +359,12 @@ func buildSearch(doc logs.Document, query string) SearchState {
 	return state
 }
 
-func (m Model) visibleRows() []row {
-	rows := make([]row, 0, m.Height)
-	folds := map[int]logs.Fold{}
-	for _, fold := range m.Document.Folds {
-		folds[fold.StartLine] = fold
-	}
-	for i := max(0, m.Offset-1); i < len(m.Document.Lines) && len(rows) < max(m.Height, 1); i++ {
-		line := m.Document.Lines[i]
-		if m.RangeLabel != "" && (line.Number < m.RangeStart || line.Number > m.RangeEnd) {
-			if line.Number > m.RangeEnd {
-				break
-			}
-			continue
-		}
-		if fold, ok := folds[line.Number]; ok {
-			rows = append(rows, row{Line: line, Fold: fold, IsFold: true, Collapsed: m.Collapsed(line.Number)})
-			if m.Collapsed(line.Number) {
-				i = max(i, fold.EndLine-1)
-			}
-			continue
-		}
-		rows = append(rows, row{Line: line})
-	}
-	return rows
-}
-
-type row struct {
-	Line      logs.Line
-	Fold      logs.Fold
-	IsFold    bool
-	Collapsed bool
+func (m Model) visibleRows() []viewRow {
+	rows := m.rows()
+	top := m.top()
+	return rows[top:min(len(rows), top+max(m.Height, 1))]
 }
 
 func (m Model) isMatch(line int) bool {
-	return slices.Contains(m.Search.Matches, line)
+	return m.hits[line]
 }

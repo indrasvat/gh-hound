@@ -141,20 +141,22 @@ func isDigit(c byte) bool { return c >= '0' && c <= '9' }
 
 func isHexLetter(c byte) bool { c |= 0x20; return c >= 'a' && c <= 'f' }
 
+// Marker is the one-line stand-in for a fold in plain text output.
 func (s Summary) Marker() string {
+	return fmt.Sprintf("⋯ %s · %d lines hidden (L%d–L%d)", s.Title(), s.Hidden, s.FirstLine, s.LastLine)
+}
+
+// Title describes the fold without its size: shape, time span, varying
+// values, then an error warning.
+func (s Summary) Title() string {
 	var b strings.Builder
 	if s.Run.Set {
-		fmt.Fprintf(&b, "⋯ %d lines hidden · %d recurring line%s", s.Hidden, s.Shapes, plural(s.Shapes))
+		fmt.Fprintf(&b, "%d recurring line%s", s.Shapes, plural(s.Shapes))
 	} else {
-		fmt.Fprintf(&b, "⋯ ×%d", s.Run.Count)
+		fmt.Fprintf(&b, "×%d", s.Run.Count)
 		if s.Run.Period > 1 {
 			fmt.Fprintf(&b, " %d-line block", s.Run.Period)
 		}
-		fmt.Fprintf(&b, " · %d lines hidden", s.Hidden)
-	}
-	fmt.Fprintf(&b, " (L%d–L%d)", s.FirstLine, s.LastLine)
-	if s.Severe > 0 {
-		fmt.Fprintf(&b, " · ⚠ %d error-like inside", s.Severe)
 	}
 	if from, to := shortClock(s.TimeFrom), shortClock(s.TimeTo); s.TimeFrom != "" && from != to {
 		fmt.Fprintf(&b, " · %s → %s", from, to)
@@ -168,7 +170,7 @@ func (s Summary) Marker() string {
 		}
 		seen[sig] = true
 		if len(v.Few) == 0 && !decimal(v.First) {
-			ids++ // pointers, hashes, uuids: a range says nothing; count them
+			ids++ // pointers, hashes, uuids: a range says nothing
 			continue
 		}
 		if shown == 3 {
@@ -187,8 +189,14 @@ func (s Summary) Marker() string {
 	if ids > 0 {
 		fmt.Fprintf(&b, " · %d changing id%s", ids, plural(ids))
 	}
+	if s.Severe > 0 {
+		fmt.Fprintf(&b, " · %s %d error-like inside", SevereGlyph, s.Severe)
+	}
 	return b.String()
 }
+
+// SevereGlyph prefixes the error warning in a Title.
+const SevereGlyph = "⚠"
 
 func shortClock(v string) string {
 	if t := strings.IndexByte(v, 'T'); t >= 0 && t+9 <= len(v) {

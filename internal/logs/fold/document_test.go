@@ -42,3 +42,21 @@ func TestForDocumentKeepsFoldsInsideGroups(t *testing.T) {
 		t.Fatalf("nothing folded: rows=%d lines=%d", p.Rows(), len(doc.Lines))
 	}
 }
+
+func TestForRangePlansAWindow(t *testing.T) {
+	var raw []string
+	for i := range 60 {
+		raw = append(raw, fmt.Sprintf("10:00:%02d waiting", i))
+	}
+	doc := logs.Parse(strings.Join(raw, "\n"))
+	p, err := ForRange(context.Background(), doc, 11, 30, Default())
+	if err != nil || len(p.Lines) != 20 || p.Lines[0] != doc.Lines[10].Text {
+		t.Fatalf("range plan lines=%d err=%v", len(p.Lines), err)
+	}
+	if p.Rows() >= 20 {
+		t.Fatalf("range not folded: rows=%d", p.Rows())
+	}
+	if p, _ := ForRange(context.Background(), doc, 50, 40, Default()); len(p.Lines) != 0 {
+		t.Fatal("empty range must plan nothing")
+	}
+}
