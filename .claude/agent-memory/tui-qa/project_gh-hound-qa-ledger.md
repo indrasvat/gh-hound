@@ -583,6 +583,33 @@ launch; palette/help blank the base view; ":runs" palette entry is a
 no-op from all-branches; header "⎇ branch main" while branch:<x> token
 applied; Bone detail screen low-contrast (tracked #56).
 
+Round 21c (issue #55 FINAL, pinned clean clone 14ea5e6, XDG_RUNTIME_DIR=/tmp/hqa3, 2026-10-16): FAIL (P2s, no P0/P1).
+VERIFIED FIXED: per-scope paging (fake s/poll/s, live indrasvat/gh-hound
+--actor @me s,G,poll,s,G -> 16+/46+/76+/106+, branch 0/0 no "+"); right
+frame border + corners drawn live at 80/120/200 after scroll, filter,
+help/palette, toast, resize (python per-line last-char check + PNG crops);
+actors_anon --actor @me explained list, poll never unfilters, actor:alice
+recovers; 401 "no valid GitHub credentials"; actor:octocat_acme accepted;
+ages 90d/124d; header counts filtered rows; long query truncates itself;
+#697 and 697 both find run 697; palette "… ↓ 4 more"/"… ↑ 4 more"; Esc during
+pending reload (--latency 1500ms) restores alice rows, also with a toast up;
+palette My runs from log view reloads; --actor alice then s loads 8 rows.
+STILL OPEN (also re-checked at dd87e1c, which landed mid-audit): (P2)
+branch-miss notice capped at 3 rows -> advice clipped "try repo-wide
+discov…" at 80x24 with a long branch (noticeLines joins rows 3+ then
+fitANSI truncates). (P2, pre-existing re-latch main app.go:2891) poll
+does HasMore = full || HasMore, so an exhausted scope (fake all scope
+40 rows) reads "40" for ~1.5s then "40+ · G load more" forever; G dead.
+P3s: 200-col maxLabelWidth=90 leaves ~35 blank cols right of Age while
+titles truncate (mock: Actor/Event 1fr); palette "All" ranks "runs --all"
+above "All actors"; toast footer "⎋ dismiss" while Esc restores the
+pending filter; 256-colour input/selection fill faint (still); live 80-col
+header "@indrasvat 106 runs loaded" one-space collision; launch notice
+"Showing all branches now." shown only on branch scope (pre-existing
+visibleNotice). render_hygiene PASS at 14ea5e6 and dd87e1c.
+TOOLING: no PIL — crop PNGs with `magick X.png -gravity East -crop WxH+0+0`;
+awk length() is byte-based on macOS — use python for border checks.
+
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.
 **How to apply:** read before every gh-hound audit; update entries when a
