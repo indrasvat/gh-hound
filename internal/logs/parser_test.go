@@ -279,3 +279,14 @@ func lineHasClass(line Line, class TokenClass) bool {
 	}
 	return false
 }
+
+func TestParseKeepsLinesAfterAVeryLongLine(t *testing.T) {
+	long := strings.Repeat("x", 2<<20)
+	doc := Parse("before\n" + long + "\nafter\r\nlast")
+	if len(doc.Lines) != 4 {
+		t.Fatalf("lines = %d, want 4", len(doc.Lines))
+	}
+	if doc.Lines[1].Text != long || doc.Lines[2].Text != "after" || doc.Lines[3].Text != "last" {
+		t.Fatalf("unexpected lines: %q / %q", doc.Lines[2].Text, doc.Lines[3].Text)
+	}
+}

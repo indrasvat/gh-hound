@@ -1,7 +1,6 @@
 package logs
 
 import (
-	"bufio"
 	"fmt"
 	"regexp"
 	"sort"
@@ -89,9 +88,6 @@ var (
 )
 
 func Parse(raw string) Document {
-	scanner := bufio.NewScanner(strings.NewReader(raw))
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-
 	var lines []Line
 	var folds []Fold
 	var stack []Fold
@@ -101,8 +97,8 @@ func Parse(raw string) Document {
 	var maskReplacer *strings.Replacer
 	var stoppedCommandToken string
 
-	for scanner.Scan() {
-		text := strings.TrimPrefix(scanner.Text(), "\ufeff")
+	for chunk := range strings.Lines(raw) {
+		text := strings.TrimPrefix(strings.TrimSuffix(strings.TrimSuffix(chunk, "\n"), "\r"), "\ufeff")
 		lineNumber := len(lines) + 1
 		commandText := commandSegment(text)
 
