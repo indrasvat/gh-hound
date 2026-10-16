@@ -26,7 +26,7 @@ func sampleNoisyLogModel() logscreen.Model {
 		t = t.Add(9 * time.Second)
 		line("INFO checking if cluster is running %s", fields)
 		t = t.Add(time.Second)
-		line("INFO state :: &{ 0x38fa%08x 0x38fa%08x } %s", uint32(i*2654435761), uint32(i*40503), fields)
+		line("INFO state :: &{ 0x38fa%08x 0x38fa%08x } %s", uint32((i+1)*2654435761), uint32((i+1)*40503), fields)
 	}
 	t = t.Add(2 * time.Second)
 	line("ERRO timed out after 2h0m0s waiting for cluster %s", fields)
