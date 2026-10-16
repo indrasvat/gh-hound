@@ -457,7 +457,10 @@ func (m Model) WithScope(scope usecase.LaunchScope) Model {
 	m = m.RecordPaging(m.Context.Scope, Paging{Page: m.Context.Page, HasMore: m.Context.HasMore})
 	paging, known := m.ScopePaging[scope]
 	if !known {
-		paging = Paging{Page: 1, HasMore: m.Context.PerPage > 0 && len(cache) >= m.Context.PerPage}
+		// Without a record, a server-filtered cache may have been narrowed
+		// below a full page that GitHub could still continue.
+		more := m.Context.PerPage > 0 && len(cache) >= m.Context.PerPage
+		paging = Paging{Page: 1, HasMore: more || (m.ServerKey() != "" && len(cache) > 0)}
 	}
 	m.Context.Scope = scope
 	m.Context.Runs = cache

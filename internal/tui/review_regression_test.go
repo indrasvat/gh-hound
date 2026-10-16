@@ -201,3 +201,79 @@ func TestEachScopeKeepsItsOwnPaging(t *testing.T) {
 		t.Fatalf("G after the round trip must fetch the repo's page 2: %+v", last)
 	}
 }
+
+// Esc while a filter reload is pending cancels it back to the loaded
+// query — and the same Esc still closes whatever sits on top.
+func TestEscDuringReloadStillClosesOverlaysAndScreens(t *testing.T) {
+	for _, open := range []string{"?", ":"} {
+		gate := make(chan struct{})
+		server := &actorRuns{rows: actorRows(), gates: map[string]chan struct{}{"bob": gate}}
+		app := typeQuery(t, newActorApp(server, nil), "actor:bob")
+		app = typeKeys(t, app, open, "esc")
+		if len(app.overlays) != 0 || app.runs.Filter != "" || strings.Contains(view(app), "/actor:bob") {
+			t.Fatalf("%s then esc: overlays=%v filter=%q", open, app.overlays, app.runs.Filter)
+		}
+		close(gate)
+	}
+	for _, route := range []string{"artifacts", "caches"} {
+		gate := make(chan struct{})
+		server := &actorRuns{rows: actorRows(), gates: map[string]chan struct{}{"bob": gate}}
+		app := typeQuery(t, newActorApp(server, nil), "actor:bob")
+		app = app.openPalette()
+		app = app.handlePaletteIntent(palette.Intent{Route: route})
+		left := app.Route()
+		app = typeKeys(t, app, "esc")
+		if left != RouteRuns && app.Route() != RouteRuns {
+			t.Fatalf("%s: esc left the user on %s", route, app.Route())
+		}
+		close(gate)
+	}
+}
+
+func TestEscRestoresAnErroredViewWithItsReason(t *testing.T) {
+	gate := make(chan struct{})
+	defer close(gate)
+	server := &actorRuns{rows: actorRows(), gates: map[string]chan struct{}{"alice": gate}}
+	app := settleApp(t, typeQuery(t, newActorApp(server, &viewerStub{err: errors.New("boom")}), "actor:@me"))
+	app = typeKeys(t, typeQuery(t, app, "actor:alice"), "esc")
+	if app.runs.Filter != "actor:@me" || !strings.Contains(view(app), "can't resolve @me") {
+		t.Fatalf("esc must return to @me with its reason:\n%s", view(app))
+	}
+
+	server = &actorRuns{rows: actorRows(), gates: map[string]chan struct{}{"alice": gate}}
+	app = newActorApp(server, nil)
+	server.mu.Lock()
+	server.err = errors.New("502")
+	server.mu.Unlock()
+	app = settleApp(t, typeQuery(t, app, "actor:bob"))
+	server.mu.Lock()
+	server.err = nil
+	server.mu.Unlock()
+	app = typeKeys(t, typeQuery(t, app, "actor:alice"), "esc")
+	if screen := view(app); !strings.Contains(screen, "couldn't load runs: 502") || strings.Contains(screen, "#303") {
+		t.Fatalf("esc must return to bob's failure, not rows picked from another page:\n%s", screen)
+	}
+}
+
+func TestLaunchFilteredScopeKeepsPagingOnToggle(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	server := &actorRuns{rows: actorRows()}
+	var branch, repo []model.Run
+	for i := range 3 {
+		branch = append(branch, actorRun(int64(400+i), "alice", "trunk", model.ConclusionSuccess))
+	}
+	for i := range 8 {
+		repo = append(repo, actorRun(int64(500+i), "alice", "x", model.ConclusionSuccess))
+	}
+	app := NewApp(Options{Config: cfg, RunsResolver: server.list, Launch: usecase.LaunchContext{
+		Repo: "cli/cli", Branch: "trunk", Scope: usecase.LaunchScopeBranch, State: usecase.LaunchStateRuns,
+		PerPage: 30, Page: 1, HasMore: true, Runs: branch, BranchRuns: branch, RepoRuns: repo, Query: "actor:alice",
+	}})
+	app = typeKeys(t, app, "s")
+	before := server.count()
+	app = typeKeys(t, app, "G")
+	if !app.runs.Context.HasMore || server.count() == before && app.load == nil {
+		t.Fatalf("narrowed launch rows must keep paging: hasMore=%v load=%v", app.runs.Context.HasMore, app.load != nil)
+	}
+}

@@ -311,10 +311,12 @@ func (a App) SettleLoads(timeout time.Duration) (App, bool) {
 	return a, true
 }
 
-// runsView is an applied runs query in a scope.
+// runsView is an applied runs query in a scope, with the reason it
+// had no rows if it had failed.
 type runsView struct {
-	filter string
-	scope  usecase.LaunchScope
+	filter     string
+	scope      usecase.LaunchScope
+	queryError string
 }
 
 // tickPollState carries a background route poll — the runs list, the
@@ -698,10 +700,11 @@ func (a App) Update(msg KeyMsg) (out App, handled bool) {
 			if revert := a.runsRevert; revert != nil && load.kind == loadKindRuns {
 				// Cancelling a filter reload goes back to the query whose
 				// rows are on screen, never leaving a new filter over them.
-				a.runs = a.runs.Restore(revert.filter, revert.scope)
-				a.runsGen++
-				a.runsRevert = nil
-				return a, true
+				a = a.restoreRunsView(*revert)
+				if len(a.overlays) == 0 && a.Route() == RouteRuns {
+					return a, true
+				}
+				// The same Esc still closes the overlay or screen on top.
 			}
 			next, _ := a.Update(msg)
 			return next, true
@@ -2044,7 +2047,7 @@ func (a App) updateRuns(msg KeyMsg) (App, bool) {
 			a = a.openApprovals(run)
 		}
 	case runs.IntentFilter:
-		a = a.applyRunsQuery(runsView{filter: before.Filter, scope: before.Context.Scope})
+		a = a.applyRunsQuery(runsView{filter: before.Filter, scope: before.Context.Scope, queryError: before.QueryError})
 	case runs.IntentLoadMore:
 		a = a.loadMoreRuns()
 	}
@@ -2543,7 +2546,7 @@ func (a App) handlePaletteIntent(intent palette.Intent) App {
 		a.PopOverlay()
 		a = a.leaveForRuns()
 		if a.runs.Context.Scope != usecase.LaunchScopeRepo || len(a.runs.Context.RepoRuns) == 0 {
-			before := runsView{filter: a.runs.Filter, scope: a.runs.Context.Scope}
+			before := runsView{filter: a.runs.Filter, scope: a.runs.Context.Scope, queryError: a.runs.QueryError}
 			a.runs = a.runs.WithScope(usecase.LaunchScopeRepo)
 			if a.runs.Intent.Kind == runs.IntentFilter {
 				a = a.applyRunsQuery(before)
@@ -2553,7 +2556,7 @@ func (a App) handlePaletteIntent(intent palette.Intent) App {
 		// Each changes one constraint and keeps the rest of the query.
 		a.PopOverlay()
 		a = a.leaveForRuns()
-		before := runsView{filter: a.runs.Filter, scope: a.runs.Context.Scope}
+		before := runsView{filter: a.runs.Filter, scope: a.runs.Context.Scope, queryError: a.runs.QueryError}
 		key, value := "status", "failure"
 		switch intent.Route {
 		case "runs:mine":
@@ -2812,7 +2815,27 @@ func (a App) applyRunsQuery(before runsView) App {
 		a.runsRevert = nil
 		return a
 	}
-	return a.reloadRuns()
+	a = a.reloadRuns()
+	if a.load == nil || a.load.kind != loadKindRuns {
+		// No reload started (none configured, or refused): nothing for
+		// Esc to cancel back from.
+		a.runsRevert = nil
+	}
+	return a
+}
+
+// restoreRunsView returns to a view after its replacement's reload was
+// cancelled: its rows, or the reason it had none. A view whose rows are
+// not its own reloads instead of passing another query's rows off.
+func (a App) restoreRunsView(view runsView) App {
+	a.runs = a.runs.Restore(view.filter, view.scope)
+	a.runs.QueryError = view.queryError
+	a.runsGen++
+	a.runsRevert = nil
+	if view.queryError == "" && !a.runs.DataCurrent() {
+		return a.reloadRuns()
+	}
+	return a
 }
 
 // leaveForRuns makes the runs list the only route for a palette jump.
