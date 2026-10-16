@@ -63,7 +63,10 @@ func renderRuns(m Model, width, height int, now time.Time) string {
 	}
 	lines = append(lines, notice...)
 	summary := m.Summary()
-	lines = append(lines, fitANSI(joinRightANSI(summaryLine(st, summary, m.Context.HasMore), pageLine(start, end, len(runs), m.Context.HasMore), width), width))
+	// Paging belongs to the rows a query fetched; stale rows awaiting a
+	// reload advertise none.
+	hasMore := m.Context.HasMore && m.DataCurrent()
+	lines = append(lines, fitANSI(joinRightANSI(summaryLine(st, summary, hasMore), pageLine(start, end, len(runs), hasMore), width), width))
 	if m.Loading && m.LoadingLine != "" {
 		lines = append(lines, fitANSI(m.LoadingLine, width))
 	}
@@ -132,7 +135,6 @@ const (
 	// minLabelWidth is what Workflow / detail keeps before Duration and
 	// then Event give up their space; Actor and Age never do.
 	minLabelWidth = 32
-	maxLabelWidth = 90
 )
 
 func columnsFor(width int) runColumns {
@@ -154,15 +156,13 @@ func columnsFor(width int) runColumns {
 		c.label = width - c.fixedWidth()
 	}
 	c.label = max(c.label, 8)
-	if c.label > maxLabelWidth {
-		// Spare width beyond a long title goes to Actor and Event before
-		// it is left blank, so Actor stays near the run it describes and
-		// wide terminals truncate less instead of just padding.
-		c.label = maxLabelWidth
-		c.actor = min(c.actor+(width-c.fixedWidth()-c.label)/2, 32)
-		if c.event > 0 {
-			c.event = min(c.event+width-c.fixedWidth()-c.label, 28)
-		}
+	if width >= 160 {
+		// Wide terminals split the flexible width 2:1:1 between
+		// Workflow / detail, Actor and Event (the design reference's
+		// grid), so Actor stays near its run and nothing pads blank.
+		flex := c.label + c.actor + c.event
+		c.actor, c.event = flex/4, flex/4
+		c.label = flex - c.actor - c.event
 	}
 	return c
 }

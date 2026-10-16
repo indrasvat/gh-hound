@@ -69,12 +69,12 @@ func TestNarrowWidthsYieldDurationThenEventNeverActorOrAge(t *testing.T) {
 		if (c.event > 0) != tt.wantEvent || (c.duration > 0) != tt.wantDuration {
 			t.Fatalf("width %d: event=%d duration=%d", tt.width, c.event, c.duration)
 		}
-		if c.actor < 12 || c.label < minLabelWidth || c.fixedWidth()+c.label > tt.width || (c.label < maxLabelWidth && c.fixedWidth()+c.label != tt.width) {
+		if c.actor < 12 || c.label < minLabelWidth || c.fixedWidth()+c.label != tt.width {
 			t.Fatalf("width %d: actor=%d label=%d fixed=%d", tt.width, c.actor, c.label, c.fixedWidth())
 		}
 	}
-	if columnsFor(198).actor <= columnsFor(118).actor {
-		t.Fatal("wide terminals give Actor more room")
+	if wide := columnsFor(198); wide.actor <= columnsFor(118).actor || wide.label < 2*wide.actor-1 || wide.actor != wide.event {
+		t.Fatalf("wide terminals split Workflow:Actor:Event 2:1:1, got %d:%d:%d", wide.label, wide.actor, wide.event)
 	}
 }
 
