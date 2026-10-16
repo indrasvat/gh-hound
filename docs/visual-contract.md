@@ -7,9 +7,10 @@ Source of truth: `docs/gh-hound-design.html`. Re-read the matching mock before e
 | Ref | Screen | Implementation Requirement |
 |---|---|---|
 | ⓪ | welcome/version | ANSI Shadow `HOUND` banner; ok-to-info-to-fg gradient; tagline; first-run cards; emoji-free |
-| ① | all_green | green summary band; large success glyph; dim recent rows; footer biases watch and dispatch |
-| ② | runs_list | focused panel; breadcrumb; rate/cache/live header; selected row uses surface-2 fill plus green left bar; f cycles status filter (all/failing/running/passed) through the server filter line |
-| ③ | detail | side-by-side jobs and step timeline; failed step gets fail-tinted fill plus fail left bar; Tab moves focus across jobs, steps, and artifacts; artifacts block lists name, size, and expired badge with selected-row fill |
+| ① | all_green | green summary band (`ok-tint`); large success glyph; dim recent rows with an Actor column right-aligned beside Age (header and rows share one column math); footer biases watch and dispatch |
+| ② | runs_list | focused panel; breadcrumb; rate/cache/live header (`@login` appears only once the authenticated identity resolves — never the git author); selected row uses surface-2 fill plus green left bar; columns `# · Status · Workflow / detail · Actor · Event · Duration · Age` from one column spec shared by header and rows; Actor is `@login` (bots verbatim, long logins truncate with `…`, missing shows dim `unavailable`); when Workflow / detail would drop under 32 cells Duration yields first, then Event — Actor and Age always stay; f cycles the `status:` token (failure → in_progress → success → none) and keeps every other token |
+| ②b | runs_list (filter) | `/` opens a surface-shaded input under the column header: ok `/` prompt, fg query text, ok block cursor, dim italic `Filter runs…` placeholder when empty; pre-filled with the applied query. A dim hint row follows: `actor:@me · actor:login · status:failure · branch:main · event:push`, cut from the right so actor examples survive narrow widths; an invalid query replaces the hint with a fail-coloured reason and nothing is applied. Applied summary (not editing): `/<query>` in info, `→ @login` when `actor:@me` resolved, then dim `· N runs` (server-only query, `N+` when more pages exist) or `· N of M loaded` (text search over loaded rows) and `· Esc clear`. Empty result: `No runs match <query> on <scope>.` plus `/ edit · Esc clear`. A failed filter load or `@me` resolution shows a fail-coloured reason with `actor:<login> still works` (for `@me`) instead of rows — never the unfiltered list |
+| ③ | detail | breadcrumb row carries right-aligned attribution `Started by @alice · Attempt 2 · Re-run by @bob` (attempt only after the first, `Triggered by` when a first attempt's triggering actor differs, `actor unavailable` when missing), wrapping to its own row when both do not fit; side-by-side jobs and step timeline; failed step gets fail-tinted fill plus fail left bar; Tab moves focus across jobs, steps, and artifacts; artifacts block lists name, size, and expired badge with selected-row fill |
 | ③c | detail (artifact downloads) | download confirm shows the absolute destination on its own line; the row's right edge carries the lifecycle (shared-spinner glyph + live byte count while transferring, `extracting…`, green ✔ + file count when done, red ✗ failed); header gains a `· N ✔` chip; the selected downloaded row grows a dim `↳ <abs path> · o open · y copy path` subline and the hint line flips to `o open folder · y copy path · d re-download` (o/y keep browser/copy-URL meanings everywhere else); a pre-existing destination raises an overwrite confirm naming the path, and cancelling restores the row's prior state |
 | ③b | detail (waiting run) | Deploy gate panel above artifacts: per environment the ◫ glyph, approvability ("you can open this gate" in ok / "not yours to open" in warn), wait timer, and reviewers right-aligned |
 | ④ | failure | breadcrumb header; annotations first; de-noised colored error window with line count and expand affordance |
@@ -59,6 +60,10 @@ Source of truth: `docs/gh-hound-design.html`. Re-read the matching mock before e
 | bone | warn | #C2632F |
 | bone | neutral | #8A8773 |
 | bone | term-bg | #1B1D17 |
+| bramble | ok-tint | #142318 |
+| bone | ok-tint | #D6E3D0 |
+
+Bone is the light theme: it assumes a light terminal background, so Bone visual QA sets one (OSC 11) before capturing. `ok-tint` is the all-green band fill.
 
 Semantic mapping: success uses `ok`; failure uses `fail`; in-progress uses `run`; queued/pending/waiting uses `info`; action-required/timed-out uses `warn`; cancelled/skipped/stale/neutral uses `neutral`.
 
@@ -99,6 +104,7 @@ Footer text must be generated from keymap data, not copied into renderers.
 | welcome | ⏎ continue · ? help · q quit |
 | all_green | j/k move · s scope · ⏎ open · w watch · D dispatch · / filter · ? help |
 | runs_list | j/k · s scope · ⏎ open · ↻ rerun · ✗ cancel · l log · w watch · f status · / filter · ? |
+| runs_filter | ⏎ apply · ⎋ cancel · ctrl+u clear |
 | detail | ⏎ expand · ↻ rerun job · R rerun failed · ✗ cancel · ⎋ back · ? |
 | failure | ↻ rerun failed · r rerun job · l full log · o browser · y copy excerpt |
 | watch | ✗ cancel · f follow · d debug · ⎋ detach |
@@ -119,9 +125,9 @@ Footer text must be generated from keymap data, not copied into renderers.
 
 | Geometry | Rule |
 |---|---|
-| 80x24 | single column; detail is full-screen push; keep status workflow number age |
+| 80x24 | single column; detail is full-screen push; keep status workflow number actor age (event and duration yield) |
 | 120x40 | master-detail side-by-side; full runs columns |
-| 200x60 | side-by-side with extra padding; add actor and sha |
+| 200x60 | side-by-side with extra padding; full runs columns with a wider Actor |
 
 ## Visual QA Gate
 

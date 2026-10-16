@@ -21,11 +21,9 @@ func BreakpointFor(width, height int) Breakpoint {
 
 func RunsColumns(breakpoint Breakpoint) []string {
 	switch breakpoint {
-	case BreakpointWide:
-		return []string{"status", "workflow", "event", "actor", "sha", "number", "duration", "age"}
-	case BreakpointDefault:
-		return []string{"status", "workflow", "event", "number", "duration", "age"}
+	case BreakpointWide, BreakpointDefault:
+		return []string{"number", "status", "workflow", "actor", "event", "duration", "age"}
 	default:
-		return []string{"status", "workflow", "number", "age"}
+		return []string{"number", "status", "workflow", "actor", "age"}
 	}
 }
