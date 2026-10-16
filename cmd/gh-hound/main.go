@@ -383,7 +383,8 @@ func newInteractCommand(stdout io.Writer) *cobra.Command {
 }
 
 func newVQATUICommand(runtime commandRuntime, info buildInfo) *cobra.Command {
-	var scenario string
+	var scenario, actor string
+	var latency time.Duration
 	cmd := &cobra.Command{
 		Use:    "__vqa-tui",
 		Hidden: true,
@@ -391,7 +392,11 @@ func newVQATUICommand(runtime commandRuntime, info buildInfo) *cobra.Command {
 			if runtime.Stdin == nil {
 				runtime.Stdin = os.Stdin
 			}
-			runtime.GitHub = fake.New(fake.Scenario(scenario))
+			adapter := fake.New(fake.Scenario(scenario))
+			runtime.GitHub = adapter
+			if latency > 0 {
+				runtime.GitHub = slowGitHub{Adapter: adapter, latency: latency}
+			}
 			runtime.Repo = staticRepositoryContext{
 				context: usecase.RepositoryContext{
 					Repo:   "indrasvat/gh-hound",
@@ -399,11 +404,43 @@ func newVQATUICommand(runtime commandRuntime, info buildInfo) *cobra.Command {
 					Actor:  "indrasvat",
 				},
 			}
-			return runTUI(cmd.Context(), runtime, info, cliOptions{Repo: "indrasvat/gh-hound", Branch: "main"})
+			return runTUI(cmd.Context(), runtime, info, cliOptions{Repo: "indrasvat/gh-hound", Branch: "main", Actor: actor})
 		},
 	}
 	cmd.Flags().StringVar(&scenario, "scenario", string(fake.ScenarioFailing), "fake adapter scenario for PTY VQA")
+	cmd.Flags().StringVar(&actor, "actor", "", "launch actor filter (login or @me)")
+	cmd.Flags().DurationVar(&latency, "latency", 0, "delay every runs listing and identity lookup, to rehearse loading and stale results")
 	return cmd
+}
+
+// slowGitHub delays the calls a filter edit makes so PTY rehearsals can
+// see loading states and out-of-order results. Cancellation still wins.
+type slowGitHub struct {
+	*fake.Adapter
+	latency time.Duration
+}
+
+func (g slowGitHub) wait(ctx context.Context) error {
+	select {
+	case <-time.After(g.latency):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (g slowGitHub) ListRuns(ctx context.Context, filter usecase.RunFilter) ([]model.Run, error) {
+	if err := g.wait(ctx); err != nil {
+		return nil, err
+	}
+	return g.Adapter.ListRuns(ctx, filter)
+}
+
+func (g slowGitHub) AuthenticatedLogin(ctx context.Context) (string, error) {
+	if err := g.wait(ctx); err != nil {
+		return "", err
+	}
+	return g.Adapter.AuthenticatedLogin(ctx)
 }
 
 type staticRepositoryContext struct {
@@ -1224,6 +1261,12 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 	if err != nil {
 		return tui.App{}, err
 	}
+	actor := ""
+	if options.Actor != "" {
+		if actor, err = usecase.NormalizeActor(options.Actor); err != nil {
+			return tui.App{}, fmt.Errorf("--actor: %w", err)
+		}
+	}
 	githubClient := githubClientForRuntime(runtime)
 	repoProvider := repoProviderForRuntime(runtime)
 	// One limiter paces every mutation the TUI can fire — reruns,
@@ -1253,6 +1296,7 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 		All:     options.All,
 		Route:   options.LaunchRoute,
 		PerPage: cfg.PerPage,
+		Actor:   actor,
 	})
 	return tui.NewApp(tui.Options{
 		Config: cfg,

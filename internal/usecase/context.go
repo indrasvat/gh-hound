@@ -43,6 +43,9 @@ type LaunchRequest struct {
 	All     bool
 	Route   LaunchRoute
 	PerPage int
+	// Actor is a validated actor filter (a login or MeActor) from
+	// --actor / HOUND_ACTOR; every launch listing honours it.
+	Actor string
 }
 
 type RepositoryContext struct {
@@ -84,6 +87,10 @@ type LaunchContext struct {
 	BranchRuns   []model.Run
 	RepoRuns     []model.Run
 	Workflows    []model.Workflow
+	// Query is the runs filter the launch applied (actor:<value>), and
+	// Viewer the authenticated login when it resolved @me.
+	Query  string
+	Viewer string
 }
 
 type LaunchService struct {
@@ -151,7 +158,22 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 		result.Notice = "detached HEAD — showing all branches"
 	}
 
-	filter := RunFilter{Repo: result.Repo, PerPage: perPage, Page: result.Page}
+	actor := ""
+	if request.Actor != "" {
+		login, err := ResolveActor(ctx, s.GitHub, request.Actor)
+		if err != nil {
+			result.State = LaunchStateError
+			result.ErrorMessage = err.Error() + "; pass --actor <login>"
+			return result
+		}
+		actor = login
+		result.Query = "actor:" + request.Actor
+		if request.Actor == MeActor {
+			result.Viewer = login
+		}
+	}
+
+	filter := RunFilter{Repo: result.Repo, PerPage: perPage, Page: result.Page, Actor: actor}
 	if result.Scope == LaunchScopeBranch {
 		filter.Branch = result.Branch
 	}
@@ -167,12 +189,12 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 
 	if len(runs) == 0 && result.Scope == LaunchScopeBranch {
 		result.Scope = LaunchScopeRepo
-		if diagnostic, ok := EmptyBranchRunDiagnostic(result.Repo, result.Branch, ""); ok {
+		if diagnostic, ok := EmptyBranchRunDiagnostic(result.Repo, result.Branch, request.Actor); ok {
 			result.Notice = diagnostic.Message + " Showing all branches now."
 		} else {
 			result.Notice = fmt.Sprintf("no runs on %s — showing all branches", result.Branch)
 		}
-		runs, err = s.GitHub.ListRuns(ctx, RunFilter{Repo: result.Repo, PerPage: perPage, Page: result.Page})
+		runs, err = s.GitHub.ListRuns(ctx, RunFilter{Repo: result.Repo, PerPage: perPage, Page: result.Page, Actor: actor})
 		if err != nil {
 			result.State = LaunchStateError
 			result.ErrorMessage = launchErrorMessage(err)
@@ -180,7 +202,7 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 		}
 		result.RepoRuns = runs
 	} else if result.Scope == LaunchScopeBranch {
-		result.RepoRuns = s.sniffRepoRuns(ctx, result.Repo, perPage)
+		result.RepoRuns = s.sniffRepoRuns(ctx, result.Repo, perPage, actor)
 		if notice := repoActivityNotice(result.Branch, runs, result.RepoRuns); notice != "" {
 			result.Notice = notice
 		}
@@ -192,6 +214,12 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 	result.HasMore = perPage > 0 && len(runs) >= perPage
 	if result.Scope == LaunchScopeBranch && len(result.BranchRuns) == 0 {
 		result.BranchRuns = runs
+	}
+	if len(runs) == 0 && actor != "" {
+		// A filtered empty result says nothing about the repo's other
+		// runs: stay on the runs list, where the filter can be cleared.
+		result.State = LaunchStateRuns
+		return result
 	}
 	if len(runs) == 0 {
 		workflows, err := s.GitHub.ListWorkflows(ctx, result.Repo)
@@ -281,8 +309,8 @@ func launchErrorMessage(err error) string {
 	return resilience.Title + ": " + resilience.Message
 }
 
-func (s LaunchService) sniffRepoRuns(ctx context.Context, repo string, perPage int) []model.Run {
-	runs, err := s.GitHub.ListRuns(ctx, RunFilter{Repo: repo, PerPage: perPage, Page: 1})
+func (s LaunchService) sniffRepoRuns(ctx context.Context, repo string, perPage int, actor string) []model.Run {
+	runs, err := s.GitHub.ListRuns(ctx, RunFilter{Repo: repo, PerPage: perPage, Page: 1, Actor: actor})
 	if err != nil {
 		return nil
 	}
