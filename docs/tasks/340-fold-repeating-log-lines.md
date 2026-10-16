@@ -31,10 +31,10 @@ IN PROGRESS — issue #58 (also closes #59). The approach was proven in a CLI sp
 ```
 0008 ⋯ ×720 2-line block · 16:12:11 → 18:12:02 · 3 changing ids       1,436 lines hidden
 1203 ⋯ 2 recurring lines · 09:58:02 → 10:11:21 · 1 changing id          797 lines hidden
-0412 ▾ ×12 · 0 → 11 (12 values)                                          10 lines hidden
+     ▾ ×12 · 0 → 11 (12 values)                                                 10 lines
 ```
 
-Distinct from group folds so they read as "repeats" at a glance: an info-tinted band, an info `⋯` marker (`▾` when opened), the shape in bold info, the summary in fg-soft, and the hidden-line count dim and right-aligned. The gutter number is the first hidden line. Summary order: shape (`×N k-line block` or `K recurring lines`), time span, low-cardinality values (`0|137`), numeric ranges (`10 → 99 (90 values)`), changing-id count, `⚠ N error-like inside`. It truncates with `…`; the hidden count never truncates. Runs hiding fewer than 5 lines stay as lines.
+Distinct from group folds so they read as "repeats" at a glance: an info-tinted band, an info `⋯` marker (`▾` when opened), the shape in bold info, the summary in fg-soft, and the hidden-line count dim and right-aligned. The gutter number is the first hidden line; an opened fold leaves it to that line and its count reads `N lines`. Summary order: shape (`×N k-line block` or `K recurring lines`), time span, low-cardinality values (`0|137`), numeric ranges (`10 → 99 (90 values)`), changing-id count, `⚠ N error-like inside`. Width goes to the shape, the count (`N lines hidden`, then `N hidden`, then `N`), the warning, and last the values, which truncate with `…`. Runs hiding fewer than 5 lines stay as lines.
 
 ## Header And Title
 
@@ -54,7 +54,7 @@ Distinct from group folds so they read as "repeats" at a glance: an info-tinted 
 | `]` / `[` | jump to the next / previous repeat fold |
 | `/` `n` `N` | matches are line numbers; the current match opens the fold that holds it (repeat or group) |
 | `t` | jumps and ranges land on folded lines the same way |
-| `j` `k` `g` `G` `^d` `^u` | move by visible rows; `G` fills the screen |
+| `j` `k` `g` `G` `^d` `^u` | move by visible rows; `G` fills the screen; with `w`, `j`/`k` step through a line taller than the screen |
 | `w` | wrap long lines |
 
 ## Task List
@@ -69,7 +69,7 @@ Distinct from group folds so they read as "repeats" at a glance: an info-tinted 
 - [x] T7 Fakes and fixtures: `noisy` fake scenario (poll loop, retry block, interleaved workers, a rare exit code, a step group), `__screen` fixtures `log-compact` / `log-compact-open` / `log-full`, assertions, interaction scenarios (`c`, search into a fold, `z`/`Z`, `G`, time jump), vqa list.
 - [x] T8 Docs: README, configuration, agent surface, skill, help.
 - [ ] T9 Verification: `make ci`, `make vqa`, interaction audit, render hygiene; shux sessions on fakes and real repos (read-only), both themes, 256-colour, 80x24/120x40/200x60; cold `tui-qa` rounds; adversarial review; each finding fixed with a test.
-- [ ] T10 Website: "Best in show" card + iTerm2 retina shot of compact mode.
+- [x] T10 Website: "Best in show" card + iTerm2 retina shot of compact mode.
 - [ ] T11 PR closing #58 with evidence comment (screenshots, demo video) and the review loop.
 
 ## Measurements
@@ -77,6 +77,9 @@ Distinct from group folds so they read as "repeats" at a glance: an info-tinted 
 - `BenchmarkView10kLineViewport`: 6.0 µs/op (was 4.8; the projection lookup and per-row slices). `BenchmarkViewCompact300kViewport` (every fold open, 40 rows): 20 µs/op.
 - `BenchmarkSafePlan` (200k lines, 14.7 MB): ~125 MB/s, 71 MB/op allocated.
 - A 3M-line plan under a 30 ms deadline returns the raw view in ~58 ms.
+- A closed 300k-line fold: ~12 µs per frame (`BenchmarkViewCompact300kClosed`); it was 127–399 ms when titles were summarized every frame.
+- 60k lines of 3,000 bytes under a 2 s budget: falls back at 2.00 s (was 4.24 s before refinement polled the deadline).
+- `FuzzViewport` (keys, jumps, ranges, search, random resizes against a flattened-screen oracle): 850k execs clean, then 120 s more on the final tree.
 
 ## Found Along The Way
 
@@ -86,4 +89,8 @@ Distinct from group folds so they read as "repeats" at a glance: an info-tinted 
 - The `%03d` gutter misaligned past line 999. Fixed (T3).
 - Failure → `l` landed on the failure anchor of a long log with most of the screen empty; the view now fills from earlier rows.
 - `logs.Parse` stopped at the first line over 1 MiB without checking `scanner.Err()`, dropping the rest of the log (#59). Fixed here (T2b) because folding promises the whole log.
+- Adversarial review (codex + agy), each fixed with a failing-first test: short-stamped `::error::` lines could fold (the guard and parser disagreed on timestamps; parsed commands and annotations are now pinned); repeat titles were summarized every frame; refinement ignored the deadline; model copies shared fold maps and the row cache; reveal opened repeats before their group; space/up/down could change the view without a repaint; narrow repeat rows dropped the warning; excerpts summarized past the failure window; empty `<repeats>` XML wrapper.
+- `G` panicked in wrap mode when the last line wrapped taller than the screen, and such lines had unreachable continuations. Scroll position is now a (row, wrapped line) pair clamped against one bottom; `FuzzViewport` guards it.
+- Live walk: open repeat headers said "lines hidden"; group glyphs were dim, not ok as in the mock; the failure title did not group digits. Fixed.
+- `encoding/xml` writes an empty wrapper for `a>b,omitempty`; `next_commands` in the queue output has the same quirk (pre-existing, to file).
 - Out of scope, filed: watch re-fetches every completed job's log on each tick (#60); follow-up PR.
