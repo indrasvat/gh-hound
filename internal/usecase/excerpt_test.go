@@ -3,6 +3,8 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -53,5 +55,30 @@ func TestExcerptKeepsFailureWindowWhenRetriesRepeatInsideIt(t *testing.T) {
 	got, _ := excerpt(context.Background(), logs.Parse(b.String()))
 	if !strings.Contains(got, "##[error]Process completed with exit code 1.") || !strings.Contains(got, "⋯ ") {
 		t.Fatalf("excerpt:\n%s", got)
+	}
+}
+
+func TestExcerptStopsAtTheFailureWindow(t *testing.T) {
+	var b strings.Builder
+	for i := range 100 {
+		fmt.Fprintf(&b, "setup step %d\n", i)
+	}
+	b.WriteString("error: failure\n")
+	for range 100 {
+		b.WriteString("cleanup tick\n")
+	}
+	doc := logs.Parse(b.String())
+	text, _ := excerpt(context.Background(), doc)
+	last := doc.Failure.EndLine
+	if !doc.Failure.Found || last >= 200 {
+		t.Fatalf("fixture: failure window %+v", doc.Failure)
+	}
+	for _, m := range regexp.MustCompile(`–L(\d+)\)`).FindAllStringSubmatch(text, -1) {
+		if n, _ := strconv.Atoi(m[1]); n > last {
+			t.Fatalf("excerpt summarizes past L%d:\n%s", last, text)
+		}
+	}
+	if !strings.Contains(text, "error: failure") {
+		t.Fatalf("excerpt lost the failure:\n%s", text)
 	}
 }

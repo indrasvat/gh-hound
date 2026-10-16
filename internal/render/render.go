@@ -80,7 +80,17 @@ type Failure struct {
 	ExitCode    int          `json:"exit_code" xml:"exit_code,attr"`
 	Annotations []Annotation `json:"annotations" xml:"annotations>annotation"`
 	LogExcerpt  string       `json:"log_excerpt" xml:"log_excerpt"`
-	Repeats     []Repeat     `json:"repeats,omitempty" xml:"repeats>repeat,omitempty"`
+	Repeats     Repeats      `json:"repeats,omitempty" xml:"repeats,omitempty"`
+}
+
+// Repeats marshals as <repeats><repeat/>…</repeats>; a "repeats>repeat" tag
+// would still write an empty wrapper when there are none.
+type Repeats []Repeat
+
+func (r Repeats) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	return e.EncodeElement(struct {
+		Items []Repeat `xml:"repeat"`
+	}{r}, start)
 }
 
 // Repeat is a run of repeating log lines folded out of the excerpt.

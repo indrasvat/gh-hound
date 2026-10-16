@@ -66,7 +66,8 @@ func joinExcerpt(document logs.Document, first, last int, plan *fold.Plan) strin
 		if seg.Start >= last {
 			break
 		}
-		if seg.Kind == fold.Folded {
+		// a fold crossing the window's end is shown literally up to it
+		if seg.Kind == fold.Folded && seg.End <= last {
 			rows = append(rows, row{fold.Summarize(seg, plan.Lines, fold.Shape{}).Marker()})
 		} else {
 			for i := seg.Start; i < min(seg.End, last); i++ {

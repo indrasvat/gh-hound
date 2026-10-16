@@ -59,7 +59,11 @@ func TestRepeatsOmittedWhenEmptyAndInSchema(t *testing.T) {
 	if err := Write(&js, FormatJSON, fixtureResult()); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(js.String(), "repeats") {
+	var x bytes.Buffer
+	if err := Write(&x, FormatXML, fixtureResult()); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(js.String(), "repeats") || strings.Contains(x.String(), "repeats") {
 		t.Fatal("repeats must be omitted when there are none")
 	}
 	raw, err := os.ReadFile("testdata/schema.json")
