@@ -39,10 +39,8 @@ func renderRuns(m Model, width, height int, now time.Time) string {
 	filter := filterLines(m, st, width, len(runs))
 	empty := emptyLines(m, st, width, len(runs))
 	fixedRows := 2 + len(filter) + len(empty)
-	notice := visibleNotice(m)
-	if notice != "" {
-		fixedRows++
-	}
+	notice := noticeLines(st, visibleNotice(m), width)
+	fixedRows += len(notice)
 	if m.Loading && m.LoadingLine != "" {
 		// The loading line needs its own row or exact-fit heights
 		// would push it past the frame.
@@ -63,9 +61,7 @@ func renderRuns(m Model, width, height int, now time.Time) string {
 		}
 		lines = append(lines, line)
 	}
-	if notice != "" {
-		lines = append(lines, dimLine(st, "  "+notice, width))
-	}
+	lines = append(lines, notice...)
 	summary := m.Summary()
 	lines = append(lines, fitANSI(joinRightANSI(summaryLine(st, summary, m.Context.HasMore), pageLine(start, end, len(runs), m.Context.HasMore), width), width))
 	if m.Loading && m.LoadingLine != "" {
@@ -88,10 +84,8 @@ func renderAllGreen(m Model, width, height int, now time.Time) string {
 	}
 	branch := scopeTitle(m.Context.Scope, m.Context.Branch)
 	fixedRows := 5
-	notice := visibleNotice(m)
-	if notice != "" {
-		fixedRows++
-	}
+	notice := noticeLines(st, visibleNotice(m), width)
+	fixedRows += len(notice)
 	if m.Loading && m.LoadingLine != "" {
 		fixedRows++
 	}
@@ -105,9 +99,7 @@ func renderAllGreen(m Model, width, height int, now time.Time) string {
 		allGreenBandLine(st, "", width),
 		allGreenHeader(st, width, actorWidth),
 	}
-	if notice != "" {
-		lines = append(lines, dimLine(st, "  "+notice, width))
-	}
+	lines = append(lines, notice...)
 	for i, run := range runs[start:end] {
 		line := allGreenRow(st, run, start+i == selected, width, actorWidth, now)
 		if m.Loading {
@@ -140,6 +132,7 @@ const (
 	// minLabelWidth is what Workflow / detail keeps before Duration and
 	// then Event give up their space; Actor and Age never do.
 	minLabelWidth = 32
+	maxLabelWidth = 90
 )
 
 func columnsFor(width int) runColumns {
@@ -149,6 +142,7 @@ func columnsFor(width int) runColumns {
 	}
 	if width >= 160 {
 		c.actor = 24
+		c.event = 20
 	}
 	c.label = width - c.fixedWidth()
 	if c.label < minLabelWidth {
@@ -159,7 +153,9 @@ func columnsFor(width int) runColumns {
 		c.event = 0
 		c.label = width - c.fixedWidth()
 	}
-	c.label = max(c.label, 8)
+	// Spare width beyond a long title stays on the right, so Actor sits
+	// near the run it describes on wide terminals.
+	c.label = min(max(c.label, 8), maxLabelWidth)
 	return c
 }
 
@@ -250,7 +246,10 @@ func age(run model.Run, now time.Time) string {
 	if duration < time.Hour {
 		return fmt.Sprintf("%dm", int(duration.Minutes()))
 	}
-	return fmt.Sprintf("%dh", int(duration.Hours()))
+	if duration < 48*time.Hour {
+		return fmt.Sprintf("%dh", int(duration.Hours()))
+	}
+	return fmt.Sprintf("%dd", int(duration.Hours()/24))
 }
 
 func duration(run model.Run) string {
@@ -335,15 +334,18 @@ func filterLines(m Model, st styles, width, matches int) []string {
 	if strings.TrimSpace(m.Filter) == "" {
 		return nil
 	}
-	line := "  " + colorize(st.info, "/"+m.Filter)
 	q := m.query()
+	suffix := ""
 	if q.Actor == MeActor && m.Viewer != "" {
-		line += colorize(st.ok, " → @"+m.Viewer)
+		suffix += colorize(st.ok, " → @"+m.Viewer)
 	}
 	if count := matchCount(m, q, matches); count != "" {
-		line += colorize(st.subtle, " · "+count)
+		suffix += colorize(st.subtle, " · "+count)
 	}
-	return []string{fitANSI(line+colorize(st.subtle, " · Esc clear"), width)}
+	suffix += colorize(st.subtle, " · Esc clear")
+	// A long query gives way before its count and the Esc hint do.
+	query := truncate("/"+m.Filter, max(width-2-ansi.StringWidth(suffix), 8))
+	return []string{fitANSI("  "+colorize(st.info, query)+suffix, width)}
 }
 
 // matchCount is honest about what it counted: rows GitHub returned for
@@ -453,18 +455,7 @@ func emptyLines(m Model, st styles, width, matches int) []string {
 // failureLines word-wraps a reason under a fail glyph so advice at the
 // end of a long message is never cut off at narrow widths.
 func failureLines(st styles, reason string, width int) []string {
-	room := max(width-4, 8)
-	lines := []string{}
-	current := ""
-	for word := range strings.FieldsSeq(reason) {
-		if current != "" && ansi.StringWidth(current)+1+ansi.StringWidth(word) > room {
-			lines = append(lines, current)
-			current = word
-			continue
-		}
-		current = strings.TrimSpace(current + " " + word)
-	}
-	lines = append(lines, current)
+	lines := wrapWords(reason, max(width-4, 8))
 	for i, line := range lines {
 		prefix := "    "
 		if i == 0 {
@@ -473,6 +464,36 @@ func failureLines(st styles, reason string, width int) []string {
 		lines[i] = fitANSI(colorize(st.fail, prefix+line), width)
 	}
 	return lines
+}
+
+// noticeLines wraps the launch notice (branch-miss advice, repo
+// activity) so its advice is read whole, at most three rows.
+func noticeLines(st styles, notice string, width int) []string {
+	if notice == "" {
+		return nil
+	}
+	lines := wrapWords(notice, max(width-4, 8))
+	if len(lines) > 3 {
+		lines = append(lines[:2], lines[2]+" "+strings.Join(lines[3:], " "))
+	}
+	for i, line := range lines {
+		lines[i] = dimLine(st, "  "+line, width)
+	}
+	return lines
+}
+
+func wrapWords(text string, room int) []string {
+	lines := []string{}
+	current := ""
+	for word := range strings.FieldsSeq(text) {
+		if current != "" && ansi.StringWidth(current)+1+ansi.StringWidth(word) > room {
+			lines = append(lines, current)
+			current = word
+			continue
+		}
+		current = strings.TrimSpace(current + " " + word)
+	}
+	return append(lines, current)
 }
 
 func scopePhrase(scope usecase.LaunchScope, branch string) string {

@@ -69,7 +69,7 @@ func TestLaunchActorMeFailureIsExplainedNotBroadened(t *testing.T) {
 		GitHub:     github,
 		Repository: fakeRepository{context: usecase.RepositoryContext{Repo: "cli/cli", Branch: "main"}},
 	}.Resolve(context.Background(), usecase.LaunchRequest{Actor: usecase.MeActor})
-	if launch.State != usecase.LaunchStateRuns || launch.Query != "actor:@me" || !strings.Contains(launch.QueryError, "can't resolve @me: not signed in") {
+	if launch.State != usecase.LaunchStateRuns || launch.Query != "actor:@me" || !strings.Contains(launch.QueryError, "can't resolve @me: no valid GitHub credentials") {
 		t.Fatalf("state=%s query=%q error=%q", launch.State, launch.Query, launch.QueryError)
 	}
 	if len(github.calls) != 0 || len(launch.Runs) != 0 {

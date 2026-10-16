@@ -69,7 +69,7 @@ func TestNarrowWidthsYieldDurationThenEventNeverActorOrAge(t *testing.T) {
 		if (c.event > 0) != tt.wantEvent || (c.duration > 0) != tt.wantDuration {
 			t.Fatalf("width %d: event=%d duration=%d", tt.width, c.event, c.duration)
 		}
-		if c.actor < 12 || c.label < minLabelWidth || c.fixedWidth()+c.label != tt.width {
+		if c.actor < 12 || c.label < minLabelWidth || c.fixedWidth()+c.label > tt.width || (c.label < maxLabelWidth && c.fixedWidth()+c.label != tt.width) {
 			t.Fatalf("width %d: actor=%d label=%d fixed=%d", tt.width, c.actor, c.label, c.fixedWidth())
 		}
 	}
@@ -168,7 +168,7 @@ func TestEmptyAndErrorStatesNameTheirCause(t *testing.T) {
 		t.Fatalf("empty state:\n%s", view)
 	}
 	m = actorModel().Apply("actor:@me")
-	m.QueryError = "can't resolve @me: not signed in to GitHub (set GH_TOKEN or run gh auth login)"
+	m.QueryError = "can't resolve @me: no valid GitHub credentials (check GH_TOKEN or run gh auth login)"
 	view = ansi.Strip(ViewSize(m, 118, 20, time.Now()))
 	if !strings.Contains(view, "✗ can't resolve @me") || !strings.Contains(view, "actor:<login> still works") || strings.Contains(view, "#701") {
 		t.Fatalf("error state:\n%s", view)
@@ -189,5 +189,18 @@ func TestThemeRecoloursRunsSurfaces(t *testing.T) {
 	bramble := theme.ForMode(theme.ModeBramble)
 	if strings.Contains(view, sgrHex(bramble.FGSoft, false)) || strings.Contains(view, sgrHex(bramble.Fail, false)) {
 		t.Fatal("Bramble colours leaked into the Bone runs list")
+	}
+}
+
+func TestLongAppliedQueryKeepsItsCountAndRunNumbersSearch(t *testing.T) {
+	m := actorModel().Apply("actor:a-very-long-contributor-login-name status:success branch:docs/filters")
+	m.DataKeys = map[usecase.LaunchScope]string{usecase.LaunchScopeBranch: m.ServerKey()}
+	line := ansi.Strip(strings.Join(filterLines(m, stylesFor(m.theme()), 78, 4), ""))
+	if !strings.HasSuffix(strings.TrimRight(line, " "), "· 4 runs · Esc clear") || !strings.Contains(line, "…") {
+		t.Fatalf("long query must truncate itself, not its count: %q", line)
+	}
+	q, _ := ParseQuery("#701")
+	if !q.MatchesText(actorModel().Context.Runs[0]) {
+		t.Fatal("#701 must find run 701")
 	}
 }

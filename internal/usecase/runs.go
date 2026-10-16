@@ -82,7 +82,7 @@ func (e ViewerError) Reason() string {
 	if errors.As(e.Err, &apiErr) {
 		switch apiErr.Kind {
 		case APIErrorAuth:
-			return "not signed in to GitHub (set GH_TOKEN or run gh auth login)"
+			return "no valid GitHub credentials (check GH_TOKEN or run gh auth login)"
 		case APIErrorPermission:
 			return "this token can't read its own user (GitHub App and Actions tokens can't)"
 		case APIErrorRateLimit:
@@ -101,7 +101,10 @@ func (e ViewerError) Unwrap() error {
 	return e.Err
 }
 
-var githubLogin = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,38}(\[bot\])?$`)
+// githubLogin accepts user, bot and Enterprise Managed User logins
+// (alice_acme); it exists to reject typos like spaces, not to police
+// GitHub's exact rules.
+var githubLogin = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,99}(\[bot\])?$`)
 
 // NormalizeActor validates an actor filter value: @me (any case) or a
 // GitHub login with an optional leading @. Bots keep their [bot] suffix.

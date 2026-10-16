@@ -63,14 +63,14 @@ func TestViewSizeWindowsLongListsAroundSelection(t *testing.T) {
 	}
 	m := New(items)
 	view := ViewSize(m, 60, 4)
-	if !strings.Contains(view, "▌a · a item") || strings.Contains(view, "d · d item") || !strings.Contains(view, "… 4 more") {
+	if !strings.Contains(view, "▌a · a item") || strings.Contains(view, "d · d item") || !strings.Contains(view, "… ↓ 4 more") {
 		t.Fatalf("first window:\n%s", view)
 	}
 	for range 6 {
 		m = m.Update(KeyMsg{Key: "down"})
 	}
 	view = ViewSize(m, 60, 4)
-	if !strings.Contains(view, "▌g · g item") || strings.Contains(view, "a · a item") {
+	if !strings.Contains(view, "▌g · g item") || strings.Contains(view, "a · a item") || !strings.Contains(view, "… ↑ 4 more") {
 		t.Fatalf("selection must stay visible:\n%s", view)
 	}
 	if got := strings.Count(ViewSize(m, 60, 0), " item"); got != 7 {

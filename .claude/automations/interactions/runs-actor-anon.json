@@ -1,1 +1,1 @@
-{"contains": ["can't resolve @me: not signed in to GitHub", "actor:<login> still works"], "forbid": ["#700", "@indrasvat"]}
+{"contains": ["can't resolve @me: no valid GitHub credentials", "actor:<login> still works"], "forbid": ["#700", "@indrasvat"]}

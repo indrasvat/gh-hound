@@ -19,6 +19,7 @@ func TestParseQuery(t *testing.T) {
 		{"actor:@alice", Query{Actor: "alice"}},
 		{"actor:Alice", Query{Actor: "Alice"}},
 		{"actor:dependabot[bot]", Query{Actor: "dependabot[bot]"}},
+		{"actor:octocat_acme", Query{Actor: "octocat_acme"}},
 		{"actor:@me status:failure", Query{Actor: MeActor, Status: "failure"}},
 		{"  actor:@me   status:failing  ", Query{Actor: MeActor, Status: "failure"}},
 		{"conclusion:passed branch:main event:push", Query{Status: "success", Branch: "main", Event: "push"}},
@@ -59,9 +60,9 @@ func TestParseQueryRejectsInvalidInput(t *testing.T) {
 		{"status:", "status: needs a value"},
 		{"actor:alice actor:bob", "only one actor: per filter"},
 		{"status:failure conclusion:success", "only one status: per filter"},
-		{"actor:not_a_login", "isn't a GitHub login"},
 		{"actor:-alice", "isn't a GitHub login"},
-		{"actor:" + strings.Repeat("a", 40), "isn't a GitHub login"},
+		{"actor:" + strings.Repeat("a", 101), "isn't a GitHub login"},
+		{"actor:a.b", "isn't a GitHub login"},
 		{"status:sideways", `unknown status "sideways"`},
 	}
 	for _, tt := range tests {

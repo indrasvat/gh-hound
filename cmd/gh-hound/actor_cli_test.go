@@ -86,7 +86,7 @@ func TestRunsActorMeFailureNeverBroadens(t *testing.T) {
 	if code != 2 || err == nil {
 		t.Fatalf("code=%d err=%v out=%s", code, err, out)
 	}
-	if !strings.Contains(err.Error(), "can't resolve @me: not signed in to GitHub") || !strings.Contains(err.Error(), "pass --actor <login>") {
+	if !strings.Contains(err.Error(), "can't resolve @me: no valid GitHub credentials") || !strings.Contains(err.Error(), "pass --actor <login>") {
 		t.Fatalf("error = %q", err)
 	}
 	if github.filterCount() != 0 || out != "" {

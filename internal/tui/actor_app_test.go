@@ -303,7 +303,7 @@ func TestActorMeFailureExplainsAndNeverBroadens(t *testing.T) {
 	viewer := &viewerStub{err: usecase.APIError{Kind: usecase.APIErrorAuth, Status: 401}}
 	app := settleApp(t, typeQuery(t, newActorApp(server, viewer), "actor:@me"))
 	screen := view(app)
-	if !strings.Contains(screen, "can't resolve @me: not signed in to GitHub") || !strings.Contains(screen, "actor:<login> still works") {
+	if !strings.Contains(screen, "can't resolve @me: no valid GitHub credentials") || !strings.Contains(screen, "actor:<login> still works") {
 		t.Fatalf("@me failure not explained:\n%s", screen)
 	}
 	if strings.Contains(screen, "#30") {

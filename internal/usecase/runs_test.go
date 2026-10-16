@@ -98,7 +98,7 @@ func TestResolveActorExplainsFailures(t *testing.T) {
 		github usecase.GitHub
 		want   string
 	}{
-		{&viewerGitHub{err: usecase.APIError{Kind: usecase.APIErrorAuth, Status: 401}}, "not signed in to GitHub"},
+		{&viewerGitHub{err: usecase.APIError{Kind: usecase.APIErrorAuth, Status: 401}}, "no valid GitHub credentials"},
 		{&viewerGitHub{err: usecase.APIError{Kind: usecase.APIErrorPermission, Status: 403}}, "can't read its own user"},
 		{&viewerGitHub{err: usecase.APIError{Kind: usecase.APIErrorNetwork}}, "GitHub is unreachable"},
 		{struct{ usecase.GitHub }{}, "can't report the signed-in login"},

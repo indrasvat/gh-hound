@@ -132,7 +132,14 @@ func ViewSize(m Model, width, maxItems int) string {
 		lines = append(lines, fit(row, width))
 	}
 	if more > 0 {
-		lines = append(lines, fit(fmt.Sprintf(" … %d more · ↑/↓ scroll", more), width))
+		hidden := []string{}
+		if start > 0 {
+			hidden = append(hidden, fmt.Sprintf("↑ %d", start))
+		}
+		if below := len(visible) - end; below > 0 {
+			hidden = append(hidden, fmt.Sprintf("↓ %d", below))
+		}
+		lines = append(lines, fit(" … "+strings.Join(hidden, " · ")+" more", width))
 	}
 	lines = append(lines, "workflows · watch · diff · theme")
 	return strings.Join(lines, "\n")
