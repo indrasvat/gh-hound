@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -46,4 +47,61 @@ func EmptyBranchRunDiagnostic(repo, branch string) (RunDiagnostic, bool) {
 			fmt.Sprintf("gh hound watch -R %s --group --run <run-id> --no-tui --timeout 10m", repo),
 		},
 	}, true
+}
+
+// MeActor is the actor filter value that stands for the authenticated
+// user.
+const MeActor = "@me"
+
+// ViewerError explains why @me could not resolve. It is distinct from
+// "no matching runs": callers must not fall back to an unfiltered list.
+type ViewerError struct {
+	Err error
+}
+
+func (e ViewerError) Error() string {
+	return "can't resolve @me: " + e.Reason()
+}
+
+// Reason is the human cause without the @me prefix.
+func (e ViewerError) Reason() string {
+	var apiErr APIError
+	if errors.As(e.Err, &apiErr) {
+		switch apiErr.Kind {
+		case APIErrorAuth:
+			return "not signed in to GitHub (set GH_TOKEN or run gh auth login)"
+		case APIErrorPermission:
+			return "this token can't read its own user (GitHub App and Actions tokens can't)"
+		case APIErrorRateLimit:
+			return "GitHub rate limit reached"
+		case APIErrorNetwork:
+			return "GitHub is unreachable"
+		}
+	}
+	if e.Err == nil {
+		return "this GitHub client can't report the signed-in login"
+	}
+	return e.Err.Error()
+}
+
+func (e ViewerError) Unwrap() error {
+	return e.Err
+}
+
+// ResolveActor turns an actor filter into the login GitHub filters by:
+// a leading @ is dropped and @me becomes the authenticated login.
+func ResolveActor(ctx context.Context, github GitHub, actor string) (string, error) {
+	actor = strings.TrimSpace(actor)
+	if !strings.EqualFold(actor, MeActor) {
+		return strings.TrimPrefix(actor, "@"), nil
+	}
+	viewer, ok := github.(ViewerProvider)
+	if !ok {
+		return "", ViewerError{}
+	}
+	login, err := viewer.AuthenticatedLogin(ctx)
+	if err != nil {
+		return "", ViewerError{Err: err}
+	}
+	return login, nil
 }

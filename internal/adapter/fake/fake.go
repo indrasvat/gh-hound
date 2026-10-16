@@ -35,6 +35,11 @@ const (
 	ScenarioPack         Scenario = "pack"
 	ScenarioFlaky        Scenario = "flaky"
 	ScenarioQueue        Scenario = "queue"
+	// ScenarioActors is a busy team repo for actor filtering;
+	// ScenarioActorsAnon is the same repo with credentials that cannot
+	// resolve @me.
+	ScenarioActors     Scenario = "actors"
+	ScenarioActorsAnon Scenario = "actors_anon"
 )
 
 type Adapter struct {
@@ -57,21 +62,39 @@ func (a *Adapter) ListRuns(_ context.Context, filter usecase.RunFilter) ([]model
 	return filterFixtureRuns(runs, filter), nil
 }
 
-// filterFixtureRuns applies server-side status semantics to fixture
-// data so the deterministic lens cannot claim matches the real API
-// would not return.
+// filterFixtureRuns applies the list-runs API's server-side filters
+// and paging to fixture data so the deterministic lens cannot claim
+// matches (or pages) the real API would not return.
 func filterFixtureRuns(runs []model.Run, filter usecase.RunFilter) []model.Run {
 	status := strings.TrimSpace(filter.Status)
-	if status == "" {
-		return runs
-	}
+	actor := strings.TrimPrefix(strings.TrimSpace(filter.Actor), "@")
 	out := make([]model.Run, 0, len(runs))
 	for _, run := range runs {
-		if string(run.Status) == status || string(run.Conclusion) == status {
-			out = append(out, run)
+		if status != "" && string(run.Status) != status && string(run.Conclusion) != status {
+			continue
 		}
+		if actor != "" && !strings.EqualFold(run.Actor, actor) {
+			continue
+		}
+		if filter.Branch != "" && run.HeadBranch != filter.Branch {
+			continue
+		}
+		if filter.Event != "" && run.Event != filter.Event {
+			continue
+		}
+		if filter.HeadSHA != "" && !strings.HasPrefix(run.HeadSHA, filter.HeadSHA) {
+			continue
+		}
+		out = append(out, run)
 	}
-	return out
+	if filter.PerPage <= 0 {
+		return out
+	}
+	start := (max(filter.Page, 1) - 1) * filter.PerPage
+	if start >= len(out) {
+		return []model.Run{}
+	}
+	return out[start:min(start+filter.PerPage, len(out))]
 }
 
 func (a *Adapter) listScenarioRuns() ([]model.Run, error) {
@@ -97,6 +120,8 @@ func (a *Adapter) listScenarioRuns() ([]model.Run, error) {
 		return a.packRuns(), nil
 	case ScenarioFlaky:
 		return flakyHistory(), nil
+	case ScenarioActors, ScenarioActorsAnon:
+		return actorRuns(), nil
 	case ScenarioQueue:
 		run := greenRun(644)
 		run.ID = queueRunID
