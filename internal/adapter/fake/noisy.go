@@ -8,7 +8,7 @@ import (
 
 // noisyLog is a long job log dominated by repeats: a two-hour readiness
 // poll inside a step group, a retry block with one rare exit code, two
-// interleaved workers, then the failure.
+// interleaved workers, a reconnect loop of error lines, then the failure.
 func noisyLog() string {
 	var b strings.Builder
 	t := time.Date(2026, 10, 15, 16, 12, 2, 0, time.UTC)
@@ -54,6 +54,10 @@ func noisyLog() string {
 			line("[worker-b] lease held by w-%06x", 0xa3f9c1+i*977)
 		}
 		t = t.Add(time.Second)
+	}
+	for i := range 18 {
+		line("WARN[%s] db reconnect %d/18 failed: dial tcp 10.0.3.7:5432: connection refused", clock(), i+1)
+		t = t.Add(2 * time.Second)
 	}
 	line("##[endgroup]")
 	line("--- FAIL: TestFeatures/cluster_lifecycle (7205.31s)")
