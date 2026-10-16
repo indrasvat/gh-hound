@@ -193,9 +193,10 @@ The TTY renderer diffs each frame against the previous one and flushes
 the update as ONE write wrapped in synchronized-output guards
 (`ESC[?2026h` … `ESC[?2026l`). After the first paint it never erases
 the whole screen — `ESC[2J` between frames is the blank-flash flicker
-this contract exists to prevent. Changed lines reposition absolutely
-and erase their own tails (`ESC[K`); shrinking frames erase below
-(`ESC[J`); resizes invalidate the diff for one full repaint. The app
+this contract exists to prevent. Changed lines reposition absolutely,
+erase their row (`ESC[2K`) and repaint — never erasing after a
+full-width line, whose pending-wrap cell holds the frame's right border;
+shrinking frames erase below (`ESC[J`) from the row after the frame; resizes invalidate the diff for one full repaint. The app
 lives on the alternate screen with the cursor hidden.
 
 Enforced three ways: renderer unit pins (`cmd/gh-hound/render_test.go`),

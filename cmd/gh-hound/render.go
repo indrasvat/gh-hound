@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/colorprofile"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // Terminal control sequences the renderer speaks. The contract (pinned
@@ -21,8 +20,8 @@ const (
 	leaveAlt   = "\x1b[?1049l"
 	hideCursor = "\x1b[?25l"
 	showCursor = "\x1b[?25h"
-	eraseToEnd = "\x1b[K" // erase to end of line — per-line clearing instead of 2J
-	eraseBelow = "\x1b[J" // erase below — only when a frame shrinks
+	eraseLine  = "\x1b[2K" // erase the whole line before repainting it — per-line clearing instead of 2J
+	eraseBelow = "\x1b[J"  // erase below — only when a frame shrinks
 	cursorHome = "\x1b[H"
 	moveRowOne = "\x1b[%d;1H" // absolute row, column one
 )
@@ -37,10 +36,8 @@ type frameRenderer struct {
 	out  io.Writer
 	prev []string
 	buf  bytes.Buffer
-	// width and height are the terminal's, when known. A line that
-	// fills the last column leaves the cursor in the pending-wrap
-	// position, where an erase would wipe that column — the frame's
-	// right border.
+	// width and height are the terminal's, when known: the erase below
+	// a frame must start on a row that exists.
 	width, height int
 }
 
@@ -53,13 +50,14 @@ func (r *frameRenderer) SetSize(width, height int) {
 	r.width, r.height = width, height
 }
 
-// eraseTail clears what an older, longer line left after this one —
-// unless the line fills the row, when there is nothing to clear and
-// the erase would hit its last cell.
-func (r *frameRenderer) eraseTail(line string) {
-	if r.width <= 0 || ansi.StringWidth(line) < r.width {
-		r.buf.WriteString(eraseToEnd)
-	}
+// paintLine rewrites one row: erase it, then draw. Erasing first never
+// lands in the pending-wrap cell a full-width line leaves behind (which
+// used to wipe the frame's right border), and it clears leftovers even
+// when a glyph's measured width differs from the terminal's.
+func (r *frameRenderer) paintLine(row int, line string) {
+	fmt.Fprintf(&r.buf, moveRowOne, row+1)
+	r.buf.WriteString(eraseLine)
+	r.buf.WriteString(line)
 }
 
 // Invalidate forgets the previous frame so the next Render repaints
@@ -77,36 +75,16 @@ func (r *frameRenderer) Render(view string) error {
 	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
 	r.buf.Reset()
 	r.buf.WriteString(beginSync)
-	if r.prev == nil {
-		r.buf.WriteString(cursorHome)
-		for i, line := range lines {
-			if i > 0 {
-				r.buf.WriteString("\r\n")
-			}
-			r.buf.WriteString(line)
-			r.eraseTail(line)
+	for i, line := range lines {
+		if r.prev != nil && i < len(r.prev) && r.prev[i] == line {
+			continue
 		}
-		switch {
-		case r.height <= 0:
-			r.buf.WriteString(eraseBelow)
-		case len(lines) < r.height:
-			// Erase from the row below, never from the last line's
-			// pending-wrap cell.
-			fmt.Fprintf(&r.buf, moveRowOne, len(lines)+1)
-			r.buf.WriteString(eraseBelow)
-		}
-	} else {
-		for i, line := range lines {
-			if i < len(r.prev) && r.prev[i] == line {
-				continue
-			}
-			fmt.Fprintf(&r.buf, moveRowOne, i+1)
-			r.buf.WriteString(line)
-			r.eraseTail(line)
-		}
-		if len(lines) < len(r.prev) {
-			// The frame shrank: clear the rows the old frame still
-			// owns below the new last line.
+		r.paintLine(i, line)
+	}
+	if shrank := r.prev != nil && len(lines) < len(r.prev); r.prev == nil || shrank {
+		// Clear rows the frame no longer owns — from the row below its
+		// last line, and only if the screen has one.
+		if r.height <= 0 || len(lines) < r.height {
 			fmt.Fprintf(&r.buf, moveRowOne, len(lines)+1)
 			r.buf.WriteString(eraseBelow)
 		}
