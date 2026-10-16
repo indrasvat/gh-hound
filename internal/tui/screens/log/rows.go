@@ -13,6 +13,7 @@ const (
 	planBudget = 2 * time.Second
 	// rangePlanBudget bounds planning a time range on the key path.
 	rangePlanBudget = 50 * time.Millisecond
+	minFoldHidden   = 5 // smaller repeat runs stay as lines
 )
 
 type rowKind uint8
@@ -76,26 +77,39 @@ func (m Model) WithCompact(on bool) Model {
 
 func (m Model) HasPlan() bool { return m.plan != nil }
 
-// FoldCount is how many repeat folds the full-log plan has.
+func shownFold(s fold.Segment) bool {
+	return s.Kind == fold.Folded && s.End-s.Start >= minFoldHidden
+}
+
+// FoldCount is how many repeat folds the full-log plan shows.
 func (m Model) FoldCount() int {
+	n, _ := m.foldTotals()
+	return n
+}
+
+// FoldedLines is how many lines the shown repeat folds hide.
+func (m Model) FoldedLines() int {
+	_, hidden := m.foldTotals()
+	return hidden
+}
+
+func (m Model) foldTotals() (folds, hidden int) {
 	if m.plan == nil {
-		return 0
+		return 0, 0
 	}
-	n := 0
 	for _, s := range m.plan.Segments {
-		if s.Kind == fold.Folded {
-			n++
+		if shownFold(s) {
+			folds++
+			hidden += s.End - s.Start
 		}
 	}
-	return n
+	return folds, hidden
 }
 
 // CompactRows is the row count of the compact view with every fold closed.
 func (m Model) CompactRows() int {
-	if m.plan == nil {
-		return len(m.Document.Lines)
-	}
-	return m.plan.Rows()
+	folds, hidden := m.foldTotals()
+	return len(m.Document.Lines) - hidden + folds
 }
 
 // Folded reports whether the compact view is showing and has folds.
@@ -168,7 +182,7 @@ func (m Model) buildRows() []viewRow {
 	}
 	for i, seg := range plan.Segments {
 		a, b := seg.Start+base, seg.End+base-1
-		if seg.Kind == fold.Literal {
+		if !shownFold(seg) {
 			for n := a; n <= b; n++ {
 				emit(n)
 			}
@@ -258,6 +272,18 @@ func (m *Model) setRepeatsOpen(open bool) {
 		}
 	}
 	m.rev++
+}
+
+// jumpRepeat scrolls to the next (dir 1) or previous (dir -1) repeat fold.
+func (m *Model) jumpRepeat(dir int) {
+	rows := m.rows()
+	for i := m.top() + dir; i >= 0 && i < len(rows); i += dir {
+		if rows[i].kind == rowRepeat {
+			m.topRow = i
+			m.Offset = rows[i].line
+			return
+		}
+	}
 }
 
 func (m *Model) toggleCompact() {

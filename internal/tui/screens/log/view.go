@@ -72,7 +72,8 @@ func header(m Model) string {
 		return head
 	}
 	if m.Folded() {
-		return "log · compact"
+		folds, hidden := m.foldTotals()
+		return fmt.Sprintf("log · compact · %s lines folded in %s place%s", groupDigits(hidden), groupDigits(folds), plural(folds))
 	}
 	return "log"
 }
@@ -114,22 +115,40 @@ func foldGlyph(collapsed bool) string {
 func renderFold(number, gutterW int, title string, count int, collapsed bool, width int) string {
 	gutter := colorize(sgrLineNo, gutterText(number, gutterW))
 	label := colorize(sgrFold, fmt.Sprintf("%s %s", foldGlyph(collapsed), title))
-	countText := colorize(sgrDim, groupDigits(count)+" lines")
+	countText := colorize(sgrDim, groupDigits(count)+" line"+plural(count))
 	return backgroundSafe(gutter+" "+label+" "+countText, width, sgrFG, sgrFoldBG)
 }
 
-// renderRepeat draws a repeat fold like a group fold; the title yields to
-// width, the line count never does.
+// renderRepeat draws a repeat fold on its own band; the summary yields to
+// width, the hidden-line count never does.
 func renderRepeat(number, gutterW int, title string, count int, collapsed bool, width int) string {
-	countText := groupDigits(count) + " lines"
-	room := width - gutterW - 3 - ansi.StringWidth(countText) - 1
-	main, severe, _ := strings.Cut(title, " · "+fold.SevereGlyph+" ")
-	label := colorize(sgrFold, fitPlainWidth(main, room))
-	if severe != "" && ansi.StringWidth(main)+3+ansi.StringWidth(severe)+2 <= room {
+	marker := "⋯"
+	if !collapsed {
+		marker = "▾"
+	}
+	countText := groupDigits(count) + " line" + plural(count) + " hidden"
+	head, rest, _ := strings.Cut(title, " · ")
+	main, severe, _ := strings.Cut(rest, fold.SevereGlyph+" ")
+	main = strings.TrimSuffix(main, " · ")
+	lead := gutterW + 3 + ansi.StringWidth(head)
+	room := width - lead - 2 - ansi.StringWidth(countText) - 1
+	label := colorize(sgrRepeatHead, head)
+	if main != "" && room > 3 {
+		label += colorize(sgrFold, " · "+fitPlainWidth(main, room-3))
+	}
+	if severe != "" && ansi.StringWidth(label)+ansi.StringWidth(severe)+5 <= width-gutterW-3-ansi.StringWidth(countText)-1 {
 		label += colorize(sgrFold, " · ") + colorize(sgrFail, fold.SevereGlyph+" "+severe)
 	}
-	value := colorize(sgrLineNo, gutterText(number, gutterW)) + " " + colorize(sgrFold, foldGlyph(collapsed)+" ") + label + " " + colorize(sgrDim, countText)
-	return backgroundSafe(value, width, sgrFG, sgrFoldBG)
+	left := colorize(sgrLineNo, gutterText(number, gutterW)) + " " + colorize(sgrRepeat, marker) + " " + label
+	gap := max(1, width-ansi.StringWidth(left)-ansi.StringWidth(countText)-1)
+	return backgroundSafe(left+strings.Repeat(" ", gap)+colorize(sgrDim, countText), width, sgrFG, sgrRepeatBG)
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func fitPlainWidth(value string, width int) string {
@@ -354,5 +373,8 @@ const (
 	sgrFold       = "\x1b[38;2;207;205;187m"
 	sgrSearch     = "\x1b[38;2;224;163;62m"
 	sgrFoldBG     = "\x1b[48;2;27;29;23m"
+	sgrRepeat     = "\x1b[38;2;110;156;181m"
+	sgrRepeatHead = "\x1b[1;38;2;110;156;181m"
+	sgrRepeatBG   = "\x1b[48;2;20;28;33m"
 	sgrSearchBG   = "\x1b[48;2;43;33;24m"
 )

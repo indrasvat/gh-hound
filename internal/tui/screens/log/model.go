@@ -102,6 +102,10 @@ func (m Model) Update(msg KeyMsg) Model {
 		m.setRepeatsOpen(true)
 	case "c":
 		m.toggleCompact()
+	case "]":
+		m.jumpRepeat(1)
+	case "[":
+		m.jumpRepeat(-1)
 	case "w":
 		m.Wrap = !m.Wrap
 	}

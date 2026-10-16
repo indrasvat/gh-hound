@@ -113,6 +113,7 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "n/N", Action: "match", Help: "match", ShowInFooter: true, Keep: 2},
 		{Key: "z/Z", Action: "fold", Help: "fold", ShowInFooter: true, Keep: 3},
 		{Key: "c", Action: "compact", Help: "compact", ShowInFooter: true, Keep: 4},
+		{Key: "]/[", Action: "repeat_jump", Help: "repeats", ShowInFooter: true, Keep: 1},
 		{Key: "w", Action: "wrap", Help: "wrap", ShowInFooter: true, Keep: 1},
 		{Key: "esc", Display: "⎋", Action: "back", Help: "back", ShowInFooter: true, Keep: KeepAlways},
 	},

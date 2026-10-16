@@ -63,14 +63,14 @@ func openLog(t *testing.T, app App) App {
 func TestLogOpensCompactByDefault(t *testing.T) {
 	app := openLog(t, logApp(t, config.Default(), noisyRaw()))
 	view := ansi.Strip(app.ViewSize(120, 30))
-	for _, want := range []string{"log · compact", "lines → ", "▸ ×", "timed out waiting for cluster", "c compact"} {
+	for _, want := range []string{"log · compact", "lines → ", "⋯ ×", "timed out waiting for cluster", "c compact"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("compact view missing %q:\n%s", want, view)
 		}
 	}
 	app, _ = app.Update(KeyMsg{Key: "c"})
 	view = ansi.Strip(app.ViewSize(120, 30))
-	if strings.Contains(view, "log · compact") || strings.Contains(view, "▸ ×") || !strings.Contains(view, "483 lines") {
+	if strings.Contains(view, "log · compact") || strings.Contains(view, "⋯ ×") || !strings.Contains(view, "483 lines") {
 		t.Fatalf("c should show the full log:\n%s", view)
 	}
 }

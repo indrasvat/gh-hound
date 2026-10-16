@@ -80,7 +80,7 @@ The GIF is deliberately secondary: static shux captures are the visual truth; VH
 | --- | --- |
 | Multiple page loads to reach the failing step. | One terminal launch, then `Enter` / `n` / `l`. |
 | Browser log pages can feel heavy on large logs. | The TUI renders only the visible log window and keeps folding/search state local. |
-| A job that polls for two hours buries its failure under thousands of near-identical lines. | The full log opens compact: `▸ ×720 2-line block · 16:12:11 → 18:12:02 · 3 changing ids  1,436 lines`. Rare or changed values (`exit code 137`) stay visible, and search and time jumps open the fold they land in. |
+| A job that polls for two hours buries its failure under thousands of near-identical lines. | The full log opens compact: `⋯ ×720 2-line block · 16:12:11 → 18:12:02 · 3 changing ids … 1,436 lines hidden`, on its own band so it never looks like a step group, and `]`/`[` jump between folds. Rare or changed values (`exit code 137`) stay visible, and search and time jumps open the fold they land in. |
 | Scope gets lost across tabs. | Header keeps branch/repo scope, loaded count, rate budget, and cache/live state visible. |
 | Rerun/cancel lives away from diagnosis. | Actions are available in context and guarded by explicit confirmation. |
 | Agents get raw pages or raw logs. | `--no-tui --json` returns schema-stable runs, failures, annotations, and excerpts. |
@@ -222,7 +222,7 @@ Fixture scenarios are intentionally restricted to non-interactive/test paths. Th
 | Actions | `r` rerun, `R` rerun failed, `x` cancel, `X` force cancel, `D` dispatch |
 | Detail | `Tab` focus, `n` next failure, `l` logs, `a` artifacts, `d` download (overwrite-guarded re-download), `o`/`y` open folder / copy path on a downloaded artifact (browser / run URL otherwise), `J/K` next/previous run |
 | Failure | `l` full log, `o` browser, `y` copy excerpt, `r` rerun job |
-| Log | `/` search, `t` time jump/range, `n/N` matches, `z/Z` fold, `c` compact/full, `w` wrap, `g/G` top/bottom |
+| Log | `/` search, `t` time jump/range, `n/N` matches, `z/Z` fold, `c` compact/full, `]/[` next/previous repeat fold, `w` wrap, `g/G` top/bottom |
 | Watch | `f` follow, `d` debug, `x` cancel, `Esc` detach |
 | Hunt board | `j/k` move, `Enter` drill into one run, `f` follow worst, `x` cancel, `Esc` back |
 | Dispatch | `Tab` next, arrows/select controls, `Enter` run, `Esc` cancel |

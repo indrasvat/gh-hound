@@ -29,18 +29,18 @@ IN PROGRESS — issue #58 (also closes #59). The approach was proven in a CLI sp
 ## Fold Row
 
 ```
-0008 ▸ ×720 2-line block · 16:12:11 → 18:12:02 · 3 changing ids  1,436 lines
-1203 ▸ 2 recurring lines · 09:58:02 → 10:11:21 · 1 changing id  797 lines
-0412 ▾ ×12 · 0 → 11 (12 values)  10 lines          (opened: lines follow)
+0008 ⋯ ×720 2-line block · 16:12:11 → 18:12:02 · 3 changing ids       1,436 lines hidden
+1203 ⋯ 2 recurring lines · 09:58:02 → 10:11:21 · 1 changing id          797 lines hidden
+0412 ▾ ×12 · 0 → 11 (12 values)                                          10 lines hidden
 ```
 
-Same surface, glyphs and count styling as group folds (`renderFold`). The gutter number is the first hidden line. Summary order: shape (`×N k-line block` or `K recurring lines`), time span, low-cardinality values (`0|137`), numeric ranges (`10 → 99 (90 values)`), changing-id count, `⚠ N error-like inside`. It truncates with `…` from the right; the count never truncates.
+Distinct from group folds so they read as "repeats" at a glance: an info-tinted band, an info `⋯` marker (`▾` when opened), the shape in bold info, the summary in fg-soft, and the hidden-line count dim and right-aligned. The gutter number is the first hidden line. Summary order: shape (`×N k-line block` or `K recurring lines`), time span, low-cardinality values (`0|137`), numeric ranges (`10 → 99 (90 values)`), changing-id count, `⚠ N error-like inside`. It truncates with `…`; the hidden count never truncates. Runs hiding fewer than 5 lines stay as lines.
 
 ## Header And Title
 
 | State | Header (row 0) | Title bar right |
 | --- | --- | --- |
-| compact, folds present | `log · compact` + gauge | `1,448 lines → 13 rows` |
+| compact, folds present | `log · compact · 1,446 lines folded in 2 places` + gauge | `1,448 lines → 13 rows` |
 | full (after `c`) or nothing to fold | `log` + gauge | `1,448 lines` |
 | search | `log · /q · match c/t · compact` | `match c/t` |
 | time jump | `log · t→HH:MM:SS · compact` | as above |
@@ -51,6 +51,7 @@ Same surface, glyphs and count styling as group folds (`renderFold`). The gutter
 | --- | --- |
 | `c` | toggle compact/full, keeping the top line (or the fold that holds it) at the top |
 | `z` / `Z` | close / open every fold: step groups and repeats |
+| `]` / `[` | jump to the next / previous repeat fold |
 | `/` `n` `N` | matches are line numbers; the current match opens the fold that holds it (repeat or group) |
 | `t` | jumps and ranges land on folded lines the same way |
 | `j` `k` `g` `G` `^d` `^u` | move by visible rows; `G` fills the screen |

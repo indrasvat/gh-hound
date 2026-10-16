@@ -45,7 +45,7 @@ func TestCompactViewFoldsThePoll(t *testing.T) {
 	if !strings.HasPrefix(out, "log · compact") {
 		t.Fatalf("header: %q", strings.SplitN(out, "\n", 2)[0])
 	}
-	if !strings.Contains(out, "▸ ×") || !strings.Contains(out, "2-line block") || !strings.Contains(out, " lines") {
+	if !strings.Contains(out, "⋯ ×") || !strings.Contains(out, "2-line block") || !strings.Contains(out, " lines") {
 		t.Fatalf("no repeat fold row:\n%s", out)
 	}
 	if !strings.Contains(out, "timed out waiting for cluster") {
@@ -154,7 +154,7 @@ func TestGutterAlignsPastLine999(t *testing.T) {
 func TestRangeZoomPlansJustTheRange(t *testing.T) {
 	m := compactModel(t, pollLog(), 20).SetRange(200, 260, "10:16–10:21")
 	out := plain(View(m, 120))
-	if !strings.Contains(out, "[10:16–10:21]") || !strings.Contains(out, "▸ ×") {
+	if !strings.Contains(out, "[10:16–10:21]") || !strings.Contains(out, "⋯ ×") {
 		t.Fatalf("range should be folded:\n%s", out)
 	}
 	for _, n := range m.VisibleRowNumbers() {
@@ -175,7 +175,7 @@ func TestWithoutAPlanNothingChanges(t *testing.T) {
 func TestRepeatRowKeepsCountWhenNarrow(t *testing.T) {
 	m := compactModel(t, pollLog(), 10)
 	for l := range strings.SplitSeq(plain(View(m, 50)), "\n") {
-		if strings.Contains(l, "▸ ×") && !strings.HasSuffix(strings.TrimRight(l, " "), " lines") {
+		if strings.Contains(l, "⋯ ×") && !strings.HasSuffix(strings.TrimRight(l, " "), " lines hidden") {
 			t.Fatalf("count truncated: %q", l)
 		}
 		if ansi.StringWidth(l) > 50 {
@@ -225,5 +225,30 @@ func TestZClosesTheMatchFoldAndNReopensIt(t *testing.T) {
 	m = m.Update(KeyMsg{Key: "n"})
 	if out := plain(View(m, 80)); !strings.Contains(out, "› search-hit 007") {
 		t.Fatalf("n should reopen the fold at the next match:\n%s", out)
+	}
+}
+
+func TestBracketsJumpBetweenRepeatFolds(t *testing.T) {
+	m := compactModel(t, pollLog(), 10)
+	m = m.Update(KeyMsg{Key: "]"})
+	if r := m.rows()[m.top()]; r.kind != rowRepeat {
+		t.Fatalf("] should land on a repeat fold, got kind %d at line %d", r.kind, r.line)
+	}
+	at := m.Offset
+	m = m.Update(KeyMsg{Key: "]"})
+	if m.Offset != at {
+		t.Fatalf("] past the last fold should stay, moved to %d", m.Offset)
+	}
+	m = m.Update(KeyMsg{Key: "g"}).Update(KeyMsg{Key: "["})
+	if m.Offset != 1 {
+		t.Fatalf("[ before the first fold should stay at the top, got %d", m.Offset)
+	}
+}
+
+func TestSmallRepeatRunsStayAsLines(t *testing.T) {
+	doc := logs.Parse("a\nwait 1\nwait 2\nwait 3\nwait 4\nb\n")
+	m := compactModel(t, doc, 10)
+	if m.FoldCount() != 0 || strings.Contains(plain(View(m, 80)), "⋯") {
+		t.Fatalf("a run hiding fewer than %d lines must not fold:\n%s", minFoldHidden, plain(View(m, 80)))
 	}
 }
