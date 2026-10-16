@@ -169,19 +169,14 @@ var footerByScreen = map[Screen][]Binding{
 	},
 }
 
-// RunsFilterSyntax is the full / grammar the runs help teaches; the
-// in-list hint row shows only the most useful examples.
+// RunsFilterSyntax is the / grammar the runs help teaches; the in-list
+// hint row shows concrete examples. Kept to three lines at 80x24 so
+// the help overlay still fits with its legend.
 var RunsFilterSyntax = []string{
-	"actor:@me your runs",
-	"actor:<login> someone's runs",
-	"status:<failure|in_progress|success|…>",
-	"branch:<ref>",
-	"event:<push|pull_request|…>",
-	"sha:<sha>",
-	"other words and #run search loaded rows",
-	"f cycles status, s scope — both keep the rest",
+	"actor:@me", "actor:<login>", "status:", "branch:", "event:", "sha:",
+	"other text searches loaded rows",
+	"f · s keep the rest",
 	": My runs / All actors",
-	"⎋ clears the applied filter",
 }
 
 func FooterForScreen(screen Screen) string {

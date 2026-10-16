@@ -424,3 +424,12 @@ func TestRunsQueryErrorKeepsViewerCause(t *testing.T) {
 	}
 	_ = runs.MeActor
 }
+
+func TestRunsHelpWithFilterSyntaxFitsSmallestFrame(t *testing.T) {
+	for _, screen := range []string{"help"} {
+		frame := ansi.Strip(RenderFixtureSize(screen, 80, 24))
+		if !strings.Contains(frame, "Filter /") || !strings.Contains(frame, "Legend") || strings.Count(frame, "╰") != 2 || strings.Contains(frame, "│…") {
+			t.Fatalf("help overlay clipped at 80x24:\n%s", frame)
+		}
+	}
+}

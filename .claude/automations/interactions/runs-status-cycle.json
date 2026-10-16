@@ -1,1 +1,1 @@
-{"contains":["/failing","1 failing","f status"]}
+{"contains": ["/status:failure · 1 run · Esc clear", "1 failing", "f status"]}

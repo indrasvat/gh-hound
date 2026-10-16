@@ -857,6 +857,18 @@ func RenderFixtureSize(screen string, width, height int) string {
 		loadingApp.routes = []Route{RouteRuns, RouteLog}
 		loadingApp.load = &pendingLoad{kind: loadKindLog, label: "fetching log", started: time.Now().Add(-250 * time.Millisecond), read: 2202009, total: 5033165}
 		return loadingApp.ViewSize(width, height)
+	case "runs-filter-input":
+		m := sampleRunsModel()
+		m.InputMode, m.Draft = true, "actor:@me status:failure"
+		return frameViewSize(app.theme, "hound", "⎇ branch fix/parser · @indrasvat", "◔ 4,981/5k live 304", runs.ViewSize(m, bodyWidth, bodyHeight(height), time.Now()), keys.FooterForScreen(keys.ScreenRunsFilter), width, height, true)
+	case "runs-actor":
+		m := sampleActorFilteredModel()
+		return frameViewSize(app.theme, "hound", "⎇ branch fix/parser · @indrasvat", "◔ 4,981/5k live", runs.ViewSize(m, bodyWidth, bodyHeight(height), time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
+	case "runs-actor-error":
+		m := sampleActorFilteredModel()
+		m.Viewer, m.DataKeys = "", nil
+		m.QueryError = usecase.ViewerError{Err: usecase.APIError{Kind: usecase.APIErrorAuth, Status: 401}}.Error()
+		return frameViewSize(app.theme, "hound", "⎇ branch fix/parser", "◔ 4,981/5k live", runs.ViewSize(m, bodyWidth, bodyHeight(height), time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
 	case "runs-waiting":
 		app.runs = sampleWaitingRunsModel()
 		return frameViewSize(app.theme, "hound", "⎇ branch main · @indrasvat", "◔ 4,981/5k live", runs.View(app.runs, bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
@@ -4941,6 +4953,22 @@ func sampleRunsModel() runs.Model {
 
 // sampleWaitingRunsModel mirrors the fake adapter's waiting scenario:
 // the newest run holds at a deployment gate.
+// sampleActorFilteredModel is the list after actor:@me resolved to
+// indrasvat: only their runs, fetched under that filter.
+func sampleActorFilteredModel() runs.Model {
+	m := sampleRunsModel()
+	mine := []model.Run{}
+	for _, run := range m.Context.Runs {
+		if run.Actor == "indrasvat" {
+			mine = append(mine, run)
+		}
+	}
+	m.Context.Runs = mine
+	m.Filter, m.Viewer = "actor:@me", "indrasvat"
+	m.DataKeys = map[usecase.LaunchScope]string{"": m.ServerKey()}
+	return m
+}
+
 func sampleWaitingRunsModel() runs.Model {
 	now := time.Now().UTC().Truncate(time.Second)
 	return runs.NewModel(usecase.LaunchContext{

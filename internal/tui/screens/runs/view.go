@@ -328,7 +328,7 @@ func filterLines(m Model, st styles, width, matches int) []string {
 	if m.InputMode {
 		hint := hintLine(m, st, width)
 		if m.InputError != "" {
-			hint = fitANSI("  "+colorize(st.fail, icons.Failure+" "+m.InputError), width)
+			return append([]string{inputLine(m.Draft, st, width)}, failureLines(st, m.InputError, width)...)
 		}
 		return []string{inputLine(m.Draft, st, width), hint}
 	}
@@ -423,10 +423,7 @@ func emptyLines(m Model, st styles, width, matches int) []string {
 		if m.query().Actor == MeActor {
 			hint = "  actor:<login> still works · / edit · Esc clear"
 		}
-		return []string{
-			fitANSI("  "+colorize(st.fail, icons.Failure+" "+m.QueryError), width),
-			dimLine(st, hint, width),
-		}
+		return append(failureLines(st, m.QueryError, width), dimLine(st, hint, width))
 	}
 	if matches > 0 || m.Loading {
 		return nil
@@ -445,6 +442,31 @@ func emptyLines(m Model, st styles, width, matches int) []string {
 	lines := []string{fitANSI("  "+colorize(st.fgSoft, message), width)}
 	if strings.TrimSpace(m.Filter) != "" {
 		lines = append(lines, dimLine(st, "  / edit · Esc clear", width))
+	}
+	return lines
+}
+
+// failureLines word-wraps a reason under a fail glyph so advice at the
+// end of a long message is never cut off at narrow widths.
+func failureLines(st styles, reason string, width int) []string {
+	room := max(width-4, 8)
+	lines := []string{}
+	current := ""
+	for word := range strings.FieldsSeq(reason) {
+		if current != "" && ansi.StringWidth(current)+1+ansi.StringWidth(word) > room {
+			lines = append(lines, current)
+			current = word
+			continue
+		}
+		current = strings.TrimSpace(current + " " + word)
+	}
+	lines = append(lines, current)
+	for i, line := range lines {
+		prefix := "    "
+		if i == 0 {
+			prefix = "  " + icons.Failure + " "
+		}
+		lines[i] = fitANSI(colorize(st.fail, prefix+line), width)
 	}
 	return lines
 }
