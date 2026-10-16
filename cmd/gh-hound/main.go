@@ -1141,6 +1141,7 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 	}
 
 	renderer := newFrameRenderer(out)
+	renderer.SetSize(width, height)
 	render := func() error {
 		if runtime.IsTTY {
 			return renderer.Render(app.ViewSize(width, height))
@@ -1170,6 +1171,7 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 			app = app.WithViewport(width, height)
 			// The terminal reflowed: the previous frame's rows no
 			// longer correspond, so the diff must start over.
+			renderer.SetSize(width, height)
 			renderer.Invalidate()
 			if err := render(); err != nil {
 				return err

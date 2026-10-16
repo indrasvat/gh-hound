@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -145,5 +146,35 @@ func TestTUIOutputDownsamplesOnlyKnownLowColorTerminals(t *testing.T) {
 				t.Fatalf("%s: renderer sequence %q lost: %q", tt.name, keep, got)
 			}
 		}
+	}
+}
+
+// A line filling the last column leaves the cursor in the pending-wrap
+// cell; an erase there wiped the frame's right border on live
+// terminals (QA: the border showed only in fixture captures).
+func TestRendererNeverErasesTheLastColumnOfAFullLine(t *testing.T) {
+	var out recordingWriter
+	r := newFrameRenderer(&out)
+	r.SetSize(6, 3)
+	if err := r.Render("╭────╮\n│ ok │\n╰────╯"); err != nil {
+		t.Fatal(err)
+	}
+	first := out.writes[0]
+	if strings.Contains(first, "╮"+eraseToEnd) || strings.Contains(first, "╯"+eraseToEnd) || strings.Contains(first, eraseBelow) {
+		t.Fatalf("full-width frame must not erase its last column or below a full screen: %q", first)
+	}
+	if err := r.Render("╭────╮\n│ no │\n╰────╯"); err != nil {
+		t.Fatal(err)
+	}
+	if diff := out.writes[1]; strings.Contains(diff, eraseToEnd) || !strings.Contains(diff, "│ no │") {
+		t.Fatalf("diff repaint of a full-width line must not erase: %q", diff)
+	}
+	r.SetSize(10, 5)
+	r.Invalidate()
+	if err := r.Render("short\nlines"); err != nil {
+		t.Fatal(err)
+	}
+	if last := out.writes[2]; !strings.Contains(last, "short"+eraseToEnd) || !strings.Contains(last, fmt.Sprintf(moveRowOne, 3)+eraseBelow) {
+		t.Fatalf("shorter lines and a shorter frame still clear their tails: %q", last)
 	}
 }

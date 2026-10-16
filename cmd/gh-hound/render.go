@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Terminal control sequences the renderer speaks. The contract (pinned
@@ -36,10 +37,29 @@ type frameRenderer struct {
 	out  io.Writer
 	prev []string
 	buf  bytes.Buffer
+	// width and height are the terminal's, when known. A line that
+	// fills the last column leaves the cursor in the pending-wrap
+	// position, where an erase would wipe that column — the frame's
+	// right border.
+	width, height int
 }
 
 func newFrameRenderer(out io.Writer) *frameRenderer {
 	return &frameRenderer{out: out}
+}
+
+// SetSize records the terminal geometry the frames are painted into.
+func (r *frameRenderer) SetSize(width, height int) {
+	r.width, r.height = width, height
+}
+
+// eraseTail clears what an older, longer line left after this one —
+// unless the line fills the row, when there is nothing to clear and
+// the erase would hit its last cell.
+func (r *frameRenderer) eraseTail(line string) {
+	if r.width <= 0 || ansi.StringWidth(line) < r.width {
+		r.buf.WriteString(eraseToEnd)
+	}
 }
 
 // Invalidate forgets the previous frame so the next Render repaints
@@ -64,9 +84,17 @@ func (r *frameRenderer) Render(view string) error {
 				r.buf.WriteString("\r\n")
 			}
 			r.buf.WriteString(line)
-			r.buf.WriteString(eraseToEnd)
+			r.eraseTail(line)
 		}
-		r.buf.WriteString(eraseBelow)
+		switch {
+		case r.height <= 0:
+			r.buf.WriteString(eraseBelow)
+		case len(lines) < r.height:
+			// Erase from the row below, never from the last line's
+			// pending-wrap cell.
+			fmt.Fprintf(&r.buf, moveRowOne, len(lines)+1)
+			r.buf.WriteString(eraseBelow)
+		}
 	} else {
 		for i, line := range lines {
 			if i < len(r.prev) && r.prev[i] == line {
@@ -74,7 +102,7 @@ func (r *frameRenderer) Render(view string) error {
 			}
 			fmt.Fprintf(&r.buf, moveRowOne, i+1)
 			r.buf.WriteString(line)
-			r.buf.WriteString(eraseToEnd)
+			r.eraseTail(line)
 		}
 		if len(lines) < len(r.prev) {
 			// The frame shrank: clear the rows the old frame still
