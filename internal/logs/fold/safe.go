@@ -15,12 +15,11 @@ type Limits struct {
 
 func DefaultLimits() Limits { return Limits{MaxLineBytes: 16 << 10, MaxLines: 5_000_000} }
 
-var ErrFallback = errors.New("dedup: fell back to raw view")
+var ErrFallback = errors.New("fold: fell back to raw view")
 
-// Identity is the raw view: nothing hidden.
+// Identity is the raw view: nothing hidden. Keys share lines (read-only).
 func Identity(lines []string) Plan {
-	keys := slices.Clone(lines)
-	p := Plan{Lines: lines, Keys: keys, Pinned: make([]bool, len(lines))}
+	p := Plan{Lines: lines, Keys: lines, Pinned: make([]bool, len(lines))}
 	if len(lines) > 0 {
 		p.Segments = []Segment{{Kind: Literal, Start: 0, End: len(lines)}}
 	}
@@ -53,6 +52,10 @@ func (e Engine) SafePlan(lines []string, lim Limits) (plan Plan, err error) {
 		guarded.Guards = append(slices.Clone(e.Guards), longLine(lim.MaxLineBytes))
 	}
 	plan = guarded.Plan(lines)
+	if stop := e.Options.Stop; stop != nil && stop() {
+		// stopped: the raw view needs no verification
+		return Identity(lines), fmt.Errorf("%w: stopped", ErrFallback)
+	}
 	if verr := verify(plan, lines); verr != nil {
 		return Identity(lines), fmt.Errorf("%w: %v", ErrFallback, verr)
 	}

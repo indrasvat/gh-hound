@@ -68,7 +68,7 @@ func TestSetDetectorHonoursStop(t *testing.T) {
 	stopped = true
 	start := time.Now()
 	NewSet().Detect(keys, o)
-	if took := time.Since(start); took > 50*time.Millisecond {
+	if took := time.Since(start); took > raceSlowdown*50*time.Millisecond {
 		t.Fatalf("set detector ignored stop for %v", took)
 	}
 }

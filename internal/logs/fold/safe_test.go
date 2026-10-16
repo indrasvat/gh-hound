@@ -92,7 +92,7 @@ func TestSafePlanContextDeadline(t *testing.T) {
 	if p.Rows() != len(lines) {
 		t.Fatalf("fallback must be raw, rows=%d", p.Rows())
 	}
-	if took > 250*time.Millisecond {
+	if took > raceSlowdown*250*time.Millisecond {
 		t.Fatalf("deadline 30ms but returned after %v", took)
 	}
 	t.Logf("3M lines, 30ms deadline: returned raw after %v", took)
@@ -117,7 +117,7 @@ func TestSafePlanContextGiantRun(t *testing.T) {
 	defer cancel()
 	start := time.Now()
 	_, _ = e.SafePlanContext(ctx, lines, DefaultLimits())
-	if took := time.Since(start); took > 200*time.Millisecond {
+	if took := time.Since(start); took > raceSlowdown*200*time.Millisecond {
 		t.Fatalf("giant run ignored deadline: %v", took)
 	}
 }
