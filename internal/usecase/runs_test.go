@@ -142,3 +142,10 @@ func TestKeepActorRunsDropsGitHubsLooseMatches(t *testing.T) {
 		t.Fatal("no actor keeps every run")
 	}
 }
+
+func TestEmptyBranchDiagnosticQuotesBotLogins(t *testing.T) {
+	diagnostic, _ := usecase.EmptyBranchRunDiagnostic("cli/cli", "trunk", "dependabot[bot]")
+	if !strings.Contains(diagnostic.NextCommands[0], "--actor 'dependabot[bot]'") {
+		t.Fatalf("bot login must be shell-quoted: %q", diagnostic.NextCommands[0])
+	}
+}

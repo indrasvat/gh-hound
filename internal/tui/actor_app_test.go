@@ -504,3 +504,28 @@ func TestFilteredGreenListKeepsTheStandardFooter(t *testing.T) {
 		t.Fatalf("filtered table needs the runs footer:\n%s", view(app))
 	}
 }
+
+func TestLaunchWithUnresolvedMeExplainsAndStaysUsable(t *testing.T) {
+	cfg := config.Default()
+	cfg.Welcome = false
+	server := &actorRuns{rows: actorRows()}
+	viewer := &viewerStub{err: usecase.APIError{Kind: usecase.APIErrorAuth, Status: 401}}
+	app := NewApp(Options{Config: cfg, RunsResolver: server.list, ViewerResolver: viewer.resolve, Launch: usecase.LaunchContext{
+		Repo: "cli/cli", Branch: "trunk", Scope: usecase.LaunchScopeBranch, State: usecase.LaunchStateRuns, PerPage: 30,
+		Query: "actor:@me", QueryError: usecase.ViewerError{Err: viewer.err}.Error(),
+	}})
+	screen := view(app)
+	if !strings.Contains(screen, "can't resolve @me") || !strings.Contains(screen, "actor:<login> still works") {
+		t.Fatalf("launch failure must open on the explained runs list:\n%s", screen)
+	}
+	for range 3 {
+		app, _ = pollCycle(t, app)
+	}
+	if server.count() != 0 || strings.Contains(view(app), "#30") {
+		t.Fatalf("polls broadened an unresolved @me: %d listings\n%s", server.count(), view(app))
+	}
+	app = settleApp(t, typeQuery(t, app, "actor:alice"))
+	if screen := view(app); !strings.Contains(screen, "/actor:alice · 1 run") || strings.Contains(screen, "can't resolve") {
+		t.Fatalf("actor:<login> must work after a failed @me launch:\n%s", screen)
+	}
+}

@@ -30,7 +30,14 @@ func TestParseQuery(t *testing.T) {
 		{"actor:@me fix #571", Query{Actor: MeActor, Text: []string{"fix", "#571"}}},
 		{"Fix", Query{Text: []string{"fix"}}},
 		{"12:30", Query{Text: []string{"12:30"}}},
-		{"failing passed", Query{Status: "failure", Text: []string{"passed"}}},
+		{"feat: bump", Query{Text: []string{"feat:", "bump"}}},
+		{"chore(deps):", Query{Text: []string{"chore(deps):"}}},
+		{"https://x.test/run", Query{Text: []string{"https://x.test/run"}}},
+		{"foo:bar", Query{Text: []string{"foo:bar"}}},
+		{"failing passed", Query{Text: []string{"failing", "passed"}}},
+		{"deploy green", Query{Text: []string{"deploy", "green"}}},
+		{"actor:@me failing", Query{Actor: MeActor, Status: "failure"}},
+		{"status:failure push", Query{Status: "failure", Event: "push"}},
 	}
 	for _, tt := range tests {
 		got, err := ParseQuery(tt.raw)
@@ -50,7 +57,6 @@ func TestParseQueryRejectsInvalidInput(t *testing.T) {
 	}{
 		{"actor:", "actor: needs a value"},
 		{"status:", "status: needs a value"},
-		{"foo:bar", `unknown filter "foo:"`},
 		{"actor:alice actor:bob", "only one actor: per filter"},
 		{"status:failure conclusion:success", "only one status: per filter"},
 		{"actor:not_a_login", "isn't a GitHub login"},
@@ -122,6 +128,8 @@ func TestWithTokenReplacesOnlyItsKey(t *testing.T) {
 		{"actor:alice status:failure", "actor", "@me", "status:failure actor:@me"},
 		{"actor:@me status:failure", "actor", "", "status:failure"},
 		{"conclusion:failure", "status", "", ""},
+		{"deploy green", "status", "failure", "deploy green status:failure"},
+		{"feat: bump", "actor", "@me", "feat: bump actor:@me"},
 	}
 	for _, tt := range tests {
 		if got := WithToken(tt.raw, tt.key, tt.value); got != tt.want {

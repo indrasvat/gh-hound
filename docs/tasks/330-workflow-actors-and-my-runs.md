@@ -29,10 +29,10 @@ Tokens split on whitespace.
 | `branch:<ref>` | head branch | server |
 | `event:<e>` | trigger event | server |
 | `sha:<sha>` | head SHA | server |
-| bare status/event word (`failing`, `push`) | as before: status / event | server |
-| anything else (`fix`, `#571`) | text over loaded rows | client |
+| a lone bare status/event word (`failing`, `push`) | as before: status / event | server |
+| anything else (`fix`, `#571`, `feat: bump`) | text over loaded rows | client |
 
-Unknown qualifiers, empty values, invalid logins and unknown statuses are input errors shown inline; the applied query never changes on an error.
+Empty values, repeated keys, invalid logins and unknown statuses are input errors shown inline; the applied query never changes on an error. Unknown `key:` text is searched as text (commit titles start with `feat:`).
 
 ## Task List
 

@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/indrasvat/gh-hound/internal/adapter/github"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
@@ -184,5 +186,70 @@ func TestRunsActorDropsLooseGitHubMatches(t *testing.T) {
 	runs := decodeJSON(t, []byte(out))["runs"].([]any)
 	if len(runs) != 1 || runs[0].(map[string]any)["actor"] != "alice" {
 		t.Fatalf("--actor must list only that actor's runs: %s", out)
+	}
+}
+
+func TestHoundActorNeverTouchesRunOrWatch(t *testing.T) {
+	run := actorTestRun()
+	github := &cliGitHub{runByID: map[int64]model.Run{run.ID: run}}
+	code, out, err := runActorCLI(t, github, map[string]string{"HOUND_ACTOR": "not a login"}, "runs", "--run", "1001", "--no-tui", "--json")
+	if err != nil || code != 0 || len(decodeJSON(t, []byte(out))["runs"].([]any)) != 1 {
+		t.Fatalf("HOUND_ACTOR must be ignored for --run: code=%d err=%v out=%s", code, err, out)
+	}
+	_, out, _ = runActorCLI(t, nil, map[string]string{"HOUND_ACTOR": "bob"}, "runs", "--run", "5", "--no-tui", "--json", "--fake-scenario", "failure")
+	if len(decodeJSON(t, []byte(out))["runs"].([]any)) != 1 {
+		t.Fatalf("fake --run must ignore HOUND_ACTOR: %s", out)
+	}
+	code, out, _ = runActorCLI(t, nil, map[string]string{"HOUND_ACTOR": "bob"}, "watch", "--json", "--fake-scenario", "pending")
+	if code != 3 || len(decodeJSON(t, []byte(out))["runs"].([]any)) != 1 {
+		t.Fatalf("watch must not narrow by HOUND_ACTOR: code=%d out=%s", code, out)
+	}
+}
+
+func TestRunsActorPagesPastLooseMatches(t *testing.T) {
+	loose := []model.Run{}
+	for i := range 30 {
+		run := actorTestRun()
+		run.ID, run.Actor = int64(2000+i), "cli-triage[bot]"
+		loose = append(loose, run)
+	}
+	github := &cliGitHub{runBatches: [][]model.Run{loose, {actorTestRun()}}}
+	_, out, err := runActorCLI(t, github, nil, "runs", "--actor", "alice", "--all", "--no-tui", "--json")
+	if err != nil || len(decodeJSON(t, []byte(out))["runs"].([]any)) != 1 || github.filters[1].Page != 2 {
+		t.Fatalf("an actor listing must read past a page of loose matches: err=%v filters=%+v out=%s", err, github.filters, out)
+	}
+}
+
+type headerRecorder struct {
+	auth []string
+}
+
+func (r *headerRecorder) RoundTrip(req *http.Request) (*http.Response, error) {
+	r.auth = append(r.auth, req.URL.Path+" "+req.Header.Get("Authorization"))
+	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"login":"alice"}`)), Request: req}, nil
+}
+
+// @me must authenticate exactly like run requests: GH_TOKEN, then
+// GITHUB_TOKEN, then the gh keyring — never git config.
+func TestActorMeUsesTheRunRequestTokenPrecedence(t *testing.T) {
+	tests := []struct {
+		env  map[string]string
+		want string
+	}{
+		{map[string]string{"GH_TOKEN": "gh-env", "GITHUB_TOKEN": "github-env"}, "Bearer gh-env"},
+		{map[string]string{"GITHUB_TOKEN": "github-env"}, "Bearer github-env"},
+		{map[string]string{}, "Bearer keyring"},
+	}
+	for _, tt := range tests {
+		client := authenticatedHTTPClient(mapEnv(tt.env), func() string { return "keyring" })
+		recorder := &headerRecorder{}
+		transport := client.Transport.(authTransport)
+		transport.base = recorder
+		client.Transport = transport
+		resolve := viewerResolver(github.NewClient("https://api.github.com", client))
+		login, err := resolve(context.Background())
+		if err != nil || login != "alice" || len(recorder.auth) != 1 || recorder.auth[0] != "/user "+tt.want {
+			t.Fatalf("env %v: login=%q err=%v requests=%q, want /user %s", tt.env, login, err, recorder.auth, tt.want)
+		}
 	}
 }

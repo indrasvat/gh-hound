@@ -836,6 +836,9 @@ func newWatchCommand(runtime commandRuntime, options *cliOptions) *cobra.Command
 			"in-flight poll too, so a hung GitHub call can't outlast it.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyEnv(options, runtime.Env)
+			// watch follows the active run whoever started it; an actor
+			// from HOUND_ACTOR is for runs listings only.
+			options.Actor, options.ActorFromEnv = "", false
 			options.NoTUI = true
 			options.Watch = true
 			if options.WatchTimeout < 0 {
@@ -2044,8 +2047,12 @@ func writeResult(ctx context.Context, w io.Writer, options cliOptions, runtime c
 }
 
 func resultForOptions(ctx context.Context, options cliOptions, runtime commandRuntime) (render.Result, error) {
+	if options.RunID != 0 && options.ActorFromEnv {
+		// --run always shows that run: HOUND_ACTOR does not apply.
+		options.Actor = ""
+	}
 	if options.Actor != "" {
-		if options.RunID != 0 && !options.ActorFromEnv {
+		if options.RunID != 0 {
 			return render.Result{}, errors.New("--actor cannot be combined with --run: --run always shows that run")
 		}
 		actor, err := usecase.NormalizeActor(options.Actor)
@@ -2156,11 +2163,10 @@ func liveResult(ctx context.Context, options cliOptions, runtime commandRuntime)
 		}
 		filter.Status = status
 	}
-	runs, err := githubClient.ListRuns(ctx, filter)
+	runs, err := usecase.ListActorRuns(ctx, githubClient, filter)
 	if err != nil {
 		return render.Result{}, err
 	}
-	runs = usecase.KeepActorRuns(runs, filter.Actor)
 	runs = filterRunsByConclusion(runs, options.Status)
 	renderRuns := mapRenderRuns(runs)
 	attachFailures(ctx, usecase.TriageService{GitHub: githubClient}, repo, runs, renderRuns)

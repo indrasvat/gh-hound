@@ -237,9 +237,10 @@ Fixture scenarios are intentionally restricted to non-interactive/test paths. Th
 | `actor:<login>` | runs a login started; bots like `dependabot[bot]` work |
 | `status:<s>` | `failure`, `success`, `in_progress`, `queued`, … (`failing`, `running`, `passed` also work) |
 | `branch:<ref>` / `event:<e>` / `sha:<sha>` | head branch, trigger event, head commit |
-| anything else | text search over the loaded rows (workflow, title, branch, run number) |
+| a lone status or event word | the same as `status:` / `event:` (`failing`, `push`) |
+| anything else | text search over the loaded rows (workflow, title, branch, actor, run number); `feat: bump` is text too |
 
-Qualifiers are answered by GitHub and combine; text narrows what is loaded. The summary says which: `· 12 runs` for a server query, `· 3 of 30 loaded` for a text search.
+Qualifiers are answered by GitHub and combine; text narrows what is loaded. A known key with a bad value (`actor:`, `status:sideways`) is rejected inline and nothing changes. The summary says which: `· 12 runs` for a server query, `· 3 of 30 loaded` for a text search.
 
 ## Configuration
 

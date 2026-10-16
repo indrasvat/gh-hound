@@ -89,13 +89,17 @@ func NewModel(ctx usecase.LaunchContext) Model {
 	if !ctx.HasMore && ctx.PerPage > 0 && len(activeRuns(ctx)) >= ctx.PerPage {
 		ctx.HasMore = true
 	}
-	m := Model{Context: ctx, Filter: ctx.Query, Viewer: ctx.Viewer}
-	if key := m.query().ServerKey(); key != "" {
-		// The launch fetched every listing under its actor filter.
-		m.DataKeys = map[usecase.LaunchScope]string{
-			usecase.LaunchScopeBranch: key,
-			usecase.LaunchScopeRepo:   key,
-			"":                        key,
+	m := Model{Context: ctx, Filter: ctx.Query, Viewer: ctx.Viewer, QueryError: ctx.QueryError}
+	// Only scopes the launch actually listed count as fetched under its
+	// filter; any other scope loads when first shown.
+	key := m.query().ServerKey()
+	m.DataKeys = map[usecase.LaunchScope]string{}
+	if ctx.QueryError == "" {
+		m.DataKeys[ctx.Scope] = key
+	}
+	for _, scope := range []usecase.LaunchScope{usecase.LaunchScopeBranch, usecase.LaunchScopeRepo} {
+		if len(scopeRuns(ctx, scope)) > 0 {
+			m.DataKeys[scope] = key
 		}
 	}
 	return m
@@ -227,7 +231,31 @@ func (m Model) ServerKey() string {
 // DataCurrent reports whether the active scope's rows were fetched
 // under the applied query's server filter.
 func (m Model) DataCurrent() bool {
-	return m.DataKeys[m.Context.Scope] == m.ServerKey()
+	return m.scopeCurrent(m.Context.Scope)
+}
+
+// scopeCurrent reports whether a scope's cached rows answer the applied
+// query's server half. A scope with no recorded fetch is current only
+// for an unfiltered query and only if it holds rows; an empty or
+// unrecorded cache must load rather than claim "no runs".
+func (m Model) scopeCurrent(scope usecase.LaunchScope) bool {
+	key, fetched := m.DataKeys[scope]
+	if !fetched {
+		return m.ServerKey() == "" && len(scopeRuns(m.Context, scope)) > 0
+	}
+	return key == m.ServerKey()
+}
+
+// Restore puts back an applied query and scope whose rows are already
+// loaded — what Esc returns to when it cancels the reload for a newer
+// one.
+func (m Model) Restore(filter string, scope usecase.LaunchScope) Model {
+	m.Filter = filter
+	m.Context.Scope = scope
+	m.Context.Runs = scopeRuns(m.Context, scope)
+	m.QueryError = ""
+	m.Selected = clampSelection(m.Selected, len(m.filteredRuns()))
+	return m
 }
 
 func (m Model) Summary() Summary {
@@ -386,7 +414,7 @@ func (m Model) toggleScope() Model {
 	if !ok {
 		return m
 	}
-	if m.DataKeys[target] == "" && m.ServerKey() == "" && len(scopeRuns(m.Context, target)) == 0 {
+	if m.ServerKey() == "" && len(scopeRuns(m.Context, target)) == 0 {
 		// Nothing cached to show for an unfiltered list: stay put.
 		return m
 	}
@@ -401,7 +429,9 @@ func (m Model) WithScope(scope usecase.LaunchScope) Model {
 	m.Context.Scope = scope
 	m.Context.Runs = cache
 	m.Selected = 0
-	if m.DataKeys[scope] != m.ServerKey() || len(cache) == 0 {
+	// An error belongs to the scope that failed; this one loads afresh.
+	m.QueryError = ""
+	if !m.scopeCurrent(scope) || len(cache) == 0 {
 		m.Intent = Intent{Kind: IntentFilter, Filter: m.Filter}
 	}
 	return m

@@ -47,7 +47,7 @@ func EmptyBranchRunDiagnostic(repo, branch, actor string) (RunDiagnostic, bool) 
 		if strings.EqualFold(actor, MeActor) {
 			subject = "None of your runs"
 		}
-		actorFlag = " --actor " + actor
+		actorFlag = " --actor " + shellWord(actor)
 	}
 	return RunDiagnostic{
 		Kind:    RunDiagnosticTargetMismatch,
@@ -151,4 +151,40 @@ func KeepActorRuns(runs []model.Run, login string) []model.Run {
 		}
 	}
 	return kept
+}
+
+// ActorPageBudget bounds how many list-runs pages an actor listing
+// reads to fill one page of that actor's runs.
+const ActorPageBudget = 5
+
+// ListActorRuns fills one page (filter.PerPage) with runs filter.Actor
+// started. GitHub's actor parameter is loose, so a page can narrow to
+// few or none of the actor's runs; following pages are read until the
+// page fills, GitHub runs out, or ActorPageBudget pages were read.
+func ListActorRuns(ctx context.Context, github GitHub, filter RunFilter) ([]model.Run, error) {
+	if filter.Actor == "" || filter.PerPage <= 0 {
+		return github.ListRuns(ctx, filter)
+	}
+	kept := []model.Run{}
+	for page := max(filter.Page, 1); page < max(filter.Page, 1)+ActorPageBudget; page++ {
+		filter.Page = page
+		runs, err := github.ListRuns(ctx, filter)
+		if err != nil {
+			return nil, err
+		}
+		kept = append(kept, KeepActorRuns(runs, filter.Actor)...)
+		if len(kept) >= filter.PerPage || len(runs) < filter.PerPage {
+			break
+		}
+	}
+	return kept[:min(len(kept), filter.PerPage)], nil
+}
+
+// shellWord quotes a value for a copy-pasteable command when it holds
+// anything a shell would expand, like the brackets in dependabot[bot].
+func shellWord(value string) string {
+	if strings.Trim(value, "-@_.0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") != "" {
+		return "'" + value + "'"
+	}
+	return value
 }

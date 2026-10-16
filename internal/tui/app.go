@@ -171,7 +171,10 @@ type App struct {
 	viewer            *viewerCache
 	// runsGen increments on every applied runs query; a load result
 	// for an older generation is dropped, never shown.
-	runsGen                   int
+	runsGen int
+	// runsRevert is the query and scope whose rows were on screen when
+	// the pending reload started; Esc cancelling it goes back there.
+	runsRevert                *runsView
 	failureResolver           func(context.Context, model.Run, model.Job) (failure.Model, logscreen.Model, error)
 	logResolver               func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error)
 	watchResolver             func(context.Context, model.Run) (watch.Model, error)
@@ -306,6 +309,12 @@ func (a App) SettleLoads(timeout time.Duration) (App, bool) {
 		time.Sleep(time.Millisecond)
 	}
 	return a, true
+}
+
+// runsView is an applied runs query in a scope.
+type runsView struct {
+	filter string
+	scope  usecase.LaunchScope
 }
 
 // tickPollState carries a background route poll — the runs list, the
@@ -686,6 +695,14 @@ func (a App) Update(msg KeyMsg) (out App, handled bool) {
 				load.cancel()
 			}
 			a.load = nil
+			if revert := a.runsRevert; revert != nil && load.kind == loadKindRuns {
+				// Cancelling a filter reload goes back to the query whose
+				// rows are on screen, never leaving a new filter over them.
+				a.runs = a.runs.Restore(revert.filter, revert.scope)
+				a.runsGen++
+				a.runsRevert = nil
+				return a, true
+			}
 			next, _ := a.Update(msg)
 			return next, true
 		}
@@ -2027,7 +2044,7 @@ func (a App) updateRuns(msg KeyMsg) (App, bool) {
 			a = a.openApprovals(run)
 		}
 	case runs.IntentFilter:
-		a = a.applyRunsQuery()
+		a = a.applyRunsQuery(runsView{filter: before.Filter, scope: before.Context.Scope})
 	case runs.IntentLoadMore:
 		a = a.loadMoreRuns()
 	}
@@ -2524,19 +2541,19 @@ func (a App) handlePaletteIntent(intent palette.Intent) App {
 		a.routes = []Route{RouteRuns}
 	case "runs --all":
 		a.PopOverlay()
-		a.routes = []Route{RouteRuns}
-		a.runs.InputMode = false
+		a = a.leaveForRuns()
 		if a.runs.Context.Scope != usecase.LaunchScopeRepo || len(a.runs.Context.RepoRuns) == 0 {
+			before := runsView{filter: a.runs.Filter, scope: a.runs.Context.Scope}
 			a.runs = a.runs.WithScope(usecase.LaunchScopeRepo)
 			if a.runs.Intent.Kind == runs.IntentFilter {
-				a = a.applyRunsQuery()
+				a = a.applyRunsQuery(before)
 			}
 		}
 	case "run:failed", "runs:mine", "runs:all-actors":
 		// Each changes one constraint and keeps the rest of the query.
 		a.PopOverlay()
-		a.routes = []Route{RouteRuns}
-		a.runs.InputMode = false
+		a = a.leaveForRuns()
+		before := runsView{filter: a.runs.Filter, scope: a.runs.Context.Scope}
 		key, value := "status", "failure"
 		switch intent.Route {
 		case "runs:mine":
@@ -2545,7 +2562,7 @@ func (a App) handlePaletteIntent(intent palette.Intent) App {
 			key, value = "actor", ""
 		}
 		a.runs = a.runs.Apply(runs.WithToken(a.runs.Filter, key, value))
-		a = a.applyRunsQuery()
+		a = a.applyRunsQuery(before)
 	case "artifacts":
 		a.PopOverlay()
 		if run, ok := a.runs.SelectedRun(); ok {
@@ -2771,9 +2788,14 @@ func (a App) loadDetail(run model.Run) App {
 // applyRunsQuery loads the applied runs query. Every result checks the
 // generation it was started for, so a slow response can never replace
 // a newer query's rows.
-func (a App) applyRunsQuery() App {
+func (a App) applyRunsQuery(before runsView) App {
 	a.runsGen++
 	a.clearRouteError(RouteRuns)
+	if a.runsRevert == nil || a.load == nil || a.load.kind != loadKindRuns {
+		// While reloads chain, keep the oldest view whose rows are on
+		// screen.
+		a.runsRevert = &before
+	}
 	if q, _ := runs.ParseQuery(a.runs.Filter); q.Actor == runs.MeActor {
 		// Re-applying is how the user retries a failed @me lookup.
 		a.viewer.Retry()
@@ -2787,9 +2809,25 @@ func (a App) applyRunsQuery() App {
 			}
 			a.load = nil
 		}
+		a.runsRevert = nil
 		return a
 	}
 	return a.reloadRuns()
+}
+
+// leaveForRuns makes the runs list the only route for a palette jump.
+// A pending load of another kind belongs to the route being left: it is
+// cancelled so the runs reload is not refused behind it.
+func (a App) leaveForRuns() App {
+	if load := a.load; load != nil && load.kind != loadKindRuns {
+		if load.cancel != nil {
+			load.cancel()
+		}
+		a.load = nil
+	}
+	a.routes = []Route{RouteRuns}
+	a.runs.InputMode = false
+	return a
 }
 
 func (a App) reloadRuns() App {
@@ -2811,8 +2849,11 @@ func (a App) reloadRuns() App {
 			if app.runsGen != gen {
 				return app
 			}
+			app.runsRevert = nil
 			if err != nil {
-				if !errors.Is(err, context.Canceled) {
+				// A failure for a scope the user has left stays with that
+				// scope's stale cache; it must not blank this one.
+				if !errors.Is(err, context.Canceled) && app.runs.Context.Scope == requestScope {
 					app.runs.QueryError = runsQueryError(err)
 				}
 				return app
@@ -2891,8 +2932,7 @@ func runsQueryError(err error) string {
 	if errors.As(err, &viewerErr) {
 		return viewerErr.Error()
 	}
-	resilience := usecase.ResilienceFor(err, usecase.ErrorContext{})
-	return "couldn't load runs: " + firstNonEmpty(resilience.Message, err.Error())
+	return "couldn't load runs: " + err.Error()
 }
 
 // syncViewer folds a landed identity lookup into the runs model so the
@@ -2983,10 +3023,14 @@ func (a App) startRunsPoll() App {
 	q, _ := runs.ParseQuery(a.runs.Filter)
 	filter := runsFilterFor(a.runs.Context, a.config.PerPage, q)
 	filter.Page = 1
-	resolver, viewer, key := a.runsResolver, a.viewer, q.ServerKey()
+	resolver, viewer, key, gen := a.runsResolver, a.viewer, q.ServerKey(), a.runsGen
 	return a.startTickPoll(RouteRuns, a.pollIdentity(RouteRuns), func(ctx context.Context) func(App) App {
 		resolved, err := fetchRuns(ctx, resolver, viewer, filter, q.Actor)
 		return func(app App) App {
+			if app.runsGen != gen {
+				// Re-applied meanwhile (a retry): this answer is stale.
+				return app
+			}
 			return app.applyRunsRefresh(resolved, err, key)
 		}
 	})
@@ -3021,12 +3065,15 @@ func (a App) applyRunsRefresh(fetched fetchedRuns, err error, key string) App {
 		a = a.storeRuns(a.runs.Context.Scope, key, merged)
 		a.runs.Context.HasMore = fetched.full || a.runs.Context.HasMore
 	} else {
+		// Replacing another query's rows: paging starts over.
 		a = a.storeRuns(a.runs.Context.Scope, key, resolved)
 		a.runs.Context.HasMore = fetched.full
+		a.runs.Context.Page = 1
 	}
 	a.runs.Context.Page = max(a.runs.Context.Page, 1)
 	a.runs.Context.PerPage = perPage
-	a.runs.Selected = indexOfRun(a.runs.Context.Runs, selectedID)
+	// Selected indexes the filtered list the user sees.
+	a.runs.Selected = indexOfRun(a.runs.FilteredRuns(), selectedID)
 	if a.runsMetadata != nil {
 		if meta, ok := a.runsMetadata(); ok {
 			a.runsMeta = meta

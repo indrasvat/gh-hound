@@ -69,7 +69,7 @@ Branch on `diagnostic.kind == "target_mismatch"` before concluding that CI is ab
 
 `--actor <login>` lists runs that login started; `--actor @me` uses the login the current credentials authenticate as (`GH_TOKEN`, then `GITHUB_TOKEN`, then `gh auth token`) — never `git config`. `HOUND_ACTOR` applies when the flag is absent. It composes with `--branch`, `--all`, and `--status`.
 
-- GitHub's `actor` parameter also matches runs tied to that user's pushes; hound keeps only runs whose `actor` is the login, so `runs[].actor` always equals the filter.
+- GitHub's `actor` parameter also matches runs tied to that user's pushes; hound keeps only runs whose `actor` is the login, so `runs[].actor` always equals the filter. To fill a page it reads up to 5 list pages (150 runs); an actor with fewer recent runs returns fewer.
 - `--run <id>` always shows that run: `--actor` with `--run` exits `2`, and `HOUND_ACTOR` is ignored for `--run`.
 - An invalid login, or an `@me` that cannot be resolved (signed out, or a GitHub App/Actions token that cannot read its own user), exits `2` with the reason — never an unfiltered listing.
 - An empty filtered branch result probes the branch unfiltered: if the branch has runs, no `target_mismatch` is emitted (the actor simply has none there); otherwise the diagnostic's widening commands keep `--actor`.

@@ -91,6 +91,9 @@ type LaunchContext struct {
 	// Viewer the authenticated login when it resolved @me.
 	Query  string
 	Viewer string
+	// QueryError explains why Query has no rows (an unresolved @me);
+	// the runs list shows it instead of anyone's runs.
+	QueryError string
 }
 
 type LaunchService struct {
@@ -160,14 +163,16 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 
 	actor := ""
 	if request.Actor != "" {
+		result.Query = "actor:" + request.Actor
 		login, err := ResolveActor(ctx, s.GitHub, request.Actor)
 		if err != nil {
-			result.State = LaunchStateError
-			result.ErrorMessage = err.Error() + "; pass --actor <login>"
+			// Open on the runs list with the reason, where actor:<login>
+			// can still be typed — never on anyone's runs.
+			result.State = LaunchStateRuns
+			result.QueryError = err.Error()
 			return result
 		}
 		actor = login
-		result.Query = "actor:" + request.Actor
 		if request.Actor == MeActor {
 			result.Viewer = login
 		}
@@ -189,7 +194,9 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 		result.BranchRuns = runs
 	}
 
-	if len(runs) == 0 && result.Scope == LaunchScopeBranch {
+	// A full page narrowed to nothing is not an empty branch: the
+	// actor's runs may be on the next page.
+	if len(runs) == 0 && !full && result.Scope == LaunchScopeBranch {
 		result.Scope = LaunchScopeRepo
 		if diagnostic, ok := EmptyBranchRunDiagnostic(result.Repo, result.Branch, request.Actor); ok {
 			result.Notice = diagnostic.Message + " Showing all branches now."

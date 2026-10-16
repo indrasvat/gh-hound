@@ -69,8 +69,8 @@ func TestLaunchActorMeFailureIsExplainedNotBroadened(t *testing.T) {
 		GitHub:     github,
 		Repository: fakeRepository{context: usecase.RepositoryContext{Repo: "cli/cli", Branch: "main"}},
 	}.Resolve(context.Background(), usecase.LaunchRequest{Actor: usecase.MeActor})
-	if launch.State != usecase.LaunchStateError || !strings.Contains(launch.ErrorMessage, "can't resolve @me: not signed in") {
-		t.Fatalf("state=%s error=%q", launch.State, launch.ErrorMessage)
+	if launch.State != usecase.LaunchStateRuns || launch.Query != "actor:@me" || !strings.Contains(launch.QueryError, "can't resolve @me: not signed in") {
+		t.Fatalf("state=%s query=%q error=%q", launch.State, launch.Query, launch.QueryError)
 	}
 	if len(github.calls) != 0 || len(launch.Runs) != 0 {
 		t.Fatalf("no listing may run without the actor: %d calls", len(github.calls))
@@ -96,4 +96,43 @@ func TestLaunchActorNarrowsLooseMatchesAndKeepsHasMore(t *testing.T) {
 	if len(launch.Runs) != 1 || launch.Runs[0].Actor != "alice" || len(launch.RepoRuns) != 1 || !launch.HasMore {
 		t.Fatalf("runs=%d repo=%d hasMore=%v", len(launch.Runs), len(launch.RepoRuns), launch.HasMore)
 	}
+}
+
+func TestListActorRunsPagesUntilThePageFills(t *testing.T) {
+	pages := map[int][]model.Run{}
+	for page := 1; page <= 7; page++ {
+		for i := range 30 {
+			run := greenRun(page*100+i, "main")
+			run.Actor = "cli-triage[bot]"
+			if page >= 3 && i < 12 {
+				run.Actor = "alice"
+			}
+			pages[page] = append(pages[page], run)
+		}
+	}
+	github := &pagedGitHub{launchGitHub: &launchGitHub{}, pages: pages}
+	runs, err := usecase.ListActorRuns(context.Background(), github, usecase.RunFilter{Actor: "alice", PerPage: 30, Page: 1})
+	if err != nil || len(runs) != 30 || github.reads != 5 {
+		t.Fatalf("runs=%d reads=%d err=%v", len(runs), github.reads, err)
+	}
+	for _, run := range runs {
+		if run.Actor != "alice" {
+			t.Fatalf("leaked %q", run.Actor)
+		}
+	}
+	github = &pagedGitHub{launchGitHub: &launchGitHub{}, pages: map[int][]model.Run{1: pages[1]}}
+	if runs, _ := usecase.ListActorRuns(context.Background(), github, usecase.RunFilter{Actor: "alice", PerPage: 30, Page: 1}); len(runs) != 0 || github.reads != 2 {
+		t.Fatalf("short second page must stop the hunt: runs=%d reads=%d", len(runs), github.reads)
+	}
+}
+
+type pagedGitHub struct {
+	*launchGitHub
+	pages map[int][]model.Run
+	reads int
+}
+
+func (g *pagedGitHub) ListRuns(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
+	g.reads++
+	return g.pages[filter.Page], nil
 }

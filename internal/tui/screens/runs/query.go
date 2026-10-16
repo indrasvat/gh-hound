@@ -2,7 +2,6 @@ package runs
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/indrasvat/gh-hound/internal/model"
@@ -24,32 +23,21 @@ type Query struct {
 	Text   []string
 }
 
-var qualifierKey = regexp.MustCompile(`^[a-z_]+$`)
-
 // ParseQuery reads a filter line. An error names the offending token;
-// callers must keep the previously applied query when it fails.
+// callers must keep the previously applied query when it fails. Only
+// known keys are qualifiers: other key:value text ("feat: bump") is
+// searched like any word. A lone status or event word (failing, push)
+// stays the server filter it always was; among other words it is text.
 func ParseQuery(raw string) (Query, error) {
 	var q Query
 	seen := map[string]bool{}
+	var bare []string
 	for token := range strings.FieldsSeq(raw) {
 		key, value, tagged := strings.Cut(token, ":")
-		key = strings.ToLower(key)
-		if !tagged || !qualifierKey.MatchString(key) {
-			lower := strings.ToLower(token)
-			if status, ok := NormalizeStatus(lower); ok && q.Status == "" {
-				q.Status = status
-				continue
-			}
-			if IsKnownEvent(lower) && q.Event == "" {
-				q.Event = lower
-				continue
-			}
-			q.Text = append(q.Text, lower)
+		name := canonicalKey(strings.ToLower(key))
+		if !tagged || name == "" {
+			bare = append(bare, strings.ToLower(token))
 			continue
-		}
-		name := canonicalKey(key)
-		if name == "" {
-			return Query{}, fmt.Errorf("unknown filter %q — try actor, status, branch, event or sha", key+":")
 		}
 		if value == "" {
 			return Query{}, fmt.Errorf("%s: needs a value", name)
@@ -79,6 +67,17 @@ func ParseQuery(raw string) (Query, error) {
 			q.SHA = strings.ToLower(value)
 		}
 	}
+	if len(bare) == 1 {
+		if status, ok := NormalizeStatus(bare[0]); ok && q.Status == "" {
+			q.Status = status
+			return q, nil
+		}
+		if IsKnownEvent(bare[0]) && q.Event == "" {
+			q.Event = bare[0]
+			return q, nil
+		}
+	}
+	q.Text = bare
 	return q, nil
 }
 
@@ -194,13 +193,22 @@ func (q Query) MatchesText(run model.Run) bool {
 // change one constraint and keep the rest. A status key also removes
 // bare status words.
 func WithToken(raw, key, value string) string {
+	tokens := strings.Fields(raw)
+	bare := 0
+	for _, token := range tokens {
+		if k, _, tagged := strings.Cut(token, ":"); !tagged || canonicalKey(strings.ToLower(k)) == "" {
+			bare++
+		}
+	}
 	kept := []string{}
-	for token := range strings.FieldsSeq(raw) {
+	for _, token := range tokens {
 		tokenKey, _, tagged := strings.Cut(token, ":")
-		if tagged && canonicalKey(strings.ToLower(tokenKey)) == key {
+		name := canonicalKey(strings.ToLower(tokenKey))
+		if tagged && name == key {
 			continue
 		}
-		if !tagged && key == "status" {
+		// A lone bare status word is the status filter (see ParseQuery).
+		if (!tagged || name == "") && key == "status" && bare == 1 {
 			if _, ok := NormalizeStatus(token); ok {
 				continue
 			}
