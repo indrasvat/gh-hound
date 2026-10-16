@@ -2861,7 +2861,9 @@ func (a App) reloadRuns() App {
 			app = app.storeRuns(requestScope, key, resolved.rows)
 			if app.runs.Context.Scope != requestScope {
 				// The user moved to another scope while this was in
-				// flight: the result stays parked in its cache slot.
+				// flight: the result stays parked in its cache slot,
+				// with the paging it came with.
+				app.runs = app.runs.RecordPaging(requestScope, runs.Paging{Page: 1, HasMore: resolved.full})
 				return app
 			}
 			app.runs.Context.Page = 1
@@ -4457,6 +4459,11 @@ func runsRight(m runs.Model, refreshCount int, meta usecase.RequestMeta) string 
 	}
 	if m.Context.Scope == usecase.LaunchScopeBranch && len(m.Context.BranchRuns) > 0 {
 		count = len(m.Context.BranchRuns)
+	}
+	if strings.TrimSpace(m.Filter) != "" {
+		// Under a filter the header counts what the list shows, not
+		// another query's cache.
+		count = len(m.FilteredRuns())
 	}
 	if count == 0 {
 		return "no runs loaded"

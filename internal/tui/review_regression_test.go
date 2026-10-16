@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"strings"
 	"testing"
 
 	"github.com/indrasvat/gh-hound/internal/config"
@@ -163,5 +164,40 @@ func TestHealingPollRestartsPaging(t *testing.T) {
 	t.Logf("after healing poll: queryErr=%q current=%v page=%d rows=%d", app.runs.QueryError, app.runs.DataCurrent(), app.runs.Context.Page, len(app.runs.FilteredRuns()))
 	if app.runs.Context.Page != 1 {
 		t.Errorf("healed rows are page 1 of actor:bob but Page=%d; next G fetches page %d", app.runs.Context.Page, app.runs.Context.Page+1)
+	}
+}
+
+// Live QA finding: paging was one value shared by both scopes, so a
+// trip to a short branch scope dropped the repo's "+" and dead-ended G.
+func TestEachScopeKeepsItsOwnPaging(t *testing.T) {
+	repoPage := []model.Run{}
+	for i := range 30 {
+		repoPage = append(repoPage, actorRun(int64(800-i), "alice", "feat/x", model.ConclusionSuccess))
+	}
+	var requests []usecase.RunFilter
+	app := newActorApp(&actorRuns{rows: actorRows()}, nil)
+	app.runsResolver = func(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
+		requests = append(requests, filter)
+		if filter.Branch == "" {
+			return repoPage, nil // repo scope: a full page, more to come
+		}
+		return []model.Run{actorRun(1, "alice", "trunk", model.ConclusionSuccess)}, nil
+	}
+	app = settleApp(t, typeKeys(t, app, "s"))
+	app = settleApp(t, typeQuery(t, app, "actor:alice"))
+	if !app.runs.Context.HasMore || !strings.Contains(view(app), "30+ runs") {
+		t.Fatalf("repo scope should have more pages:\n%s", view(app))
+	}
+	app = settleApp(t, typeKeys(t, app, "s"))
+	if app.runs.Context.HasMore || strings.Contains(view(app), "1+ run") {
+		t.Fatalf("a short branch page has no more:\n%s", view(app))
+	}
+	app = typeKeys(t, app, "s")
+	if !app.runs.Context.HasMore || !strings.Contains(view(app), "30+ runs") {
+		t.Fatalf("back in repo scope the paging must be the repo's:\n%s", view(app))
+	}
+	app = settleApp(t, typeKeys(t, app, "G"))
+	if last := requests[len(requests)-1]; last.Page != 2 || last.Actor != "alice" || last.Branch != "" {
+		t.Fatalf("G after the round trip must fetch the repo's page 2: %+v", last)
 	}
 }

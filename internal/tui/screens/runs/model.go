@@ -2,6 +2,7 @@ package runs
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/indrasvat/gh-hound/internal/model"
@@ -67,8 +68,11 @@ type Model struct {
 	// QueryError explains why the applied query has no rows (identity or
 	// load failure); the list never falls back to unfiltered rows.
 	QueryError string
-	Intent     Intent
-	Theme      theme.Theme
+	// ScopePaging keeps each scope's paging while the other is shown;
+	// Context.Page/HasMore describe the active scope only.
+	ScopePaging map[usecase.LaunchScope]Paging
+	Intent      Intent
+	Theme       theme.Theme
 
 	// FlakyRuns marks rows whose workflow has a known flaker, from
 	// verdicts already computed this session (config flake_badges).
@@ -251,6 +255,12 @@ func (m Model) scopeCurrent(scope usecase.LaunchScope) bool {
 // one.
 func (m Model) Restore(filter string, scope usecase.LaunchScope) Model {
 	m.Filter = filter
+	if scope != m.Context.Scope {
+		m = m.RecordPaging(m.Context.Scope, Paging{Page: m.Context.Page, HasMore: m.Context.HasMore})
+		if paging, known := m.ScopePaging[scope]; known {
+			m.Context.Page, m.Context.HasMore = max(paging.Page, 1), paging.HasMore
+		}
+	}
 	m.Context.Scope = scope
 	m.Context.Runs = scopeRuns(m.Context, scope)
 	m.QueryError = ""
@@ -368,7 +378,7 @@ func runMatchesQuery(run model.Run, query string) bool {
 			strings.Contains(strings.ToLower(string(run.Status)), alias) ||
 			strings.Contains(strings.ToLower(string(run.Conclusion)), alias) ||
 			strings.Contains(strings.ToLower(run.Actor), alias) ||
-			strings.Contains(fmt.Sprintf("%d", run.RunNumber), alias) {
+			strings.Contains(fmt.Sprintf("#%d", run.RunNumber), alias) {
 			return true
 		}
 	}
@@ -408,6 +418,24 @@ func activeRuns(ctx usecase.LaunchContext) []model.Run {
 	return ctx.Runs
 }
 
+// Paging is one scope's pagination state.
+type Paging struct {
+	Page    int
+	HasMore bool
+}
+
+// RecordPaging stores a scope's paging, for a result that landed while
+// another scope was shown.
+func (m Model) RecordPaging(scope usecase.LaunchScope, paging Paging) Model {
+	pages := maps.Clone(m.ScopePaging)
+	if pages == nil {
+		pages = map[usecase.LaunchScope]Paging{}
+	}
+	pages[scope] = paging
+	m.ScopePaging = pages
+	return m
+}
+
 // toggleScope flips branch/repo scope and keeps the applied query.
 func (m Model) toggleScope() Model {
 	target, ok := m.scopeTarget()
@@ -426,8 +454,14 @@ func (m Model) toggleScope() Model {
 // (its rows shown only through the query) and asks the app to load it.
 func (m Model) WithScope(scope usecase.LaunchScope) Model {
 	cache := scopeRuns(m.Context, scope)
+	m = m.RecordPaging(m.Context.Scope, Paging{Page: m.Context.Page, HasMore: m.Context.HasMore})
+	paging, known := m.ScopePaging[scope]
+	if !known {
+		paging = Paging{Page: 1, HasMore: m.Context.PerPage > 0 && len(cache) >= m.Context.PerPage}
+	}
 	m.Context.Scope = scope
 	m.Context.Runs = cache
+	m.Context.Page, m.Context.HasMore = max(paging.Page, 1), paging.HasMore
 	m.Selected = 0
 	// An error belongs to the scope that failed; this one loads afresh.
 	m.QueryError = ""
