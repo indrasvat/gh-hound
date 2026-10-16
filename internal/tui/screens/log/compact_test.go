@@ -314,6 +314,23 @@ func TestControlBytesNeverReachTheTerminal(t *testing.T) {
 	}
 }
 
+func TestTerminalSafeOnlyPassesPlainSGR(t *testing.T) {
+	for in, want := range map[string]string{
+		"\x1b[1;31mred\x1b[0m": "\x1b[1;31mred\x1b[0m",
+		"\x1b[38:2::1:2:3mx":   "\x1b[38:2::1:2:3mx",
+		"a\x1b[?1049mb":        "ab",
+		"a\x1b[1 mb":           "ab",
+		"a\x1b[>4;2mb":         "ab",
+		"a\u009b2Jb\u0085c":    "a2Jbc",
+		"a\xffb\xc2":           "a\ufffdb\ufffd",
+		"keep \ufffd and 日本 ✓": "keep \ufffd and 日本 ✓",
+	} {
+		if got := terminalSafe(in); got != want {
+			t.Errorf("terminalSafe(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestWrapContinuesLongLines(t *testing.T) {
 	doc := logs.Parse("short\n" + strings.Repeat("abcdefghij ", 20) + "\nend")
 	m := NewModel(doc, 1, 10).Update(KeyMsg{Key: "w"})

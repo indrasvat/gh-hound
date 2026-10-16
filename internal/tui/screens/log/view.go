@@ -273,10 +273,11 @@ func renderLogText(line logs.Line) string {
 }
 
 // terminalSafe keeps a log's colours but nothing that moves the cursor:
-// other escape sequences and control bytes are dropped, and tabs expand
-// to 8-column stops, so every row is exactly as wide as it measures.
+// other escape sequences, C0/C1 controls and invalid UTF-8 are dropped or
+// replaced, and tabs expand to 8-column stops, so every row is exactly as
+// wide as it measures.
 func terminalSafe(s string) string {
-	if !strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+	if !strings.ContainsFunc(s, unsafeRune) {
 		return s
 	}
 	var b strings.Builder
@@ -286,8 +287,8 @@ func terminalSafe(s string) string {
 		switch {
 		case c == 0x1b:
 			n := escapeLen(s[i:])
-			if n > 2 && s[i+1] == '[' && s[i+n-1] == 'm' {
-				b.WriteString(s[i : i+n]) // SGR colour
+			if isSGR(s[i : i+n]) {
+				b.WriteString(s[i : i+n])
 			}
 			i += n
 		case c == '\t':
@@ -299,12 +300,32 @@ func terminalSafe(s string) string {
 			i++
 		default:
 			r, size := utf8.DecodeRuneInString(s[i:])
-			b.WriteRune(r)
-			col += ansi.StringWidth(string(r))
 			i += size
+			if r >= 0x80 && r <= 0x9f {
+				continue // C1 controls, e.g. U+009B is an 8-bit CSI
+			}
+			b.WriteRune(r) // an invalid byte decodes to U+FFFD
+			col += ansi.StringWidth(string(r))
 		}
 	}
 	return b.String()
+}
+
+func unsafeRune(r rune) bool {
+	return r < 0x20 || r == 0x7f || r >= 0x80 && r <= 0x9f || r == utf8.RuneError
+}
+
+// isSGR reports a plain colour sequence: ESC [ params m, params only 0-9 ; :.
+func isSGR(seq string) bool {
+	if len(seq) < 3 || seq[1] != '[' || seq[len(seq)-1] != 'm' {
+		return false
+	}
+	for i := 2; i < len(seq)-1; i++ {
+		if seq[i] < '0' || seq[i] > ';' {
+			return false
+		}
+	}
+	return true
 }
 
 // escapeLen is the byte length of the escape sequence at the start of s:
