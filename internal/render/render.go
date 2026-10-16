@@ -38,19 +38,23 @@ type Diagnostic struct {
 }
 
 type Run struct {
-	ID         int64      `json:"id" xml:"id,attr"`
-	Workflow   string     `json:"workflow" xml:"workflow,attr"`
-	RunNumber  int        `json:"run_number" xml:"run_number,attr"`
-	Event      string     `json:"event" xml:"event,attr"`
-	HeadBranch string     `json:"head_branch" xml:"head_branch,attr"`
-	HeadSHA    string     `json:"head_sha" xml:"head_sha,attr"`
-	Status     string     `json:"status" xml:"status,attr"`
-	Attempt    int        `json:"attempt,omitempty" xml:"attempt,attr,omitempty"`
-	Conclusion string     `json:"conclusion" xml:"conclusion,attr"`
-	CreatedAt  time.Time  `json:"created_at" xml:"created_at,attr"`
-	HTMLURL    string     `json:"html_url" xml:"html_url,attr"`
-	Failed     []Failure  `json:"failed" xml:"failed>failure"`
-	Artifacts  []Artifact `json:"artifacts,omitempty" xml:"artifacts>artifact,omitempty"`
+	ID         int64  `json:"id" xml:"id,attr"`
+	Workflow   string `json:"workflow" xml:"workflow,attr"`
+	RunNumber  int    `json:"run_number" xml:"run_number,attr"`
+	Event      string `json:"event" xml:"event,attr"`
+	HeadBranch string `json:"head_branch" xml:"head_branch,attr"`
+	HeadSHA    string `json:"head_sha" xml:"head_sha,attr"`
+	Status     string `json:"status" xml:"status,attr"`
+	Attempt    int    `json:"attempt,omitempty" xml:"attempt,attr,omitempty"`
+	Conclusion string `json:"conclusion" xml:"conclusion,attr"`
+	// Actor started the run; TriggeringActor started its latest
+	// attempt (a re-run can differ). Empty when GitHub reports none.
+	Actor           string     `json:"actor" xml:"actor,attr"`
+	TriggeringActor string     `json:"triggering_actor" xml:"triggering_actor,attr"`
+	CreatedAt       time.Time  `json:"created_at" xml:"created_at,attr"`
+	HTMLURL         string     `json:"html_url" xml:"html_url,attr"`
+	Failed          []Failure  `json:"failed" xml:"failed>failure"`
+	Artifacts       []Artifact `json:"artifacts,omitempty" xml:"artifacts>artifact,omitempty"`
 	// PendingEnvironments names the deployment gates holding a waiting
 	// run. Present only with `runs --approvals` (zero extra API calls
 	// on the default path, Task 200 precedent).
@@ -340,7 +344,7 @@ func writeMarkdown(w io.Writer, result Result) error {
 	}
 	for _, run := range result.Runs {
 		title := strings.TrimSpace(fmt.Sprintf("%s #%d", run.Workflow, run.RunNumber))
-		if _, err := fmt.Fprintf(w, "## %s\n\n- Status: `%s`\n- Conclusion: `%s`\n- URL: %s\n", title, run.Status, run.Conclusion, run.HTMLURL); err != nil {
+		if _, err := fmt.Fprintf(w, "## %s\n\n- Status: `%s`\n- Conclusion: `%s`\n- Actor: %s\n- Triggering actor: %s\n- URL: %s\n", title, run.Status, run.Conclusion, markdownLogin(run.Actor), markdownLogin(run.TriggeringActor), run.HTMLURL); err != nil {
 			return err
 		}
 		for _, failure := range run.Failed {
@@ -350,4 +354,11 @@ func writeMarkdown(w io.Writer, result Result) error {
 		}
 	}
 	return nil
+}
+
+func markdownLogin(login string) string {
+	if login == "" {
+		return "unavailable"
+	}
+	return "`@" + login + "`"
 }

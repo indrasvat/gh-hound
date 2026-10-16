@@ -27,7 +27,7 @@ func TestJSONRendererMatchesAppendixBShape(t *testing.T) {
 	}
 	runs := decoded["runs"].([]any)
 	run := runs[0].(map[string]any)
-	for _, key := range []string{"id", "workflow", "run_number", "event", "head_branch", "head_sha", "status", "conclusion", "created_at", "html_url", "failed"} {
+	for _, key := range []string{"id", "workflow", "run_number", "event", "head_branch", "head_sha", "status", "conclusion", "actor", "triggering_actor", "created_at", "html_url", "failed"} {
 		if _, ok := run[key]; !ok {
 			t.Fatalf("run missing key %q in %s", key, out.String())
 		}
@@ -154,16 +154,18 @@ func fixtureResult() Result {
 		Repo:   "indrasvat/gh-ghent",
 		Branch: "fix/parser",
 		Runs: []Run{{
-			ID:         30433642,
-			Workflow:   "CI",
-			RunNumber:  571,
-			Event:      "pull_request",
-			HeadBranch: "fix/parser",
-			HeadSHA:    "a1b2c3d",
-			Status:     "completed",
-			Conclusion: "failure",
-			CreatedAt:  createdAt,
-			HTMLURL:    "https://github.com/indrasvat/gh-ghent/actions/runs/30433642",
+			ID:              30433642,
+			Workflow:        "CI",
+			RunNumber:       571,
+			Event:           "pull_request",
+			HeadBranch:      "fix/parser",
+			HeadSHA:         "a1b2c3d",
+			Status:          "completed",
+			Conclusion:      "failure",
+			Actor:           "indrasvat",
+			TriggeringActor: "indrasvat",
+			CreatedAt:       createdAt,
+			HTMLURL:         "https://github.com/indrasvat/gh-ghent/actions/runs/30433642",
 			Failed: []Failure{{
 				Job:      "build",
 				Step:     "go test ./...",
@@ -345,5 +347,40 @@ func TestRunPendingEnvironmentsAreOptIn(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"pending_environments": [`) {
 		t.Fatalf("enriched run must carry pending_environments: %s", out.String())
+	}
+}
+
+func TestRunActorsRenderAcrossFormats(t *testing.T) {
+	result := fixtureResult()
+	result.Runs[0].Actor = "alice"
+	result.Runs[0].TriggeringActor = "dependabot[bot]"
+	missing := result.Runs[0]
+	missing.ID, missing.Actor, missing.TriggeringActor = 1, "", ""
+	result.Runs = append(result.Runs, missing)
+
+	var md, xmlOut, jsonOut bytes.Buffer
+	for format, out := range map[Format]*bytes.Buffer{FormatMarkdown: &md, FormatXML: &xmlOut, FormatJSON: &jsonOut} {
+		if err := Write(out, format, result); err != nil {
+			t.Fatalf("Write %s: %v", format, err)
+		}
+	}
+	for _, want := range []string{"- Actor: `@alice`", "- Triggering actor: `@dependabot[bot]`", "- Actor: unavailable", "- Triggering actor: unavailable"} {
+		if !strings.Contains(md.String(), want) {
+			t.Fatalf("markdown missing %q\n%s", want, md.String())
+		}
+	}
+	for _, want := range []string{`actor="alice"`, `triggering_actor="dependabot[bot]"`, `actor=""`} {
+		if !strings.Contains(xmlOut.String(), want) {
+			t.Fatalf("XML missing %q\n%s", want, xmlOut.String())
+		}
+	}
+	var decoded struct {
+		Runs []map[string]any `json:"runs"`
+	}
+	if err := json.Unmarshal(jsonOut.Bytes(), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Runs[1]["actor"] != "" || decoded.Runs[1]["triggering_actor"] != "" {
+		t.Fatalf("missing actors must stay present as empty strings: %v", decoded.Runs[1])
 	}
 }
