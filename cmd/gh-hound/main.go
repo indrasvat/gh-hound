@@ -1308,6 +1308,7 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			}
 			return githubClient.ListRuns(loadCtx, filter)
 		},
+		ViewerResolver: viewerResolver(githubClient),
 		RunsMetadata: func() (usecase.RequestMeta, bool) {
 			diagnostics, ok := githubClient.(usecase.GitHubDiagnostics)
 			if !ok {
@@ -1872,6 +1873,16 @@ func elapsedRun(run model.Run) string {
 		return fmt.Sprintf("%ds", int(elapsed.Seconds()))
 	}
 	return fmt.Sprintf("%dm%02ds", int(elapsed.Minutes()), int(elapsed.Seconds())%60)
+}
+
+// viewerResolver exposes the client's /user lookup to the TUI, or nil
+// when the client cannot report who it is.
+func viewerResolver(githubClient usecase.GitHub) func(context.Context) (string, error) {
+	viewer, ok := githubClient.(usecase.ViewerProvider)
+	if !ok {
+		return nil
+	}
+	return viewer.AuthenticatedLogin
 }
 
 func githubClientForRuntime(runtime commandRuntime) usecase.GitHub {

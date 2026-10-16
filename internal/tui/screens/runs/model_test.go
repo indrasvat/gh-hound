@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -39,8 +40,8 @@ func TestModelSelectionFilterAndRouteIntents(t *testing.T) {
 	m = m.Update(KeyMsg{Key: "a"})
 	m = m.Update(KeyMsg{Key: "i"})
 	m = m.Update(KeyMsg{Key: "l"})
-	if m.Filter != "fail" {
-		t.Fatalf("filter = %q", m.Filter)
+	if m.Draft != "fail" || m.Filter != "" {
+		t.Fatalf("typing must edit the draft only: draft=%q filter=%q", m.Draft, m.Filter)
 	}
 	m = m.Update(KeyMsg{Key: "enter"})
 	if m.InputMode || m.Intent.Kind != IntentFilter || m.Intent.Filter != "fail" {
@@ -147,9 +148,8 @@ func TestViewMatchesRunsAndAllGreenMocks(t *testing.T) {
 	visible := ansi.Strip(view)
 	for _, want := range []string{
 		"Workflow / detail",
-		"Event",
-		"Dur.",
-		"▌#571     ✗ CI",
+		"Actor",
+		"▌#571     ✗  CI",
 		"CI · fix/parser",
 		"1 failing · 1 running · 1 passed",
 	} {
@@ -196,13 +196,12 @@ func TestAllGreenViewKeepsSelectedRowAndFilterVisible(t *testing.T) {
 		t.Fatalf("all-green view did not highlight selected row:\n%s", visible)
 	}
 
-	m = m.Update(KeyMsg{Key: "/"})
-	m = m.Update(KeyMsg{Key: "d"})
-	m = m.Update(KeyMsg{Key: "o"})
-	m = m.Update(KeyMsg{Key: "c"})
+	for _, key := range []string{"/", "d", "o", "c", "enter"} {
+		m = m.Update(KeyMsg{Key: key})
+	}
 	view = ViewSize(m, 80, 12, time.Date(2026, 6, 8, 21, 42, 0, 0, time.UTC))
 	visible = ansi.Strip(view)
-	if !strings.Contains(visible, "/doc  1 matches") || !strings.Contains(visible, "Docs") || strings.Contains(visible, "CodeQL") {
+	if !strings.Contains(visible, "/doc · 1 of 3 loaded · Esc clear") || !strings.Contains(visible, "Docs") || strings.Contains(visible, "CodeQL") {
 		t.Fatalf("filter prompt/results not reflected in all-green view:\n%s", visible)
 	}
 }
@@ -283,11 +282,13 @@ func TestRunsViewShowsMorePagesAffordance(t *testing.T) {
 }
 
 func TestAllGreenBandReappliesBackgroundAfterNestedReset(t *testing.T) {
-	line := allGreenBandLine(sgrOK+"✔"+sgrReset+" All checks passing", 40)
-	if !strings.HasPrefix(line, sgrBandFG+sgrBandBG) {
+	st := stylesFor(theme.ForMode(theme.ModeBramble))
+	band := st.fgSoft + st.bandBG
+	line := allGreenBandLine(st, st.ok+"✔"+sgrReset+" All checks passing", 40)
+	if !strings.HasPrefix(line, band) {
 		t.Fatalf("band should start with fg+bg SGR: %q", line)
 	}
-	if !strings.Contains(line, sgrReset+sgrBandFG+sgrBandBG) {
+	if !strings.Contains(line, sgrReset+band) {
 		t.Fatalf("band should reapply fg+bg after nested reset: %q", line)
 	}
 	if !strings.HasSuffix(line, sgrReset) {

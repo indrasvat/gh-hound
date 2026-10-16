@@ -29,6 +29,9 @@ func View(screen keys.Screen, width int) string {
 	lines = append(lines, section("Navigate", nav, width)...)
 	lines = append(lines, section("Actions", actions, width)...)
 	lines = append(lines, section("View", views, width)...)
+	if screen == keys.ScreenRunsList || screen == keys.ScreenAllGreen {
+		lines = append(lines, section("Filter /", keys.RunsFilterSyntax, width)...)
+	}
 	lines = append(lines, "Legend", icons.Success+" success · "+icons.Failure+" failure · "+icons.InProgress+" running")
 	return fitLines(lines, width)
 }

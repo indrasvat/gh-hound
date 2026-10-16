@@ -2,12 +2,13 @@ package runs
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/components/sparkline"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 	"github.com/indrasvat/gh-hound/internal/usecase"
@@ -31,9 +32,13 @@ func ViewSize(m Model, width, height int, now time.Time) string {
 }
 
 func renderRuns(m Model, width, height int, now time.Time) string {
+	st := stylesFor(m.theme())
+	cols := columnsFor(width)
 	runs := m.filteredRuns()
 	selected := clampSelection(m.Selected, len(runs))
-	fixedRows := 2
+	filter := filterLines(m, st, width, len(runs))
+	empty := emptyLines(m, st, width, len(runs))
+	fixedRows := 2 + len(filter) + len(empty)
 	notice := visibleNotice(m)
 	if notice != "" {
 		fixedRows++
@@ -43,33 +48,26 @@ func renderRuns(m Model, width, height int, now time.Time) string {
 		// would push it past the frame.
 		fixedRows++
 	}
-	showFilter := m.InputMode || strings.TrimSpace(m.Filter) != ""
-	rowCapacity := runRowCapacity(height, fixedRows, showFilter, len(runs))
+	rowCapacity := runRowCapacity(height, fixedRows, len(runs))
 	start, end := viewport(selected, len(runs), rowCapacity)
-	lines := []string{
-		runsHeader(width),
-	}
-	if showFilter {
-		lines = append(lines, filterLine(m.Filter, len(runs), width))
-	}
-	if len(runs) == 0 {
-		lines = append(lines, dimLine("  no runs match /"+m.Filter, width))
-	}
+	lines := []string{runsHeader(st, cols, width)}
+	lines = append(lines, filter...)
+	lines = append(lines, empty...)
 	for i, run := range runs[start:end] {
 		index := start + i
-		line := row(run, index == selected, m.FlakyRuns[run.ID], width, now)
+		line := row(st, cols, run, index == selected, m.FlakyRuns[run.ID], width, now)
 		if m.Loading {
 			// The previous list stays visible but dimmed while a
 			// reload is in flight.
-			line = dimLine(ansi.Strip(line), width)
+			line = dimLine(st, ansi.Strip(line), width)
 		}
 		lines = append(lines, line)
 	}
 	if notice != "" {
-		lines = append(lines, dimLine("  "+notice, width))
+		lines = append(lines, dimLine(st, "  "+notice, width))
 	}
 	summary := m.Summary()
-	lines = append(lines, fitANSI(joinRightANSI(summaryLine(summary, m.Context.HasMore), pageLine(start, end, len(runs), m.Context.HasMore), width), width))
+	lines = append(lines, fitANSI(joinRightANSI(summaryLine(st, summary, m.Context.HasMore), pageLine(start, end, len(runs), m.Context.HasMore), width), width))
 	if m.Loading && m.LoadingLine != "" {
 		lines = append(lines, fitANSI(m.LoadingLine, width))
 	}
@@ -77,6 +75,7 @@ func renderRuns(m Model, width, height int, now time.Time) string {
 }
 
 func renderAllGreen(m Model, width, height int, now time.Time) string {
+	st := stylesFor(m.theme())
 	summary := m.Summary()
 	runs := m.filteredRuns()
 	selected := clampSelection(m.Selected, len(runs))
@@ -96,29 +95,23 @@ func renderAllGreen(m Model, width, height int, now time.Time) string {
 	if m.Loading && m.LoadingLine != "" {
 		fixedRows++
 	}
-	showFilter := m.InputMode || strings.TrimSpace(m.Filter) != ""
-	rowCapacity := runRowCapacity(height, fixedRows, showFilter, len(runs))
+	rowCapacity := runRowCapacity(height, fixedRows, len(runs))
 	start, end := viewport(selected, len(runs), rowCapacity)
+	actorWidth := columnsFor(width).actor
 	lines := []string{
-		allGreenBandLine("", width),
-		allGreenBandLine(joinRightANSI(successLead(nonFailingHeadline(runs, branch)), latestTitle, width), width),
-		allGreenBandLine(joinRightANSI("     "+fmt.Sprintf("%d recent runs · %d failing · last finished %s ago", len(runs), summary.Failing, age(runs[0], now)), latestMeta, width), width),
-		allGreenBandLine("", width),
-		allGreenHeader(width),
+		allGreenBandLine(st, "", width),
+		allGreenBandLine(st, joinRightANSI(successLead(st, nonFailingHeadline(runs, branch)), latestTitle, width), width),
+		allGreenBandLine(st, joinRightANSI("     "+fmt.Sprintf("%d recent runs · %d failing · last finished %s ago", len(runs), summary.Failing, age(runs[0], now)), latestMeta, width), width),
+		allGreenBandLine(st, "", width),
+		allGreenHeader(st, width, actorWidth),
 	}
 	if notice != "" {
-		lines = append(lines, dimLine("  "+notice, width))
-	}
-	if showFilter {
-		lines = append(lines, filterLine(m.Filter, len(runs), width))
-	}
-	if len(runs) == 0 {
-		lines = append(lines, dimLine("  no runs match /"+m.Filter, width))
+		lines = append(lines, dimLine(st, "  "+notice, width))
 	}
 	for i, run := range runs[start:end] {
-		line := allGreenRow(run, start+i == selected, width, now)
+		line := allGreenRow(st, run, start+i == selected, width, actorWidth, now)
 		if m.Loading {
-			line = dimLine(ansi.Strip(line), width)
+			line = dimLine(st, ansi.Strip(line), width)
 		}
 		lines = append(lines, line)
 	}
@@ -127,7 +120,7 @@ func renderAllGreen(m Model, width, height int, now time.Time) string {
 		if m.Context.HasMore {
 			moreHint = " · G load more"
 		}
-		lines = append(lines, dimLine(pageLine(start, end, len(runs), m.Context.HasMore)+moreHint, width))
+		lines = append(lines, dimLine(st, pageLine(start, end, len(runs), m.Context.HasMore)+moreHint, width))
 	}
 	if m.Loading && m.LoadingLine != "" {
 		lines = append(lines, fitANSI(m.LoadingLine, width))
@@ -135,31 +128,97 @@ func renderAllGreen(m Model, width, height int, now time.Time) string {
 	return strings.Join(lines, "\n")
 }
 
-func row(run model.Run, selected, flaky bool, width int, now time.Time) string {
+// runColumns is the one width spec the header and every row share, so
+// labels can never drift from their values. Zero width hides a column.
+type runColumns struct {
+	status, label, actor, event, duration int
+}
+
+const (
+	numberWidth = 8
+	ageWidth    = 5
+	// minLabelWidth is what Workflow / detail keeps before Duration and
+	// then Event give up their space; Actor and Age never do.
+	minLabelWidth = 32
+)
+
+func columnsFor(width int) runColumns {
+	c := runColumns{status: 2, actor: 12, event: 16, duration: 8}
+	if width >= 110 {
+		c.actor = 16
+	}
+	if width >= 160 {
+		c.actor = 24
+	}
+	c.label = width - c.fixedWidth()
+	if c.label < minLabelWidth {
+		c.duration = 0
+		c.label = width - c.fixedWidth()
+	}
+	if c.label < minLabelWidth {
+		c.event = 0
+		c.label = width - c.fixedWidth()
+	}
+	c.label = max(c.label, 8)
+	return c
+}
+
+// fixedWidth is every cell but the label: cursor, number, status,
+// actor, the optional event and duration, age, and one-space gutters.
+func (c runColumns) fixedWidth() int {
+	width := 1 + numberWidth + 1 + c.status + 1 + 1 + c.actor + 1 + ageWidth
+	if c.event > 0 {
+		width += c.event + 1
+	}
+	if c.duration > 0 {
+		width += c.duration + 1
+	}
+	return width
+}
+
+// cells lays one row out; header and data rows both come through here.
+func (c runColumns) cells(prefix, number, status, label, actor, event, duration, age string) string {
+	line := prefix + padANSI(number, numberWidth) + " " + padANSI(status, c.status) + " " + padANSI(label, c.label) + " " + padANSI(actor, c.actor)
+	if c.event > 0 {
+		line += " " + padANSI(event, c.event)
+	}
+	if c.duration > 0 {
+		line += " " + padANSI(duration, c.duration)
+	}
+	return line + " " + age
+}
+
+func runsHeader(st styles, c runColumns, width int) string {
+	return dimLine(st, c.cells(" ", "#", "St", truncate("Workflow / detail", c.label), "Actor", "Event", truncate("Duration", c.duration), "Age"), width)
+}
+
+func row(st styles, c runColumns, run model.Run, selected, flaky bool, width int, now time.Time) string {
 	prefix := " "
 	if selected {
-		prefix = colorize(sgrOK, icons.Cursor)
+		prefix = colorize(st.ok, icons.Cursor)
 	}
-	number := colorize(sgrMuted, fmt.Sprintf("#%d", run.RunNumber))
-	status := colorize(statusColor(run), glyph(run))
-	label := runLabel(run, 30)
+	number := colorize(st.muted, fmt.Sprintf("#%d", run.RunNumber))
+	status := colorize(statusColor(st, run), glyph(run))
+	label := runLabel(st, run, c.label)
 	if flaky {
 		// The flake badge lives inside the label column so every
 		// column keeps its width math and the badge survives 80 cols;
 		// the glyph is plain ASCII by design.
-		label = colorize(sgrRun, icons.Flake) + " " + runLabel(run, 28)
+		label = colorize(st.run, icons.Flake) + " " + runLabel(st, run, c.label-2)
 	}
-	event := colorize(eventColor(run), truncate(run.Event, 16))
-	duration := colorize(durationColor(run), sparkline.Render(sparkValues(run), 5))
-	runAge := colorize(sgrSubtle, age(run, now))
-	line := prefix +
-		padANSI(number, 8) + " " +
-		status + " " +
-		padANSI(label, 30) + " " +
-		padANSI(event, 16) + " " +
-		padANSI(duration, 8) + " " +
-		runAge
-	return fitANSI(line, width)
+	event := colorize(eventColor(st, run), truncate(run.Event, c.event))
+	duration := colorize(durationColor(st, run), sparkline.Render(sparkValues(run), 5))
+	runAge := colorize(st.subtle, age(run, now))
+	return fitANSI(c.cells(prefix, number, status, label, actorCell(st, run.Actor, c.actor), event, duration, runAge), width)
+}
+
+// actorCell renders the original run actor: @login, bots verbatim, and
+// an explicit "unavailable" rather than a guess when GitHub sent none.
+func actorCell(st styles, actor string, width int) string {
+	if strings.TrimSpace(actor) == "" {
+		return colorize(st.dim, truncate("unavailable", width))
+	}
+	return colorize(st.muted, truncate("@"+actor, width))
 }
 
 func glyph(run model.Run) string {
@@ -205,26 +264,19 @@ func duration(run model.Run) string {
 	return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
 }
 
-func runsHeader(width int) string {
-	if width >= 92 {
-		return dimLine("  #        Status  Workflow / detail              Event             Duration  Age", width)
-	}
-	return dimLine("  #        St  Workflow / detail              Event             Dur.  Age", width)
-}
-
-func runLabel(run model.Run, width int) string {
+func runLabel(st styles, run model.Run, width int) string {
 	name := runName(run)
 	detail := runDetail(run)
 	if detail == "" {
-		return colorize(sgrFGSoft, truncate(name, width))
+		return colorize(st.fgSoft, truncate(name, width))
 	}
 	nameWidth := max(min(ansi.StringWidth(name), width/2), 6)
 	if ansi.StringWidth(name)+3+ansi.StringWidth(detail) <= width {
 		nameWidth = ansi.StringWidth(name)
 	}
 	detailWidth := max(width-nameWidth-3, 1)
-	return colorize(sgrFGSoft, truncate(name, nameWidth)) +
-		colorize(sgrSubtle, " · "+truncate(detail, detailWidth))
+	return colorize(st.fgSoft, truncate(name, nameWidth)) +
+		colorize(st.subtle, " · "+truncate(detail, detailWidth))
 }
 
 func runName(run model.Run) string {
@@ -252,72 +304,207 @@ func runDetail(run model.Run) string {
 	return ""
 }
 
-func summaryLine(summary Summary, hasMore bool) string {
-	line := colorize(sgrFail, fmt.Sprintf("%d failing", summary.Failing)) +
+func summaryLine(st styles, summary Summary, hasMore bool) string {
+	line := colorize(st.fail, fmt.Sprintf("%d failing", summary.Failing)) +
 		" · " +
-		colorize(sgrRun, fmt.Sprintf("%d running", summary.Running)) +
+		colorize(st.run, fmt.Sprintf("%d running", summary.Running)) +
 		" · " +
-		colorize(sgrSubtle, fmt.Sprintf("%d passed", summary.Passed))
+		colorize(st.subtle, fmt.Sprintf("%d passed", summary.Passed))
 	if summary.Gated > 0 {
 		// The contextual gate affordance: A only acts on waiting runs,
 		// so it is advertised only while one is on screen.
-		line += " · " + colorize(sgrInfo, fmt.Sprintf("%s %d gated · A review", icons.Gate, summary.Gated))
+		line += " · " + colorize(st.info, fmt.Sprintf("%s %d gated · A review", icons.Gate, summary.Gated))
 	}
 	if hasMore {
-		line += " · " + colorize(sgrSubtle, "G load more")
+		line += " · " + colorize(st.subtle, "G load more")
 	}
 	return line
 }
 
-func statusColor(run model.Run) string {
+// filterLines renders the filter rows under the column header: the
+// shaded input plus a hint (or error) row while editing, otherwise a
+// one-row summary of the applied query.
+func filterLines(m Model, st styles, width, matches int) []string {
+	if m.InputMode {
+		hint := hintLine(m, st, width)
+		if m.InputError != "" {
+			hint = fitANSI("  "+colorize(st.fail, icons.Failure+" "+m.InputError), width)
+		}
+		return []string{inputLine(m.Draft, st, width), hint}
+	}
+	if strings.TrimSpace(m.Filter) == "" {
+		return nil
+	}
+	line := "  " + colorize(st.info, "/"+m.Filter)
+	q := m.query()
+	if q.Actor == MeActor && m.Viewer != "" {
+		line += colorize(st.ok, " → @"+m.Viewer)
+	}
+	if count := matchCount(m, q, matches); count != "" {
+		line += colorize(st.subtle, " · "+count)
+	}
+	return []string{fitANSI(line+colorize(st.subtle, " · Esc clear"), width)}
+}
+
+// matchCount is honest about what it counted: rows GitHub returned for
+// a server query, or loaded rows a text search looked through.
+func matchCount(m Model, q Query, matches int) string {
+	if m.QueryError != "" || (m.Loading && !m.DataCurrent()) {
+		return ""
+	}
+	if len(q.Text) > 0 {
+		return fmt.Sprintf("%d of %d loaded", matches, len(m.activeRuns()))
+	}
+	more := ""
+	if m.Context.HasMore {
+		more = "+"
+	}
+	noun := "runs"
+	if matches == 1 && more == "" {
+		noun = "run"
+	}
+	return fmt.Sprintf("%d%s %s", matches, more, noun)
+}
+
+// inputLine is the shaded edit field: prompt, text, and a block cursor
+// that stays visible by scrolling long text from the left.
+func inputLine(draft string, st styles, width int) string {
+	cursor := st.okBG + " " + st.surfaceBG
+	body := draft
+	if body == "" {
+		body = st.dim + "\x1b[3m" + "Filter runs…" + "\x1b[23m" + st.fg
+	} else if room := width - 6; ansi.StringWidth(body) > room {
+		runes := []rune(body)
+		body = "…" + string(runes[len(runes)-max(room-1, 1):])
+	}
+	content := "  " + st.ok + "/" + st.fg + " "
+	if draft == "" {
+		content += cursor + body
+	} else {
+		content += body + cursor
+	}
+	return shadedLine(content, width, st.fg+st.surfaceBG)
+}
+
+// shadedLine fills the whole row with style, re-applying it after any
+// nested reset so the shading never breaks mid-row or bleeds past it.
+func shadedLine(content string, width int, style string) string {
+	content = fitANSI(content, width)
+	content = padANSI(content, width)
+	content = strings.ReplaceAll(content, sgrReset, sgrReset+style)
+	return style + content + sgrReset
+}
+
+var filterHints = []string{"actor:@me", "actor:login", "status:failure", "branch:%s", "event:push"}
+
+// hintLine shows usable examples, dropping whole items from the right
+// so the actor examples survive narrow widths.
+func hintLine(m Model, st styles, width int) string {
+	branch := first(strings.TrimSpace(m.Context.Branch), "main")
+	items := make([]string, 0, len(filterHints))
+	for _, hint := range filterHints {
+		if strings.Contains(hint, "%s") {
+			hint = fmt.Sprintf(hint, branch)
+		}
+		candidate := "  " + strings.Join(append(items, hint), " · ")
+		if ansi.StringWidth(candidate) > width {
+			break
+		}
+		items = append(items, hint)
+	}
+	return dimLine(st, "  "+strings.Join(items, " · "), width)
+}
+
+// emptyLines explains a list with nothing to show: why the applied
+// query failed, or which constraints matched nothing.
+func emptyLines(m Model, st styles, width, matches int) []string {
+	if m.QueryError != "" {
+		hint := "  / edit · Esc clear"
+		if m.query().Actor == MeActor {
+			hint = "  actor:<login> still works · / edit · Esc clear"
+		}
+		return []string{
+			fitANSI("  "+colorize(st.fail, icons.Failure+" "+m.QueryError), width),
+			dimLine(st, hint, width),
+		}
+	}
+	if matches > 0 || m.Loading {
+		return nil
+	}
+	where := scopePhrase(m.Context.Scope, m.Context.Branch)
+	q := m.query()
+	var message string
+	switch {
+	case strings.TrimSpace(m.Filter) == "":
+		message = fmt.Sprintf("No runs %s.", where)
+	case !q.Server():
+		message = fmt.Sprintf("No loaded runs match %s (%d loaded).", m.Filter, len(m.activeRuns()))
+	default:
+		message = fmt.Sprintf("No runs match %s %s.", m.Filter, where)
+	}
+	lines := []string{fitANSI("  "+colorize(st.fgSoft, message), width)}
+	if strings.TrimSpace(m.Filter) != "" {
+		lines = append(lines, dimLine(st, "  / edit · Esc clear", width))
+	}
+	return lines
+}
+
+func scopePhrase(scope usecase.LaunchScope, branch string) string {
+	if scope == usecase.LaunchScopeRepo || strings.TrimSpace(branch) == "" {
+		return "across all branches"
+	}
+	return "on branch " + strings.TrimSpace(branch)
+}
+
+func statusColor(st styles, run model.Run) string {
 	if run.Status == model.StatusCompleted {
 		switch run.Conclusion {
 		case model.ConclusionSuccess:
-			return sgrOK
+			return st.ok
 		case model.ConclusionFailure:
-			return sgrFail
+			return st.fail
 		case model.ConclusionCancelled, model.ConclusionSkipped, model.ConclusionNeutral, model.ConclusionNone:
-			return sgrNeutral
+			return st.neutral
 		case model.ConclusionActionRequired, model.ConclusionTimedOut:
-			return sgrWarn
+			return st.warn
 		default:
-			return sgrNeutral
+			return st.neutral
 		}
 	}
 	switch run.Status {
 	case model.StatusInProgress:
-		return sgrRun
+		return st.run
 	case model.StatusQueued, model.StatusPending, model.StatusRequested, model.StatusWaiting:
-		return sgrInfo
+		return st.info
 	default:
-		return sgrNeutral
+		return st.neutral
 	}
 }
 
-func eventColor(run model.Run) string {
+func eventColor(st styles, run model.Run) string {
 	if run.Status == model.StatusInProgress {
-		return sgrRun
+		return st.run
 	}
 	if run.Status != model.StatusCompleted {
-		return sgrInfo
+		return st.info
 	}
 	if run.Conclusion == model.ConclusionSuccess {
-		return sgrOK
+		return st.ok
 	}
-	return sgrSubtle
+	return st.subtle
 }
 
-func durationColor(run model.Run) string {
+func durationColor(st styles, run model.Run) string {
 	if run.Status == model.StatusInProgress {
-		return sgrRun
+		return st.run
 	}
 	if run.Status != model.StatusCompleted {
-		return sgrInfo
+		return st.info
 	}
 	if run.Conclusion == model.ConclusionSuccess {
-		return sgrOK
+		return st.ok
 	}
-	return sgrFGSoft
+	return st.fgSoft
 }
 
 func sparkValues(run model.Run) []int {
@@ -339,49 +526,49 @@ func colorize(sgr, value string) string {
 	return sgr + value + sgrReset
 }
 
-func allGreenBandLine(value string, width int) string {
-	value = fitANSI(value, width)
-	value = padANSI(value, width)
-	value = strings.ReplaceAll(value, sgrReset, sgrReset+sgrBandFG+sgrBandBG)
-	return sgrBandFG + sgrBandBG + value + sgrReset
+func allGreenBandLine(st styles, value string, width int) string {
+	return shadedLine(value, width, st.fgSoft+st.bandBG)
 }
 
-func successLead(title string) string {
+func successLead(st styles, title string) string {
 	return "  " +
-		sgrOK + sgrBold + icons.Success + sgrNoBold +
-		sgrBandFG + "  " +
-		sgrTitleFG + sgrBold + title + sgrNoBold +
-		sgrBandFG
+		st.ok + sgrBold + icons.Success + sgrNoBold +
+		st.fgSoft + "  " +
+		st.fg + sgrBold + title + sgrNoBold +
+		st.fgSoft
 }
 
-func allGreenHeader(width int) string {
-	left := "  #        Status  Workflow / detail"
+// allGreenStatusWidth keeps the de-emphasised list's status slot; the
+// header and rows both lay out through it.
+func allGreenStatusWidth(width int) int {
 	if width < 70 {
-		left = "  #        St  Workflow / detail"
+		return 2
 	}
-	// Age values right-align in allGreenRow; the header label must too.
-	return dimLine(joinRightANSI(left, "Age", width), width)
+	return 7
 }
 
-func allGreenRow(run model.Run, selected bool, width int, now time.Time) string {
+func allGreenHeader(st styles, width, actorWidth int) string {
+	status := "Status"
+	if allGreenStatusWidth(width) < len(status) {
+		status = "St"
+	}
+	left := "  " + padANSI("#", numberWidth) + " " + padANSI(status, allGreenStatusWidth(width)) + " Workflow / detail"
+	// Actor and Age right-align in allGreenRow; the labels must too.
+	right := padANSI("Actor", actorWidth) + " " + fmt.Sprintf("%*s", ageWidth, "Age")
+	return dimLine(st, joinRightANSI(left, right, width), width)
+}
+
+func allGreenRow(st styles, run model.Run, selected bool, width, actorWidth int, now time.Time) string {
 	prefix := "  "
 	if selected {
 		prefix = icons.Cursor + " "
 	}
-	icon := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#4FD37A")).
-		Render(glyph(run))
-	num := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#6B7060")).
-		Render(fmt.Sprintf("#%d", run.RunNumber))
-	label := runLabel(run, 36)
-	runAge := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#8C9179")).
-		Render(age(run, now))
-	if width >= 70 {
-		return fitANSI(joinRightANSI(prefix+padANSI(num, 8)+" "+icon+"       "+label, runAge, width), width)
-	}
-	return fitANSI(joinRightANSI(prefix+padANSI(num, 8)+" "+icon+" "+label, runAge, width), width)
+	right := padANSI(actorCell(st, run.Actor, actorWidth), actorWidth) + " " + colorize(st.subtle, fmt.Sprintf("%*s", ageWidth, age(run, now)))
+	leftFixed := 2 + numberWidth + 1 + allGreenStatusWidth(width) + 1
+	labelWidth := max(width-leftFixed-ansi.StringWidth(right)-2, 8)
+	left := prefix + padANSI(colorize(st.dim, fmt.Sprintf("#%d", run.RunNumber)), numberWidth) + " " +
+		padANSI(colorize(st.ok, glyph(run)), allGreenStatusWidth(width)) + " " + runLabel(st, run, labelWidth)
+	return fitANSI(joinRightANSI(left, right, width), width)
 }
 
 func scopeTitle(scope usecase.LaunchScope, branch string) string {
@@ -423,18 +610,11 @@ func nonFailingHeadline(runs []model.Run, scope string) string {
 	return "All checks passing on " + scope
 }
 
-func filterLine(filter string, count int, width int) string {
-	return dimLine(fmt.Sprintf("  /%s  %d matches", filter, count), width)
-}
-
-func runRowCapacity(height, fixedRows int, inputMode bool, total int) int {
+func runRowCapacity(height, fixedRows, total int) int {
 	if height <= 0 {
 		return total
 	}
 	capacity := height - fixedRows
-	if inputMode {
-		capacity--
-	}
 	if total > capacity {
 		capacity--
 	}
@@ -482,11 +662,8 @@ func pageLine(start, end, total int, hasMore bool) string {
 	return fmt.Sprintf("rows %d-%d/%d%s", start+1, end, total, suffix)
 }
 
-func dimLine(value string, width int) string {
-	value = fitANSI(value, width)
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#8C9179")).
-		Render(padANSI(value, width))
+func dimLine(st styles, value string, width int) string {
+	return colorize(st.subtle, padANSI(fitANSI(value, width), width))
 }
 
 func joinRightANSI(left, right string, width int) string {
@@ -500,22 +677,53 @@ func joinRightANSI(left, right string, width int) string {
 	return left + strings.Repeat(" ", spaces) + right
 }
 
+// styles are the theme's tokens as SGR sequences, resolved once per
+// frame so T recolours every runs surface.
+type styles struct {
+	ok, fail, run, info, warn, neutral string
+	dim, subtle, muted, fgSoft, fg     string
+	surfaceBG, okBG, bandBG            string
+}
+
+func stylesFor(th theme.Theme) styles {
+	return styles{
+		ok: sgrHex(th.OK, false), fail: sgrHex(th.Fail, false), run: sgrHex(th.Run, false),
+		info: sgrHex(th.Info, false), warn: sgrHex(th.Warn, false), neutral: sgrHex(th.Neutral, false),
+		dim: sgrHex(th.Dim, false), subtle: sgrHex(th.Subtle, false), muted: sgrHex(th.Muted, false),
+		fgSoft: sgrHex(th.FGSoft, false), fg: sgrHex(th.FG, false),
+		surfaceBG: sgrHex(th.Surface, true), okBG: sgrHex(th.OK, true), bandBG: sgrHex(th.OKTint, true),
+	}
+}
+
+func (m Model) theme() theme.Theme {
+	if m.Theme.Mode == "" {
+		return theme.ForMode(theme.ModeBramble)
+	}
+	return m.Theme
+}
+
+// sgrHex turns a #RRGGBB token into a truecolor SGR; the TTY writer
+// downsamples it on terminals without truecolor.
+func sgrHex(color string, background bool) string {
+	color = strings.TrimPrefix(color, "#")
+	if len(color) != 6 {
+		return ""
+	}
+	value, err := strconv.ParseUint(color, 16, 32)
+	if err != nil {
+		return ""
+	}
+	code := 38
+	if background {
+		code = 48
+	}
+	return fmt.Sprintf("\x1b[%d;2;%d;%d;%dm", code, value>>16&0xff, value>>8&0xff, value&0xff)
+}
+
 const (
-	sgrBold    = "\x1b[1m"
-	sgrNoBold  = "\x1b[22m"
-	sgrBandFG  = "\x1b[38;2;207;205;187m"
-	sgrBandBG  = "\x1b[48;2;20;35;24m"
-	sgrTitleFG = "\x1b[38;2;234;232;217m"
-	sgrOK      = "\x1b[38;2;79;211;122m"
-	sgrFail    = "\x1b[38;2;226;86;75m"
-	sgrRun     = "\x1b[38;2;224;163;62m"
-	sgrInfo    = "\x1b[38;2;110;156;181m"
-	sgrWarn    = "\x1b[38;2;232;137;90m"
-	sgrNeutral = "\x1b[38;2;107;112;96m"
-	sgrMuted   = "\x1b[38;2;174;179;155m"
-	sgrSubtle  = "\x1b[38;2;140;145;121m"
-	sgrFGSoft  = "\x1b[38;2;207;205;187m"
-	sgrReset   = "\x1b[0m"
+	sgrBold   = "\x1b[1m"
+	sgrNoBold = "\x1b[22m"
+	sgrReset  = "\x1b[0m"
 )
 
 func fitANSI(value string, width int) string {

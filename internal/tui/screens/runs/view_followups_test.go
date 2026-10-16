@@ -109,14 +109,14 @@ func TestAllGreenAgeHeaderAlignsWithValues(t *testing.T) {
 	}
 }
 
-// Issue #19: f cycles the status filter all -> failing -> running ->
-// passed -> all, emitting server-filter intents.
+// Issue #19: f cycles the status token none -> failure -> in_progress
+// -> success -> none, emitting server-filter intents.
 func TestStatusCycleKey(t *testing.T) {
 	m := NewModel(usecase.LaunchContext{
 		Repo: "x/y", State: usecase.LaunchStateRuns,
 		Runs: []model.Run{successRun(1, 1, "CI")},
 	})
-	want := []string{"failing", "running", "passed", ""}
+	want := []string{"status:failure", "status:in_progress", "status:success", ""}
 	for _, expect := range want {
 		m = m.Update(KeyMsg{Key: "f"})
 		if m.Filter != expect {
@@ -137,7 +137,7 @@ func TestStatusCycleResetsFromTextFilter(t *testing.T) {
 		m = m.Update(KeyMsg{Key: key})
 	}
 	m = m.Update(KeyMsg{Key: "f"})
-	if m.Filter != "failing" {
-		t.Fatalf("f after a text filter starts the cycle: %q", m.Filter)
+	if m.Filter != "zz status:failure" {
+		t.Fatalf("f after a text filter starts the cycle and keeps the text: %q", m.Filter)
 	}
 }

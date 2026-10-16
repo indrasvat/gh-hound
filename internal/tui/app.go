@@ -78,11 +78,14 @@ type KeyMsg struct {
 }
 
 type Options struct {
-	Config                    config.Config
-	Build                     BuildInfo
-	Launch                    usecase.LaunchContext
-	DetailResolver            func(context.Context, model.Run) (detail.Model, error)
-	RunsResolver              func(context.Context, usecase.RunFilter) ([]model.Run, error)
+	Config         config.Config
+	Build          BuildInfo
+	Launch         usecase.LaunchContext
+	DetailResolver func(context.Context, model.Run) (detail.Model, error)
+	RunsResolver   func(context.Context, usecase.RunFilter) ([]model.Run, error)
+	// ViewerResolver reports the authenticated login (GET /user) for
+	// the header identity and actor:@me. Nil means @me cannot resolve.
+	ViewerResolver            func(context.Context) (string, error)
 	FailureResolver           func(context.Context, model.Run, model.Job) (failure.Model, logscreen.Model, error)
 	LogResolver               func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error)
 	WatchResolver             func(context.Context, model.Run) (watch.Model, error)
@@ -132,39 +135,43 @@ type ActionRequest struct {
 }
 
 type App struct {
-	config                    config.Config
-	build                     BuildInfo
-	theme                     theme.Theme
-	routes                    []Route
-	viewportHeight            int
-	overlays                  []Overlay
-	inputMode                 bool
-	quit                      bool
-	welcomeDismissed          bool
-	refreshCount              int
-	pollInterval              time.Duration
-	launchRoute               Route
-	runs                      runs.Model
-	detail                    detail.Model
-	failure                   failure.Model
-	log                       logscreen.Model
-	watch                     watch.Model
-	board                     watch.Board
-	dispatch                  dispatch.Model
-	diff                      diffscreen.Model
-	flakes                    flakesscreen.Model
-	queue                     queuescreen.Model
-	workflows                 workflowsscreen.Model
-	palette                   palette.Model
-	approvals                 approvals.Model
-	confirm                   confirm.Model
-	toasts                    toast.Model
-	runsMeta                  usecase.RequestMeta
-	dispatchWorkflows         []dispatch.Workflow
-	pendingAction             *pendingAction
-	routeErrors               map[Route]string
-	detailResolver            func(context.Context, model.Run) (detail.Model, error)
-	runsResolver              func(context.Context, usecase.RunFilter) ([]model.Run, error)
+	config            config.Config
+	build             BuildInfo
+	theme             theme.Theme
+	routes            []Route
+	viewportHeight    int
+	overlays          []Overlay
+	inputMode         bool
+	quit              bool
+	welcomeDismissed  bool
+	refreshCount      int
+	pollInterval      time.Duration
+	launchRoute       Route
+	runs              runs.Model
+	detail            detail.Model
+	failure           failure.Model
+	log               logscreen.Model
+	watch             watch.Model
+	board             watch.Board
+	dispatch          dispatch.Model
+	diff              diffscreen.Model
+	flakes            flakesscreen.Model
+	queue             queuescreen.Model
+	workflows         workflowsscreen.Model
+	palette           palette.Model
+	approvals         approvals.Model
+	confirm           confirm.Model
+	toasts            toast.Model
+	runsMeta          usecase.RequestMeta
+	dispatchWorkflows []dispatch.Workflow
+	pendingAction     *pendingAction
+	routeErrors       map[Route]string
+	detailResolver    func(context.Context, model.Run) (detail.Model, error)
+	runsResolver      func(context.Context, usecase.RunFilter) ([]model.Run, error)
+	viewer            *viewerCache
+	// runsGen increments on every applied runs query; a load result
+	// for an older generation is dropped, never shown.
+	runsGen                   int
 	failureResolver           func(context.Context, model.Run, model.Job) (failure.Model, logscreen.Model, error)
 	logResolver               func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error)
 	watchResolver             func(context.Context, model.Run) (watch.Model, error)
@@ -536,6 +543,7 @@ func NewApp(options Options) App {
 		runsMeta:                  runsMeta,
 		detailResolver:            options.DetailResolver,
 		runsResolver:              options.RunsResolver,
+		viewer:                    newViewerCache(options.ViewerResolver, launch.Viewer),
 		failureResolver:           options.FailureResolver,
 		logResolver:               options.LogResolver,
 		watchResolver:             options.WatchResolver,
@@ -662,10 +670,14 @@ func (a App) Update(msg KeyMsg) (out App, handled bool) {
 		a = next
 		repaint = true
 	}
+	if next, ok := a.syncViewer(); ok {
+		a = next
+		repaint = true
+	}
 	if load := a.load; load != nil {
 		if done, _, _, _ := load.snapshot(); done {
 			a, _ = a.drainLoad()
-		} else if msg.Key == "esc" {
+		} else if msg.Key == "esc" && !a.routeInputMode() {
 			// Cancel interest AND the underlying work: the orphaned
 			// result can never apply, and the fetch stops occupying
 			// the serial queue. Re-enter (load is nil now) so normal
@@ -1088,7 +1100,7 @@ func (a App) PollInterval() time.Duration {
 	// (tests, aggressive configs) still drains on time. The next poll
 	// waits for the adaptive interval (startTickPoll's due-gate), so
 	// this tightens freshness without busy-polling.
-	if a.tickPoll != nil {
+	if a.tickPoll != nil || a.viewer.Pending() {
 		return min(loadFrameInterval, base)
 	}
 	// Tighten the loop while async artifact work (including a parked
@@ -1115,6 +1127,13 @@ func (a App) PollInterval() time.Duration {
 
 func (a App) Refresh() (App, bool) {
 	changed := false
+	// Ticks start after the first paint: the identity lookup begins
+	// here, never on the launch path.
+	a.viewer.Start()
+	if next, ok := a.syncViewer(); ok {
+		a = next
+		changed = true
+	}
 	// Always keep the ticked app: discarding it when no toast expired
 	// would reset the elapsed clock and make TTLs unreachable.
 	var expired bool
@@ -1996,13 +2015,11 @@ func (a App) updateRuns(msg KeyMsg) (App, bool) {
 			a = a.openApprovals(run)
 		}
 	case runs.IntentFilter:
-		a = a.reloadRuns(a.runs.Intent.Filter)
-		_, serverSide := serverRunFilter(a.runs.Context, a.config.PerPage, a.runs.Intent.Filter)
-		a.runs.ServerFiltered = serverSide
+		a = a.applyRunsQuery()
 	case runs.IntentLoadMore:
 		a = a.loadMoreRuns()
 	}
-	return a, runsHandled(msg.Key) || before.Selected != a.runs.Selected || before.Filter != a.runs.Filter || before.InputMode != a.runs.InputMode || a.runs.Intent.Kind != runs.IntentNone
+	return a, runsHandled(msg.Key) || before.Selected != a.runs.Selected || before.Filter != a.runs.Filter || before.Draft != a.runs.Draft || before.InputError != a.runs.InputError || before.InputMode != a.runs.InputMode || a.runs.Intent.Kind != runs.IntentNone
 }
 
 func (a App) updateDetail(msg KeyMsg) (App, bool) {
@@ -2496,17 +2513,27 @@ func (a App) handlePaletteIntent(intent palette.Intent) App {
 	case "runs --all":
 		a.PopOverlay()
 		a.routes = []Route{RouteRuns}
-		a.runs.Context.Scope = usecase.LaunchScopeRepo
-		if len(a.runs.Context.RepoRuns) > 0 {
-			a.runs.Context.Runs = a.runs.Context.RepoRuns
-		} else {
-			a = a.reloadRuns("")
+		a.runs.InputMode = false
+		if a.runs.Context.Scope != usecase.LaunchScopeRepo || len(a.runs.Context.RepoRuns) == 0 {
+			a.runs = a.runs.WithScope(usecase.LaunchScopeRepo)
+			if a.runs.Intent.Kind == runs.IntentFilter {
+				a = a.applyRunsQuery()
+			}
 		}
-	case "run:failed":
+	case "run:failed", "runs:mine", "runs:all-actors":
+		// Each changes one constraint and keeps the rest of the query.
 		a.PopOverlay()
 		a.routes = []Route{RouteRuns}
-		a.runs.Filter = "failure"
-		a = a.reloadRuns("failure")
+		a.runs.InputMode = false
+		key, value := "status", "failure"
+		switch intent.Route {
+		case "runs:mine":
+			key, value = "actor", runs.MeActor
+		case "runs:all-actors":
+			key, value = "actor", ""
+		}
+		a.runs = a.runs.Apply(runs.WithToken(a.runs.Filter, key, value))
+		a = a.applyRunsQuery()
 	case "artifacts":
 		a.PopOverlay()
 		if run, ok := a.runs.SelectedRun(); ok {
@@ -2729,45 +2756,61 @@ func (a App) loadDetail(run model.Run) App {
 	return a.startArtifactsFetch(run)
 }
 
-func (a App) reloadRuns(query string) App {
-	filter, ok := serverRunFilter(a.runs.Context, a.config.PerPage, query)
-	if !ok {
-		if strings.TrimSpace(query) == "" {
-			// Clearing a server-backed filter must restore the unfiltered
-			// listing immediately, not leave the filtered subset on
-			// screen until the next poll tick.
-			filter = baseRunsFilter(a.runs.Context, a.config.PerPage)
-		} else {
-			return a
-		}
+// applyRunsQuery loads the applied runs query. Every result checks the
+// generation it was started for, so a slow response can never replace
+// a newer query's rows.
+func (a App) applyRunsQuery() App {
+	a.runsGen++
+	a.clearRouteError(RouteRuns)
+	if q, _ := runs.ParseQuery(a.runs.Filter); q.Actor == runs.MeActor {
+		// Re-applying is how the user retries a failed @me lookup.
+		a.viewer.Retry()
 	}
+	if a.runs.DataCurrent() {
+		// Only text tokens changed: the loaded rows answer them. A load
+		// still running for an older query must not land afterwards.
+		if load := a.load; load != nil && load.kind == loadKindRuns {
+			if load.cancel != nil {
+				load.cancel()
+			}
+			a.load = nil
+		}
+		return a
+	}
+	return a.reloadRuns()
+}
+
+func (a App) reloadRuns() App {
 	a.clearRouteError(RouteRuns)
 	if a.runsResolver == nil {
 		a.setRouteError(RouteRuns, "runs filter unavailable: live GitHub runs loader is not configured")
 		return a
 	}
-	resolver := a.runsResolver
-	// The result belongs to the scope that REQUESTED it: a local scope
-	// toggle mid-flight must not receive another scope's rows.
-	requestScope := a.runs.Context.Scope
-	return a.startLoad(loadKindRuns, runsLoadLabel(query), func(ctx context.Context) func(App) App {
-		resolved, err := resolver(ctx, filter)
+	q, _ := runs.ParseQuery(a.runs.Filter)
+	filter := runsFilterFor(a.runs.Context, a.config.PerPage, q)
+	resolver, viewer := a.runsResolver, a.viewer
+	// The result belongs to the scope and query that REQUESTED it: a
+	// local scope toggle mid-flight must not receive another scope's
+	// rows, and a newer query must not receive this one's.
+	gen, requestScope, key := a.runsGen, a.runs.Context.Scope, q.ServerKey()
+	return a.startLoad(loadKindRuns, runsLoadLabel(a.runs.Filter, viewer.Login() != ""), func(ctx context.Context) func(App) App {
+		resolved, err := fetchRuns(ctx, resolver, viewer, filter, q.Actor)
 		return func(app App) App {
-			if err != nil {
-				return app.handleRunsError(RouteRuns, "runs-filter", "runs filter failed: "+err.Error(), err)
-			}
-			switch requestScope {
-			case usecase.LaunchScopeBranch:
-				app.runs.Context.BranchRuns = resolved
-			case usecase.LaunchScopeRepo:
-				app.runs.Context.RepoRuns = resolved
-			}
-			if app.runs.Context.Scope != requestScope {
-				// The user moved to another scope while this was in
-				// flight: park the result in its cache slot only.
+			if app.runsGen != gen {
 				return app
 			}
-			app.runs.Context.Runs = resolved
+			if err != nil {
+				if !errors.Is(err, context.Canceled) {
+					app.runs.QueryError = runsQueryError(err)
+				}
+				return app
+			}
+			app = app.storeRuns(requestScope, key, resolved)
+			if app.runs.Context.Scope != requestScope {
+				// The user moved to another scope while this was in
+				// flight: the result stays parked in its cache slot.
+				return app
+			}
 			app.runs.Context.Page = 1
 			app.runs.Context.PerPage = perPageFor(app.runs.Context, app.config.PerPage)
 			app.runs.Context.HasMore = len(resolved) >= app.runs.Context.PerPage
@@ -2777,29 +2820,93 @@ func (a App) reloadRuns(query string) App {
 	})
 }
 
-// runsLoadLabel keeps the loading line hound-voiced per query.
-func runsLoadLabel(query string) string {
-	switch strings.TrimSpace(query) {
-	case "":
-		return "fetching the pack"
-	case "failing", "failed", "red":
-		return "sniffing out failing runs"
-	case "running", "live":
-		return "sniffing out running runs"
-	case "passed", "passing", "green":
-		return "sniffing out passing runs"
-	default:
-		return "sniffing out /" + strings.TrimSpace(query)
+// fetchRuns resolves actor:@me through the shared identity lookup, then
+// lists runs. An unresolved @me is an error, never an unfiltered list.
+func fetchRuns(ctx context.Context, resolver func(context.Context, usecase.RunFilter) ([]model.Run, error), viewer *viewerCache, filter usecase.RunFilter, actor string) ([]model.Run, error) {
+	if actor == runs.MeActor {
+		login, err := viewer.Resolve(ctx)
+		if err != nil {
+			return nil, err
+		}
+		filter.Actor = login
 	}
+	return resolver(ctx, filter)
+}
+
+// storeRuns records rows for a scope with the server filter they were
+// fetched under. The key map is copied, never shared with older App
+// values.
+func (a App) storeRuns(scope usecase.LaunchScope, key string, rows []model.Run) App {
+	switch scope {
+	case usecase.LaunchScopeBranch:
+		a.runs.Context.BranchRuns = rows
+	case usecase.LaunchScopeRepo:
+		a.runs.Context.RepoRuns = rows
+	}
+	keys := maps.Clone(a.runs.DataKeys)
+	if keys == nil {
+		keys = map[usecase.LaunchScope]string{}
+	}
+	keys[scope] = key
+	a.runs.DataKeys = keys
+	if a.runs.Context.Scope == scope {
+		a.runs.Context.Runs = rows
+		a.runs.QueryError = ""
+	}
+	return a
+}
+
+// runsQueryError says why the applied query has nothing to show; it
+// replaces the rows rather than leaving another filter's rows on view.
+func runsQueryError(err error) string {
+	var viewerErr usecase.ViewerError
+	if errors.As(err, &viewerErr) {
+		return viewerErr.Error()
+	}
+	resilience := usecase.ResilienceFor(err, usecase.ErrorContext{})
+	return "couldn't load runs: " + firstNonEmpty(resilience.Message, err.Error())
+}
+
+// syncViewer folds a landed identity lookup into the runs model so the
+// header and the @me summary repaint.
+func (a App) syncViewer() (App, bool) {
+	login := a.viewer.Login()
+	if login == "" || login == a.runs.Viewer {
+		return a, false
+	}
+	a.runs.Viewer = login
+	return a, true
+}
+
+// runsLoadLabel keeps the loading line hound-voiced per query.
+func runsLoadLabel(query string, viewerKnown bool) string {
+	q, _ := runs.ParseQuery(query)
+	if q.Actor == runs.MeActor && !viewerKnown {
+		return "picking up your scent"
+	}
+	if q.Actor == "" && q.Branch == "" && q.Event == "" && q.SHA == "" && len(q.Text) == 0 {
+		switch q.Status {
+		case "":
+			return "fetching the pack"
+		case string(model.ConclusionFailure):
+			return "sniffing out failing runs"
+		case string(model.StatusInProgress):
+			return "sniffing out running runs"
+		case string(model.ConclusionSuccess):
+			return "sniffing out passing runs"
+		}
+	}
+	return "sniffing out /" + strings.TrimSpace(query)
 }
 
 func (a App) loadMoreRuns() App {
-	filter := baseRunsFilter(a.runs.Context, a.config.PerPage)
-	if strings.TrimSpace(a.runs.Filter) != "" {
-		if serverFilter, ok := serverRunFilter(a.runs.Context, a.config.PerPage, a.runs.Filter); ok {
-			filter = serverFilter
-		}
+	if !a.runs.DataCurrent() {
+		// Stale rows are only a preview of the query: there is nothing
+		// trustworthy to extend until the reload lands.
+		return a
 	}
+	q, _ := runs.ParseQuery(a.runs.Filter)
+	filter := runsFilterFor(a.runs.Context, a.config.PerPage, q)
 	perPage := perPageFor(a.runs.Context, a.config.PerPage)
 	nextPage := a.runs.Context.Page + 1
 	if nextPage <= 1 {
@@ -2812,19 +2919,18 @@ func (a App) loadMoreRuns() App {
 		a.setRouteError(RouteRuns, "next page unavailable: live GitHub runs loader is not configured")
 		return a
 	}
-	resolver := a.runsResolver
-	requestScope := a.runs.Context.Scope
+	resolver, viewer := a.runsResolver, a.viewer
+	gen, requestScope := a.runsGen, a.runs.Context.Scope
 	return a.startLoad(loadKindRuns, "fetching more runs", func(ctx context.Context) func(App) App {
-		resolved, err := resolver(ctx, filter)
+		resolved, err := fetchRuns(ctx, resolver, viewer, filter, q.Actor)
 		return func(app App) App {
+			if app.runsGen != gen || app.runs.Context.Scope != requestScope {
+				// The page belongs to a query or scope the user already
+				// left; appending it would corrupt the active listing.
+				return app
+			}
 			if err != nil {
 				return app.handleRunsError(RouteRuns, "runs-page", "next page failed: "+err.Error(), err)
-			}
-			if app.runs.Context.Scope != requestScope {
-				// The page belongs to a scope the user already left;
-				// appending it would corrupt the active listing. Drop
-				// it — G in the new scope fetches its own pages.
-				return app
 			}
 			app.runs.Context.Page = nextPage
 			app.runs.Context.PerPage = perPage
@@ -2838,35 +2944,37 @@ func (a App) loadMoreRuns() App {
 	})
 }
 
-// startRunsPoll snapshots the current filter and fetches the runs list
+// startRunsPoll snapshots the applied query and fetches the runs list
 // in the background. The result folds in via applyRunsRefresh at drain
 // time — never synchronously on the event loop.
 func (a App) startRunsPoll() App {
 	if a.runsResolver == nil {
 		return a
 	}
-	filter := baseRunsFilter(a.runs.Context, a.config.PerPage)
-	if strings.TrimSpace(a.runs.Filter) != "" {
-		if serverFilter, ok := serverRunFilter(a.runs.Context, a.config.PerPage, a.runs.Filter); ok {
-			filter = serverFilter
-		}
-	}
+	q, _ := runs.ParseQuery(a.runs.Filter)
+	filter := runsFilterFor(a.runs.Context, a.config.PerPage, q)
 	filter.Page = 1
-	resolver := a.runsResolver
+	resolver, viewer, key := a.runsResolver, a.viewer, q.ServerKey()
 	return a.startTickPoll(RouteRuns, a.pollIdentity(RouteRuns), func(ctx context.Context) func(App) App {
-		resolved, err := resolver(ctx, filter)
+		resolved, err := fetchRuns(ctx, resolver, viewer, filter, q.Actor)
 		return func(app App) App {
-			return app.applyRunsRefresh(resolved, err)
+			return app.applyRunsRefresh(resolved, err, key)
 		}
 	})
 }
 
 // applyRunsRefresh folds a completed runs poll into the app. Selection
 // is re-read here, not at fetch time, so a cursor moved while the poll
-// was in flight is preserved.
-func (a App) applyRunsRefresh(resolved []model.Run, err error) App {
+// was in flight is preserved. Rows fetched under another filter are
+// replaced, not merged: a poll is also how a failed query heals.
+func (a App) applyRunsRefresh(resolved []model.Run, err error, key string) App {
+	current := a.runs.DataCurrent()
 	if err != nil {
-		a = a.handleRunsError(RouteRuns, "runs-refresh", "refresh failed: "+err.Error(), err)
+		if !current {
+			a.runs.QueryError = runsQueryError(err)
+		} else {
+			a = a.handleRunsError(RouteRuns, "runs-refresh", "refresh failed: "+err.Error(), err)
+		}
 		a.pollInterval = nextPollIntervalForRuns(nil, a.pollInterval, a.config)
 		a.refreshCount++
 		return a
@@ -2878,17 +2986,16 @@ func (a App) applyRunsRefresh(resolved []model.Run, err error) App {
 	a.clearRouteError(RouteRuns)
 	a.refreshCount++
 	perPage := perPageFor(a.runs.Context, a.config.PerPage)
-	merged := append(slices.Clone(resolved), dedupeNewRuns(resolved, a.runs.Context.Runs)...)
-	a.runs.Context.Runs = merged
-	switch a.runs.Context.Scope {
-	case usecase.LaunchScopeBranch:
-		a.runs.Context.BranchRuns = merged
-	case usecase.LaunchScopeRepo:
-		a.runs.Context.RepoRuns = merged
+	if current {
+		merged := append(slices.Clone(resolved), dedupeNewRuns(resolved, a.runs.Context.Runs)...)
+		a = a.storeRuns(a.runs.Context.Scope, key, merged)
+		a.runs.Context.HasMore = len(resolved) >= perPage || a.runs.Context.HasMore
+	} else {
+		a = a.storeRuns(a.runs.Context.Scope, key, resolved)
+		a.runs.Context.HasMore = len(resolved) >= perPage
 	}
 	a.runs.Context.Page = max(a.runs.Context.Page, 1)
 	a.runs.Context.PerPage = perPage
-	a.runs.Context.HasMore = len(resolved) >= perPage || a.runs.Context.HasMore
 	a.runs.Selected = indexOfRun(a.runs.Context.Runs, selectedID)
 	if a.runsMetadata != nil {
 		if meta, ok := a.runsMetadata(); ok {
@@ -3185,80 +3292,20 @@ func perPageFor(ctx usecase.LaunchContext, fallback int) int {
 	return config.Default().PerPage
 }
 
-func serverRunFilter(ctx usecase.LaunchContext, perPage int, query string) (usecase.RunFilter, bool) {
-	query = strings.ToLower(strings.TrimSpace(query))
-	if query == "" || strings.TrimSpace(ctx.Repo) == "" {
-		return usecase.RunFilter{}, false
-	}
+// runsFilterFor maps a query's server qualifiers onto the list-runs
+// request for the current scope. @me is resolved at fetch time.
+func runsFilterFor(ctx usecase.LaunchContext, perPage int, q runs.Query) usecase.RunFilter {
 	filter := baseRunsFilter(ctx, perPage)
-	key, value, tagged := strings.Cut(query, ":")
-	if tagged {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			return usecase.RunFilter{}, false
-		}
-		switch strings.TrimSpace(key) {
-		case "actor":
-			filter.Actor = value
-			return filter, true
-		case "branch":
-			filter.Branch = value
-			return filter, true
-		case "event":
-			filter.Event = value
-			return filter, true
-		case "sha", "head", "head_sha":
-			filter.HeadSHA = value
-			return filter, true
-		case "status", "conclusion":
-			status, ok := normalizedRunStatus(value)
-			if !ok {
-				return usecase.RunFilter{}, false
-			}
-			filter.Status = status
-			return filter, true
-		default:
-			return usecase.RunFilter{}, false
-		}
+	if q.Actor != runs.MeActor {
+		filter.Actor = q.Actor
 	}
-	if status, ok := normalizedRunStatus(query); ok {
-		filter.Status = status
-		return filter, true
+	filter.Status = q.Status
+	filter.Event = q.Event
+	filter.HeadSHA = q.SHA
+	if q.Branch != "" {
+		filter.Branch = q.Branch
 	}
-	if isKnownEvent(query) {
-		filter.Event = query
-		return filter, true
-	}
-	return usecase.RunFilter{}, false
-}
-
-func normalizedRunStatus(query string) (string, bool) {
-	switch strings.ToLower(strings.TrimSpace(query)) {
-	case "failure", "failed", "failing", "red":
-		return string(model.ConclusionFailure), true
-	case "success", "passed", "passing", "green":
-		return string(model.ConclusionSuccess), true
-	case "cancelled", "canceled":
-		return string(model.ConclusionCancelled), true
-	case "running", "live":
-		return string(model.StatusInProgress), true
-	}
-	if status, err := model.ParseStatus(query); err == nil {
-		return string(status), true
-	}
-	if conclusion, err := model.ParseConclusion(query); err == nil && conclusion != model.ConclusionNone {
-		return string(conclusion), true
-	}
-	return "", false
-}
-
-func isKnownEvent(query string) bool {
-	switch query {
-	case "push", "pull_request", "workflow_dispatch", "schedule", "workflow_run", "repository_dispatch", "merge_group":
-		return true
-	default:
-		return false
-	}
+	return filter
 }
 
 func (a App) loadFailure(run model.Run, job model.Job) App {
@@ -4069,6 +4116,9 @@ func (a App) footerScreen() keys.Screen {
 	case RouteWorkflows:
 		return keys.ScreenWorkflows
 	default:
+		if a.Route() == RouteRuns && a.runs.InputMode {
+			return keys.ScreenRunsFilter
+		}
 		if a.Route() == RouteRuns && a.runs.AllGreen() {
 			return keys.ScreenAllGreen
 		}
@@ -4165,10 +4215,9 @@ func (a App) chromeParts() (string, string, string) {
 		}
 		return "hound", "the pack · workflows", workflowsRight(a.workflows)
 	default:
-		if a.runs.AllGreen() {
-			return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), runsRight(a.runs, a.refreshCount, a.runsMeta)
-		}
-		return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.runs.Context.Actor), runsRight(a.runs, a.refreshCount, a.runsMeta)
+		// The identity is the authenticated login once known — never the
+		// git author name, which is not a GitHub login.
+		return "hound", branchContext(a.runs.Context.Scope, a.runs.Context.Branch, a.viewer.Login()), runsRight(a.runs, a.refreshCount, a.runsMeta)
 	}
 }
 
@@ -4389,6 +4438,8 @@ func paletteItems(workflows []dispatch.Workflow) []palette.Item {
 		{Name: "runs", Description: "workflow runs · this branch", Tag: "default", Route: "runs"},
 		{Name: "runs --all", Description: "runs across all branches", Route: "runs --all"},
 		{Name: "run:failed", Description: "filtered to failures", Route: "run:failed"},
+		{Name: "My runs", Description: "actor:@me in this scope", Route: "runs:mine"},
+		{Name: "All actors", Description: "clear the actor filter", Route: "runs:all-actors"},
 		{Name: "watch", Description: "the hunt · watch the run's event group", Route: string(RouteWatch)},
 		{Name: "artifacts", Description: "selected run's artifacts", Route: "artifacts"},
 		{Name: "approvals", Description: "review the deploy gate", Route: "approvals"},
@@ -4459,6 +4510,10 @@ func (a App) screenBody(width, height int) string {
 			return body
 		}
 		runsModel := a.runs
+		runsModel.Theme = a.theme
+		// Read the identity at paint time so the @me summary and the
+		// header can never disagree for a frame.
+		runsModel.Viewer = a.viewer.Login()
 		if load := a.load; load != nil && (load.kind == loadKindRuns || load.kind == loadKindDispatch) {
 			runsModel.Loading = true
 			runsModel.LoadingLine = loadingLine(a.theme, load, bodyWidth, time.Now())
@@ -4740,6 +4795,10 @@ func sampleDetailModel() detail.Model {
 		HeadBranch: "fix/parser",
 		HeadSHA:    "a1b2c3d",
 		RunNumber:  571,
+		RunAttempt: 2,
+		Actor:      "alice",
+		// A re-run by someone else: detail attribution names both.
+		TriggeringActor: "indrasvat",
 	}
 	jobs := []model.Job{
 		{
@@ -4865,11 +4924,11 @@ func sampleRunsModel() runs.Model {
 			{ID: 571, Name: "CI", DisplayTitle: "parser fix validation", Event: "pull_request", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure, RunNumber: 571, Actor: "indrasvat", HeadBranch: "fix/parser", HeadSHA: "a1b2c3d", UpdatedAt: now.Add(-12 * time.Second), RunStartedAt: now.Add(-2 * time.Minute)},
 			{ID: 570, Name: "CI", DisplayTitle: "push smoke", Event: "push", Status: model.StatusInProgress, Conclusion: model.ConclusionNone, RunNumber: 570, Actor: "indrasvat", HeadBranch: "fix/parser", HeadSHA: "b4c5d6e", UpdatedAt: now, RunStartedAt: now.Add(-48 * time.Second)},
 			{ID: 569, Name: "Release", DisplayTitle: "snapshot release", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 569, Actor: "indrasvat", HeadBranch: "fix/parser", HeadSHA: "c7d8e9f", UpdatedAt: now.Add(-3 * time.Minute), RunStartedAt: now.Add(-4 * time.Minute)},
-			{ID: 568, Name: "CodeQL", DisplayTitle: "weekly scan", Event: "schedule", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 568, Actor: "github", HeadBranch: "fix/parser", HeadSHA: "d0e1f2a", UpdatedAt: now.Add(-2 * time.Hour), RunStartedAt: now.Add(-121 * time.Minute)},
-			{ID: 567, Name: "CI", DisplayTitle: "manual retry", Event: "workflow_dispatch", Status: model.StatusCompleted, Conclusion: model.ConclusionCancelled, RunNumber: 567, Actor: "indrasvat", HeadBranch: "fix/parser", HeadSHA: "1029384", UpdatedAt: now.Add(-3 * time.Hour), RunStartedAt: now.Add(-181 * time.Minute)},
-			{ID: 566, Name: "Deploy", DisplayTitle: "staging deploy", Event: "push", Status: model.StatusQueued, Conclusion: model.ConclusionNone, RunNumber: 566, Actor: "indrasvat", HeadBranch: "fix/parser", HeadSHA: "5647382", UpdatedAt: now.Add(-3 * time.Hour), RunStartedAt: now.Add(-3 * time.Hour)},
-			{ID: 565, Name: "Docs", DisplayTitle: "docs refresh", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 565, Actor: "indrasvat", HeadBranch: "fix/parser", HeadSHA: "e3f4a5b", UpdatedAt: now.Add(-3 * time.Hour), RunStartedAt: now.Add(-181 * time.Minute)},
-			{ID: 564, Name: "Security", DisplayTitle: "dependency audit", Event: "workflow_dispatch", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 564, Actor: "dependabot", HeadBranch: "fix/parser", HeadSHA: "f6a7b8c", UpdatedAt: now.Add(-4 * time.Hour), RunStartedAt: now.Add(-241 * time.Minute)},
+			{ID: 568, Name: "CodeQL", DisplayTitle: "weekly scan", Event: "schedule", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 568, Actor: "github-actions[bot]", HeadBranch: "fix/parser", HeadSHA: "d0e1f2a", UpdatedAt: now.Add(-2 * time.Hour), RunStartedAt: now.Add(-121 * time.Minute)},
+			{ID: 567, Name: "CI", DisplayTitle: "manual retry", Event: "workflow_dispatch", Status: model.StatusCompleted, Conclusion: model.ConclusionCancelled, RunNumber: 567, Actor: "a-very-long-contributor-login-name", TriggeringActor: "indrasvat", RunAttempt: 2, HeadBranch: "fix/parser", HeadSHA: "1029384", UpdatedAt: now.Add(-3 * time.Hour), RunStartedAt: now.Add(-181 * time.Minute)},
+			{ID: 566, Name: "Deploy", DisplayTitle: "staging deploy", Event: "push", Status: model.StatusQueued, Conclusion: model.ConclusionNone, RunNumber: 566, Actor: "alice", HeadBranch: "fix/parser", HeadSHA: "5647382", UpdatedAt: now.Add(-3 * time.Hour), RunStartedAt: now.Add(-3 * time.Hour)},
+			{ID: 565, Name: "Docs", DisplayTitle: "docs refresh", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 565, HeadBranch: "fix/parser", HeadSHA: "e3f4a5b", UpdatedAt: now.Add(-3 * time.Hour), RunStartedAt: now.Add(-181 * time.Minute)},
+			{ID: 564, Name: "Security", DisplayTitle: "dependency audit", Event: "workflow_dispatch", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 564, Actor: "dependabot[bot]", HeadBranch: "fix/parser", HeadSHA: "f6a7b8c", UpdatedAt: now.Add(-4 * time.Hour), RunStartedAt: now.Add(-241 * time.Minute)},
 		},
 	})
 }
@@ -4919,12 +4978,12 @@ func sampleAllGreenModel() runs.Model {
 		Actor:  "indrasvat",
 		State:  usecase.LaunchStateAllGreen,
 		Runs: []model.Run{
-			{ID: 569, Name: "CI", DisplayTitle: "linux matrix", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 569, HeadBranch: "main", UpdatedAt: now.Add(-3 * time.Minute), RunStartedAt: now.Add(-4*time.Minute - 2*time.Second)},
-			{ID: 568, Name: "Release", DisplayTitle: "snapshot artifacts", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 568, HeadBranch: "main", UpdatedAt: now.Add(-1 * time.Hour), RunStartedAt: now.Add(-61*time.Minute - 2*time.Second)},
-			{ID: 567, Name: "CodeQL", DisplayTitle: "weekly scan", Event: "schedule", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 567, HeadBranch: "main", UpdatedAt: now.Add(-2 * time.Hour), RunStartedAt: now.Add(-121*time.Minute - 2*time.Second)},
-			{ID: 566, Name: "Docs", DisplayTitle: "reference refresh", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 566, HeadBranch: "main", UpdatedAt: now.Add(-3 * time.Hour), RunStartedAt: now.Add(-181*time.Minute - 2*time.Second)},
-			{ID: 565, Name: "Security", DisplayTitle: "dependency audit", Event: "workflow_dispatch", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 565, HeadBranch: "main", UpdatedAt: now.Add(-4 * time.Hour), RunStartedAt: now.Add(-241*time.Minute - 2*time.Second)},
-			{ID: 564, Name: "Deploy", DisplayTitle: "staging deploy", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 564, HeadBranch: "main", UpdatedAt: now.Add(-5 * time.Hour), RunStartedAt: now.Add(-301*time.Minute - 2*time.Second)},
+			{ID: 569, Name: "CI", DisplayTitle: "linux matrix", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 569, Actor: "indrasvat", HeadBranch: "main", UpdatedAt: now.Add(-3 * time.Minute), RunStartedAt: now.Add(-4*time.Minute - 2*time.Second)},
+			{ID: 568, Name: "Release", DisplayTitle: "snapshot artifacts", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 568, Actor: "alice", HeadBranch: "main", UpdatedAt: now.Add(-1 * time.Hour), RunStartedAt: now.Add(-61*time.Minute - 2*time.Second)},
+			{ID: 567, Name: "CodeQL", DisplayTitle: "weekly scan", Event: "schedule", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 567, Actor: "github-actions[bot]", HeadBranch: "main", UpdatedAt: now.Add(-2 * time.Hour), RunStartedAt: now.Add(-121*time.Minute - 2*time.Second)},
+			{ID: 566, Name: "Docs", DisplayTitle: "reference refresh", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 566, Actor: "indrasvat", HeadBranch: "main", UpdatedAt: now.Add(-3 * time.Hour), RunStartedAt: now.Add(-181*time.Minute - 2*time.Second)},
+			{ID: 565, Name: "Security", DisplayTitle: "dependency audit", Event: "workflow_dispatch", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 565, Actor: "dependabot[bot]", HeadBranch: "main", UpdatedAt: now.Add(-4 * time.Hour), RunStartedAt: now.Add(-241*time.Minute - 2*time.Second)},
+			{ID: 564, Name: "Deploy", DisplayTitle: "staging deploy", Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunNumber: 564, Actor: "alice", HeadBranch: "main", UpdatedAt: now.Add(-5 * time.Hour), RunStartedAt: now.Add(-301*time.Minute - 2*time.Second)},
 		},
 	})
 }
