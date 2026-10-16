@@ -359,9 +359,11 @@ func buildSearch(doc logs.Document, query string) SearchState {
 	return state
 }
 
+// visibleRows fills the viewport: a top too close to the end is drawn from
+// earlier rows, as G would, so a jump never leaves the screen half empty.
 func (m Model) visibleRows() []viewRow {
 	rows := m.rows()
-	top := m.top()
+	top := min(m.top(), m.maxTopRow())
 	return rows[top:min(len(rows), top+max(m.Height, 1))]
 }
 

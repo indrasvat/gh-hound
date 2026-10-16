@@ -946,6 +946,18 @@ func RenderFixtureSize(screen string, width, height int) string {
 			m.Height = rows
 		}
 		return frameViewSize(app.theme, "hound", "full log", "match 1/1", logscreen.View(m, bodyWidth), keys.FooterForScreenWidth(keys.ScreenLog, max(width, minFrameWidth)-2), width, height, true)
+	case "log-compact", "log-compact-search":
+		m := sampleNoisyLogModel()
+		if screen == "log-compact-search" {
+			for key := range strings.SplitSeq("/18:00:01", "") {
+				m = m.Update(logscreen.KeyMsg{Key: key})
+			}
+			m = m.Update(logscreen.KeyMsg{Key: "enter"})
+		}
+		if rows := bodyHeight(height) - 1; rows > 0 {
+			m.Height = rows
+		}
+		return frameViewSize(app.theme, "hound", "full log", logRight(m), logscreen.View(m, bodyWidth), keys.FooterForScreenWidth(keys.ScreenLog, max(width, minFrameWidth)-2), width, height, true)
 	case "dispatch":
 		return frameViewSize(app.theme, "hound", "workflow_dispatch", "Release", dispatch.View(sampleDispatchModel(), bodyWidth), keys.FooterForScreen(keys.ScreenDispatch), width, height, true)
 	case "diff":
@@ -4532,7 +4544,7 @@ func logRight(m logscreen.Model) string {
 	if m.Folded() {
 		return fmt.Sprintf("%s lines → %s rows", groupThousands(len(m.Document.Lines)), groupThousands(m.CompactRows()))
 	}
-	return fmt.Sprintf("%d lines", len(m.Document.Lines))
+	return groupThousands(len(m.Document.Lines)) + " lines"
 }
 
 func groupThousands(n int) string {

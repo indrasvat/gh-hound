@@ -84,7 +84,7 @@ func scrollIndicator(m Model) string {
 		return ""
 	}
 	cells := 8
-	pos := m.top() * (cells - 1) / max(total-m.Height, 1)
+	pos := min(m.top(), m.maxTopRow()) * (cells - 1) / max(total-m.Height, 1)
 	if pos >= cells {
 		pos = cells - 1
 	}
@@ -114,7 +114,7 @@ func foldGlyph(collapsed bool) string {
 func renderFold(number, gutterW int, title string, count int, collapsed bool, width int) string {
 	gutter := colorize(sgrLineNo, gutterText(number, gutterW))
 	label := colorize(sgrFold, fmt.Sprintf("%s %s", foldGlyph(collapsed), title))
-	countText := colorize(sgrDim, fmt.Sprintf("%d lines", count))
+	countText := colorize(sgrDim, groupDigits(count)+" lines")
 	return backgroundSafe(gutter+" "+label+" "+countText, width, sgrFG, sgrFoldBG)
 }
 

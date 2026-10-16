@@ -211,3 +211,19 @@ func BenchmarkViewCompact300kViewport(b *testing.B) {
 		_ = View(m, 120)
 	}
 }
+
+func TestZClosesTheMatchFoldAndNReopensIt(t *testing.T) {
+	doc := logs.Parse("go test\n##[group]Run tests\nok a\n=== RUN TestTrail\nfail trail one\nok b\nfail trail two\nok c\n##[endgroup]")
+	m := NewModel(doc, 1, 10)
+	for k := range strings.SplitSeq("/trail", "") {
+		m = m.Update(KeyMsg{Key: k})
+	}
+	m = m.Update(KeyMsg{Key: "enter"}).Update(KeyMsg{Key: "z"})
+	if out := plain(View(m, 80)); !strings.Contains(out, "002 ▸ Run tests") || strings.Contains(out, "search-hit") {
+		t.Fatalf("z should close the group holding the match:\n%s", out)
+	}
+	m = m.Update(KeyMsg{Key: "n"})
+	if out := plain(View(m, 80)); !strings.Contains(out, "› search-hit 007") {
+		t.Fatalf("n should reopen the fold at the next match:\n%s", out)
+	}
+}
