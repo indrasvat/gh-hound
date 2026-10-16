@@ -45,5 +45,18 @@ metadata:
 - render_hygiene.py has no BIN knob (hard-codes ./bin/gh-hound): run it
   from the pinned clean clone after `cp <binary> bin/gh-hound`.
 
+- render_hygiene.sh runs `make build` and overwrites bin/gh-hound (version
+  string changes mid-audit). Version stamp uses `git describe --dirty`, so a
+  missing "-dirty" proves the binary came from a clean tree. Implementers may
+  edit the worktree concurrently: re-run `git status` before the verdict and
+  compare edit mtimes against `ls -T bin/gh-hound`.
+- `.shux/out/qa<NNN>/` may already hold an earlier round's PNGs: check
+  freshness with a `touch -t` reference file + `-nt` before citing.
+- Fold-engine affordances absent from fakes (e.g. ⚠ error-like): scan the
+  public corpus `.local/spikes/log-dedup/corpus/real/<owner>__<repo>__<jobid>.log`
+  with a throwaway main in a `git archive HEAD` export (scratchpad), resolve
+  the job via `gh api repos/O/R/actions/jobs/ID` (run_id, head_branch), then
+  `gh-hound -R O/R --branch B`, `/<run#>` + `G` until it loads, ⏎, l, `]` walk.
+
 **How to apply:** reuse these in every gh-hound audit capture loop.
 Related: [[gh-hound-qa-ledger]].
