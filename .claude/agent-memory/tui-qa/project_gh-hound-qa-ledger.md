@@ -1,6 +1,6 @@
 ---
 name: gh-hound-qa-ledger
-description: Running QA failure/verification ledger for gh-hound TUI audits (rounds 4-20; round 20 PASS — v0.5.3 async route polling #28 + flakes-clean fixture ⑭b + help empty-section/wrap fixes verified live; round-17 P3 and round-19 P3 both now FIXED)
+description: Running QA failure/verification ledger for gh-hound TUI audits (rounds 4-21; round 21 = issue #55 actor filtering live audit FAIL on P2 scope-HasMore leak; right frame border missing on ALL live frames since #38)
 metadata:
   type: project
 ---
@@ -521,6 +521,67 @@ authoritative pixel lens for fixture-only screens, not ad-hoc cat
 holds. Transient-frame snapshots (taken right after a wait-for during
 an async load) can come back blank — re-snapshot after a settle.
 Evidence: .shux/out/r20-*.png (13) + committed flakes-clean PNGs.
+
+Round 21 (issue #55 actor/my-runs, branch indrasvat/show-workflow-actors-and-make-my-runs-filtering @ e9db820, 2026-10-16, LIVE cli/cli + indrasvat/gh-hound + microsoft/vscode): FAIL (P2s, no P0/P1).
+VERIFIED: actor narrowing (GitHub actor= quirk returns other actors; gh-hound
+drops them) across G x5 (131 rows all @BagToad), f cycle, 72s of polls,
+bot logins, vscode 111 rows; @me empty state names constraint; #423
+attribution "Started by @cschreib-ibex · Attempt 2 · Re-run by @sergiou87"
+wraps <~125 cols, right-aligned at 200; Esc-back keeps filter+selection;
+invalid inputs inline fail-coloured, applied query untouched; palette My
+runs/All actors (All actors keeps status:); input swallows q/j/s/G/T/:/?;
+resize mid-edit keeps draft+selection; CLI --actor/HOUND_ACTOR/--run guard/
+@me bogus token all exit codes correct; JSON/MD/XML carry actor fields;
+render_hygiene PASS. DEFECTS: (P2) runs Context.HasMore is ONE flag shared
+across branch/repo scope caches — after s round-trip with a poll on the
+other scope, summary says "46 runs" (no +), no "G load more", G dead until
+a poll heals; inverse: empty branch shows "0+ runs · G search older runs".
+(P2 pre-existing since #38) right frame border never drawn on live TTY:
+render.go writes line+ESC[K; a full-width line leaves cursor in
+pending-wrap at last col and EL erases that col. README asset
+02-openclaw-live-runs.png shows it too. __screen VQA PNGs do NOT (no
+renderer) — so VQA can't catch it. (P3) branch diagnostic truncated at
+80/120/200; header "N runs loaded" stale during load/error; age "2183h"
+hours-only format; 's' silently no-op on foreign -R repo; EMU logins with
+'_' rejected by login regex; bogus GH_TOKEN message says "not signed in
+(set GH_TOKEN…)" while GH_TOKEN is set.
+GOTCHA: shux pane capture at 200x60 sometimes drops the top ~10 rows of
+text — trust the PNG; grep on the .txt can miss header lines.
+
+Round 21b (issue #55, second cold audit via isolated XDG_RUNTIME_DIR=/tmp/hqa1, 2026-10-16): FAIL at 58f0cf4
+(and e9db820). P2 STILL OPEN at 58f0cf4: HasMore shared across scope
+caches — actors fake: s→all, poll, s→branch shows "28/28+ · G load more"
+indefinitely (branch has no more pages; G clears it); first switch to
+all hides "G load more" ~1-3s. Repro needs a multi-page scope: main's
+fixtures cannot show it. BRANCH MOVED MID-AUDIT: 2bc9ccc + 58f0cf4 landed
+after my build — always `git log -1` again before the verdict and pin
+a clean clone (`git clone <worktree> /tmp/x && git checkout <sha>`;
+rm -rf is hook-blocked, use fresh dir names). e9db820 P1 (FIXED in
+58f0cf4, verified live): `__vqa-tui --scenario actors_anon --actor @me`
+opened a dead-end "Runs unavailable" screen; the poll silently loaded
+the UNFILTERED list (header "28 runs loaded"), `/`/Esc dead, and
+o/Enter/r acted on hidden run #700 (rerun confirm!). Also fixed:
+filtered all-green list used the all_green footer (pre-existing on
+main). Verified working: Actor column 80/120/200/48 (Duration then
+Event yield), input shading/cursor/placeholder/hint row, every
+printable key types, Esc restore vs clear, f cycle keeps actor, s and
+palette My runs/All actors keep other tokens, G keeps filter, detail
+attribution (wraps at 80), latency races (`--latency 1500ms`) never
+show other actors' rows, Bone on OSC-11 light bg, 256-colour, live
+cli/cli smoke (@me empty, actor:BagToad 9+ → G 72+, f, detail/back).
+Grammar change at 58f0cf4: unknown `key:` is TEXT (foo:bar no longer
+errors) — doc'd in task doc. OPEN P3s: palette "… N more · ↑/↓
+scroll" stays at the bottom counting items scrolled off the TOP
+(dispatch last, Down does nothing); `#697` text search finds 0 though
+task doc cites `#571` as text example (pre-existing on main, `697`
+works); long applied query truncates the "· N runs · Esc clear" count
+at 80; 256-colour selected-row/input fill nearly invisible (green bar
+remains); 200-col Workflow column hogs all slack (mock grid gives
+Actor/Event 1fr each). PRE-EXISTING (do not re-file): frame breaks
+below 48 cols (main too); welcome screen first in every __vqa-tui
+launch; palette/help blank the base view; ":runs" palette entry is a
+no-op from all-branches; header "⎇ branch main" while branch:<x> token
+applied; Bone detail screen low-contrast (tracked #56).
 
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.
