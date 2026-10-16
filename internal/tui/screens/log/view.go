@@ -60,7 +60,11 @@ func header(m Model) string {
 		return fmt.Sprintf("log · /%s▌", m.input)
 	}
 	if m.RangeLabel != "" {
-		return fmt.Sprintf("log · [%s] · ⎋ clear", m.RangeLabel)
+		head := fmt.Sprintf("log · [%s]", m.RangeLabel)
+		if m.Folded() {
+			head += " · compact"
+		}
+		return head + " · ⎋ clear"
 	}
 	if m.LastJump != "" && m.Search.Query == "" {
 		head := fmt.Sprintf("log · t→%s", m.LastJump)
@@ -208,6 +212,7 @@ func renderLine(line logs.Line, gutterW int, searchHit, wrap bool, width int) []
 		head := prefix + gutter + " "
 		if i > 0 {
 			head = strings.Repeat(" ", lead-2) + colorize(sgrDim, "↪") + " " + base
+			part = trimLeadingSpace(part)
 		}
 		value := head + part
 		if searchHit {
@@ -217,6 +222,23 @@ func renderLine(line logs.Line, gutterW int, searchHit, wrap bool, width int) []
 		}
 	}
 	return out
+}
+
+// trimLeadingSpace drops one space a wrap left at the start of a
+// continuation, skipping any SGR sequences before it.
+func trimLeadingSpace(s string) string {
+	i := 0
+	for i+1 < len(s) && s[i] == '\x1b' && s[i+1] == '[' {
+		j := strings.IndexByte(s[i:], 'm')
+		if j < 0 {
+			return s
+		}
+		i += j + 1
+	}
+	if i < len(s) && s[i] == ' ' {
+		return s[:i] + s[i+1:]
+	}
+	return s
 }
 
 func renderLogText(line logs.Line) string {

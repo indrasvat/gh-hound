@@ -216,6 +216,69 @@ func TestOpenRepeatHeaderLeavesTheNumberToItsLine(t *testing.T) {
 	t.Fatal("no open repeat header")
 }
 
+func TestTheEndStaysOnScreenAcrossResizes(t *testing.T) {
+	m := compactModel(t, pollLog(), 30).Update(KeyMsg{Key: "Z"}).Update(KeyMsg{Key: "G"})
+	m.Width = 120
+	for _, h := range []int{8, 40, 3, 17} {
+		m.Height = h
+		if out := plain(View(m, 120)); !strings.Contains(out, "timed out waiting for cluster") {
+			t.Fatalf("height %d lost the last line:\n%s", h, out)
+		}
+	}
+	m = m.Update(KeyMsg{Key: "k"})
+	m.Height = 4
+	if out := plain(View(m, 120)); strings.Contains(out, "timed out waiting for cluster") {
+		t.Fatalf("after k the view is no longer pinned to the end:\n%s", out)
+	}
+}
+
+func groupedPolls() logs.Document {
+	var b strings.Builder
+	for g := range 2 {
+		fmt.Fprintf(&b, "##[group]wait %d\n", g)
+		for i := range 40 {
+			fmt.Fprintf(&b, "waiting for db\nstate 0x%08x\n", g*1000+i)
+		}
+		b.WriteString("##[endgroup]\n")
+	}
+	b.WriteString("done\n")
+	return logs.Parse(b.String())
+}
+
+func TestBracketsReachRepeatsInsideClosedGroups(t *testing.T) {
+	m := compactModel(t, groupedPolls(), 4).Update(KeyMsg{Key: "z"}).Update(KeyMsg{Key: "g"})
+	for _, want := range []string{"004 ⋯ ×", "085 ⋯ ×"} {
+		m = m.Update(KeyMsg{Key: "]"})
+		if first := strings.Split(plain(View(m, 100)), "\n")[1]; !strings.HasPrefix(first, want) {
+			t.Fatalf("] should land on %q, got %q", want, first)
+		}
+	}
+	m = m.Update(KeyMsg{Key: "["})
+	if first := strings.Split(plain(View(m, 100)), "\n")[1]; !strings.HasPrefix(first, "004 ⋯ ×") {
+		t.Fatalf("[ should land back on 004, got %q", first)
+	}
+}
+
+func TestWrapDoesNotIndentContinuationsTwice(t *testing.T) {
+	m := NewModel(logs.Parse("[worker-b] lease held by "+strings.Repeat("w", 30)+" w-a4d71b"), 1, 5)
+	m = m.Update(KeyMsg{Key: "w"})
+	for l := range strings.SplitSeq(plain(View(m, 60)), "\n") {
+		if strings.Contains(l, "↪  ") {
+			t.Fatalf("continuation starts with a double space: %q", l)
+		}
+	}
+}
+
+func TestRangeHeaderSaysCompact(t *testing.T) {
+	m := compactModel(t, pollLog(), 10).SetRange(4, 300, "10:00-10:30")
+	if !m.Folded() {
+		t.Skip("range has no folds")
+	}
+	if out := plain(View(m, 100)); !strings.Contains(out, "log · [10:00-10:30] · compact · ⎋ clear") {
+		t.Fatalf("range header: %s", strings.Split(out, "\n")[0])
+	}
+}
+
 func TestWrapContinuesLongLines(t *testing.T) {
 	doc := logs.Parse("short\n" + strings.Repeat("abcdefghij ", 20) + "\nend")
 	m := NewModel(doc, 1, 10).Update(KeyMsg{Key: "w"})

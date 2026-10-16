@@ -2225,7 +2225,7 @@ func (a App) updateLog(msg KeyMsg) (App, bool) {
 		a.pushToast("log-nothing-to-fold", usecase.Resilience{
 			Severity: usecase.SeverityInfo,
 			Title:    "nothing to fold",
-			Message:  "no repeating lines in this log; it is already the full view",
+			Message:  "no repeating lines; this is the full log",
 		})
 		return a, true
 	}

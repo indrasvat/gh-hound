@@ -307,6 +307,9 @@ func (m Model) wrapping() bool { return m.Wrap && m.Width > 0 }
 // position is where drawing starts: the top row and its skipped screen
 // lines, clamped so the viewport stays full.
 func (m Model) position() (row, skip int) {
+	if m.atEnd {
+		return m.bottom()
+	}
 	row = m.top()
 	if rows := m.rows(); m.wrapping() && m.skipRow == row && row < len(rows) {
 		skip = min(m.skip, m.screenLines(rows[row])-1)
@@ -323,11 +326,14 @@ func (m *Model) setPosition(row, skip int) {
 		return
 	}
 	row = min(max(0, row), len(rows)-1)
-	if br, bs := m.bottom(); row > br || row == br && skip > bs {
+	br, bs := m.bottom()
+	if row > br || row == br && skip > bs {
 		row, skip = br, bs
 	}
 	m.topRow, m.Offset = row, rows[row].line
 	m.skip, m.skipRow = skip, row
+	// at the end of a log taller than the screen: stay there across resizes
+	m.atEnd = row == br && skip == bs && (br > 0 || bs > 0)
 }
 
 // down scrolls one screen line through a wrapped row taller than the
@@ -381,15 +387,9 @@ func (m *Model) scrollTo(row int) { m.setPosition(row, 0) }
 
 // reveal opens the repeat fold or step group hiding line.
 func (m *Model) reveal(line int) {
-	m.skip = 0
+	m.skip, m.atEnd = 0, false
 	// open groups first: a closed group hides the repeat rows inside it
-	for _, f := range m.Document.Folds {
-		if m.collapsed[f.StartLine] && f.StartLine < line && line <= f.EndLine {
-			m.collapsed = maps.Clone(m.collapsed)
-			m.collapsed[f.StartLine] = false
-			m.bump()
-		}
-	}
+	m.openGroupsAround(line)
 	if m.activePlan() == nil {
 		return
 	}
@@ -400,6 +400,35 @@ func (m *Model) reveal(line int) {
 			m.bump()
 		}
 	}
+}
+
+func (m *Model) openGroupsAround(line int) {
+	for _, f := range m.Document.Folds {
+		if m.collapsed[f.StartLine] && f.StartLine < line && line <= f.EndLine {
+			m.collapsed = maps.Clone(m.collapsed)
+			m.collapsed[f.StartLine] = false
+			m.bump()
+		}
+	}
+}
+
+// repeatStarts is the first hidden line of each shown repeat fold, in order.
+func (m Model) repeatStarts() []int {
+	plan := m.activePlan()
+	if plan == nil {
+		return nil
+	}
+	base := 1
+	if m.RangeLabel != "" {
+		base = max(1, m.RangeStart)
+	}
+	var starts []int
+	for _, seg := range plan.Segments {
+		if shownFold(seg) {
+			starts = append(starts, seg.Start+base)
+		}
+	}
+	return starts
 }
 
 func (m *Model) setRepeatsOpen(open bool) {
@@ -415,13 +444,35 @@ func (m *Model) setRepeatsOpen(open bool) {
 }
 
 // jumpRepeat scrolls to the next (dir 1) or previous (dir -1) repeat fold.
+// It walks the plan, not the rows, so repeats inside closed groups count;
+// their groups open and the repeat stays closed.
 func (m *Model) jumpRepeat(dir int) {
 	rows := m.rows()
-	for i := m.top() + dir; i >= 0 && i < len(rows); i += dir {
-		if rows[i].kind == rowRepeat {
-			m.skip = 0
-			m.topRow = i
-			m.Offset = rows[i].line
+	if len(rows) == 0 {
+		return
+	}
+	top, _ := m.position()
+	cur, target := rows[top].line, 0
+	starts := m.repeatStarts()
+	for i := range starts {
+		a := starts[i]
+		if dir < 0 {
+			a = starts[len(starts)-1-i]
+		}
+		if a > cur && dir > 0 || a < cur && dir < 0 {
+			target = a
+			break
+		}
+	}
+	if target == 0 {
+		return
+	}
+	m.openGroupsAround(target)
+	rows = m.rows()
+	for i, r := range rows {
+		if r.kind == rowRepeat && r.line == target {
+			m.skip, m.atEnd = 0, false
+			m.topRow, m.Offset = i, r.line
 			return
 		}
 	}
@@ -433,7 +484,7 @@ func (m *Model) toggleCompact() {
 	}
 	m.Compact = !m.Compact
 	m.bump()
-	m.topRow = -1
+	m.topRow, m.atEnd = -1, false
 }
 
 // repeatTitle summarizes the fold behind a repeat row.

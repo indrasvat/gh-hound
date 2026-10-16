@@ -46,6 +46,7 @@ type Model struct {
 	topRow      int
 	skip        int // screen lines of the wrapped top row scrolled past
 	skipRow     int
+	atEnd       bool // pinned to the last line until the view moves away
 }
 
 func NewModel(doc logs.Document, offset, height int) Model {
@@ -88,10 +89,13 @@ func (m Model) Update(msg KeyMsg) Model {
 		m.scrollTo(0)
 	case "G":
 		m.setPosition(m.bottom())
+		m.atEnd = true
 	case "ctrl+d":
-		m.scrollTo(m.top() + m.Height/2)
+		top, _ := m.position()
+		m.scrollTo(top + m.Height/2)
 	case "ctrl+u":
-		m.scrollTo(m.top() - m.Height/2)
+		top, _ := m.position()
+		m.scrollTo(top - m.Height/2)
 	case "/":
 		m.InputMode = true
 		m.input = ""
@@ -159,7 +163,7 @@ func (m Model) JumpTo(query string) Model {
 // JumpToLine scrolls to an exact line (picker entries).
 func (m Model) JumpToLine(line int) Model {
 	if line >= 1 && line <= len(m.Document.Lines) {
-		m.Offset = line
+		m.Offset, m.atEnd = line, false
 		m.reveal(line)
 	}
 	return m
@@ -208,7 +212,7 @@ func (m Model) SetRange(start, end int, label string) Model {
 	m.RangeStart = start
 	m.RangeEnd = end
 	m.RangeLabel = label
-	m.Offset = start
+	m.Offset, m.atEnd = start, false
 	m.planRange()
 	m.bump()
 	return m
@@ -218,7 +222,7 @@ func (m Model) ClearRange() Model {
 	m.RangeStart = 0
 	m.RangeEnd = 0
 	m.RangeLabel = ""
-	m.rangePlan = nil
+	m.rangePlan, m.atEnd = nil, false
 	m.bump()
 	return m
 }
@@ -377,7 +381,7 @@ func (m Model) visibleRows() []viewRow {
 // Changed reports whether m would draw differently from before.
 func (m Model) Changed(before Model) bool {
 	return m.rev != before.rev || m.Offset != before.Offset || m.topRow != before.topRow ||
-		m.skip != before.skip || m.Wrap != before.Wrap || m.InputMode != before.InputMode ||
+		m.skip != before.skip || m.atEnd != before.atEnd || m.Wrap != before.Wrap || m.InputMode != before.InputMode ||
 		m.input != before.input || m.Search.Query != before.Search.Query ||
 		m.Search.Current != before.Search.Current || m.Search.Total != before.Search.Total
 }

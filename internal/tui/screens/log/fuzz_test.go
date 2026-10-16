@@ -28,11 +28,17 @@ func FuzzViewport(f *testing.F) {
 			m = m.SetPlan(plan, in.next()%4 != 0)
 		}
 		var events []string
+		pinned := false // G, then only resizes: the end must stay on screen
 		for step := 0; step < 64 && !in.done(); step++ {
 			var event string
 			m, event = in.event(m)
 			events = append(events, event)
+			resized := strings.HasPrefix(event, "resize")
+			pinned = event == "G" || pinned && resized
 			checkFrame(t, m, event, events)
+			if pinned && resized && !endsAtBottom(m) {
+				t.Fatalf("after %v: a resize at the end lost the last line", events)
+			}
 		}
 		checkCoverage(t, m, events)
 	})
@@ -169,6 +175,16 @@ func checkFrame(t *testing.T, m Model, event string, events []string) {
 		}
 	}
 	checkProjection(t, m, fail)
+}
+
+func endsAtBottom(m Model) bool {
+	all := flat(m)
+	row, skip := m.position()
+	k := skip
+	for _, r := range m.rows()[:row] {
+		k += m.screenLines(r)
+	}
+	return k+min(max(m.Height, 1), len(all)) >= len(all)
 }
 
 func checkProjection(t *testing.T, m Model, fail func(string, ...any)) {
