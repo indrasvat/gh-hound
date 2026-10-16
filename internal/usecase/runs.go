@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/indrasvat/gh-hound/internal/model"
@@ -30,19 +31,31 @@ type RunDiagnostic struct {
 	NextCommands []string
 }
 
-func EmptyBranchRunDiagnostic(repo, branch string) (RunDiagnostic, bool) {
+// EmptyBranchRunDiagnostic explains an empty branch-scoped listing.
+// With an actor filter the next commands keep it, so following them
+// never silently broadens to everyone's runs.
+func EmptyBranchRunDiagnostic(repo, branch, actor string) (RunDiagnostic, bool) {
 	repo = strings.TrimSpace(repo)
 	branch = strings.TrimSpace(branch)
+	actor = strings.TrimSpace(actor)
 	if repo == "" || branch == "" {
 		return RunDiagnostic{}, false
+	}
+	subject, actorFlag := "No runs", ""
+	if actor != "" {
+		subject = "No runs by @" + strings.TrimPrefix(actor, "@")
+		if strings.EqualFold(actor, MeActor) {
+			subject = "None of your runs"
+		}
+		actorFlag = " --actor " + actor
 	}
 	return RunDiagnostic{
 		Kind:    RunDiagnosticTargetMismatch,
 		Scope:   "branch",
-		Message: fmt.Sprintf("No runs matched branch %q. Release, tag, or branchless workflows may live outside branch scope; try repo-wide discovery or target a run id.", branch),
+		Message: fmt.Sprintf("%s matched branch %q. Release, tag, or branchless workflows may live outside branch scope; try repo-wide discovery or target a run id.", subject, branch),
 		NextCommands: []string{
-			fmt.Sprintf("gh hound runs -R %s --all --no-tui --json", repo),
-			fmt.Sprintf("gh hound runs -R %s --branch <ref> --no-tui --json", repo),
+			fmt.Sprintf("gh hound runs -R %s --all%s --no-tui --json", repo, actorFlag),
+			fmt.Sprintf("gh hound runs -R %s --branch <ref>%s --no-tui --json", repo, actorFlag),
 			fmt.Sprintf("gh hound runs -R %s --run <id> --no-tui --json", repo),
 			fmt.Sprintf("gh hound watch -R %s --group --run <run-id> --no-tui --timeout 10m", repo),
 		},
@@ -86,6 +99,22 @@ func (e ViewerError) Reason() string {
 
 func (e ViewerError) Unwrap() error {
 	return e.Err
+}
+
+var githubLogin = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,38}(\[bot\])?$`)
+
+// NormalizeActor validates an actor filter value: @me (any case) or a
+// GitHub login with an optional leading @. Bots keep their [bot] suffix.
+func NormalizeActor(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if strings.EqualFold(value, MeActor) {
+		return MeActor, nil
+	}
+	login := strings.TrimPrefix(value, "@")
+	if !githubLogin.MatchString(login) {
+		return "", fmt.Errorf("%q isn't a GitHub login", value)
+	}
+	return login, nil
 }
 
 // ResolveActor turns an actor filter into the login GitHub filters by:

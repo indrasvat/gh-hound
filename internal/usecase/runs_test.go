@@ -23,7 +23,7 @@ func TestRunsServiceLoadsFromGitHubPort(t *testing.T) {
 }
 
 func TestEmptyBranchRunDiagnosticGuidesReleaseAndTagTargeting(t *testing.T) {
-	diagnostic, ok := usecase.EmptyBranchRunDiagnostic("indrasvat/gh-hound", "release/v1")
+	diagnostic, ok := usecase.EmptyBranchRunDiagnostic("indrasvat/gh-hound", "release/v1", "")
 	if !ok {
 		t.Fatal("expected diagnostic for branch-scoped empty result")
 	}
@@ -59,7 +59,7 @@ func TestEmptyBranchRunDiagnosticRequiresRepoAndBranch(t *testing.T) {
 		{repo: "", branch: "main"},
 		{repo: "indrasvat/gh-hound", branch: ""},
 	} {
-		if diagnostic, ok := usecase.EmptyBranchRunDiagnostic(input.repo, input.branch); ok {
+		if diagnostic, ok := usecase.EmptyBranchRunDiagnostic(input.repo, input.branch, ""); ok {
 			t.Fatalf("unexpected diagnostic for %#v: %#v", input, diagnostic)
 		}
 	}
@@ -111,5 +111,22 @@ func TestResolveActorExplainsFailures(t *testing.T) {
 		if !strings.HasPrefix(err.Error(), "can't resolve @me: ") || !strings.Contains(err.Error(), tt.want) {
 			t.Fatalf("error = %q, want %q", err, tt.want)
 		}
+	}
+}
+
+func TestEmptyBranchRunDiagnosticKeepsActorConstraint(t *testing.T) {
+	diagnostic, ok := usecase.EmptyBranchRunDiagnostic("cli/cli", "trunk", "@me")
+	if !ok || !strings.HasPrefix(diagnostic.Message, "None of your runs matched branch") {
+		t.Fatalf("diagnostic = %+v", diagnostic)
+	}
+	if !strings.Contains(diagnostic.NextCommands[0], "--all --actor @me") || !strings.Contains(diagnostic.NextCommands[1], "--branch <ref> --actor @me") {
+		t.Fatalf("widening commands must keep the actor: %q", diagnostic.NextCommands)
+	}
+	if strings.Contains(diagnostic.NextCommands[2], "--actor") {
+		t.Fatalf("--run must not carry --actor: %q", diagnostic.NextCommands[2])
+	}
+	alice, _ := usecase.EmptyBranchRunDiagnostic("cli/cli", "trunk", "alice")
+	if !strings.HasPrefix(alice.Message, "No runs by @alice matched") {
+		t.Fatalf("message = %q", alice.Message)
 	}
 }

@@ -85,9 +85,13 @@ type commandRuntime struct {
 }
 
 type cliOptions struct {
-	Repo          string
-	Branch        string
-	Status        string
+	Repo   string
+	Branch string
+	Status string
+	Actor  string
+	// ActorFromEnv marks an actor that came from HOUND_ACTOR: an
+	// explicit --run ignores it instead of refusing.
+	ActorFromEnv  bool
 	Workflow      string
 	Format        render.Format
 	NoTUI         bool
@@ -151,6 +155,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.SetOut(runtime.Stdout)
 	cmd.SetErr(runtime.Stderr)
 	cmd.Flags().BoolP("version", "v", false, "print version information")
+	cmd.Flags().StringVar(&options.Actor, "actor", "", actorFlagUsage)
 	cmd.PersistentFlags().BoolVar(&options.NoTUI, "no-tui", false, "disable the TUI and write structured output (env HOUND_NO_TUI)")
 	cmd.PersistentFlags().BoolVar(&options.JSON, "json", false, "write JSON output and disable the TUI (env HOUND_JSON)")
 	cmd.PersistentFlags().StringVarP(&options.Repo, "repo", "R", "", "GitHub repository owner/name (env GH_REPO or HOUND_REPO)")
@@ -429,12 +434,15 @@ func newRunsCommand(runtime commandRuntime, options *cliOptions) *cobra.Command 
 		},
 	}
 	cmd.Flags().StringVar(&options.Status, "status", "", "filter runs by status or conclusion (env HOUND_STATUS)")
+	cmd.Flags().StringVar(&options.Actor, "actor", "", actorFlagUsage)
 	cmd.Flags().BoolVar(&options.WithArtifacts, "artifacts", false, "include artifact metadata per run (paginated artifact-list calls per run)")
 	cmd.Flags().BoolVar(&options.WithApprovals, "approvals", false, "include pending_environments for waiting runs (one pending-deployments call per waiting run)")
 	cmd.Flags().Int64Var(&options.RunID, "run", 0, "inspect a single run by ID (any branch)")
 	cmd.Flags().IntVar(&options.Attempt, "attempt", 0, "target a specific run attempt for failure triage (requires --run)")
 	return cmd
 }
+
+const actorFlagUsage = "show runs started by a GitHub login, or @me for the authenticated user (env HOUND_ACTOR)"
 
 func newArtifactsCommand(runtime commandRuntime, options *cliOptions) *cobra.Command {
 	cmd := &cobra.Command{
@@ -1979,6 +1987,16 @@ func writeResult(ctx context.Context, w io.Writer, options cliOptions, runtime c
 }
 
 func resultForOptions(ctx context.Context, options cliOptions, runtime commandRuntime) (render.Result, error) {
+	if options.Actor != "" {
+		if options.RunID != 0 && !options.ActorFromEnv {
+			return render.Result{}, errors.New("--actor cannot be combined with --run: --run always shows that run")
+		}
+		actor, err := usecase.NormalizeActor(options.Actor)
+		if err != nil {
+			return render.Result{}, fmt.Errorf("--actor: %w", err)
+		}
+		options.Actor = actor
+	}
 	if options.Fake == "" {
 		return liveResult(ctx, options, runtime)
 	}
@@ -2067,6 +2085,13 @@ func liveResult(ctx context.Context, options cliOptions, runtime commandRuntime)
 	}
 
 	filter := usecase.RunFilter{Repo: repo, Branch: branch, PerPage: 30}
+	if options.Actor != "" {
+		login, err := usecase.ResolveActor(ctx, githubClient, options.Actor)
+		if err != nil {
+			return render.Result{}, fmt.Errorf("%w; pass --actor <login>", err)
+		}
+		filter.Actor = login
+	}
 	if options.Status != "" {
 		status, err := parseStatusFilter(options.Status)
 		if err != nil {
@@ -2095,7 +2120,9 @@ func runDiagnosticForOptions(ctx context.Context, githubClient usecase.GitHub, o
 	if len(runs) > 0 || options.RunID != 0 || options.All || strings.TrimSpace(branch) == "" {
 		return nil
 	}
-	if strings.TrimSpace(options.Status) != "" && githubClient != nil {
+	// A filtered empty result does not mean the branch has no runs:
+	// probe it unfiltered before calling the target a mismatch.
+	if (strings.TrimSpace(options.Status) != "" || options.Actor != "") && githubClient != nil {
 		branchRuns, err := githubClient.ListRuns(ctx, usecase.RunFilter{Repo: repo, Branch: branch, PerPage: 1})
 		if err != nil {
 			return nil
@@ -2104,11 +2131,11 @@ func runDiagnosticForOptions(ctx context.Context, githubClient usecase.GitHub, o
 			return nil
 		}
 	}
-	return renderDiagnosticForEmptyBranch(repo, branch)
+	return renderDiagnosticForEmptyBranch(repo, branch, options.Actor)
 }
 
-func renderDiagnosticForEmptyBranch(repo, branch string) *render.Diagnostic {
-	diagnostic, ok := usecase.EmptyBranchRunDiagnostic(repo, branch)
+func renderDiagnosticForEmptyBranch(repo, branch, actor string) *render.Diagnostic {
+	diagnostic, ok := usecase.EmptyBranchRunDiagnostic(repo, branch, actor)
 	if !ok {
 		return nil
 	}
@@ -2358,18 +2385,20 @@ func mapRenderRuns(runs []model.Run) []render.Run {
 	out := make([]render.Run, 0, len(runs))
 	for _, run := range runs {
 		out = append(out, render.Run{
-			ID:         run.ID,
-			Workflow:   firstNonEmpty(run.Name, run.DisplayTitle, run.Path),
-			RunNumber:  run.RunNumber,
-			Event:      run.Event,
-			HeadBranch: run.HeadBranch,
-			HeadSHA:    run.HeadSHA,
-			Status:     string(run.Status),
-			Attempt:    run.RunAttempt,
-			Conclusion: string(run.Conclusion),
-			CreatedAt:  run.CreatedAt,
-			HTMLURL:    run.HTMLURL,
-			Failed:     []render.Failure{},
+			ID:              run.ID,
+			Workflow:        firstNonEmpty(run.Name, run.DisplayTitle, run.Path),
+			RunNumber:       run.RunNumber,
+			Event:           run.Event,
+			HeadBranch:      run.HeadBranch,
+			HeadSHA:         run.HeadSHA,
+			Status:          string(run.Status),
+			Attempt:         run.RunAttempt,
+			Conclusion:      string(run.Conclusion),
+			Actor:           run.Actor,
+			TriggeringActor: run.TriggeringActor,
+			CreatedAt:       run.CreatedAt,
+			HTMLURL:         run.HTMLURL,
+			Failed:          []render.Failure{},
 		})
 	}
 	return out
@@ -2480,17 +2509,19 @@ func fakeResult(options cliOptions, scenario string) render.Result {
 		return render.Result{Repo: repo, Branch: branch, Runs: runs, Diagnostic: diagnostic}
 	}
 	run := render.Run{
-		ID:         30433642,
-		Workflow:   "CI",
-		RunNumber:  571,
-		Event:      "pull_request",
-		HeadBranch: branch,
-		HeadSHA:    "a1b2c3d",
-		Status:     runStatus,
-		Conclusion: conclusion,
-		CreatedAt:  time.Date(2026, 6, 7, 17, 42, 0, 0, time.UTC),
-		HTMLURL:    "https://github.com/" + repo + "/actions/runs/30433642",
-		Failed:     []render.Failure{},
+		ID:              30433642,
+		Workflow:        "CI",
+		RunNumber:       571,
+		Event:           "pull_request",
+		HeadBranch:      branch,
+		HeadSHA:         "a1b2c3d",
+		Status:          runStatus,
+		Conclusion:      conclusion,
+		Actor:           "indrasvat",
+		TriggeringActor: "indrasvat",
+		CreatedAt:       time.Date(2026, 6, 7, 17, 42, 0, 0, time.UTC),
+		HTMLURL:         "https://github.com/" + repo + "/actions/runs/30433642",
+		Failed:          []render.Failure{},
 	}
 	if conclusion == "failure" {
 		run.Failed = []render.Failure{{
@@ -2505,6 +2536,11 @@ func fakeResult(options cliOptions, scenario string) render.Result {
 			}},
 			LogExcerpt: "--- FAIL: TestLexIdent/trailing_underscore ...",
 		}}
+	}
+	if options.Actor != "" && options.Actor != usecase.MeActor && !strings.EqualFold(options.Actor, run.Actor) {
+		// The fake credentials are run.Actor's: anyone else's filter is
+		// a genuine miss, not a target mismatch.
+		return render.Result{Repo: repo, Branch: branch, Runs: []render.Run{}}
 	}
 	return render.Result{
 		Repo:   repo,
@@ -2576,6 +2612,12 @@ func applyEnv(options *cliOptions, lookup func(string) (string, bool)) {
 	if options.Status == "" {
 		if value, ok := lookup("HOUND_STATUS"); ok {
 			options.Status = value
+		}
+	}
+	if options.Actor == "" {
+		if value, ok := lookup("HOUND_ACTOR"); ok && strings.TrimSpace(value) != "" {
+			options.Actor = value
+			options.ActorFromEnv = true
 		}
 	}
 	if value, ok := lookup("HOUND_FORMAT"); ok {

@@ -6,10 +6,11 @@ import (
 	"strings"
 
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
 // MeActor is the actor value that stands for the authenticated user.
-const MeActor = "@me"
+const MeActor = usecase.MeActor
 
 // Query is a parsed runs filter. Qualifiers go to GitHub's list-runs
 // API, so they reach beyond the loaded page; Text tokens search the
@@ -23,10 +24,7 @@ type Query struct {
 	Text   []string
 }
 
-var (
-	qualifierKey = regexp.MustCompile(`^[a-z_]+$`)
-	githubLogin  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,38}(\[bot\])?$`)
-)
+var qualifierKey = regexp.MustCompile(`^[a-z_]+$`)
 
 // ParseQuery reads a filter line. An error names the offending token;
 // callers must keep the previously applied query when it fails.
@@ -62,7 +60,7 @@ func ParseQuery(raw string) (Query, error) {
 		seen[name] = true
 		switch name {
 		case "actor":
-			actor, err := parseActor(value)
+			actor, err := usecase.NormalizeActor(value)
 			if err != nil {
 				return Query{}, err
 			}
@@ -99,17 +97,6 @@ func canonicalKey(key string) string {
 	default:
 		return ""
 	}
-}
-
-func parseActor(value string) (string, error) {
-	if strings.EqualFold(value, MeActor) {
-		return MeActor, nil
-	}
-	login := strings.TrimPrefix(value, "@")
-	if !githubLogin.MatchString(login) {
-		return "", fmt.Errorf("%q isn't a GitHub login", value)
-	}
-	return login, nil
 }
 
 // NormalizeStatus maps a status word (including the f-cycle aliases)

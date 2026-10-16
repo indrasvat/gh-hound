@@ -167,7 +167,7 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 
 	if len(runs) == 0 && result.Scope == LaunchScopeBranch {
 		result.Scope = LaunchScopeRepo
-		if diagnostic, ok := EmptyBranchRunDiagnostic(result.Repo, result.Branch); ok {
+		if diagnostic, ok := EmptyBranchRunDiagnostic(result.Repo, result.Branch, ""); ok {
 			result.Notice = diagnostic.Message + " Showing all branches now."
 		} else {
 			result.Notice = fmt.Sprintf("no runs on %s — showing all branches", result.Branch)
