@@ -109,7 +109,7 @@ Footer text must be generated from keymap data, not copied into renderers.
 | failure | ↻ rerun failed · r rerun job · l full log · o browser · y copy excerpt |
 | watch | ✗ cancel · f follow · d debug · ⎋ detach |
 | watch_board | j/k move · ⏎ drill in · f follow worst · ✗ cancel · ⎋ back |
-| log | j/k scroll · g/G ends · / search · t time · n/N match · z/Z fold · w wrap · ⎋ back |
+| log | j/k scroll · g/G ends · / search · t time · n/N match · z/Z fold · c compact · w wrap · ⎋ back |
 | dispatch | ⏎ run · ⇥ next · ⎋ cancel |
 | diff | j/k move · ⏎ first bad · o compare · ⎋ back |
 | flakes | j/k move · ⏎ open run · ⎋ back |

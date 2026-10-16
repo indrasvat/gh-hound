@@ -8,8 +8,12 @@ import (
 	"github.com/indrasvat/gh-hound/internal/logs/fold"
 )
 
-// rangePlanBudget bounds planning a time range on the key path.
-const rangePlanBudget = 50 * time.Millisecond
+const (
+	// planBudget bounds folding a whole log off the input path.
+	planBudget = 2 * time.Second
+	// rangePlanBudget bounds planning a time range on the key path.
+	rangePlanBudget = 50 * time.Millisecond
+)
 
 type rowKind uint8
 
@@ -46,6 +50,26 @@ func (m Model) SetPlan(plan fold.Plan, compact bool) Model {
 	if m.RangeLabel != "" {
 		m.planRange()
 	}
+	m.rev++
+	return m
+}
+
+// Fold plans the document within ctx and planBudget; on any fallback the
+// model keeps the full log. Call it off the input path.
+func Fold(ctx context.Context, m Model) Model {
+	ctx, cancel := context.WithTimeout(ctx, planBudget)
+	defer cancel()
+	plan, err := fold.ForDocument(ctx, m.Document, fold.Default())
+	if err != nil {
+		return m
+	}
+	return m.SetPlan(plan, true)
+}
+
+// WithCompact sets the initial view; compact needs a plan.
+func (m Model) WithCompact(on bool) Model {
+	m.Compact = on && m.plan != nil
+	m.topRow = -1
 	m.rev++
 	return m
 }

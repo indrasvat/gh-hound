@@ -1354,7 +1354,8 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			if err != nil {
 				return failurescreen.Model{}, logscreen.Model{}, err
 			}
-			return failurescreen.NewModel(launch.Repo, run.ID, report), logscreen.NewModel(report.Log, report.Log.Failure.AnchorLine, 6), nil
+			fullLog := logscreen.Fold(loadCtx, logscreen.NewModel(report.Log, 1, 6))
+			return failurescreen.NewModel(launch.Repo, run.ID, report), fullLog.JumpToLine(report.Log.Failure.AnchorLine), nil
 		},
 		LogResolver: func(loadCtx context.Context, run model.Run, selected model.Job, progress func(read, total int64)) (logscreen.Model, error) {
 			job, err := resolveJobForRun(loadCtx, githubClient, launch.Repo, run, selected)
@@ -1373,7 +1374,7 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			if err != nil {
 				return logscreen.Model{}, err
 			}
-			return logscreen.NewModel(logs.Parse(raw), 1, 6), nil
+			return logscreen.Fold(loadCtx, logscreen.NewModel(logs.Parse(raw), 1, 6)), nil
 		},
 		WatchResolver: func(loadCtx context.Context, run model.Run) (watch.Model, error) {
 			state, err := watchService.Tick(loadCtx, usecase.WatchState{Repo: launch.Repo, RunID: run.ID, Run: run})
