@@ -100,7 +100,7 @@ func Parse(raw string) Document {
 	for chunk := range strings.Lines(raw) {
 		text := strings.TrimPrefix(strings.TrimSuffix(strings.TrimSuffix(chunk, "\n"), "\r"), "\ufeff")
 		lineNumber := len(lines) + 1
-		commandText := commandSegment(text)
+		commandText := CommandText(text)
 
 		if stoppedCommandToken != "" {
 			if commandText == "::"+stoppedCommandToken+"::" {
@@ -210,7 +210,9 @@ func Parse(raw string) Document {
 	}
 }
 
-func commandSegment(text string) string {
+// CommandText is a line without its runner timestamp, as workflow commands
+// are matched.
+func CommandText(text string) string {
 	if end, ok := timestampPrefixEnd(text); ok && end < len(text) {
 		return strings.TrimLeft(text[end:], " \t")
 	}

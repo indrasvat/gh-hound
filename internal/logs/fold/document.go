@@ -15,8 +15,9 @@ func Default() Engine {
 	return e
 }
 
-// ForDocument plans a parsed log. Step-group lines and the first line after
-// each group are pinned, so no fold crosses a group boundary.
+// ForDocument plans a parsed log. Commands, annotations, step-group lines
+// and the first line after each group are pinned, so no fold crosses a
+// group boundary or hides what the parser recognized.
 func ForDocument(ctx context.Context, doc logs.Document, e Engine) (Plan, error) {
 	return ForRange(ctx, doc, 1, len(doc.Lines), e)
 }
@@ -39,6 +40,12 @@ func ForRange(ctx context.Context, doc logs.Document, first, last int, e Engine)
 	for _, f := range doc.Folds {
 		pins[f.StartLine-first] = true
 		pins[f.EndLine+1-first] = true
+	}
+	for _, c := range doc.Commands {
+		pins[c.Line-first] = true
+	}
+	for _, a := range doc.Annotations {
+		pins[a.Line-first] = true
 	}
 	e.Pins = pins
 	return e.SafePlanContext(ctx, lines, DefaultLimits())

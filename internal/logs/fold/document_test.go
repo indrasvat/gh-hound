@@ -60,3 +60,26 @@ func TestForRangePlansAWindow(t *testing.T) {
 		t.Fatal("empty range must plan nothing")
 	}
 }
+
+func TestForDocumentKeepsShortStampedAnnotations(t *testing.T) {
+	var raw []string
+	for i := range 10 {
+		raw = append(raw, fmt.Sprintf("10:00:%02dZ ::error file=a.go,line=%d::flake %d", i, i+1, i))
+	}
+	doc := logs.Parse(strings.Join(raw, "\n"))
+	if len(doc.Annotations) != 10 {
+		t.Fatalf("parser found %d annotations, want 10", len(doc.Annotations))
+	}
+	p, err := ForDocument(context.Background(), doc, Default())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, hidden := range p.HiddenMask() {
+		if hidden {
+			t.Fatalf("annotation line %d hidden: %q", i+1, raw[i])
+		}
+	}
+	if !(Structural{}).Protect(raw[0]) {
+		t.Fatalf("structural guard misses %q", raw[0])
+	}
+}

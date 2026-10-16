@@ -1,6 +1,10 @@
 package fold
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/indrasvat/gh-hound/internal/logs"
+)
 
 // Structural pins GitHub Actions command lines (##[...] and ::...).
 type Structural struct{}
@@ -8,15 +12,6 @@ type Structural struct{}
 func (Structural) Name() string { return "structural" }
 
 func (Structural) Protect(line string) bool {
-	body := stripRunnerStamp(line)
+	body := logs.CommandText(line)
 	return strings.HasPrefix(body, "##[") || strings.HasPrefix(body, "::")
-}
-
-func stripRunnerStamp(line string) string {
-	if len(line) > 28 && line[4] == '-' && line[10] == 'T' {
-		if sp := strings.IndexByte(line, ' '); sp > 0 && sp < 40 && line[sp-1] == 'Z' {
-			return line[sp+1:]
-		}
-	}
-	return line
 }

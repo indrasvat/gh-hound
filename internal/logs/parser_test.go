@@ -147,8 +147,8 @@ func TestCommandSegmentStripsTimestampPrefixes(t *testing.T) {
 		"::warning::plain":                                 "::warning::plain",
 	}
 	for input, want := range tests {
-		if got := commandSegment(input); got != want {
-			t.Fatalf("commandSegment(%q) = %q, want %q", input, got, want)
+		if got := CommandText(input); got != want {
+			t.Fatalf("CommandText(%q) = %q, want %q", input, got, want)
 		}
 	}
 }
