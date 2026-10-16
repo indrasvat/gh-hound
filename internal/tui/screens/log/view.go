@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/logs"
@@ -39,9 +40,9 @@ func (m Model) renderRow(row viewRow) []string {
 	switch row.kind {
 	case rowGroup:
 		f := m.groups[row.line]
-		return []string{renderFold(row.line, gutter, f.Title, f.CollapsedCount, !row.open, m.Width)}
+		return []string{renderFold(row.line, gutter, terminalSafe(f.Title), f.CollapsedCount, !row.open, m.Width)}
 	case rowRepeat:
-		return []string{renderRepeat(row.line, gutter, m.repeatTitle(row), row.end-row.line+1, !row.open, m.Width)}
+		return []string{renderRepeat(row.line, gutter, terminalSafe(m.repeatTitle(row)), row.end-row.line+1, !row.open, m.Width)}
 	}
 	line := m.Document.Lines[row.line-1]
 	return renderLine(line, gutter, m.isMatch(line.Number), m.wrapping(), m.Width)
@@ -268,7 +269,70 @@ func renderLogText(line logs.Line) string {
 		cursor = token.End
 	}
 	writeStyled(&out, text[cursor:], baseStyle)
-	return out.String()
+	return terminalSafe(out.String())
+}
+
+// terminalSafe keeps a log's colours but nothing that moves the cursor:
+// other escape sequences and control bytes are dropped, and tabs expand
+// to 8-column stops, so every row is exactly as wide as it measures.
+func terminalSafe(s string) string {
+	if !strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+		return s
+	}
+	var b strings.Builder
+	col := 0
+	for i := 0; i < len(s); {
+		c := s[i]
+		switch {
+		case c == 0x1b:
+			n := escapeLen(s[i:])
+			if n > 2 && s[i+1] == '[' && s[i+n-1] == 'm' {
+				b.WriteString(s[i : i+n]) // SGR colour
+			}
+			i += n
+		case c == '\t':
+			pad := 8 - col%8
+			b.WriteString(strings.Repeat(" ", pad))
+			col += pad
+			i++
+		case c < 0x20 || c == 0x7f:
+			i++
+		default:
+			r, size := utf8.DecodeRuneInString(s[i:])
+			b.WriteRune(r)
+			col += ansi.StringWidth(string(r))
+			i += size
+		}
+	}
+	return b.String()
+}
+
+// escapeLen is the byte length of the escape sequence at the start of s:
+// CSI up to its final byte, OSC up to BEL or ST, else ESC and one byte.
+func escapeLen(s string) int {
+	if len(s) < 2 {
+		return len(s)
+	}
+	switch s[1] {
+	case '[':
+		for i := 2; i < len(s); i++ {
+			if s[i] >= 0x40 && s[i] <= 0x7e {
+				return i + 1
+			}
+		}
+	case ']':
+		for i := 2; i < len(s); i++ {
+			if s[i] == 0x07 {
+				return i + 1
+			}
+			if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '\\' {
+				return i + 2
+			}
+		}
+	default:
+		return 2
+	}
+	return len(s)
 }
 
 func normalizedTokens(text string, tokens []logs.Token) []logs.Token {

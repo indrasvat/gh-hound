@@ -451,8 +451,13 @@ func (m *Model) jumpRepeat(dir int) {
 	if len(rows) == 0 {
 		return
 	}
-	top, _ := m.position()
-	cur, target := rows[top].line, 0
+	// step from the intended top, not the drawn one: a log that fits the
+	// screen always draws from row 0
+	top := m.top()
+	if m.atEnd {
+		top, _ = m.position()
+	}
+	cur, target := rows[min(top, len(rows)-1)].line, 0
 	starts := m.repeatStarts()
 	for i := range starts {
 		a := starts[i]

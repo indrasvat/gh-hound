@@ -63,7 +63,7 @@ func (in *fuzzInput) document() logs.Document {
 	var lines []string
 	depth := 0
 	for n := 1 + in.next()%24; n > 0 && len(lines) < 400; n-- {
-		switch in.next() % 10 {
+		switch in.next() % 11 {
 		case 0:
 			lines = append(lines, fmt.Sprintf("ok %d", len(lines)))
 		case 1:
@@ -90,6 +90,9 @@ func (in *fuzzInput) document() logs.Document {
 			lines = append(lines, "##[error]boom "+strings.Repeat("e", in.next()))
 		case 9:
 			lines = append(lines, fmt.Sprintf("10:00:%02dZ ::warning::flake", in.next()%60))
+		case 10:
+			junk := []string{"\t", "\r", "\x1b[1A", "\x1b[2K", "\x1b]8;;u\x07", "\x07", "\x7f", "\x1b[33m", "\x1b"}
+			lines = append(lines, "a"+junk[in.next()%len(junk)]+"b\tc"+junk[in.next()%len(junk)])
 		}
 	}
 	return logs.Parse(strings.Join(lines, "\n"))
@@ -147,6 +150,9 @@ func checkFrame(t *testing.T, m Model, event string, events []string) {
 	for _, l := range out {
 		if w := ansi.StringWidth(l); w > m.Width {
 			fail("line %d cols wide at width %d: %q", w, m.Width, ansi.Strip(l))
+		}
+		if terminalSafe(l) != l {
+			fail("control bytes reach the terminal: %q", l)
 		}
 	}
 	all := flat(m)

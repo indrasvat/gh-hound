@@ -245,6 +245,14 @@ func groupedPolls() logs.Document {
 	return logs.Parse(b.String())
 }
 
+func TestBracketsWalkEveryRepeatWhenTheLogFits(t *testing.T) {
+	m := compactModel(t, groupedPolls(), 30).Update(KeyMsg{Key: "z"}).Update(KeyMsg{Key: "g"})
+	m = m.Update(KeyMsg{Key: "]"}).Update(KeyMsg{Key: "]"})
+	if out := plain(View(m, 100)); !strings.Contains(out, "▾ wait 0") || !strings.Contains(out, "▾ wait 1") {
+		t.Fatalf("two ] presses should open both groups:\n%s", out)
+	}
+}
+
 func TestBracketsReachRepeatsInsideClosedGroups(t *testing.T) {
 	m := compactModel(t, groupedPolls(), 4).Update(KeyMsg{Key: "z"}).Update(KeyMsg{Key: "g"})
 	for _, want := range []string{"004 ⋯ ×", "085 ⋯ ×"} {
@@ -276,6 +284,33 @@ func TestRangeHeaderSaysCompact(t *testing.T) {
 	}
 	if out := plain(View(m, 100)); !strings.Contains(out, "log · [10:00-10:30] · compact · ⎋ clear") {
 		t.Fatalf("range header: %s", strings.Split(out, "\n")[0])
+	}
+}
+
+func TestControlBytesNeverReachTheTerminal(t *testing.T) {
+	raw := strings.Join([]string{
+		"hint:\tgit config --global init.defaultBranch <name>",
+		"Updating files:   9%\rUpdating files:  10%",
+		"\x1b[1A\x1b[2Kprogress \x1b]8;;https://x.io\x07link\x1b]8;;\x07 \x1b[32mok\x1b[0m",
+		"bell\x07 and del\x7f",
+		"##[group]step\twith tab",
+		"##[endgroup]",
+	}, "\n")
+	m := NewModel(logs.Parse(raw), 1, 10)
+	for _, width := range []int{40, 80} {
+		for l := range strings.SplitSeq(View(m, width), "\n") {
+			for _, c := range []string{"\t", "\r", "\x07", "\x7f", "\x1b[1A", "\x1b[2K", "\x1b]"} {
+				if strings.Contains(l, c) {
+					t.Fatalf("width %d: %q reaches the terminal in %q", width, c, l)
+				}
+			}
+			if w := ansi.StringWidth(l); w > width {
+				t.Fatalf("width %d: row is %d wide: %q", width, w, plain(l))
+			}
+		}
+	}
+	if out := plain(View(m, 80)); !strings.Contains(out, "hint:   git config") || !strings.Contains(out, "\x1b") && !strings.Contains(out, "ok") {
+		t.Fatalf("tab should expand to the next stop:\n%s", out)
 	}
 }
 
