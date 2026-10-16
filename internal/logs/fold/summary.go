@@ -68,12 +68,16 @@ func Summarize(seg Segment, lines []string, n Normalizer) Summary {
 		if slotter == nil {
 			continue
 		}
+		clocked := false // only a line's first clock counts, so spans never mix clocks
 		for idx, slot := range slotter.Slots(lines[i]) {
 			if isClock(slot.Value) {
-				if s.TimeFrom == "" {
-					s.TimeFrom = slot.Value
+				if !clocked {
+					if s.TimeFrom == "" {
+						s.TimeFrom = slot.Value
+					}
+					s.TimeTo = slot.Value
 				}
-				s.TimeTo = slot.Value
+				clocked = true
 				continue
 			}
 			g := shape

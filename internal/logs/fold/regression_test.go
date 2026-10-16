@@ -162,3 +162,15 @@ func TestOutlierHonoursStop(t *testing.T) {
 		t.Fatalf("outlier refiner ignored stop for %v", took)
 	}
 }
+
+func TestSummarySpanFollowsOneClock(t *testing.T) {
+	var lines []string
+	for i := range 8 {
+		lines = append(lines, fmt.Sprintf("2026-10-16T16:00:%02d.0000000Z time=\"2026-10-16T15:53:%02dZ\" level=info msg=\"waiting\"", 45+i, 23+i))
+	}
+	seg := Segment{Kind: Folded, Start: 1, End: 7, Run: Run{Start: 0, Period: 1, Count: 8}}
+	s := Summarize(seg, lines, Shape{})
+	if from, to := s.Span(); from != "16:00:45" || to != "16:00:52" {
+		t.Fatalf("span %s → %s mixes clocks", from, to)
+	}
+}
