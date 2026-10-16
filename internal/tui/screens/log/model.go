@@ -22,6 +22,7 @@ type Model struct {
 	Document   logs.Document
 	Offset     int
 	Height     int
+	Width      int // set by the caller; lets wrapped scrolling reach the end
 	Wrap       bool
 	InputMode  bool
 	LastJump   string
@@ -32,15 +33,19 @@ type Model struct {
 	collapsed  map[int]bool
 	Search     SearchState
 	// Compact shows the fold plan's view; it needs a plan (SetPlan).
-	Compact   bool
-	plan      *fold.Plan
-	rangePlan *fold.Plan
-	open      map[int]bool
-	hits      map[int]bool
-	groups    map[int]logs.Fold
-	rev       int
-	cache     *rowCache
-	topRow    int
+	Compact     bool
+	plan        *fold.Plan
+	rangePlan   *fold.Plan
+	open        map[int]bool
+	hits        map[int]bool
+	groups      map[int]logs.Fold
+	rev         int64
+	cache       *rowCache
+	titles      *titleCache
+	rangeTitles *titleCache
+	topRow      int
+	skip        int // screen lines of the wrapped top row scrolled past
+	skipRow     int
 }
 
 func NewModel(doc logs.Document, offset, height int) Model {
@@ -76,13 +81,13 @@ func (m Model) Update(msg KeyMsg) Model {
 			m = m.ClearRange()
 		}
 	case "j", "down":
-		m.scrollTo(m.top() + 1)
+		m.down()
 	case "k", "up":
-		m.scrollTo(m.top() - 1)
+		m.up()
 	case "g":
 		m.scrollTo(0)
 	case "G":
-		m.scrollTo(m.maxTopRow())
+		m.setPosition(m.bottom())
 	case "ctrl+d":
 		m.scrollTo(m.top() + m.Height/2)
 	case "ctrl+u":
@@ -205,7 +210,7 @@ func (m Model) SetRange(start, end int, label string) Model {
 	m.RangeLabel = label
 	m.Offset = start
 	m.planRange()
-	m.rev++
+	m.bump()
 	return m
 }
 
@@ -214,7 +219,7 @@ func (m Model) ClearRange() Model {
 	m.RangeEnd = 0
 	m.RangeLabel = ""
 	m.rangePlan = nil
-	m.rev++
+	m.bump()
 	return m
 }
 
@@ -307,13 +312,11 @@ func (m Model) Collapsed(line int) bool {
 }
 
 func (m *Model) setCollapsed(value bool) {
-	if m.collapsed == nil {
-		m.collapsed = map[int]bool{}
-	}
+	m.collapsed = make(map[int]bool, len(m.Document.Folds))
 	for _, f := range m.Document.Folds {
 		m.collapsed[f.StartLine] = value
 	}
-	m.rev++
+	m.bump()
 }
 
 func (m *Model) moveMatch(delta int) {
@@ -337,10 +340,10 @@ func (m *Model) gotoCurrentMatch() {
 	}
 	line := m.Search.Matches[m.Search.Current-1]
 	m.reveal(line)
-	if line > m.Offset {
-		m.Offset = max(1, line-1)
-	} else {
-		m.Offset = line
+	forward := line > m.Offset
+	m.Offset = line
+	if rows := m.rows(); forward && line > 1 && m.screenLines(rows[rowIndexFor(rows, line-1)]) < m.Height {
+		m.Offset = line - 1 // one line of context when it fits
 	}
 }
 
@@ -367,7 +370,7 @@ func buildSearch(doc logs.Document, query string) SearchState {
 // earlier rows, as G would, so a jump never leaves the screen half empty.
 func (m Model) visibleRows() []viewRow {
 	rows := m.rows()
-	top := min(m.top(), m.maxTopRow())
+	top, _ := m.position()
 	return rows[top:min(len(rows), top+max(m.Height, 1))]
 }
 

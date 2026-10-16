@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/logs"
@@ -212,6 +213,61 @@ func BenchmarkViewCompact300kViewport(b *testing.B) {
 	}
 }
 
+func BenchmarkViewCompact300kClosed(b *testing.B) {
+	var builder strings.Builder
+	for i := range 150_000 {
+		fmt.Fprintf(&builder, "%02d:%02d:%02dZ waiting for cluster\n%02d:%02d:%02dZ state 0x%08x\n", i/3600%24, i/60%60, i%60, i/3600%24, i/60%60, i%60, i)
+	}
+	doc := logs.Parse(builder.String())
+	plan, _ := fold.ForDocument(context.Background(), doc, fold.Default())
+	m := NewModel(doc, 1, 40).SetPlan(plan, true)
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = View(m, 120)
+	}
+}
+
+func TestClosedFoldRendersWithoutRescanning(t *testing.T) {
+	var builder strings.Builder
+	for i := range 150_000 {
+		fmt.Fprintf(&builder, "waiting for cluster\nstate 0x%08x\n", i)
+	}
+	doc := logs.Parse(builder.String())
+	m := compactModel(t, doc, 40)
+	View(m, 120)
+	start := time.Now()
+	for range 10 {
+		View(m, 120)
+	}
+	if took := time.Since(start) / 10; took > 50*time.Millisecond {
+		t.Fatalf("closed 300k fold renders in %v per frame", took)
+	}
+}
+
+func TestSiblingRangesKeepTheirOwnRows(t *testing.T) {
+	m := compactModel(t, pollLog(), 10)
+	a, b := m.SetRange(2, 4, "a"), m.SetRange(20, 22, "b")
+	_, _ = a.VisibleRowNumbers(), b.VisibleRowNumbers()
+	if got := b.VisibleRowNumbers(); len(got) == 0 || got[0] < 20 {
+		t.Fatalf("range b shows %v", got)
+	}
+	if got := a.VisibleRowNumbers(); len(got) == 0 || got[0] != 2 {
+		t.Fatalf("range a shows %v", got)
+	}
+}
+
+func TestFoldChangesStayInTheirCopy(t *testing.T) {
+	m := compactModel(t, pollLog(), 10)
+	before := plain(View(m, 80))
+	opened := m.Update(KeyMsg{Key: "Z"})
+	if plain(View(opened, 80)) == before {
+		t.Fatal("Z changed nothing")
+	}
+	if after := plain(View(m, 80)); after != before {
+		t.Fatalf("Z on a copy changed the original:\n%s", after)
+	}
+}
+
 func TestZClosesTheMatchFoldAndNReopensIt(t *testing.T) {
 	doc := logs.Parse("go test\n##[group]Run tests\nok a\n=== RUN TestTrail\nfail trail one\nok b\nfail trail two\nok c\n##[endgroup]")
 	m := NewModel(doc, 1, 10)
@@ -250,5 +306,109 @@ func TestSmallRepeatRunsStayAsLines(t *testing.T) {
 	m := compactModel(t, doc, 10)
 	if m.FoldCount() != 0 || strings.Contains(plain(View(m, 80)), "⋯") {
 		t.Fatalf("a run hiding fewer than %d lines must not fold:\n%s", minFoldHidden, plain(View(m, 80)))
+	}
+}
+
+func TestJumpsAfterZOpenTheRepeatFoldInsideAClosedGroup(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("##[group]Run e2e\n")
+	for i := range 200 {
+		fmt.Fprintf(&b, "10:%02d:%02dZ waiting\n", i/60, i%60)
+	}
+	b.WriteString("##[endgroup]\ndone\n")
+	doc := logs.Parse(b.String())
+	m := compactModel(t, doc, 10).Update(KeyMsg{Key: "z"})
+	for k := range strings.SplitSeq("/10:02:00", "") {
+		m = m.Update(KeyMsg{Key: k})
+	}
+	m = m.Update(KeyMsg{Key: "enter"})
+	if out := plain(View(m, 80)); !strings.Contains(out, "› search-hit") {
+		t.Fatalf("search after z must reveal the match:\n%s", out)
+	}
+	m = m.Update(KeyMsg{Key: "z"}).JumpTo("10:01:30")
+	found := false
+	for _, n := range m.VisibleRowNumbers() {
+		found = found || n == m.Offset
+	}
+	if !found || m.rows()[m.top()].kind != rowLine {
+		t.Fatalf("time jump after z must land on the line, top=%v", m.VisibleRowNumbers())
+	}
+}
+
+func TestWrappedGReachesTheLastLine(t *testing.T) {
+	var b strings.Builder
+	for i := range 40 {
+		fmt.Fprintf(&b, "step %d %s\n", i, strings.Repeat("long output ", 1+i%3*6))
+	}
+	b.WriteString("##[error]Process completed with exit code 1.\n")
+	m := NewModel(logs.Parse(b.String()), 1, 8)
+	m.Width = 60
+	m = m.Update(KeyMsg{Key: "w"}).Update(KeyMsg{Key: "G"})
+	out := plain(View(m, 60))
+	if !strings.Contains(out, "exit code 1.") {
+		t.Fatalf("wrapped G must show the last line:\n%s", out)
+	}
+	lines := strings.Split(out, "\n")
+	if len(lines) > 9 {
+		t.Fatalf("view overflowed: %d lines", len(lines))
+	}
+}
+
+func oversizedLog() logs.Document {
+	return logs.Parse("first\nhead " + strings.Repeat("x", 600) + " TAIL-OF-LONG\nafter")
+}
+
+func TestWrappedGReachesTheTailOfAnOversizedLastLine(t *testing.T) {
+	doc := logs.Parse("first\nsecond\nhead " + strings.Repeat("x", 600) + " TAIL-OF-LONG")
+	m := NewModel(doc, 1, 5)
+	m.Width = 60
+	m = m.Update(KeyMsg{Key: "w"}).Update(KeyMsg{Key: "G"})
+	if out := plain(View(m, 60)); !strings.Contains(out, "TAIL-OF-LO") {
+		t.Fatalf("G must reach the end of the last line:\n%s", out)
+	}
+}
+
+func TestJStepsThroughAnOversizedWrappedLine(t *testing.T) {
+	m := NewModel(oversizedLog(), 1, 5)
+	m.Width = 60
+	m = m.Update(KeyMsg{Key: "w"})
+	seen := false
+	for range 20 {
+		m = m.Update(KeyMsg{Key: "j"})
+		out := plain(View(m, 60))
+		if lines := strings.Split(out, "\n"); len(lines) > 6 {
+			t.Fatalf("view overflowed: %d lines", len(lines))
+		}
+		seen = seen || strings.Contains(out, "TAIL-OF-LO")
+	}
+	if !seen || !strings.Contains(plain(View(m, 60)), "after") {
+		t.Fatalf("j never reached the long line's tail (%v) or the next line:\n%s", seen, plain(View(m, 60)))
+	}
+	for range 20 {
+		m = m.Update(KeyMsg{Key: "k"})
+	}
+	if out := plain(View(m, 60)); !strings.Contains(out, "001 first") {
+		t.Fatalf("k must climb back to the top:\n%s", out)
+	}
+}
+
+func TestWrappedSearchKeepsTheMatchOnScreen(t *testing.T) {
+	m := NewModel(oversizedLog(), 1, 5)
+	m.Width = 60
+	m = m.Update(KeyMsg{Key: "w"})
+	for _, k := range []string{"/", "a", "f", "t", "e", "r", "enter"} {
+		m = m.Update(KeyMsg{Key: k})
+	}
+	if out := plain(View(m, 60)); !strings.Contains(out, "search-hit 003") {
+		t.Fatalf("the match must be on screen:\n%s", out)
+	}
+}
+
+func TestWrappedContinuationKeepsFailColour(t *testing.T) {
+	doc := logs.Parse("--- FAIL: " + strings.Repeat("TestVeryLongName ", 10))
+	m := NewModel(doc, 1, 6).Update(KeyMsg{Key: "w"})
+	lines := strings.Split(View(m, 40), "\n")
+	if len(lines) < 3 || !strings.Contains(lines[2], sgrFail) {
+		t.Fatalf("continuation row lost the fail colour: %q", lines)
 	}
 }

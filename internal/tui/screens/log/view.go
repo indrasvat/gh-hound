@@ -14,32 +14,37 @@ func View(m Model, width int) string {
 	if width <= 0 {
 		width = 80
 	}
+	m.Width = width
 	lines := []string{fit(header(m)+"  "+scrollIndicator(m), width)}
-	gutter := gutterWidth(len(m.Document.Lines))
 	budget := max(m.Height, 1)
-	for _, row := range m.visibleRows() {
+	_, skip := m.position()
+	for i, row := range m.visibleRows() {
 		if budget == 0 {
 			break
 		}
-		switch row.kind {
-		case rowGroup:
-			f := m.groups[row.line]
-			lines = append(lines, renderFold(row.line, gutter, f.Title, f.CollapsedCount, !row.open, width))
-			budget--
-		case rowRepeat:
-			lines = append(lines, renderRepeat(row.line, gutter, m.repeatTitle(row), row.end-row.line+1, !row.open, width))
-			budget--
-		default:
-			line := m.Document.Lines[row.line-1]
-			rendered := renderLine(line, gutter, m.isMatch(line.Number), m.Wrap, width)
-			if len(rendered) > budget {
-				rendered = rendered[:budget]
-			}
-			lines = append(lines, rendered...)
-			budget -= len(rendered)
+		rendered := m.renderRow(row)
+		if i == 0 {
+			rendered = rendered[min(skip, len(rendered)-1):]
 		}
+		rendered = rendered[:min(len(rendered), budget)]
+		lines = append(lines, rendered...)
+		budget -= len(rendered)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// renderRow draws one row at m.Width; a wrapped line takes several.
+func (m Model) renderRow(row viewRow) []string {
+	gutter := gutterWidth(len(m.Document.Lines))
+	switch row.kind {
+	case rowGroup:
+		f := m.groups[row.line]
+		return []string{renderFold(row.line, gutter, f.Title, f.CollapsedCount, !row.open, m.Width)}
+	case rowRepeat:
+		return []string{renderRepeat(row.line, gutter, m.repeatTitle(row), row.end-row.line+1, !row.open, m.Width)}
+	}
+	line := m.Document.Lines[row.line-1]
+	return renderLine(line, gutter, m.isMatch(line.Number), m.wrapping(), m.Width)
 }
 
 func gutterWidth(lines int) int {
@@ -85,7 +90,8 @@ func scrollIndicator(m Model) string {
 		return ""
 	}
 	cells := 8
-	pos := min(m.top(), m.maxTopRow()) * (cells - 1) / max(total-m.Height, 1)
+	top, _ := m.position()
+	pos := top * (cells - 1) / max(total-m.Height, 1)
 	if pos >= cells {
 		pos = cells - 1
 	}
@@ -187,10 +193,11 @@ func renderLine(line logs.Line, gutterW int, searchHit, wrap bool, width int) []
 	lead := ansi.StringWidth(prefix) + gutterW + 1
 	parts := strings.Split(ansi.Hardwrap(text, max(1, width-lead), true), "\n")
 	out := make([]string, 0, len(parts))
+	base := baseStyle(line.Tokens)
 	for i, part := range parts {
 		head := prefix + gutter + " "
 		if i > 0 {
-			head = strings.Repeat(" ", lead-2) + colorize(sgrDim, "↪") + " "
+			head = strings.Repeat(" ", lead-2) + colorize(sgrDim, "↪") + " " + base
 		}
 		value := head + part
 		if searchHit {

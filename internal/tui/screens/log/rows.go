@@ -2,7 +2,9 @@ package log
 
 import (
 	"context"
+	"maps"
 	"sort"
+	"sync/atomic"
 	"time"
 
 	"github.com/indrasvat/gh-hound/internal/logs/fold"
@@ -37,21 +39,65 @@ type viewRow struct {
 // rowCache is shared by copies of a Model; rev identifies the state the
 // rows were built for.
 type rowCache struct {
-	rev  int
-	plan *fold.Plan
-	rows []viewRow
+	rev     int64
+	plan    *fold.Plan
+	rows    []viewRow
+	end     layoutKey
+	row     int
+	skip    int
+	layout  layoutKey
+	heights map[int]int
+}
+
+// layoutKey is everything screen heights and the last position depend on.
+type layoutKey struct {
+	rev           int64
+	width, height int
+	wrap          bool
+	query         string
+}
+
+// revs is process-wide, so sibling copies never share a revision.
+var revs atomic.Int64
+
+func (m *Model) bump() { m.rev = revs.Add(1) }
+
+// titleCache holds a plan's repeat titles; a summary scans its whole run,
+// so each is built once.
+type titleCache struct {
+	plan   *fold.Plan
+	titles map[int]string
+}
+
+func newTitles(p *fold.Plan) *titleCache {
+	return &titleCache{plan: p, titles: map[int]string{}}
+}
+
+func (c *titleCache) title(seg int) string {
+	if t, ok := c.titles[seg]; ok {
+		return t
+	}
+	t := fold.Summarize(c.plan.Segments[seg], c.plan.Lines, fold.Shape{}).Title()
+	c.titles[seg] = t
+	return t
 }
 
 // SetPlan attaches a fold plan computed off the input path. compact picks
 // the initial view.
 func (m Model) SetPlan(plan fold.Plan, compact bool) Model {
 	m.plan = &plan
+	m.titles = newTitles(m.plan)
+	for i, s := range plan.Segments {
+		if shownFold(s) {
+			m.titles.title(i)
+		}
+	}
 	m.Compact = compact
 	m.rangePlan = nil
 	if m.RangeLabel != "" {
 		m.planRange()
 	}
-	m.rev++
+	m.bump()
 	return m
 }
 
@@ -71,7 +117,7 @@ func Fold(ctx context.Context, m Model) Model {
 func (m Model) WithCompact(on bool) Model {
 	m.Compact = on && m.plan != nil
 	m.topRow = -1
-	m.rev++
+	m.bump()
 	return m
 }
 
@@ -135,6 +181,7 @@ func (m *Model) planRange() {
 	p, err := fold.ForRange(ctx, m.Document, m.RangeStart, m.RangeEnd, fold.Default())
 	if err == nil {
 		m.rangePlan = &p
+		m.rangeTitles = newTitles(m.rangePlan)
 	}
 }
 
@@ -226,44 +273,140 @@ func (m Model) top() int {
 	return rowIndexFor(rows, m.Offset)
 }
 
-func (m Model) maxTopRow() int {
-	return max(0, len(m.rows())-max(m.Height, 1))
+// bottom is the last scroll position: a row and how many of its wrapped
+// screen lines are scrolled past.
+func (m Model) bottom() (row, skip int) {
+	if m.cache == nil {
+		return m.findBottom()
+	}
+	key := m.layoutKey()
+	if m.cache.end != key {
+		m.cache.row, m.cache.skip = m.findBottom()
+		m.cache.end = key
+	}
+	return m.cache.row, m.cache.skip
 }
 
-func (m *Model) scrollTo(row int) {
+func (m Model) findBottom() (row, skip int) {
+	rows := m.rows()
+	if !m.wrapping() {
+		return max(0, len(rows)-max(m.Height, 1)), 0
+	}
+	used := 0
+	for i := len(rows) - 1; i >= 0; i-- {
+		lines := m.screenLines(rows[i])
+		used += lines
+		if over := used - max(m.Height, 1); over >= lines {
+			return i + 1, 0
+		} else if over > 0 {
+			return i, over
+		}
+	}
+	return 0, 0
+}
+
+func (m Model) wrapping() bool { return m.Wrap && m.Width > 0 }
+
+// position is where drawing starts: the top row and its skipped screen
+// lines, clamped so the viewport stays full.
+func (m Model) position() (row, skip int) {
+	row = m.top()
+	if rows := m.rows(); m.wrapping() && m.skipRow == row && row < len(rows) {
+		skip = min(m.skip, m.screenLines(rows[row])-1)
+	}
+	if br, bs := m.bottom(); row > br || row == br && skip > bs {
+		return br, bs
+	}
+	return row, skip
+}
+
+func (m *Model) setPosition(row, skip int) {
 	rows := m.rows()
 	if len(rows) == 0 {
 		return
 	}
-	row = min(max(0, row), m.maxTopRow())
-	m.topRow = row
-	m.Offset = rows[row].line
+	row = min(max(0, row), len(rows)-1)
+	if br, bs := m.bottom(); row > br || row == br && skip > bs {
+		row, skip = br, bs
+	}
+	m.topRow, m.Offset = row, rows[row].line
+	m.skip, m.skipRow = skip, row
 }
+
+// down scrolls one screen line through a wrapped row taller than the
+// viewport, else one row.
+func (m *Model) down() {
+	row, skip := m.position()
+	rows := m.rows()
+	if len(rows) == 0 {
+		return
+	}
+	if m.wrapping() && m.screenLines(rows[row])-skip > max(m.Height, 1) {
+		m.setPosition(row, skip+1)
+		return
+	}
+	m.setPosition(row+1, 0)
+}
+
+func (m *Model) up() {
+	if row, skip := m.position(); skip > 0 {
+		m.setPosition(row, skip-1)
+	} else {
+		m.setPosition(row-1, 0)
+	}
+}
+
+// screenLines is how many screen lines a row takes.
+func (m Model) screenLines(r viewRow) int {
+	if r.kind != rowLine || !m.wrapping() {
+		return 1
+	}
+	if m.cache == nil {
+		return len(m.renderRow(r))
+	}
+	if key := m.layoutKey(); m.cache.layout != key {
+		m.cache.layout, m.cache.heights = key, map[int]int{}
+	}
+	h, ok := m.cache.heights[r.line]
+	if !ok {
+		h = len(m.renderRow(r))
+		m.cache.heights[r.line] = h
+	}
+	return h
+}
+
+func (m Model) layoutKey() layoutKey {
+	m.rows() // brings cache.rev up to this model
+	return layoutKey{m.cache.rev, m.Width, m.Height, m.wrapping(), m.Search.Query}
+}
+
+func (m *Model) scrollTo(row int) { m.setPosition(row, 0) }
 
 // reveal opens the repeat fold or step group hiding line.
 func (m *Model) reveal(line int) {
-	changed := false
-	if plan := m.activePlan(); plan != nil {
-		for _, r := range m.rows() {
-			if r.kind == rowRepeat && !r.open && r.line <= line && line <= r.end {
-				m.open[r.line] = true
-				changed = true
-			}
-		}
-	}
+	m.skip = 0
+	// open groups first: a closed group hides the repeat rows inside it
 	for _, f := range m.Document.Folds {
 		if m.collapsed[f.StartLine] && f.StartLine < line && line <= f.EndLine {
+			m.collapsed = maps.Clone(m.collapsed)
 			m.collapsed[f.StartLine] = false
-			changed = true
+			m.bump()
 		}
 	}
-	if changed {
-		m.rev++
+	if m.activePlan() == nil {
+		return
+	}
+	for _, r := range m.rows() {
+		if r.kind == rowRepeat && !r.open && r.line <= line && line <= r.end {
+			m.open = maps.Clone(m.open)
+			m.open[r.line] = true
+			m.bump()
+		}
 	}
 }
 
 func (m *Model) setRepeatsOpen(open bool) {
-	clear(m.open)
+	m.open = map[int]bool{}
 	if open {
 		for _, r := range m.rows() {
 			if r.kind == rowRepeat {
@@ -271,7 +414,7 @@ func (m *Model) setRepeatsOpen(open bool) {
 			}
 		}
 	}
-	m.rev++
+	m.bump()
 }
 
 // jumpRepeat scrolls to the next (dir 1) or previous (dir -1) repeat fold.
@@ -279,6 +422,7 @@ func (m *Model) jumpRepeat(dir int) {
 	rows := m.rows()
 	for i := m.top() + dir; i >= 0 && i < len(rows); i += dir {
 		if rows[i].kind == rowRepeat {
+			m.skip = 0
 			m.topRow = i
 			m.Offset = rows[i].line
 			return
@@ -291,15 +435,18 @@ func (m *Model) toggleCompact() {
 		return
 	}
 	m.Compact = !m.Compact
-	m.rev++
+	m.bump()
 	m.topRow = -1
 }
 
 // repeatTitle summarizes the fold behind a repeat row.
 func (m Model) repeatTitle(r viewRow) string {
-	plan := m.activePlan()
-	if plan == nil || r.seg >= len(plan.Segments) {
+	plan, titles := m.activePlan(), m.titles
+	if m.RangeLabel != "" {
+		titles = m.rangeTitles
+	}
+	if plan == nil || titles == nil || titles.plan != plan || r.seg >= len(plan.Segments) {
 		return ""
 	}
-	return fold.Summarize(plan.Segments[r.seg], plan.Lines, fold.Shape{}).Title()
+	return titles.title(r.seg)
 }

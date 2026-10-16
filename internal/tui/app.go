@@ -140,6 +140,7 @@ type App struct {
 	theme             theme.Theme
 	routes            []Route
 	viewportHeight    int
+	viewportWidth     int
 	overlays          []Overlay
 	inputMode         bool
 	quit              bool
@@ -2197,6 +2198,7 @@ func (a App) updateFailure(msg KeyMsg) (App, bool) {
 // scrolls against the real viewport, not the resolver's default.
 func (a App) WithViewport(width, height int) App {
 	a.viewportHeight = height
+	a.viewportWidth = width
 	return a
 }
 
@@ -2205,6 +2207,9 @@ func (a App) updateLog(msg KeyMsg) (App, bool) {
 		if rows := bodyHeight(a.viewportHeight) - 1; rows > 0 {
 			a.log.Height = rows
 		}
+	}
+	if a.viewportWidth > 0 {
+		a.log.Width = contentWidth(a.viewportWidth)
 	}
 	if msg.Key == "t" && !a.log.InputMode {
 		a.timeJump = timejump.New(a.log.Document)
@@ -4698,6 +4703,7 @@ func (a App) screenBody(width, height int) string {
 		if rows := bodyHeight(height) - 1; rows > 0 {
 			logModel.Height = rows
 		}
+		logModel.Width = bodyWidth
 		return logscreen.View(logModel, bodyWidth)
 	case RouteWatch:
 		if load := a.load; load != nil && load.kind == loadKindWatch {
