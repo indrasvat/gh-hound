@@ -4149,7 +4149,9 @@ func (a App) footerScreen() keys.Screen {
 		if a.Route() == RouteRuns && a.runs.InputMode {
 			return keys.ScreenRunsFilter
 		}
-		if a.Route() == RouteRuns && a.runs.AllGreen() {
+		// Mirror runs.ViewSize: a filtered list is the standard table, so
+		// it gets the standard footer even when every match is green.
+		if a.Route() == RouteRuns && a.runs.AllGreen() && strings.TrimSpace(a.runs.Filter) == "" {
 			return keys.ScreenAllGreen
 		}
 		return keys.ScreenRunsList

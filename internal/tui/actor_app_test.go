@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/config"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/tui/keys"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/runs"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
@@ -489,5 +490,17 @@ func TestEmptyFilteredPageStillOffersOlderRuns(t *testing.T) {
 	app = settleApp(t, typeKeys(t, app, "G"))
 	if !strings.Contains(view(app), "@carol") || requests[len(requests)-1].Page != 2 {
 		t.Fatalf("G on an empty filtered page must fetch the next one:\n%s", view(app))
+	}
+}
+
+func TestFilteredGreenListKeepsTheStandardFooter(t *testing.T) {
+	green := []model.Run{actorRun(1, "alice", "trunk", model.ConclusionSuccess), actorRun(2, "alice", "trunk", model.ConclusionSuccess)}
+	app := newActorApp(&actorRuns{rows: green}, nil)
+	if app.footerScreen() != keys.ScreenAllGreen {
+		t.Fatalf("unfiltered all-green home = %s", app.footerScreen())
+	}
+	app = settleApp(t, typeQuery(t, app, "actor:alice"))
+	if app.footerScreen() != keys.ScreenRunsList || !strings.Contains(view(app), "f status") {
+		t.Fatalf("filtered table needs the runs footer:\n%s", view(app))
 	}
 }
