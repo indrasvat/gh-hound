@@ -194,10 +194,14 @@ func (q Query) MatchesText(run model.Run) bool {
 // bare status words.
 func WithToken(raw, key, value string) string {
 	tokens := strings.Fields(raw)
-	bare := 0
+	bare, taggedStatus := 0, false
 	for _, token := range tokens {
-		if k, _, tagged := strings.Cut(token, ":"); !tagged || canonicalKey(strings.ToLower(k)) == "" {
+		k, _, tagged := strings.Cut(token, ":")
+		switch name := canonicalKey(strings.ToLower(k)); {
+		case !tagged || name == "":
 			bare++
+		case name == "status":
+			taggedStatus = true
 		}
 	}
 	kept := []string{}
@@ -207,8 +211,9 @@ func WithToken(raw, key, value string) string {
 		if tagged && name == key {
 			continue
 		}
-		// A lone bare status word is the status filter (see ParseQuery).
-		if (!tagged || name == "") && key == "status" && bare == 1 {
+		// A lone bare status word is the status filter (see ParseQuery)
+		// unless an explicit status: already made it search text.
+		if (!tagged || name == "") && key == "status" && bare == 1 && !taggedStatus {
 			if _, ok := NormalizeStatus(token); ok {
 				continue
 			}

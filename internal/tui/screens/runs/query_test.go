@@ -130,6 +130,7 @@ func TestWithTokenReplacesOnlyItsKey(t *testing.T) {
 		{"actor:@me status:failure", "actor", "", "status:failure"},
 		{"conclusion:failure", "status", "", ""},
 		{"deploy green", "status", "failure", "deploy green status:failure"},
+		{"status:success failing", "status", "in_progress", "failing status:in_progress"},
 		{"feat: bump", "actor", "@me", "feat: bump actor:@me"},
 	}
 	for _, tt := range tests {

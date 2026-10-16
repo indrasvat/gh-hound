@@ -46,3 +46,11 @@ func TestAttributionWrapsInsteadOfTruncatingLogins(t *testing.T) {
 		t.Fatalf("wide attribution should share the breadcrumb row: %q", wide)
 	}
 }
+
+func TestAttributionWrapsByPartAtNarrowWidths(t *testing.T) {
+	run := model.Run{ID: 1, Name: "CI", RunNumber: 7, Actor: strings.Repeat("a", 30), TriggeringActor: strings.Repeat("b", 30), RunAttempt: 3}
+	view := ansi.Strip(ViewSize(NewModel(run, nil).WithRepo("o/r"), 78, 20))
+	if !strings.Contains(view, "Re-run by @"+strings.Repeat("b", 30)) || !strings.Contains(view, "Started by @"+strings.Repeat("a", 30)) {
+		t.Fatalf("both logins must survive at 78 columns:\n%s", view)
+	}
+}

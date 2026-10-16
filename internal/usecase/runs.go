@@ -169,7 +169,8 @@ func ListActorRuns(ctx context.Context, github GitHub, filter RunFilter) ([]mode
 		return github.ListRuns(ctx, filter)
 	}
 	kept := []model.Run{}
-	for page := max(filter.Page, 1); page < max(filter.Page, 1)+ActorPageBudget; page++ {
+	first := max(filter.Page, 1)
+	for page := first; page < first+ActorPageBudget; page++ {
 		filter.Page = page
 		runs, err := github.ListRuns(ctx, filter)
 		if err != nil {

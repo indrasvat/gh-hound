@@ -120,6 +120,14 @@ func TestListActorRunsPagesUntilThePageFills(t *testing.T) {
 			t.Fatalf("leaked %q", run.Actor)
 		}
 	}
+	loose := map[int][]model.Run{}
+	for page := 1; page <= 50; page++ {
+		loose[page] = pages[1] // GitHub keeps serving full pages of others' runs
+	}
+	github = &pagedGitHub{launchGitHub: &launchGitHub{}, pages: loose}
+	if runs, _ := usecase.ListActorRuns(context.Background(), github, usecase.RunFilter{Actor: "alice", PerPage: 30, Page: 1}); len(runs) != 0 || github.reads != usecase.ActorPageBudget {
+		t.Fatalf("the page budget must stop the hunt: runs=%d reads=%d", len(runs), github.reads)
+	}
 	github = &pagedGitHub{launchGitHub: &launchGitHub{}, pages: map[int][]model.Run{1: pages[1]}}
 	if runs, _ := usecase.ListActorRuns(context.Background(), github, usecase.RunFilter{Actor: "alice", PerPage: 30, Page: 1}); len(runs) != 0 || github.reads != 2 {
 		t.Fatalf("short second page must stop the hunt: runs=%d reads=%d", len(runs), github.reads)

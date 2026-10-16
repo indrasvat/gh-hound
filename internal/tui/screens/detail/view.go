@@ -432,7 +432,20 @@ func headLines(m Model, width int) []string {
 	if ansi.StringWidth(crumb)+2+ansi.StringWidth(attribution) <= width {
 		return []string{joinRightANSI(crumb, attribution, width)}
 	}
-	return []string{fit(crumb, width), fit(attribution, width)}
+	lines := []string{fit(crumb, width)}
+	current := ""
+	for part := range strings.SplitSeq(attribution, " · ") {
+		if current != "" && ansi.StringWidth(current)+3+ansi.StringWidth(part) > width {
+			lines = append(lines, fit(current, width))
+			current = part
+			continue
+		}
+		if current != "" {
+			current += " · "
+		}
+		current += part
+	}
+	return append(lines, fit(current, width))
 }
 
 // Attribution names who started the run and, after a re-run by someone
