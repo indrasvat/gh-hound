@@ -31,6 +31,8 @@ type Theme struct {
 	Neutral  string
 	Glow     string
 	TermBG   string
+	// OKTint fills the all-green summary band.
+	OKTint string
 }
 
 func ForMode(mode Mode) Theme {
@@ -57,6 +59,7 @@ func ForMode(mode Mode) Theme {
 			Neutral:  "#8A8773",
 			Glow:     "rgba(31,158,85,.10)",
 			TermBG:   "#1B1D17",
+			OKTint:   "#D6E3D0",
 		}
 	}
 	return Theme{
@@ -81,6 +84,7 @@ func ForMode(mode Mode) Theme {
 		Neutral:  "#6B7060",
 		Glow:     "rgba(79,211,122,.10)",
 		TermBG:   "#0B0C0A",
+		OKTint:   "#142318",
 	}
 }
 

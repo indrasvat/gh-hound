@@ -12,6 +12,7 @@ func TestScreenFootersMatchVisualContract(t *testing.T) {
 		ScreenWelcome:    "⏎ continue · ? help · q quit",
 		ScreenAllGreen:   "j/k move · s scope · ⏎ open · w watch · D dispatch · / filter · ? help",
 		ScreenRunsList:   "j/k · s scope · ⏎ open · ↻ rerun · ✗ cancel · l log · w watch · f status · / filter · ?",
+		ScreenRunsFilter: "⏎ apply · ⎋ cancel · ctrl+u clear",
 		ScreenDetail:     "⏎ expand · ↻ rerun job · R rerun failed · ✗ cancel · ⎋ back · ?",
 		ScreenFailure:    "↻ rerun failed · r rerun job · l full log · o browser · y copy excerpt",
 		ScreenWatch:      "✗ cancel · f follow · d debug · ⎋ detach",

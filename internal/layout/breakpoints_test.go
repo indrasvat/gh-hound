@@ -20,13 +20,13 @@ func TestBreakpointForTargetGeometries(t *testing.T) {
 }
 
 func TestRunsColumnsCollapseByBreakpoint(t *testing.T) {
-	if got := RunsColumns(BreakpointNarrow); !equal(got, []string{"status", "workflow", "number", "age"}) {
+	if got := RunsColumns(BreakpointNarrow); !equal(got, []string{"number", "status", "workflow", "actor", "age"}) {
 		t.Fatalf("narrow columns = %#v", got)
 	}
-	if got := RunsColumns(BreakpointDefault); !equal(got, []string{"status", "workflow", "event", "number", "duration", "age"}) {
+	if got := RunsColumns(BreakpointDefault); !equal(got, []string{"number", "status", "workflow", "actor", "event", "duration", "age"}) {
 		t.Fatalf("default columns = %#v", got)
 	}
-	if got := RunsColumns(BreakpointWide); !equal(got, []string{"status", "workflow", "event", "actor", "sha", "number", "duration", "age"}) {
+	if got := RunsColumns(BreakpointWide); !equal(got, []string{"number", "status", "workflow", "actor", "event", "duration", "age"}) {
 		t.Fatalf("wide columns = %#v", got)
 	}
 }

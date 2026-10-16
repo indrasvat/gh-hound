@@ -128,6 +128,13 @@ type GitHubConcurrency interface {
 	ListRunConcurrencyGroups(ctx context.Context, repo string, runID int64, opts ConcurrencyListOptions) ([]model.ConcurrencyGroup, error)
 }
 
+// ViewerProvider is an optional adapter capability: the login the
+// current credentials authenticate as (GET /user). It is the only
+// source for @me — never git config, which names a commit author.
+type ViewerProvider interface {
+	AuthenticatedLogin(ctx context.Context) (string, error)
+}
+
 // RepoInfoProvider is an optional adapter capability: the target
 // repo's default branch, used to pre-fill dispatch refs for foreign
 // repos where the local checkout branch would be a lie.

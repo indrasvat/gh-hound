@@ -1,9 +1,1 @@
-{
-  "contains": [
-    "hound ⎇ branch main",
-    "/fail",
-    "/fail  1 matches",
-    "rows 1-1/1",
-    "1 failing · 0 running · 0 passed"
-  ]
-}
+{"contains": ["hound ⎇ branch main", "/fail · 1 of 1 loaded · Esc clear", "rows 1-1/1", "1 failing · 0 running · 0 passed"]}

@@ -31,6 +31,10 @@ scenarios=(
   runs-select
   runs-filter
   runs-status-cycle
+  runs-filter-edit
+  runs-actor-me
+  runs-actor-anon
+  runs-actor-palette
   log-time-jump
   log-time-picker
   detail-nav
@@ -50,6 +54,8 @@ scenarios=(
 adapter_for() {
   case "$1" in
     runs-select) printf 'green' ;;
+    runs-actor-me | runs-actor-palette) printf 'actors' ;;
+    runs-actor-anon) printf 'actors_anon' ;;
     watch-toggle) printf 'running' ;;
     pack-board) printf 'pack' ;;
     failure-log-refetch) printf 'log_refetch' ;;
@@ -73,6 +79,9 @@ keys_for() {
     runs-select) printf 'j' ;;
     runs-filter) printf '/ f a i l enter' ;;
     runs-status-cycle) printf 'f' ;;
+    runs-filter-edit) printf '/ z z' ;;
+    runs-actor-me | runs-actor-anon) printf '/ a c t o r : @ m e enter' ;;
+    runs-actor-palette) printf ': M y space r u n s enter' ;;
     log-time-jump) printf 'enter enter l t 1 7 : 4 2 enter' ;;
     log-time-picker) printf 'enter enter l t' ;;
     detail-nav) printf 'enter tab n' ;;
@@ -98,6 +107,7 @@ send_key() {
     enter) shux pane send-keys -s "$session" --data DQ== >/dev/null ;;
     tab) shux pane send-keys -s "$session" --data CQ== >/dev/null ;;
     esc) shux pane send-keys -s "$session" --data Gw== >/dev/null ;;
+    space) shux pane send-keys -s "$session" --text ' ' >/dev/null ;;
     up) shux pane send-keys -s "$session" --data G1tB >/dev/null ;;
     down) shux pane send-keys -s "$session" --data G1tC >/dev/null ;;
     right) shux pane send-keys -s "$session" --data G1tD >/dev/null ;;

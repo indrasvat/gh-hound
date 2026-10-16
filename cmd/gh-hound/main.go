@@ -85,9 +85,13 @@ type commandRuntime struct {
 }
 
 type cliOptions struct {
-	Repo          string
-	Branch        string
-	Status        string
+	Repo   string
+	Branch string
+	Status string
+	Actor  string
+	// ActorFromEnv marks an actor that came from HOUND_ACTOR: an
+	// explicit --run ignores it instead of refusing.
+	ActorFromEnv  bool
 	Workflow      string
 	Format        render.Format
 	NoTUI         bool
@@ -151,6 +155,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.SetOut(runtime.Stdout)
 	cmd.SetErr(runtime.Stderr)
 	cmd.Flags().BoolP("version", "v", false, "print version information")
+	cmd.Flags().StringVar(&options.Actor, "actor", "", actorFlagUsage)
 	cmd.PersistentFlags().BoolVar(&options.NoTUI, "no-tui", false, "disable the TUI and write structured output (env HOUND_NO_TUI)")
 	cmd.PersistentFlags().BoolVar(&options.JSON, "json", false, "write JSON output and disable the TUI (env HOUND_JSON)")
 	cmd.PersistentFlags().StringVarP(&options.Repo, "repo", "R", "", "GitHub repository owner/name (env GH_REPO or HOUND_REPO)")
@@ -378,7 +383,8 @@ func newInteractCommand(stdout io.Writer) *cobra.Command {
 }
 
 func newVQATUICommand(runtime commandRuntime, info buildInfo) *cobra.Command {
-	var scenario string
+	var scenario, actor string
+	var latency time.Duration
 	cmd := &cobra.Command{
 		Use:    "__vqa-tui",
 		Hidden: true,
@@ -386,7 +392,11 @@ func newVQATUICommand(runtime commandRuntime, info buildInfo) *cobra.Command {
 			if runtime.Stdin == nil {
 				runtime.Stdin = os.Stdin
 			}
-			runtime.GitHub = fake.New(fake.Scenario(scenario))
+			adapter := fake.New(fake.Scenario(scenario))
+			runtime.GitHub = adapter
+			if latency > 0 {
+				runtime.GitHub = slowGitHub{Adapter: adapter, latency: latency}
+			}
 			runtime.Repo = staticRepositoryContext{
 				context: usecase.RepositoryContext{
 					Repo:   "indrasvat/gh-hound",
@@ -394,11 +404,43 @@ func newVQATUICommand(runtime commandRuntime, info buildInfo) *cobra.Command {
 					Actor:  "indrasvat",
 				},
 			}
-			return runTUI(cmd.Context(), runtime, info, cliOptions{Repo: "indrasvat/gh-hound", Branch: "main"})
+			return runTUI(cmd.Context(), runtime, info, cliOptions{Repo: "indrasvat/gh-hound", Branch: "main", Actor: actor})
 		},
 	}
 	cmd.Flags().StringVar(&scenario, "scenario", string(fake.ScenarioFailing), "fake adapter scenario for PTY VQA")
+	cmd.Flags().StringVar(&actor, "actor", "", "launch actor filter (login or @me)")
+	cmd.Flags().DurationVar(&latency, "latency", 0, "delay every runs listing and identity lookup, to rehearse loading and stale results")
 	return cmd
+}
+
+// slowGitHub delays the calls a filter edit makes so PTY rehearsals can
+// see loading states and out-of-order results. Cancellation still wins.
+type slowGitHub struct {
+	*fake.Adapter
+	latency time.Duration
+}
+
+func (g slowGitHub) wait(ctx context.Context) error {
+	select {
+	case <-time.After(g.latency):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (g slowGitHub) ListRuns(ctx context.Context, filter usecase.RunFilter) ([]model.Run, error) {
+	if err := g.wait(ctx); err != nil {
+		return nil, err
+	}
+	return g.Adapter.ListRuns(ctx, filter)
+}
+
+func (g slowGitHub) AuthenticatedLogin(ctx context.Context) (string, error) {
+	if err := g.wait(ctx); err != nil {
+		return "", err
+	}
+	return g.Adapter.AuthenticatedLogin(ctx)
 }
 
 type staticRepositoryContext struct {
@@ -429,12 +471,15 @@ func newRunsCommand(runtime commandRuntime, options *cliOptions) *cobra.Command 
 		},
 	}
 	cmd.Flags().StringVar(&options.Status, "status", "", "filter runs by status or conclusion (env HOUND_STATUS)")
+	cmd.Flags().StringVar(&options.Actor, "actor", "", actorFlagUsage)
 	cmd.Flags().BoolVar(&options.WithArtifacts, "artifacts", false, "include artifact metadata per run (paginated artifact-list calls per run)")
 	cmd.Flags().BoolVar(&options.WithApprovals, "approvals", false, "include pending_environments for waiting runs (one pending-deployments call per waiting run)")
 	cmd.Flags().Int64Var(&options.RunID, "run", 0, "inspect a single run by ID (any branch)")
 	cmd.Flags().IntVar(&options.Attempt, "attempt", 0, "target a specific run attempt for failure triage (requires --run)")
 	return cmd
 }
+
+const actorFlagUsage = "show runs started by a GitHub login, or @me for the authenticated user (env HOUND_ACTOR)"
 
 func newArtifactsCommand(runtime commandRuntime, options *cliOptions) *cobra.Command {
 	cmd := &cobra.Command{
@@ -791,6 +836,9 @@ func newWatchCommand(runtime commandRuntime, options *cliOptions) *cobra.Command
 			"in-flight poll too, so a hung GitHub call can't outlast it.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			applyEnv(options, runtime.Env)
+			// watch follows the active run whoever started it; an actor
+			// from HOUND_ACTOR is for runs listings only.
+			options.Actor, options.ActorFromEnv = "", false
 			options.NoTUI = true
 			options.Watch = true
 			if options.WatchTimeout < 0 {
@@ -1079,18 +1127,21 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 		return err
 	}
 	defer restore()
+	out := runtime.Stdout
 	if runtime.IsTTY {
+		out = tuiOutput(runtime.Stdout, runtime.Env)
 		// Alt screen + hidden cursor for the app's lifetime: scrollback
 		// stays clean and the cursor never strobes during repaints.
-		if _, err := io.WriteString(runtime.Stdout, enterAlt+hideCursor); err != nil {
+		if _, err := io.WriteString(out, enterAlt+hideCursor); err != nil {
 			return err
 		}
 		defer func() {
-			_, _ = io.WriteString(runtime.Stdout, showCursor+leaveAlt)
+			_, _ = io.WriteString(out, showCursor+leaveAlt)
 		}()
 	}
 
-	renderer := newFrameRenderer(runtime.Stdout)
+	renderer := newFrameRenderer(out)
+	renderer.SetSize(width, height)
 	render := func() error {
 		if runtime.IsTTY {
 			return renderer.Render(app.ViewSize(width, height))
@@ -1120,6 +1171,7 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 			app = app.WithViewport(width, height)
 			// The terminal reflowed: the previous frame's rows no
 			// longer correspond, so the diff must start over.
+			renderer.SetSize(width, height)
 			renderer.Invalidate()
 			if err := render(); err != nil {
 				return err
@@ -1216,6 +1268,12 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 	if err != nil {
 		return tui.App{}, err
 	}
+	actor := ""
+	if options.Actor != "" {
+		if actor, err = usecase.NormalizeActor(options.Actor); err != nil {
+			return tui.App{}, fmt.Errorf("--actor: %w", err)
+		}
+	}
 	githubClient := githubClientForRuntime(runtime)
 	repoProvider := repoProviderForRuntime(runtime)
 	// One limiter paces every mutation the TUI can fire — reruns,
@@ -1245,6 +1303,7 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 		All:     options.All,
 		Route:   options.LaunchRoute,
 		PerPage: cfg.PerPage,
+		Actor:   actor,
 	})
 	return tui.NewApp(tui.Options{
 		Config: cfg,
@@ -1256,6 +1315,7 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			}
 			return githubClient.ListRuns(loadCtx, filter)
 		},
+		ViewerResolver: viewerResolver(githubClient),
 		RunsMetadata: func() (usecase.RequestMeta, bool) {
 			diagnostics, ok := githubClient.(usecase.GitHubDiagnostics)
 			if !ok {
@@ -1822,6 +1882,16 @@ func elapsedRun(run model.Run) string {
 	return fmt.Sprintf("%dm%02ds", int(elapsed.Minutes()), int(elapsed.Seconds())%60)
 }
 
+// viewerResolver exposes the client's /user lookup to the TUI, or nil
+// when the client cannot report who it is.
+func viewerResolver(githubClient usecase.GitHub) func(context.Context) (string, error) {
+	viewer, ok := githubClient.(usecase.ViewerProvider)
+	if !ok {
+		return nil
+	}
+	return viewer.AuthenticatedLogin
+}
+
 func githubClientForRuntime(runtime commandRuntime) usecase.GitHub {
 	if runtime.GitHub != nil {
 		return runtime.GitHub
@@ -1979,6 +2049,20 @@ func writeResult(ctx context.Context, w io.Writer, options cliOptions, runtime c
 }
 
 func resultForOptions(ctx context.Context, options cliOptions, runtime commandRuntime) (render.Result, error) {
+	if options.RunID != 0 && options.ActorFromEnv {
+		// --run always shows that run: HOUND_ACTOR does not apply.
+		options.Actor = ""
+	}
+	if options.Actor != "" {
+		if options.RunID != 0 {
+			return render.Result{}, errors.New("--actor cannot be combined with --run: --run always shows that run")
+		}
+		actor, err := usecase.NormalizeActor(options.Actor)
+		if err != nil {
+			return render.Result{}, fmt.Errorf("--actor: %w", err)
+		}
+		options.Actor = actor
+	}
 	if options.Fake == "" {
 		return liveResult(ctx, options, runtime)
 	}
@@ -2067,6 +2151,13 @@ func liveResult(ctx context.Context, options cliOptions, runtime commandRuntime)
 	}
 
 	filter := usecase.RunFilter{Repo: repo, Branch: branch, PerPage: 30}
+	if options.Actor != "" {
+		login, err := usecase.ResolveActor(ctx, githubClient, options.Actor)
+		if err != nil {
+			return render.Result{}, fmt.Errorf("%w; pass --actor <login>", err)
+		}
+		filter.Actor = login
+	}
 	if options.Status != "" {
 		status, err := parseStatusFilter(options.Status)
 		if err != nil {
@@ -2074,7 +2165,7 @@ func liveResult(ctx context.Context, options cliOptions, runtime commandRuntime)
 		}
 		filter.Status = status
 	}
-	runs, err := githubClient.ListRuns(ctx, filter)
+	runs, err := usecase.ListActorRuns(ctx, githubClient, filter)
 	if err != nil {
 		return render.Result{}, err
 	}
@@ -2095,7 +2186,9 @@ func runDiagnosticForOptions(ctx context.Context, githubClient usecase.GitHub, o
 	if len(runs) > 0 || options.RunID != 0 || options.All || strings.TrimSpace(branch) == "" {
 		return nil
 	}
-	if strings.TrimSpace(options.Status) != "" && githubClient != nil {
+	// A filtered empty result does not mean the branch has no runs:
+	// probe it unfiltered before calling the target a mismatch.
+	if (strings.TrimSpace(options.Status) != "" || options.Actor != "") && githubClient != nil {
 		branchRuns, err := githubClient.ListRuns(ctx, usecase.RunFilter{Repo: repo, Branch: branch, PerPage: 1})
 		if err != nil {
 			return nil
@@ -2104,11 +2197,11 @@ func runDiagnosticForOptions(ctx context.Context, githubClient usecase.GitHub, o
 			return nil
 		}
 	}
-	return renderDiagnosticForEmptyBranch(repo, branch)
+	return renderDiagnosticForEmptyBranch(repo, branch, options.Actor)
 }
 
-func renderDiagnosticForEmptyBranch(repo, branch string) *render.Diagnostic {
-	diagnostic, ok := usecase.EmptyBranchRunDiagnostic(repo, branch)
+func renderDiagnosticForEmptyBranch(repo, branch, actor string) *render.Diagnostic {
+	diagnostic, ok := usecase.EmptyBranchRunDiagnostic(repo, branch, actor)
 	if !ok {
 		return nil
 	}
@@ -2358,18 +2451,20 @@ func mapRenderRuns(runs []model.Run) []render.Run {
 	out := make([]render.Run, 0, len(runs))
 	for _, run := range runs {
 		out = append(out, render.Run{
-			ID:         run.ID,
-			Workflow:   firstNonEmpty(run.Name, run.DisplayTitle, run.Path),
-			RunNumber:  run.RunNumber,
-			Event:      run.Event,
-			HeadBranch: run.HeadBranch,
-			HeadSHA:    run.HeadSHA,
-			Status:     string(run.Status),
-			Attempt:    run.RunAttempt,
-			Conclusion: string(run.Conclusion),
-			CreatedAt:  run.CreatedAt,
-			HTMLURL:    run.HTMLURL,
-			Failed:     []render.Failure{},
+			ID:              run.ID,
+			Workflow:        firstNonEmpty(run.Name, run.DisplayTitle, run.Path),
+			RunNumber:       run.RunNumber,
+			Event:           run.Event,
+			HeadBranch:      run.HeadBranch,
+			HeadSHA:         run.HeadSHA,
+			Status:          string(run.Status),
+			Attempt:         run.RunAttempt,
+			Conclusion:      string(run.Conclusion),
+			Actor:           run.Actor,
+			TriggeringActor: run.TriggeringActor,
+			CreatedAt:       run.CreatedAt,
+			HTMLURL:         run.HTMLURL,
+			Failed:          []render.Failure{},
 		})
 	}
 	return out
@@ -2480,17 +2575,19 @@ func fakeResult(options cliOptions, scenario string) render.Result {
 		return render.Result{Repo: repo, Branch: branch, Runs: runs, Diagnostic: diagnostic}
 	}
 	run := render.Run{
-		ID:         30433642,
-		Workflow:   "CI",
-		RunNumber:  571,
-		Event:      "pull_request",
-		HeadBranch: branch,
-		HeadSHA:    "a1b2c3d",
-		Status:     runStatus,
-		Conclusion: conclusion,
-		CreatedAt:  time.Date(2026, 6, 7, 17, 42, 0, 0, time.UTC),
-		HTMLURL:    "https://github.com/" + repo + "/actions/runs/30433642",
-		Failed:     []render.Failure{},
+		ID:              30433642,
+		Workflow:        "CI",
+		RunNumber:       571,
+		Event:           "pull_request",
+		HeadBranch:      branch,
+		HeadSHA:         "a1b2c3d",
+		Status:          runStatus,
+		Conclusion:      conclusion,
+		Actor:           "indrasvat",
+		TriggeringActor: "indrasvat",
+		CreatedAt:       time.Date(2026, 6, 7, 17, 42, 0, 0, time.UTC),
+		HTMLURL:         "https://github.com/" + repo + "/actions/runs/30433642",
+		Failed:          []render.Failure{},
 	}
 	if conclusion == "failure" {
 		run.Failed = []render.Failure{{
@@ -2505,6 +2602,11 @@ func fakeResult(options cliOptions, scenario string) render.Result {
 			}},
 			LogExcerpt: "--- FAIL: TestLexIdent/trailing_underscore ...",
 		}}
+	}
+	if options.Actor != "" && options.Actor != usecase.MeActor && !strings.EqualFold(options.Actor, run.Actor) {
+		// The fake credentials are run.Actor's: anyone else's filter is
+		// a genuine miss, not a target mismatch.
+		return render.Result{Repo: repo, Branch: branch, Runs: []render.Run{}}
 	}
 	return render.Result{
 		Repo:   repo,
@@ -2576,6 +2678,12 @@ func applyEnv(options *cliOptions, lookup func(string) (string, bool)) {
 	if options.Status == "" {
 		if value, ok := lookup("HOUND_STATUS"); ok {
 			options.Status = value
+		}
+	}
+	if options.Actor == "" {
+		if value, ok := lookup("HOUND_ACTOR"); ok && strings.TrimSpace(value) != "" {
+			options.Actor = value
+			options.ActorFromEnv = true
 		}
 	}
 	if value, ok := lookup("HOUND_FORMAT"); ok {

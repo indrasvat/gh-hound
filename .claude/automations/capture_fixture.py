@@ -29,6 +29,9 @@ Usage:
       --screen runs --rows 16 --verify "f status" --verify "#571" \
       --reference pages/assets/shots/runs.png out.png
   uv run .claude/automations/capture_fixture.py --live-log --rows 29 out.png
+  uv run .claude/automations/capture_fixture.py --live-filter \
+      "actor:dependabot[bot] status:failure" --repo vercel/next.js \
+      --rows 15 --reference pages/assets/shots/detail.png filters.png
 """
 
 import argparse
@@ -56,6 +59,8 @@ def parse_args():
     parser.add_argument("--verify", action="append", default=[])
     parser.add_argument("--reference", help="prior PNG whose crop margins to clone")
     parser.add_argument("--live-log", action="store_true")
+    parser.add_argument("--live-filter", help="runs / query to apply in the real TUI")
+    parser.add_argument("--repo", default="cli/cli", help="repo for --live-filter")
     return parser.parse_args()
 
 
@@ -94,7 +99,9 @@ async def converge_grid(window, session, cols, rows):
             iterm2.Frame(iterm2.Point(RETINA_X, frame.origin.y), iterm2.Size(width, height))
         )
         await asyncio.sleep(0.35)
-        grid = session.grid_size
+        # The session object's grid_size is a stale snapshot; re-read it.
+        app = await iterm2.async_get_app(session.connection)
+        grid = app.get_session_by_id(session.session_id).grid_size
         if grid.width == cols and grid.height == rows:
             return True
         cell_w = width / max(grid.width, 1)
@@ -159,7 +166,8 @@ def crop_chrome(image):
 
 def crop_with_margins(output, margins):
     image = crop_chrome(Image.open(output).convert("RGB"))
-    left, top, right, bottom = content_bbox(image)
+    # Ignore the right-edge gutter where macOS may draw a scrollbar.
+    left, top, right, bottom = content_bbox(image.crop((0, 0, image.width - 40, image.height)))
     ml, mt, mr, mb = margins
     box = (
         max(left - ml, 0),
@@ -198,6 +206,23 @@ async def drive_live_log(session, repo):
     await asyncio.sleep(1.5)
 
 
+async def drive_live_filter(session, repo, target, query):
+    """Real TUI on a live repo: all branches -> / query -> apply."""
+    await session.async_send_text(
+        f"clear; printf '\\033[?25l'; cd {repo} && TERM=xterm-256color "
+        f"./bin/gh-hound -R {target} --all\r"
+    )
+    await asyncio.sleep(5.0)
+    await session.async_send_text("\r")  # welcome -> runs
+    await asyncio.sleep(3.0)
+    await session.async_send_text("/")
+    await asyncio.sleep(0.5)
+    await session.async_send_text(query)
+    await asyncio.sleep(0.5)
+    await session.async_send_text("\r")
+    await asyncio.sleep(8.0)  # actor filters may read several pages
+
+
 async def main(connection):
     args = parse_args()
     repo = pathlib.Path(__file__).resolve().parents[2]
@@ -208,12 +233,16 @@ async def main(connection):
         await style_session(session)
         # The alt-screen TUI fills the whole grid; fixtures print N rows
         # and need one extra grid row so the shell prompt doesn't scroll.
-        grid_rows = args.rows if args.live_log else args.rows + 1
+        live = args.live_log or args.live_filter
+        grid_rows = args.rows if live else args.rows + 1
         if not await converge_grid(window, session, COLS, grid_rows):
             raise RuntimeError(f"grid did not converge: {session.grid_size}")
         if args.live_log:
             await drive_live_log(session, repo)
             checks = args.verify or ["full log", "match 1/"]
+        elif args.live_filter:
+            await drive_live_filter(session, repo, args.repo, args.live_filter)
+            checks = args.verify or ["/" + args.live_filter, "Esc clear"]
         else:
             await session.async_send_text(
                 f"clear; printf '\\033[?25l'; cd {repo} && TERM=xterm-256color "

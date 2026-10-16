@@ -37,6 +37,8 @@ func TestThemeTokensMatchVisualContract(t *testing.T) {
 		"bone warn":         ForMode(ModeBone).Warn,
 		"bone neutral":      ForMode(ModeBone).Neutral,
 		"bone term-bg":      ForMode(ModeBone).TermBG,
+		"bramble ok-tint":   ForMode(ModeBramble).OKTint,
+		"bone ok-tint":      ForMode(ModeBone).OKTint,
 	}
 
 	for key, value := range expected {

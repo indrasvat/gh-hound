@@ -23,12 +23,13 @@ func ViewSize(m Model, width, height int) string {
 		width = 80
 	}
 	stepsBudget := 0
+	head := headLines(m, width)
 	if height > 0 {
-		// breadcrumb + pane header + divider + trailing divider + hint.
-		fixed := 5 + artifactsBlockLines(m) + gateBlockLines(m)
+		// breadcrumb row(s) + pane header + divider + trailing divider + hint.
+		fixed := len(head) + 4 + artifactsBlockLines(m) + gateBlockLines(m)
 		stepsBudget = max(height-fixed, 3)
 	}
-	lines := []string{fit(breadcrumb(m), width)}
+	lines := head
 	if width < 100 {
 		lines = append(lines, renderStepsPane(m, width, stepsBudget, true)...)
 	} else {
@@ -422,6 +423,50 @@ func hintLine(m Model, width int) string {
 
 func divider(width int) string {
 	return colorize(sgrLine, strings.Repeat("─", max(width, 1)))
+}
+
+// headLines is the breadcrumb with the run's attribution right-aligned,
+// or on its own row when both do not fit — logins are never truncated.
+func headLines(m Model, width int) []string {
+	crumb, attribution := breadcrumb(m), Attribution(m.Run)
+	if ansi.StringWidth(crumb)+2+ansi.StringWidth(attribution) <= width {
+		return []string{joinRightANSI(crumb, attribution, width)}
+	}
+	lines := []string{fit(crumb, width)}
+	current := ""
+	for part := range strings.SplitSeq(attribution, " · ") {
+		if current != "" && ansi.StringWidth(current)+3+ansi.StringWidth(part) > width {
+			lines = append(lines, fit(current, width))
+			current = part
+			continue
+		}
+		if current != "" {
+			current += " · "
+		}
+		current += part
+	}
+	return append(lines, fit(current, width))
+}
+
+// Attribution names who started the run and, after a re-run by someone
+// else, who started the latest attempt. A missing actor stays missing.
+func Attribution(run model.Run) string {
+	actor := strings.TrimSpace(run.Actor)
+	line := "actor unavailable"
+	if actor != "" {
+		line = "Started by @" + actor
+	}
+	if run.RunAttempt > 1 {
+		line += fmt.Sprintf(" · Attempt %d", run.RunAttempt)
+	}
+	if trigger := strings.TrimSpace(run.TriggeringActor); trigger != "" && !strings.EqualFold(trigger, actor) {
+		verb := "Triggered by"
+		if run.RunAttempt > 1 {
+			verb = "Re-run by"
+		}
+		line += " · " + verb + " @" + trigger
+	}
+	return line
 }
 
 func breadcrumb(m Model) string {

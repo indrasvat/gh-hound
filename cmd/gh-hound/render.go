@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/charmbracelet/colorprofile"
 )
 
 // Terminal control sequences the renderer speaks. The contract (pinned
@@ -18,8 +20,8 @@ const (
 	leaveAlt   = "\x1b[?1049l"
 	hideCursor = "\x1b[?25l"
 	showCursor = "\x1b[?25h"
-	eraseToEnd = "\x1b[K" // erase to end of line — per-line clearing instead of 2J
-	eraseBelow = "\x1b[J" // erase below — only when a frame shrinks
+	eraseLine  = "\x1b[2K" // erase the whole line before repainting it — per-line clearing instead of 2J
+	eraseBelow = "\x1b[J"  // erase below — only when a frame shrinks
 	cursorHome = "\x1b[H"
 	moveRowOne = "\x1b[%d;1H" // absolute row, column one
 )
@@ -34,10 +36,28 @@ type frameRenderer struct {
 	out  io.Writer
 	prev []string
 	buf  bytes.Buffer
+	// width and height are the terminal's, when known: the erase below
+	// a frame must start on a row that exists.
+	width, height int
 }
 
 func newFrameRenderer(out io.Writer) *frameRenderer {
 	return &frameRenderer{out: out}
+}
+
+// SetSize records the terminal geometry the frames are painted into.
+func (r *frameRenderer) SetSize(width, height int) {
+	r.width, r.height = width, height
+}
+
+// paintLine rewrites one row: erase it, then draw. Erasing first never
+// lands in the pending-wrap cell a full-width line leaves behind (which
+// used to wipe the frame's right border), and it clears leftovers even
+// when a glyph's measured width differs from the terminal's.
+func (r *frameRenderer) paintLine(row int, line string) {
+	fmt.Fprintf(&r.buf, moveRowOne, row+1)
+	r.buf.WriteString(eraseLine)
+	r.buf.WriteString(line)
 }
 
 // Invalidate forgets the previous frame so the next Render repaints
@@ -55,28 +75,16 @@ func (r *frameRenderer) Render(view string) error {
 	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
 	r.buf.Reset()
 	r.buf.WriteString(beginSync)
-	if r.prev == nil {
-		r.buf.WriteString(cursorHome)
-		for i, line := range lines {
-			if i > 0 {
-				r.buf.WriteString("\r\n")
-			}
-			r.buf.WriteString(line)
-			r.buf.WriteString(eraseToEnd)
+	for i, line := range lines {
+		if r.prev != nil && i < len(r.prev) && r.prev[i] == line {
+			continue
 		}
-		r.buf.WriteString(eraseBelow)
-	} else {
-		for i, line := range lines {
-			if i < len(r.prev) && r.prev[i] == line {
-				continue
-			}
-			fmt.Fprintf(&r.buf, moveRowOne, i+1)
-			r.buf.WriteString(line)
-			r.buf.WriteString(eraseToEnd)
-		}
-		if len(lines) < len(r.prev) {
-			// The frame shrank: clear the rows the old frame still
-			// owns below the new last line.
+		r.paintLine(i, line)
+	}
+	if shrank := r.prev != nil && len(lines) < len(r.prev); r.prev == nil || shrank {
+		// Clear rows the frame no longer owns — from the row below its
+		// last line, and only if the screen has one.
+		if r.height <= 0 || len(lines) < r.height {
 			fmt.Fprintf(&r.buf, moveRowOne, len(lines)+1)
 			r.buf.WriteString(eraseBelow)
 		}
@@ -85,4 +93,27 @@ func (r *frameRenderer) Render(view string) error {
 	r.prev = lines
 	_, err := r.out.Write(r.buf.Bytes())
 	return err
+}
+
+// tuiOutput downsamples the TUI's truecolor styling on terminals that
+// only speak 256 or 16 colours. A terminal advertising truecolor
+// (COLORTERM) is never downgraded, and anything detection cannot place
+// passes through untouched: only SGR colours are rewritten, never the
+// cursor and screen sequences the renderer depends on.
+func tuiOutput(w io.Writer, lookup func(string) (string, bool)) io.Writer {
+	if colorTerm, _ := lookup("COLORTERM"); strings.EqualFold(colorTerm, "truecolor") || strings.EqualFold(colorTerm, "24bit") {
+		return w
+	}
+	var environ []string
+	for _, key := range []string{"TERM", "COLORTERM", "TMUX", "TTY_FORCE"} {
+		if value, ok := lookup(key); ok {
+			environ = append(environ, key+"="+value)
+		}
+	}
+	switch profile := colorprofile.Detect(w, environ); profile {
+	case colorprofile.ANSI256, colorprofile.ANSI:
+		return &colorprofile.Writer{Forward: w, Profile: profile}
+	default:
+		return w
+	}
 }

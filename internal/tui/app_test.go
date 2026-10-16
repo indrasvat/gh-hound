@@ -862,7 +862,7 @@ func TestRunsFilterReloadsServerSupportedQueries(t *testing.T) {
 		t.Fatalf("resolver filter = %#v", calls[0])
 	}
 	view := ansi.Strip(app.ViewSize(120, 32))
-	if !strings.Contains(view, "/failing  1 matches") || !strings.Contains(view, "#202") || !strings.Contains(view, "Integration · staging failure") || strings.Contains(view, "#101") {
+	if !strings.Contains(view, "/failing · 1 run · Esc clear") || !strings.Contains(view, "#202") || !strings.Contains(view, "Integration · staging failure") || strings.Contains(view, "#101") {
 		t.Fatalf("server-filtered runs did not replace visible list:\n%s", view)
 	}
 }
@@ -1633,7 +1633,7 @@ func TestServerTaggedFilterSkipsLocalSubstringMatch(t *testing.T) {
 		Runs:  []model.Run{cliTestRun(1, "CI", "fix/parser")},
 	})
 	m.Filter = "branch:fix/parser"
-	m.ServerFiltered = true
+	m.DataKeys = map[usecase.LaunchScope]string{"": m.ServerKey()}
 	if len(m.FilteredRuns()) != 1 {
 		t.Fatalf("server-filtered results must not be re-filtered locally: %d visible", len(m.FilteredRuns()))
 	}
@@ -1662,13 +1662,14 @@ func cliTestRun(id int64, workflow, branch string) model.Run {
 }
 
 func TestRunningVocabularyMapsToServerStatus(t *testing.T) {
-	filter, ok := serverRunFilter(usecase.LaunchContext{Repo: "openclaw/openclaw"}, 30, "running")
-	if !ok || filter.Status != string(model.StatusInProgress) {
-		t.Fatalf("running must map to in_progress server filter: ok=%v status=%q", ok, filter.Status)
+	q, err := runs.ParseQuery("running")
+	filter := runsFilterFor(usecase.LaunchContext{Repo: "openclaw/openclaw"}, 30, q)
+	if err != nil || filter.Status != string(model.StatusInProgress) {
+		t.Fatalf("running must map to in_progress server filter: err=%v status=%q", err, filter.Status)
 	}
 	// The status bar teaches this vocabulary; every word it shows must filter.
 	for _, word := range []string{"failing", "running", "passed"} {
-		if _, ok := serverRunFilter(usecase.LaunchContext{Repo: "x/y"}, 30, word); !ok {
+		if q, err := runs.ParseQuery(word); err != nil || !q.Server() {
 			t.Fatalf("status-bar word %q must be a valid server filter", word)
 		}
 	}

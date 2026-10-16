@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"fmt"
+	"io"
 	"strings"
 	"testing"
 )
@@ -62,8 +65,8 @@ func TestRendererRewritesOnlyChangedLines(t *testing.T) {
 	if strings.Contains(update, "one") || strings.Contains(update, "two") || strings.Contains(update, "four") {
 		t.Fatalf("unchanged lines were rewritten:\n%q", update)
 	}
-	if !strings.Contains(update, "\x1b[3;1H") || !strings.Contains(update, "CHANGED"+eraseToEnd) {
-		t.Fatalf("changed line must reposition to its row and erase its tail:\n%q", update)
+	if !strings.Contains(update, "\x1b[3;1H"+eraseLine+"CHANGED") {
+		t.Fatalf("changed line must reposition to its row, erase it, then repaint:\n%q", update)
 	}
 }
 
@@ -95,7 +98,7 @@ func TestRendererInvalidateForcesAFullRepaint(t *testing.T) {
 	update := out.writes[1]
 	// Identical content, but after Invalidate every line repaints from
 	// home — resize reflow invalidated the diff's row mapping.
-	if !strings.Contains(update, cursorHome) || !strings.Contains(update, "a"+eraseToEnd) || !strings.Contains(update, "b"+eraseToEnd) {
+	if !strings.Contains(update, "\x1b[1;1H"+eraseLine+"a") || !strings.Contains(update, "\x1b[2;1H"+eraseLine+"b") {
 		t.Fatalf("post-invalidate frame must repaint fully:\n%q", update)
 	}
 }
@@ -114,5 +117,65 @@ func TestRendererIdenticalFrameWritesNoRowContent(t *testing.T) {
 	want := beginSync + endSync
 	if update != want {
 		t.Fatalf("identical frame should flush only the empty sync guards, got %q", update)
+	}
+}
+
+func TestTUIOutputDownsamplesOnlyKnownLowColorTerminals(t *testing.T) {
+	frame := beginSync + "\x1b[2;1H" + eraseLine + "\x1b[38;2;79;211;122mok\x1b[0m" + endSync
+	tests := []struct {
+		name      string
+		env       map[string]string
+		truecolor bool
+	}{
+		{"256-colour terminal", map[string]string{"TERM": "xterm-256color", "TTY_FORCE": "1"}, false},
+		{"truecolor advertised", map[string]string{"TERM": "xterm-256color", "COLORTERM": "truecolor", "TTY_FORCE": "1"}, true},
+		{"multiplexer advertising truecolor", map[string]string{"TERM": "tmux-256color", "COLORTERM": "truecolor", "TTY_FORCE": "1"}, true},
+		{"unknown terminal passes through", map[string]string{"TTY_FORCE": "1"}, true},
+	}
+	for _, tt := range tests {
+		var out bytes.Buffer
+		if _, err := io.WriteString(tuiOutput(&out, mapEnv(tt.env)), frame); err != nil {
+			t.Fatal(err)
+		}
+		got := out.String()
+		if strings.Contains(got, "38;2;") != tt.truecolor {
+			t.Fatalf("%s: truecolor kept = %v, want %v: %q", tt.name, !tt.truecolor, tt.truecolor, got)
+		}
+		for _, keep := range []string{beginSync, "\x1b[2;1H", eraseLine, endSync, "ok"} {
+			if !strings.Contains(got, keep) {
+				t.Fatalf("%s: renderer sequence %q lost: %q", tt.name, keep, got)
+			}
+		}
+	}
+}
+
+// A line filling the last column leaves the cursor in the pending-wrap
+// cell; an erase there wiped the frame's right border on live
+// terminals (QA: the border showed only in fixture captures). Rows are
+// erased before they are painted, so nothing erases after a line.
+func TestRendererNeverErasesAfterPaintingALine(t *testing.T) {
+	var out recordingWriter
+	r := newFrameRenderer(&out)
+	r.SetSize(6, 3)
+	if err := r.Render("╭────╮\n│ ok │\n╰────╯"); err != nil {
+		t.Fatal(err)
+	}
+	first := out.writes[0]
+	if strings.Contains(first, "╮\x1b[") && !strings.Contains(first, "╮\x1b[2;1H") || strings.Contains(first, eraseBelow) {
+		t.Fatalf("a full-screen frame must not erase after a line or below the screen: %q", first)
+	}
+	if err := r.Render("╭────╮\n│ no │\n╰────╯"); err != nil {
+		t.Fatal(err)
+	}
+	if diff := out.writes[1]; diff != beginSync+"\x1b[2;1H"+eraseLine+"│ no │"+endSync {
+		t.Fatalf("diff repaint = %q", diff)
+	}
+	r.SetSize(10, 5)
+	r.Invalidate()
+	if err := r.Render("short\nlines"); err != nil {
+		t.Fatal(err)
+	}
+	if last := out.writes[2]; !strings.Contains(last, fmt.Sprintf(moveRowOne, 3)+eraseBelow) {
+		t.Fatalf("a shorter frame still clears below itself: %q", last)
 	}
 }

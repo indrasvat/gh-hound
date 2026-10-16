@@ -12,6 +12,7 @@ Use when inspecting GitHub Actions CI with `gh hound` — fix loops, PR checks, 
 ```bash
 gh hound runs --no-tui --json                    # current branch's runs
 gh hound runs --status failure --no-tui --json   # failure-focused loop
+gh hound runs --actor @me --no-tui --json        # only runs you started (also --actor <login>, HOUND_ACTOR)
 gh hound runs --all --no-tui --json              # all branches
 gh hound runs --branch <ref> --no-tui --json     # explicit branch/ref when local branch is wrong
 gh hound runs -R owner/repo --no-tui --json      # outside a checkout
@@ -73,7 +74,9 @@ Every queue envelope includes `fetched_at`. Treat `--groups` as a summary surfac
 
 ## JSON Shape
 
-Top level: `repo`, `branch`, `runs[]`, optional `diagnostic`. Each run: `id`, `workflow`, `run_number`, `event`, `head_branch`, `head_sha`, `status`, `conclusion`, `created_at`, `html_url`, `failed[]`.
+Top level: `repo`, `branch`, `runs[]`, optional `diagnostic`. Each run: `id`, `workflow`, `run_number`, `event`, `head_branch`, `head_sha`, `status`, `conclusion`, `actor`, `triggering_actor`, `created_at`, `html_url`, `failed[]`.
+
+`--actor @me` resolves the login your token authenticates as; if it cannot, the command exits `2` with the reason instead of listing everyone's runs — fix auth or pass `--actor <login>`. `--actor` with `--run` exits `2` (`--run` always shows that run).
 
 `diagnostic` appears only for actionable empty listings. For `target_mismatch`, branch on `kind`, read the human `message`, and execute one of `next_commands[]` instead of silently stopping.
 

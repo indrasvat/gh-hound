@@ -7,6 +7,8 @@
 ```bash
 gh hound runs --no-tui --json
 gh hound runs --status failure --no-tui --json
+gh hound runs --actor @me --no-tui --json
+gh hound runs --actor <login> --all --no-tui --json
 gh hound runs --all --no-tui --json
 gh hound runs --branch <ref> --no-tui --json
 gh hound watch --json
@@ -62,6 +64,15 @@ gh hound runs --no-tui --format xml
 ```
 
 Branch on `diagnostic.kind == "target_mismatch"` before concluding that CI is absent. A sound release/tag loop is: try the scoped query, widen with `--all` or an explicit `--branch <ref>` if the diagnostic appears, then pin the exact run with `--run <id>` for forensics or `watch -R owner/repo --group --run <id> --timeout 10m` for a bounded await.
+
+## Filtering By Actor
+
+`--actor <login>` lists runs that login started; `--actor @me` uses the login the current credentials authenticate as (`GH_TOKEN`, then `GITHUB_TOKEN`, then `gh auth token`) — never `git config`. `HOUND_ACTOR` applies when the flag is absent. It composes with `--branch`, `--all`, and `--status`.
+
+- GitHub's `actor` parameter also matches runs tied to that user's pushes; hound keeps only runs whose `actor` is the login, so `runs[].actor` always equals the filter. To fill a page it reads up to 5 list pages (150 runs); an actor with fewer recent runs returns fewer.
+- `--run <id>` always shows that run: `--actor` with `--run` exits `2`, and `HOUND_ACTOR` is ignored for `--run`.
+- An invalid login, or an `@me` that cannot be resolved (signed out, or a GitHub App/Actions token that cannot read its own user), exits `2` with the reason — never an unfiltered listing.
+- An empty filtered branch result probes the branch unfiltered: if the branch has runs, no `target_mismatch` is emitted (the actor simply has none there); otherwise the diagnostic's widening commands keep `--actor`.
 
 ## Exit Codes
 
@@ -259,6 +270,7 @@ Each run includes:
 
 - `id`, `workflow`, `run_number`, `event`, `head_branch`, `head_sha`.
 - `status`, `conclusion`, `created_at`, `html_url`.
+- `actor` (who started the run) and `triggering_actor` (who started its latest attempt — different after a re-run by someone else). Both are always present; an empty string means GitHub reported none.
 - `failed[]` entries with `job`, `step`, `exit_code`, `annotations[]`, and `log_excerpt`.
 
 Empty branch-scoped results can include top-level `diagnostic` with `kind`, `scope`, `message`, and `next_commands[]`. The currently documented kind is `target_mismatch`.

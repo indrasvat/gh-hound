@@ -9,9 +9,9 @@ import (
 func TestBreakpointsMatchVisualContract(t *testing.T) {
 	contract := readVisualContract(t, "../../docs/visual-contract.md")
 	expected := map[string]string{
-		"80x24":  "single column; detail is full-screen push; keep status workflow number age",
+		"80x24":  "single column; detail is full-screen push; keep status workflow number actor age (event and duration yield)",
 		"120x40": "master-detail side-by-side; full runs columns",
-		"200x60": "side-by-side with extra padding; add actor and sha",
+		"200x60": "side-by-side with extra padding; full runs columns with a wider Actor",
 	}
 
 	for geometry, rule := range expected {

@@ -2,9 +2,11 @@ package runs
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -48,12 +50,29 @@ type Summary struct {
 }
 
 type Model struct {
-	Context        usecase.LaunchContext
-	Selected       int
-	Filter         string
-	InputMode      bool
-	ServerFiltered bool
-	Intent         Intent
+	Context  usecase.LaunchContext
+	Selected int
+	// Filter is the applied query. While InputMode is on, edits go to
+	// Draft and Filter keeps showing results until Enter applies.
+	Filter     string
+	Draft      string
+	InputMode  bool
+	InputError string
+	// Viewer is the authenticated login standing in for actor:@me; empty
+	// until the identity lookup lands.
+	Viewer string
+	// DataKeys records the server filter each scope's rows were fetched
+	// under. Rows whose key differs from the applied query's are stale:
+	// they are only shown through the full query, never as-is.
+	DataKeys map[usecase.LaunchScope]string
+	// QueryError explains why the applied query has no rows (identity or
+	// load failure); the list never falls back to unfiltered rows.
+	QueryError string
+	// ScopePaging keeps each scope's paging while the other is shown;
+	// Context.Page/HasMore describe the active scope only.
+	ScopePaging map[usecase.LaunchScope]Paging
+	Intent      Intent
+	Theme       theme.Theme
 
 	// FlakyRuns marks rows whose workflow has a known flaker, from
 	// verdicts already computed this session (config flake_badges).
@@ -74,7 +93,20 @@ func NewModel(ctx usecase.LaunchContext) Model {
 	if !ctx.HasMore && ctx.PerPage > 0 && len(activeRuns(ctx)) >= ctx.PerPage {
 		ctx.HasMore = true
 	}
-	return Model{Context: ctx}
+	m := Model{Context: ctx, Filter: ctx.Query, Viewer: ctx.Viewer, QueryError: ctx.QueryError}
+	// Only scopes the launch actually listed count as fetched under its
+	// filter; any other scope loads when first shown.
+	key := m.query().ServerKey()
+	m.DataKeys = map[usecase.LaunchScope]string{}
+	if ctx.QueryError == "" {
+		m.DataKeys[ctx.Scope] = key
+	}
+	for _, scope := range []usecase.LaunchScope{usecase.LaunchScopeBranch, usecase.LaunchScopeRepo} {
+		if len(scopeRuns(ctx, scope)) > 0 {
+			m.DataKeys[scope] = key
+		}
+	}
+	return m
 }
 
 func (m Model) Update(msg KeyMsg) Model {
@@ -102,26 +134,23 @@ func (m Model) Update(msg KeyMsg) Model {
 		if total > 0 {
 			m.Selected = total - 1
 		}
-		if m.Context.HasMore && total > 0 {
+		// A filtered page can narrow to nothing while GitHub still has
+		// more: G keeps hunting.
+		if m.Context.HasMore && (total > 0 || m.Filter != "") {
 			m.Intent = Intent{Kind: IntentLoadMore}
 		}
 	case "s":
 		m = m.toggleScope()
 	case "f":
-		m.Filter = nextStatusCycle(m.Filter)
-		m.ServerFiltered = false
-		m.Selected = 0
-		m.Intent = Intent{Kind: IntentFilter, Filter: m.Filter}
+		m = m.Apply(WithToken(m.Filter, "status", nextStatusCycle(m.query().Status)))
 	case "esc":
 		if m.Filter != "" {
-			m.Filter = ""
-			m.ServerFiltered = false
-			m.Selected = 0
-			m.Intent = Intent{Kind: IntentFilter, Filter: ""}
+			m = m.Apply("")
 		}
 	case "/":
 		m.InputMode = true
-		m.Filter = ""
+		m.Draft = m.Filter
+		m.InputError = ""
 	case "enter":
 		m.Intent = m.intentFor(IntentOpenDetail)
 	case "l":
@@ -151,22 +180,91 @@ func (m Model) Update(msg KeyMsg) Model {
 func (m Model) updateInput(msg KeyMsg) Model {
 	switch msg.Key {
 	case "esc":
+		// Cancel restores the applied query untouched.
 		m.InputMode = false
+		m.Draft = ""
+		m.InputError = ""
 	case "enter":
-		m.InputMode = false
-		m.Selected = 0
-		m.Intent = Intent{Kind: IntentFilter, Filter: m.Filter}
-	case "backspace":
-		if len(m.Filter) > 0 {
-			m.Filter = m.Filter[:len(m.Filter)-1]
+		if _, err := ParseQuery(m.Draft); err != nil {
+			m.InputError = err.Error()
+			return m
 		}
+		m.InputMode = false
+		m = m.Apply(NormalizeQuery(m.Draft))
+		m.Draft = ""
+	case "backspace":
+		if runes := []rune(m.Draft); len(runes) > 0 {
+			m.Draft = string(runes[:len(runes)-1])
+		}
+		m.InputError = ""
+	case "ctrl+u":
+		m.Draft = ""
+		m.InputError = ""
 	case "space":
-		m.Filter += " "
+		m.Draft += " "
+		m.InputError = ""
 	default:
 		if len([]rune(msg.Key)) == 1 {
-			m.Filter += msg.Key
+			m.Draft += msg.Key
+			m.InputError = ""
 		}
 	}
+	return m
+}
+
+// Apply makes query the applied filter and asks the app to load it.
+// Callers pass only queries that parse.
+func (m Model) Apply(query string) Model {
+	m.Filter = query
+	m.QueryError = ""
+	m.Selected = 0
+	m.Intent = Intent{Kind: IntentFilter, Filter: query}
+	return m
+}
+
+func (m Model) query() Query {
+	q, _ := ParseQuery(m.Filter)
+	return q
+}
+
+// ServerKey is the server-side half of the applied query.
+func (m Model) ServerKey() string {
+	return m.query().ServerKey()
+}
+
+// DataCurrent reports whether the active scope's rows were fetched
+// under the applied query's server filter.
+func (m Model) DataCurrent() bool {
+	return m.scopeCurrent(m.Context.Scope)
+}
+
+// scopeCurrent reports whether a scope's cached rows answer the applied
+// query's server half. A scope with no recorded fetch is current only
+// for an unfiltered query and only if it holds rows; an empty or
+// unrecorded cache must load rather than claim "no runs".
+func (m Model) scopeCurrent(scope usecase.LaunchScope) bool {
+	key, fetched := m.DataKeys[scope]
+	if !fetched {
+		return m.ServerKey() == "" && len(scopeRuns(m.Context, scope)) > 0
+	}
+	return key == m.ServerKey()
+}
+
+// Restore puts back an applied query and scope whose rows are already
+// loaded — what Esc returns to when it cancels the reload for a newer
+// one.
+func (m Model) Restore(filter string, scope usecase.LaunchScope) Model {
+	m.Filter = filter
+	if scope != m.Context.Scope {
+		m = m.RecordPaging(m.Context.Scope, Paging{Page: m.Context.Page, HasMore: m.Context.HasMore})
+		if paging, known := m.ScopePaging[scope]; known {
+			m.Context.Page, m.Context.HasMore = max(paging.Page, 1), paging.HasMore
+		}
+	}
+	m.Context.Scope = scope
+	m.Context.Runs = scopeRuns(m.Context, scope)
+	m.QueryError = ""
+	m.Selected = clampSelection(m.Selected, len(m.filteredRuns()))
 	return m
 }
 
@@ -191,21 +289,22 @@ func (m Model) Summary() Summary {
 	return summary
 }
 
-// FilteredRuns exposes the rows the list will render after filtering.
-// nextStatusCycle advances the f-key status filter: all -> failing ->
-// running -> passed -> all. Any other filter text restarts the cycle.
+// nextStatusCycle advances the f-key status token: none -> failure ->
+// in_progress -> success -> none. Any other status restarts the cycle.
 func nextStatusCycle(current string) string {
 	switch current {
-	case "failing":
-		return "running"
-	case "running":
-		return "passed"
-	case "passed":
+	case string(model.ConclusionFailure):
+		return string(model.StatusInProgress)
+	case string(model.StatusInProgress):
+		return string(model.ConclusionSuccess)
+	case string(model.ConclusionSuccess):
 		return ""
 	default:
-		return "failing"
+		return string(model.ConclusionFailure)
 	}
 }
+
+// FilteredRuns exposes the rows the list will render after filtering.
 
 func (m Model) FilteredRuns() []model.Run {
 	return m.filteredRuns()
@@ -250,17 +349,20 @@ func (m Model) intentFor(kind IntentKind) Intent {
 }
 
 func (m Model) filteredRuns() []model.Run {
-	query := strings.ToLower(strings.TrimSpace(m.Filter))
-	if query == "" || m.ServerFiltered {
-		// Server-tagged queries (branch:x, running, ...) already came
-		// back filtered; re-applying the raw tag as a substring match
-		// shows 0 results for data the API just returned.
+	if m.QueryError != "" {
+		return nil
+	}
+	q := m.query()
+	current := m.DataCurrent()
+	if current && len(q.Text) == 0 {
 		return m.activeRuns()
 	}
 	runs := m.activeRuns()
 	filtered := make([]model.Run, 0, len(runs))
 	for _, run := range runs {
-		if runMatchesQuery(run, query) {
+		// Current rows already satisfy the server qualifiers; stale rows
+		// (a reload in flight) must satisfy the whole query.
+		if (current && q.MatchesText(run)) || (!current && q.Matches(run, m.Viewer)) {
 			filtered = append(filtered, run)
 		}
 	}
@@ -276,7 +378,7 @@ func runMatchesQuery(run model.Run, query string) bool {
 			strings.Contains(strings.ToLower(string(run.Status)), alias) ||
 			strings.Contains(strings.ToLower(string(run.Conclusion)), alias) ||
 			strings.Contains(strings.ToLower(run.Actor), alias) ||
-			strings.Contains(fmt.Sprintf("%d", run.RunNumber), alias) {
+			strings.Contains(fmt.Sprintf("#%d", run.RunNumber), alias) {
 			return true
 		}
 	}
@@ -316,28 +418,82 @@ func activeRuns(ctx usecase.LaunchContext) []model.Run {
 	return ctx.Runs
 }
 
+// Paging is one scope's pagination state.
+type Paging struct {
+	Page    int
+	HasMore bool
+}
+
+// RecordPaging stores a scope's paging, for a result that landed while
+// another scope was shown.
+func (m Model) RecordPaging(scope usecase.LaunchScope, paging Paging) Model {
+	pages := maps.Clone(m.ScopePaging)
+	if pages == nil {
+		pages = map[usecase.LaunchScope]Paging{}
+	}
+	pages[scope] = paging
+	m.ScopePaging = pages
+	return m
+}
+
+// toggleScope flips branch/repo scope and keeps the applied query.
 func (m Model) toggleScope() Model {
-	switch m.Context.Scope {
-	case usecase.LaunchScopeBranch:
-		if len(m.Context.RepoRuns) > 0 {
-			m.Context.Scope = usecase.LaunchScopeRepo
-			m.Context.Runs = m.Context.RepoRuns
-			m.Selected = 0
-		}
-	case usecase.LaunchScopeRepo:
-		if len(m.Context.BranchRuns) > 0 {
-			m.Context.Scope = usecase.LaunchScopeBranch
-			m.Context.Runs = m.Context.BranchRuns
-			m.Selected = 0
-		}
-	default:
-		if len(m.Context.BranchRuns) > 0 && len(m.Context.RepoRuns) > 0 {
-			m.Context.Scope = usecase.LaunchScopeRepo
-			m.Context.Runs = m.Context.RepoRuns
-			m.Selected = 0
-		}
+	target, ok := m.scopeTarget()
+	if !ok {
+		return m
+	}
+	if m.ServerKey() == "" && len(scopeRuns(m.Context, target)) == 0 {
+		// Nothing cached to show for an unfiltered list: stay put.
+		return m
+	}
+	return m.WithScope(target)
+}
+
+// WithScope switches to scope keeping the applied query. A cache that
+// is missing or was fetched under another filter switches immediately
+// (its rows shown only through the query) and asks the app to load it.
+func (m Model) WithScope(scope usecase.LaunchScope) Model {
+	cache := scopeRuns(m.Context, scope)
+	m = m.RecordPaging(m.Context.Scope, Paging{Page: m.Context.Page, HasMore: m.Context.HasMore})
+	paging, known := m.ScopePaging[scope]
+	if !known {
+		// Without a record, a server-filtered cache may have been narrowed
+		// below a full page that GitHub could still continue.
+		more := m.Context.PerPage > 0 && len(cache) >= m.Context.PerPage
+		paging = Paging{Page: 1, HasMore: more || (m.ServerKey() != "" && len(cache) > 0)}
+	}
+	m.Context.Scope = scope
+	m.Context.Runs = cache
+	m.Context.Page, m.Context.HasMore = max(paging.Page, 1), paging.HasMore
+	m.Selected = 0
+	// An error belongs to the scope that failed; this one loads afresh.
+	m.QueryError = ""
+	if !m.scopeCurrent(scope) || len(cache) == 0 {
+		m.Intent = Intent{Kind: IntentFilter, Filter: m.Filter}
 	}
 	return m
+}
+
+func (m Model) scopeTarget() (usecase.LaunchScope, bool) {
+	switch m.Context.Scope {
+	case usecase.LaunchScopeBranch:
+		return usecase.LaunchScopeRepo, true
+	case usecase.LaunchScopeRepo:
+		return usecase.LaunchScopeBranch, strings.TrimSpace(m.Context.Branch) != ""
+	default:
+		return usecase.LaunchScopeRepo, len(m.Context.BranchRuns) > 0 && len(m.Context.RepoRuns) > 0
+	}
+}
+
+func scopeRuns(ctx usecase.LaunchContext, scope usecase.LaunchScope) []model.Run {
+	switch scope {
+	case usecase.LaunchScopeBranch:
+		return ctx.BranchRuns
+	case usecase.LaunchScopeRepo:
+		return ctx.RepoRuns
+	default:
+		return ctx.Runs
+	}
 }
 
 func isRunning(run model.Run) bool {

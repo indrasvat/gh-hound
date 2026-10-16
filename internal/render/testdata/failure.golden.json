@@ -11,6 +11,8 @@
       "head_sha": "a1b2c3d",
       "status": "completed",
       "conclusion": "failure",
+      "actor": "indrasvat",
+      "triggering_actor": "indrasvat",
       "created_at": "2026-06-07T17:42:00Z",
       "html_url": "https://github.com/indrasvat/gh-ghent/actions/runs/30433642",
       "failed": [

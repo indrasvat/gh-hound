@@ -8,6 +8,7 @@ const (
 	ScreenWelcome    Screen = "welcome"
 	ScreenAllGreen   Screen = "all_green"
 	ScreenRunsList   Screen = "runs_list"
+	ScreenRunsFilter Screen = "runs_filter"
 	ScreenDetail     Screen = "detail"
 	ScreenFailure    Screen = "failure"
 	ScreenWatch      Screen = "watch"
@@ -54,6 +55,13 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "A", Action: "approvals", Help: "approvals (waiting runs)", ShowInFooter: false},
 		{Key: "/", Action: "filter", Help: "filter", ShowInFooter: true},
 		{Key: "?", Action: "help", Help: "", ShowInFooter: true},
+	},
+	// While the / input is open every printable key types; only these
+	// edit keys act.
+	ScreenRunsFilter: {
+		{Key: "enter", Display: "⏎", Action: "apply", Help: "apply", ShowInFooter: true},
+		{Key: "esc", Display: "⎋", Action: "cancel", Help: "cancel", ShowInFooter: true},
+		{Key: "ctrl+u", Action: "clear", Help: "clear", ShowInFooter: true},
 	},
 	ScreenDetail: {
 		{Key: "enter", Display: "⏎", Action: "expand", Help: "expand", ShowInFooter: true},
@@ -159,6 +167,16 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "r", Action: "retry", Help: "retry", ShowInFooter: true},
 		{Key: "?", Action: "help", Help: "help", ShowInFooter: true},
 	},
+}
+
+// RunsFilterSyntax is the / grammar the runs help teaches; the in-list
+// hint row shows concrete examples. Kept to three lines at 80x24 so
+// the help overlay still fits with its legend.
+var RunsFilterSyntax = []string{
+	"actor:@me", "actor:<login>", "status:", "branch:", "event:", "sha:",
+	"other text searches loaded rows",
+	"f · s keep the rest",
+	": My runs / All actors",
 }
 
 func FooterForScreen(screen Screen) string {

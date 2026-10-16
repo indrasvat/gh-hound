@@ -55,3 +55,33 @@ func TestQueryTypingAcceptsJAndK(t *testing.T) {
 		t.Fatalf("query = %q, want %q", m.Query, "jumk")
 	}
 }
+
+func TestViewSizeWindowsLongListsAroundSelection(t *testing.T) {
+	items := []Item{}
+	for _, name := range []string{"a", "b", "c", "d", "e", "f", "g"} {
+		items = append(items, Item{Name: name, Description: name + " item"})
+	}
+	m := New(items)
+	view := ViewSize(m, 60, 4)
+	if !strings.Contains(view, "▌a · a item") || strings.Contains(view, "d · d item") || !strings.Contains(view, "… ↓ 4 more") {
+		t.Fatalf("first window:\n%s", view)
+	}
+	for range 6 {
+		m = m.Update(KeyMsg{Key: "down"})
+	}
+	view = ViewSize(m, 60, 4)
+	if !strings.Contains(view, "▌g · g item") || strings.Contains(view, "a · a item") || !strings.Contains(view, "… ↑ 4 more") {
+		t.Fatalf("selection must stay visible:\n%s", view)
+	}
+	if got := strings.Count(ViewSize(m, 60, 0), " item"); got != 7 {
+		t.Fatalf("unbounded view shows %d items", got)
+	}
+}
+
+func TestNamePrefixMatchesLead(t *testing.T) {
+	m := New([]Item{{Name: "runs --all", Description: "runs across all branches"}, {Name: "All actors", Description: "clear the actor filter"}})
+	m.Query = "all"
+	if got := m.Visible(); len(got) != 2 || got[0].Name != "All actors" {
+		t.Fatalf("visible = %+v", got)
+	}
+}

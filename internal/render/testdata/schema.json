@@ -29,6 +29,8 @@
      "head_sha",
      "status",
      "conclusion",
+     "actor",
+     "triggering_actor",
      "created_at",
      "html_url",
      "failed"
@@ -57,6 +59,14 @@
      },
      "conclusion": {
       "type": "string"
+     },
+     "actor": {
+      "type": "string",
+      "description": "login that started the run; empty when GitHub reports none"
+     },
+     "triggering_actor": {
+      "type": "string",
+      "description": "login that started the latest attempt; differs from actor after a re-run by someone else"
      },
      "created_at": {
       "type": "string",
