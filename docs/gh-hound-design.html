@@ -873,6 +873,7 @@ footer .sig{color:var(--ok);font-family:"JetBrains Mono",monospace}
       <div class="fold"><span class="ln"></span><span class="fl"><span class="tri">▾</span>##[group] Run go test ./...</span></div>
       <div class="logln"><span class="ln">812</span><span><span class="lg-ts">17:42:53Z</span> <span class="lg-cmd">go test ./... -race -count=1</span></span></div>
       <div class="fold"><span class="ln"></span><span class="fl"><span class="tri">▸</span>##[group] downloading modules<span class="cnt">42 lines</span></span></div>
+      <div class="fold"><span class="ln">830</span><span class="fl"><span class="tri">▸</span>×64 2-line block · 17:42:55 → 17:43:44 · 1 changing id<span class="cnt">126 lines</span></span></div>
       <div class="fold"><span class="ln"></span><span class="fl"><span class="tri">▾</span>##[group] test output</span></div>
       <div class="logln"><span class="ln">971</span><span><span class="lg-ok">ok</span>    internal/api      0.214s</span></div>
       <div class="logln"><span class="ln">972</span><span><span class="lg-warn">--- SKIP: TestRemote (network)</span></span></div>
@@ -881,9 +882,9 @@ footer .sig{color:var(--ok);font-family:"JetBrains Mono",monospace}
       <div class="logln"><span class="ln">976</span><span class="lg-fail">--- FAIL: TestLexIdent/trailing_underscore (0.00s)</span></div>
       <div class="logln"><span class="ln">978</span><span><span class="lg-fail">##[error]</span>Process completed with exit code <span class="lg-num">1</span></span></div>
     </div>
-    <div class="t-foot"><span><k>n/N</k>match</span><span><k>z/Z</k>fold</span><span><k>/</k>search</span><span><k>g/G</k>ends</span><span><k>w</k>wrap</span><span><k>⎋</k>back</span></div>
+    <div class="t-foot"><span><k>n/N</k>match</span><span><k>z/Z</k>fold</span><span><k>c</k>compact</span><span><k>/</k>search</span><span><k>g/G</k>ends</span><span><k>w</k>wrap</span><span><k>⎋</k>back</span></div>
   </div>
-  <p class="renders">renders: <b>viewport</b> + custom fold model · ANSI via <b>x/ansi</b>, syntax accents via <b>chroma</b>, search filter via <b>textinput</b> · 24-bit colour, degrades to 256/16/ASCII</p>
+  <p class="renders">renders: <b>viewport</b> + custom fold model · repeating lines fold into one row in the group-fold style (count, span, what varied), <k>c</k> for the full log · ANSI via <b>x/ansi</b>, syntax accents via <b>chroma</b>, search filter via <b>textinput</b> · 24-bit colour, degrades to 256/16/ASCII</p>
 
   <p class="cap"><b>⑦</b> Toasts — beautiful, non-blocking notifications for every failure mode, stacked top-right over a dimmed view, each with a severity accent and auto-dismiss.</p>
   <div class="t">

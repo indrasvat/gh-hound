@@ -271,11 +271,11 @@ Each run includes:
 - `id`, `workflow`, `run_number`, `event`, `head_branch`, `head_sha`.
 - `status`, `conclusion`, `created_at`, `html_url`.
 - `actor` (who started the run) and `triggering_actor` (who started its latest attempt — different after a re-run by someone else). Both are always present; an empty string means GitHub reported none.
-- `failed[]` entries with `job`, `step`, `exit_code`, `annotations[]`, and `log_excerpt`.
+- `failed[]` entries with `job`, `step`, `exit_code`, `annotations[]`, `log_excerpt`, and — when the job log has repeating lines — `repeats[]`.
 
 Empty branch-scoped results can include top-level `diagnostic` with `kind`, `scope`, `message`, and `next_commands[]`. The currently documented kind is `target_mismatch`.
 
-`runs --run <id>` narrows the listing to one run (any branch); add `--attempt <n>` to triage a specific attempt's jobs and logs -- the forensics path for failures that were later re-run to green. `--attempt` requires `--run` (exit `2` otherwise). Failure excerpts are timestamp-stripped and end at the terminal `##[error]` line.
+`runs --run <id>` narrows the listing to one run (any branch); add `--attempt <n>` to triage a specific attempt's jobs and logs -- the forensics path for failures that were later re-run to green. `--attempt` requires `--run` (exit `2` otherwise). Failure excerpts are timestamp-stripped and end at the terminal `##[error]` line. When the excerpt window holds repeating lines (a poll, a retry loop), each folded run appears as one `⋯ <summary> · N lines hidden (La–Lb)` line and the window reaches back so it keeps the same number of visible lines; a log without repeats gives the same excerpt as before. `repeats[]` (optional, up to 5, largest first) lists the folded runs of the whole job log: `start_line`, `end_line`, `cycles` (0 when a few lines recur in any order), `block_lines`, `hidden_lines`, `from`/`to` (wall-clock span, when the lines carry times) and `summary`. Line numbers are the job log's, after `##[endgroup]` lines.
 
 Runs include `artifacts[]` (`id`, `name`, `size_in_bytes`, `expired`, `expires_at`, `created_at`, `digest`) only when `--artifacts` is passed; the default runs path makes zero artifact API calls (with the flag, expect paginated artifact-list calls per run). The `artifacts` command lists a run's artifacts (defaults to the latest run on the selected branch) and `--download <name|id>` extracts the zip into `<dir>/<artifact-name>/` (`--force` to overwrite). Expired artifacts are rejected before any network call. Download URLs are never emitted: the API's signed links are short-lived secrets. The `artifacts` command exits `0` on success and `2` on any error (including expired artifacts); it never exits `1` or `3`.
 
