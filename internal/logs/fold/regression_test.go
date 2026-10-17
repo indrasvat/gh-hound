@@ -1,6 +1,7 @@
 package fold
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -172,5 +173,29 @@ func TestSummarySpanFollowsOneClock(t *testing.T) {
 	s := Summarize(seg, lines, Shape{})
 	if from, to := s.Span(); from != "16:00:45" || to != "16:00:52" {
 		t.Fatalf("span %s → %s mixes clocks", from, to)
+	}
+}
+
+func TestSignedOutcomesStayInTheShape(t *testing.T) {
+	if (Shape{}).Normalize("connect failed errno=-11") == (Shape{}).Normalize("connect failed errno=-110") {
+		t.Fatal("signed errno values share a shape")
+	}
+	var lines []string
+	for i := range 12 {
+		code := -11
+		if i == 6 {
+			code = -110
+		}
+		lines = append(lines, fmt.Sprintf("retry %d: connect failed errno=%d", i, code))
+	}
+	p, err := Default().SafePlanContext(context.Background(), lines, DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.HiddenMask()[6] {
+		t.Fatalf("the one errno=-110 line was folded away")
+	}
+	if !decimal("-11") {
+		t.Fatal("a signed number is a decimal")
 	}
 }

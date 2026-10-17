@@ -165,6 +165,9 @@ var semanticKeys = map[string]bool{
 }
 
 func shortNumber(w string) bool {
+	if len(w) > 1 && (w[0] == '-' || w[0] == '+') {
+		w = w[1:] // signed outcomes (errno=-110) stay literal too
+	}
 	if w == "" || len(w) > 8 {
 		return false
 	}

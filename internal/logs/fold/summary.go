@@ -227,6 +227,9 @@ func shortClock(v string) string {
 }
 
 func decimal(v string) bool {
+	if len(v) > 1 && (v[0] == '-' || v[0] == '+') {
+		v = v[1:]
+	}
 	digits := 0
 	for i := 0; i < len(v); i++ {
 		c := v[i]
