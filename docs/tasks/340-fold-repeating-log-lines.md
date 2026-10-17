@@ -2,7 +2,7 @@
 
 ## Status
 
-IN PROGRESS — issue #58 (also closes #59). The approach was proven in a CLI spike (labelled synthetic corpus, 99 public GitHub Actions logs, fuzzing, two adversarial review rounds) before this task; this task ports it into the product.
+IMPLEMENTED — issue #58 (also closes #59), PR #61. The approach was proven in a CLI spike (labelled synthetic corpus, 99 public GitHub Actions logs, fuzzing, two adversarial review rounds) before this task; this task ports it into the product. `make ci`, `make vqa`, interaction audit and render hygiene pass; live-verified read-only on pytorch, cilium, docker/buildx, flutter and openclaw; an adversarial review and three QA rounds, each finding fixed with a test. Pre-existing defects found along the way are filed as #62. Remaining: the PR review loop (T11).
 
 ## Ownership Boundary
 
@@ -68,7 +68,7 @@ Distinct from group folds so they read as "repeats" at a glance: an info-tinted 
 - [x] T6 Triage + render: repeat-aware `log_excerpt`, additive `repeats` (JSON/MD/XML), schema, golden.
 - [x] T7 Fakes and fixtures: `noisy` fake scenario (poll loop, retry block, interleaved workers, a rare exit code, a step group), `__screen` fixtures `log-compact` / `log-compact-open` / `log-full`, assertions, interaction scenarios (`c`, search into a fold, `z`/`Z`, `G`, time jump), vqa list.
 - [x] T8 Docs: README, configuration, agent surface, skill, help.
-- [ ] T9 Verification: `make ci`, `make vqa`, interaction audit, render hygiene; shux sessions on fakes and real repos (read-only), both themes, 256-colour, 80x24/120x40/200x60; cold `tui-qa` rounds; adversarial review; each finding fixed with a test.
+- [x] T9 Verification: `make ci`, `make vqa`, interaction audit, render hygiene; shux sessions on fakes and real repos (read-only), 256-colour, 80x24/120x40/200x60 and live resizes; cold `tui-qa` rounds; adversarial review; each finding fixed with a test. The log screen's colours stay the dark palette under Bone, as before this task (#56).
 - [x] T10 Website: "Best in show" card + iTerm2 retina shot of compact mode.
 - [ ] T11 PR closing #58 with evidence comment (screenshots, demo video) and the review loop.
 
