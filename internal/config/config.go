@@ -47,6 +47,8 @@ type Config struct {
 	// flaker (from verdicts already computed this session — the badge
 	// never spends API calls of its own).
 	FlakeBadges bool
+	// LogCompact opens full logs with repeating lines folded.
+	LogCompact bool
 }
 
 type LoadOptions struct {
@@ -68,6 +70,7 @@ type Overrides struct {
 	Keybindings   map[string]string
 	FlakeWindow   *int
 	FlakeBadges   *bool
+	LogCompact    *bool
 }
 
 type fileConfig struct {
@@ -83,6 +86,7 @@ type fileConfig struct {
 	Keybindings   map[string]string `toml:"keybindings"`
 	FlakeWindow   *int              `toml:"flake_window"`
 	FlakeBadges   *bool             `toml:"flake_badges"`
+	LogCompact    *bool             `toml:"log_compact"`
 }
 
 //go:fix inline
@@ -104,6 +108,7 @@ func Default() Config {
 		Keybindings:   map[string]string{},
 		FlakeWindow:   50,
 		FlakeBadges:   true,
+		LogCompact:    true,
 	}
 }
 
@@ -195,6 +200,9 @@ func loadFile(path string, cfg *Config) error {
 	if fc.FlakeBadges != nil {
 		cfg.FlakeBadges = *fc.FlakeBadges
 	}
+	if fc.LogCompact != nil {
+		cfg.LogCompact = *fc.LogCompact
+	}
 	if fc.Theme != "" {
 		cfg.Theme = Theme(fc.Theme)
 	}
@@ -263,6 +271,13 @@ func applyEnv(lookup func(string) (string, bool), cfg *Config) error {
 		}
 		cfg.FlakeBadges = parsed
 	}
+	if value, ok := lookup("HOUND_LOG_COMPACT"); ok {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("parse HOUND_LOG_COMPACT: %w", err)
+		}
+		cfg.LogCompact = parsed
+	}
 	if value, ok := lookup("HOUND_THEME"); ok {
 		cfg.Theme = Theme(value)
 	}
@@ -307,6 +322,9 @@ func applyOverrides(overrides Overrides, cfg *Config) {
 	}
 	if overrides.FlakeBadges != nil {
 		cfg.FlakeBadges = *overrides.FlakeBadges
+	}
+	if overrides.LogCompact != nil {
+		cfg.LogCompact = *overrides.LogCompact
 	}
 	if overrides.Theme != nil {
 		cfg.Theme = *overrides.Theme

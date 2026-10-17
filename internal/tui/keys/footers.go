@@ -1,6 +1,9 @@
 package keys
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 type Screen string
 
@@ -103,14 +106,16 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "esc", Display: "⎋", Action: "back", Help: "back", ShowInFooter: true},
 	},
 	ScreenLog: {
-		{Key: "j/k", Action: "scroll", Help: "scroll", ShowInFooter: true},
-		{Key: "g/G", Action: "top_bottom", Help: "ends", ShowInFooter: true},
-		{Key: "/", Action: "search", Help: "search", ShowInFooter: true},
-		{Key: "t", Action: "time_jump", Help: "time", ShowInFooter: true},
-		{Key: "n/N", Action: "match", Help: "match", ShowInFooter: true},
-		{Key: "z/Z", Action: "fold", Help: "fold", ShowInFooter: true},
-		{Key: "w", Action: "wrap", Help: "wrap", ShowInFooter: true},
-		{Key: "esc", Display: "⎋", Action: "back", Help: "back", ShowInFooter: true},
+		{Key: "j/k", Action: "scroll", Help: "scroll", ShowInFooter: true, Keep: 4},
+		{Key: "g/G", Action: "top_bottom", Help: "ends", ShowInFooter: true, Keep: 1},
+		{Key: "/", Action: "search", Help: "search", ShowInFooter: true, Keep: 4},
+		{Key: "t", Action: "time_jump", Help: "time", ShowInFooter: true, Keep: 2},
+		{Key: "n/N", Action: "match", Help: "match", ShowInFooter: true, Keep: 2},
+		{Key: "z/Z", Action: "fold", Help: "fold", ShowInFooter: true, Keep: 3},
+		{Key: "c", Action: "compact", Help: "compact", ShowInFooter: true, Keep: 4},
+		{Key: "]/[", Action: "repeat_jump", Help: "repeats", ShowInFooter: true, Keep: 1},
+		{Key: "w", Action: "wrap", Help: "wrap", ShowInFooter: true, Keep: 1},
+		{Key: "esc", Display: "⎋", Action: "back", Help: "back", ShowInFooter: true, Keep: KeepAlways},
 	},
 	ScreenDispatch: {
 		{Key: "enter", Display: "⏎", Action: "run", Help: "run", ShowInFooter: true},
@@ -181,6 +186,46 @@ var RunsFilterSyntax = []string{
 
 func FooterForScreen(screen Screen) string {
 	return footerString(footerByScreen[screen])
+}
+
+// ToastFooter is the toast layer's footer; retry shows only when a toast
+// offers one.
+func ToastFooter(retry bool) string {
+	var shown []Binding
+	for _, b := range footerByScreen[ScreenToasts] {
+		if b.ShowInFooter && (retry || b.Action != "retry") {
+			shown = append(shown, b)
+		}
+	}
+	return footerString(shown)
+}
+
+// FooterForScreenWidth drops the lowest-Keep hints (rightmost first) until
+// the footer fits width; screens without Keep values are returned whole.
+func FooterForScreenWidth(screen Screen, width int) string {
+	var shown []Binding
+	prioritized := false
+	for _, b := range footerByScreen[screen] {
+		if b.ShowInFooter {
+			shown = append(shown, b)
+			prioritized = prioritized || b.Keep > 0
+		}
+	}
+	footer := footerString(shown)
+	for prioritized && utf8.RuneCountInString(footer) > width {
+		drop := -1
+		for i, b := range shown {
+			if b.Keep < KeepAlways && (drop < 0 || b.Keep <= shown[drop].Keep) {
+				drop = i
+			}
+		}
+		if drop < 0 {
+			break
+		}
+		shown = append(shown[:drop], shown[drop+1:]...)
+		footer = footerString(shown)
+	}
+	return footer
 }
 
 func FooterLayer(screen Screen) Layer {

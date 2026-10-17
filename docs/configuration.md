@@ -19,6 +19,7 @@ diff_max_pages = 10     # history pages (x100 runs) the diff scan may walk
 watch_group_max = 10    # runs one hunt board watches (1-50)
 flake_window = 50       # recent runs the flake scan reads per workflow+branch
 flake_badges = true     # mark known flakers on the runs list; off = zero flake calls
+log_compact = true      # open full logs with repeating lines folded; c toggles
 theme = "bramble"       # bramble | bone
 log_level = "info"      # off | error | warn | info | debug
 ```
@@ -27,6 +28,8 @@ log_level = "info"      # off | error | warn | info | debug
 
 `watch_group_max` caps how many runs one hunt board (or `watch --group` stream) follows at once. The group poll budget stays one runs-list call per tick regardless of hunt size. Accepted range 1-50.
 `flake_window` (accepted range 1-500, default 50) is how many recent runs `gh hound flakes` and the TUI scent check read per workflow+branch before issuing a verdict. `flake_badges` (default on) controls two things: the `~` flake badge on runs-list rows whose workflow has a known flaker, and the automatic failure-screen scent check. Verdicts are cached per workflow+branch for the session and recomputed after a rerun; badges never spend API calls of their own. With `flake_badges = false` the failure screen spends zero flake calls — the `:flakes` jump and the `flakes` verb stay available.
+
+`log_compact` (default on) opens the full-log screen with runs of repeating lines folded into one row each. `c` switches between the compact and the full log either way; with `log_compact = false` logs open full and `c` folds them. It does not change pipe output.
 
 ## Environment Variables
 
@@ -42,6 +45,7 @@ log_level = "info"      # off | error | warn | info | debug
 | `HOUND_WATCH_GROUP_MAX` | Hunt board size cap for multi-run watch (default 10) |
 | `HOUND_FLAKE_WINDOW` | Run window for the `flakes` scan (default 50) |
 | `HOUND_FLAKE_BADGES` | Flake badges + automatic failure-screen scent check (default true) |
+| `HOUND_LOG_COMPACT` | Open full logs with repeating lines folded (default true) |
 | `HOUND_NO_TUI` | Force structured output when true |
 | `HOUND_JSON` | Force JSON output when true |
 | `HOUND_FORMAT` | `json`, `md`, or `xml` |

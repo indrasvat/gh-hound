@@ -44,6 +44,12 @@ scenarios=(
   failure-log-refetch
   failure-actions
   log-search-fold
+  log-compact-open
+  log-compact-toggle
+  log-compact-search
+  log-compact-folds
+  log-compact-failure
+  log-compact-warning
   watch-toggle
   pack-board
   dispatch-fill
@@ -59,6 +65,7 @@ adapter_for() {
     watch-toggle) printf 'running' ;;
     pack-board) printf 'pack' ;;
     failure-log-refetch) printf 'log_refetch' ;;
+    log-compact-*) printf 'noisy' ;;
     *) printf 'failing' ;;
   esac
 }
@@ -91,6 +98,12 @@ keys_for() {
     failure-actions) printf 'enter enter' ;;
     failure-log-refetch) printf 'enter enter' ;;
     log-search-fold) printf 'enter enter l / t r a i l enter z' ;;
+    log-compact-open) printf 'enter l' ;;
+    log-compact-toggle) printf 'enter l c' ;;
+    log-compact-search) printf 'enter l / 1 8 : 0 0 : 0 1 enter' ;;
+    log-compact-folds) printf 'enter l Z z' ;;
+    log-compact-failure) printf 'enter enter l' ;;
+    log-compact-warning) printf 'enter l G' ;;
     watch-toggle) printf 'w f d' ;;
     pack-board) printf 'j w f' ;;
     dispatch-fill) printf 'D T v 0 . 1 2 . 0 tab right' ;;

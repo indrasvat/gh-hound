@@ -3,6 +3,7 @@ package usecase
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,7 +73,7 @@ func TestExcerptForStripsTimestamps(t *testing.T) {
 	// Uses the triage excerpt path shared by the pipe surface.
 	raw := "2026-06-10T15:53:14.2803225Z --- FAIL: TestX (0.00s)\n2026-06-10T15:53:15.1281282Z ##[error]Process completed with exit code 1."
 	doc := parseForTest(raw)
-	excerpt := excerptFor(doc)
+	excerpt, _ := excerpt(context.Background(), doc)
 	if strings.Contains(excerpt, "2026-06-10T") {
 		t.Fatalf("pipe excerpt must strip timestamps:\n%s", excerpt)
 	}

@@ -140,6 +140,7 @@ type App struct {
 	theme             theme.Theme
 	routes            []Route
 	viewportHeight    int
+	viewportWidth     int
 	overlays          []Overlay
 	inputMode         bool
 	quit              bool
@@ -151,6 +152,7 @@ type App struct {
 	detail            detail.Model
 	failure           failure.Model
 	log               logscreen.Model
+	failureLog        logscreen.Model
 	watch             watch.Model
 	board             watch.Board
 	dispatch          dispatch.Model
@@ -802,7 +804,7 @@ func (a App) ViewSized(width int) string {
 func (a App) ViewSize(width, height int) string {
 	title, context, right := a.chromeParts()
 	body := a.screenBody(width, height)
-	footer := keys.FooterForScreen(a.footerScreen())
+	footer := keys.FooterForScreenWidth(a.footerScreen(), max(width, minFrameWidth)-2)
 	if a.TopOverlay() != OverlayNone {
 		body = overlayBox(a.theme, a.overlayTitle(), a.overlayView(width, height), width)
 		footer = keys.FooterForScreen(keys.ScreenHelp)
@@ -827,7 +829,11 @@ func (a App) ViewSize(width, height int) string {
 	} else {
 		body = toastLayer(a.theme, body, a.toasts, contentWidth(width))
 		if len(a.toasts.Toasts) > 0 {
-			footer = keys.FooterForScreen(keys.ScreenToasts)
+			retry := false
+			for _, t := range a.toasts.Toasts {
+				retry = retry || t.RetryAction != ""
+			}
+			footer = keys.ToastFooter(retry)
 		}
 	}
 	return frameViewSize(a.theme, title, context, right, body, footer, width, height, true)
@@ -944,7 +950,19 @@ func RenderFixtureSize(screen string, width, height int) string {
 		if rows := bodyHeight(height) - 1; rows > 0 {
 			m.Height = rows
 		}
-		return frameViewSize(app.theme, "hound", "full log", "match 1/1", logscreen.View(m, bodyWidth), keys.FooterForScreen(keys.ScreenLog), width, height, true)
+		return frameViewSize(app.theme, "hound", "full log", "match 1/1", logscreen.View(m, bodyWidth), keys.FooterForScreenWidth(keys.ScreenLog, max(width, minFrameWidth)-2), width, height, true)
+	case "log-compact", "log-compact-search":
+		m := sampleNoisyLogModel()
+		if screen == "log-compact-search" {
+			for key := range strings.SplitSeq("/18:00:01", "") {
+				m = m.Update(logscreen.KeyMsg{Key: key})
+			}
+			m = m.Update(logscreen.KeyMsg{Key: "enter"})
+		}
+		if rows := bodyHeight(height) - 1; rows > 0 {
+			m.Height = rows
+		}
+		return frameViewSize(app.theme, "hound", "full log", logRight(m), logscreen.View(m, bodyWidth), keys.FooterForScreenWidth(keys.ScreenLog, max(width, minFrameWidth)-2), width, height, true)
 	case "dispatch":
 		return frameViewSize(app.theme, "hound", "workflow_dispatch", "Release", dispatch.View(sampleDispatchModel(), bodyWidth), keys.FooterForScreen(keys.ScreenDispatch), width, height, true)
 	case "diff":
@@ -1077,7 +1095,7 @@ func RenderInteractionFixtureSize(scenario string, width, height int) string {
 		if rows := bodyHeight(height) - 1; rows > 0 {
 			m.Height = rows
 		}
-		return frameViewSize(app.theme, "hound", "full log", "search /trail", logscreen.View(m, bodyWidth), keys.FooterForScreen(keys.ScreenLog), width, height, true)
+		return frameViewSize(app.theme, "hound", "full log", "search /trail", logscreen.View(m, bodyWidth), keys.FooterForScreenWidth(keys.ScreenLog, max(width, minFrameWidth)-2), width, height, true)
 	case "watch-toggle":
 		m := sampleWatchModel()
 		for _, key := range []string{"f", "d"} {
@@ -2154,7 +2172,11 @@ func (a App) updateFailure(msg KeyMsg) (App, bool) {
 	switch a.failure.Intent.Kind {
 	case failure.IntentFullLog:
 		a.clearRouteError(RouteLog)
-		a.log = logscreen.NewModel(a.failure.Report.Log, a.failure.Offset, 6)
+		a.log = a.failureLog
+		if len(a.log.Document.Lines) != len(a.failure.Report.Log.Lines) {
+			a.log = logscreen.NewModel(a.failure.Report.Log, 1, 6)
+		}
+		a.log = a.log.JumpToLine(a.failure.Offset)
 		a.PushRoute(RouteLog)
 	case failure.IntentRerunJob:
 		a = a.handleAction(RouteFailure, ActionRequest{Action: usecase.ActionRerunJob, Run: a.detail.Run, Job: a.failure.Report.Job})
@@ -2180,6 +2202,7 @@ func (a App) updateFailure(msg KeyMsg) (App, bool) {
 // scrolls against the real viewport, not the resolver's default.
 func (a App) WithViewport(width, height int) App {
 	a.viewportHeight = height
+	a.viewportWidth = width
 	return a
 }
 
@@ -2189,9 +2212,21 @@ func (a App) updateLog(msg KeyMsg) (App, bool) {
 			a.log.Height = rows
 		}
 	}
+	if a.viewportWidth > 0 {
+		a.log.Width = contentWidth(a.viewportWidth)
+	}
 	if msg.Key == "t" && !a.log.InputMode {
 		a.timeJump = timejump.New(a.log.Document)
 		a.overlays = append(a.overlays, OverlayTimeJump)
+		return a, true
+	}
+	if msg.Key == "c" && !a.log.InputMode && a.log.FoldCount() == 0 {
+		a.toasts = a.toasts.Dismiss("log-nothing-to-fold")
+		a.pushToast("log-nothing-to-fold", usecase.Resilience{
+			Severity: usecase.SeverityInfo,
+			Title:    "nothing to fold",
+			Message:  "no repeating lines; this is the full log",
+		})
 		return a, true
 	}
 	before := a.log
@@ -2205,8 +2240,7 @@ func (a App) updateLog(msg KeyMsg) (App, bool) {
 		a.PopRoute()
 		return a, true
 	}
-	searchChanged := before.Search.Query != a.log.Search.Query || before.Search.Current != a.log.Search.Current || before.Search.Total != a.log.Search.Total
-	return a, logHandled(msg.Key) || before.Offset != a.log.Offset || before.Wrap != a.log.Wrap || searchChanged
+	return a, logHandled(msg.Key) || a.log.Changed(before)
 }
 
 func (a App) updateWatch(msg KeyMsg) (App, bool) {
@@ -3432,7 +3466,8 @@ func (a App) loadFailure(run model.Run, job model.Job) App {
 				return app
 			}
 			app.failure = resolved
-			app.log = fullLog
+			app.failureLog = fullLog.WithCompact(app.config.LogCompact)
+			app.log = app.failureLog
 			app.clearRouteError(RouteLog)
 			app.pushLogRefetchToast(job.ID)
 			// The scent check starts only AFTER the failure resolved:
@@ -3460,7 +3495,7 @@ func (a App) loadLog(run model.Run, job model.Job) App {
 				app.setRouteError(RouteLog, "log unavailable: "+err.Error())
 				return app
 			}
-			app.log = resolved
+			app.log = resolved.WithCompact(app.config.LogCompact)
 			app.pushLogRefetchToast(job.ID)
 			return app
 		}
@@ -4514,12 +4549,23 @@ func logRight(m logscreen.Model) string {
 	if m.Search.Total > 0 {
 		return fmt.Sprintf("match %d/%d", m.Search.Current, m.Search.Total)
 	}
-	return fmt.Sprintf("%d lines", len(m.Document.Lines))
+	if m.Folded() {
+		return fmt.Sprintf("%s lines → %s rows", groupThousands(len(m.Document.Lines)), groupThousands(m.Rows()))
+	}
+	return groupThousands(len(m.Document.Lines)) + " lines"
+}
+
+func groupThousands(n int) string {
+	s := strconv.Itoa(n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
 }
 
 func failureRight(m failure.Model) string {
 	if m.TotalLines > 0 {
-		return fmt.Sprintf("%d log lines", m.TotalLines)
+		return groupThousands(m.TotalLines) + " log lines"
 	}
 	return ""
 }
@@ -4660,6 +4706,7 @@ func (a App) screenBody(width, height int) string {
 		if rows := bodyHeight(height) - 1; rows > 0 {
 			logModel.Height = rows
 		}
+		logModel.Width = bodyWidth
 		return logscreen.View(logModel, bodyWidth)
 	case RouteWatch:
 		if load := a.load; load != nil && load.kind == loadKindWatch {

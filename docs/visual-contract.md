@@ -16,7 +16,8 @@ Source of truth: `docs/gh-hound-design.html`. Re-read the matching mock before e
 | ④ | failure | breadcrumb header; annotations first; de-noised colored error window with line count and expand affordance |
 | ⑤ | watch | streaming badge; follow marker; completed steps colored; active step shows running cursor and append-only tail |
 | ⑤b | watch_board (the hunt) | aggregate header `the hunt: N running · N home · N lost`; scent + follow state right-aligned; one row per run (glyph, workflow, #, state, fixed-width elapsed); header and rows share one column math; cursor bar; follow-worst pins the cursor to the first lost/running row |
-| ⑥ | log | line-number gutter; fold rows; search hit tint; ANSI plus syntax accents; decorative scrollbar; t opens a time-jump input (header echoes t→HH:MM:SS) |
+| ⑥ | log | line-number gutter padded to the widest line number (min 3 digits); fold rows with an ok `▸`/`▾`; search hit tint; ANSI plus syntax accents; decorative scrollbar; t opens a time-jump input (header echoes t→HH:MM:SS); scrolling moves by visible rows and a view near the end fills the screen; w wraps long lines onto dim `↪` continuation rows |
+| ⑥b | log (compact) | opens compact when the log has repeats (`log_compact`); repeat folds are distinct from group folds: an info-tinted band, info `⋯` marker (`▾` when opened), bold info shape `×720 2-line block` (or `K recurring lines` for any-order repeats), fg-soft summary `· 16:12:11 → 18:12:02 · 3 changing ids`, and a dim right-aligned `1,436 lines hidden` (`1,436 lines` once opened); gutter = first hidden line, the summary truncates with `…`, the hidden count never does, `⚠ N error-like inside` in fail; runs hiding fewer than 5 lines stay as lines; header `log · compact · 1,446 lines folded in 2 places` (`· compact` appended after search/jump echoes), title bar `1,448 lines → 13 rows`; c toggles full/compact keeping the top line, `]`/`[` jump to the next/previous repeat fold, z/Z close/open groups and repeats, search/time jumps open the fold they land in; a log with nothing to fold keeps today's header and c shows a `nothing to fold` toast; footer hints drop by priority at narrow widths and `⎋ back` never drops |
 | ⑦ | toasts_dispatch | toast layer over dimmed base and dispatch form with typed inputs |
 | ⑧ | palette | centered overlay; prompt row; filtered list; selected row surface-2 fill plus green left bar |
 | ⑨ | approvals | deploy-gate overlay over the runs screen: env multi-pick rows ([x]/[ ]/[-] checkboxes, ◫ glyph, reviewers line), comment line with documented default, notice line for refusals; opened by A on a waiting run after the shared "checking the gate" load |
@@ -109,7 +110,7 @@ Footer text must be generated from keymap data, not copied into renderers.
 | failure | ↻ rerun failed · r rerun job · l full log · o browser · y copy excerpt |
 | watch | ✗ cancel · f follow · d debug · ⎋ detach |
 | watch_board | j/k move · ⏎ drill in · f follow worst · ✗ cancel · ⎋ back |
-| log | j/k scroll · g/G ends · / search · t time · n/N match · z/Z fold · w wrap · ⎋ back |
+| log | j/k scroll · g/G ends · / search · t time · n/N match · z/Z fold · c compact · ]/[ repeats · w wrap · ⎋ back |
 | dispatch | ⏎ run · ⇥ next · ⎋ cancel |
 | diff | j/k move · ⏎ first bad · o compare · ⎋ back |
 | flakes | j/k move · ⏎ open run · ⎋ back |
@@ -120,6 +121,8 @@ Footer text must be generated from keymap data, not copied into renderers.
 | help | : palette · ? close · ⎋ close |
 | toasts | ⎋ dismiss · g dismiss all · r retry · ? help |
 | approvals overlay | j/k move · space pick · y open gate · n keep shut · c comment · ⎋ close |
+
+The toasts footer drops `r retry` when no visible toast can retry.
 
 ## Breakpoints
 

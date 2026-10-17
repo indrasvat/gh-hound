@@ -14,7 +14,12 @@ type Binding struct {
 	Help         string
 	Group        string
 	ShowInFooter bool
+	// Keep orders which footer hints survive a narrow width: lower drops
+	// first; KeepAlways never drops. Zero everywhere means no dropping.
+	Keep int
 }
+
+const KeepAlways = 100
 
 type Layer struct {
 	Name     string

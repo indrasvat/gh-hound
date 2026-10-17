@@ -631,6 +631,43 @@ pending filter preview shows "no runs loaded" header + "0/0 · G load more"
 (stale HasMore) until the server answers; notice "Showing all branches
 now." on branch scope; 256-colour fill faint.
 
+Round 22 (task 340 compact logs / #58, branch feat/fold-repeating-log-lines,
+binary c9df079 == 16bf4b5 code, XDG_RUNTIME_DIR=/tmp/ghh-qa340, 2026-10-16): FAIL (P2s, no P1).
+VERIFIED FIXED vs prior cold round (6970724): reveal after z for / search,
+n/N and t jump (opens group then repeat); wrap+G reaches last line at
+60/80/120/200 incl. after resize; title rows count updates on z/Z (48->5->1,573);
+opened repeat header has blank gutter and reads "1,436 lines"; nothing-to-fold
+toast footer has no "r retry"; header styling same with/without scrollbar;
+group fold glyph ok-green. render_hygiene PASS + own noisy pty drive 0 erases.
+NEW P2: `]`/`[` dead after z (jumpRepeat rows.go walks only visible rows, every
+repeat sits inside a closed group); fold time span mixes clocks (summary.go
+TimeFrom=first clock slot, TimeTo=last) -> live docker/buildx #7928 L6761
+"16:00:45 -> 15:53:53", 28 backwards spans in 7/99 corpus logs; G-pinned wrapped
+view loses last line when pane shrinks (implementer had an uncommitted atEnd fix
+in progress); no fixture/fake produces a "⚠ N error-like inside" fold (live
+flutter #13807 covers it: survives at 50 cols).
+PRE-EXISTING (main be6b51b same): literal "› search-hit" label on every hit row
+shifts gutter, current hit indistinguishable; failure "error window · 12 of 1569"
+hard-codes 12 (view.go visibleLines) and skips digit grouping; help/t modal blank
+the base instead of dimming; esc with committed search pops route; t→ echo sticks.
+
+Round 23 (task 340 re-check, b737c41 clean build, XDG_RUNTIME_DIR=/tmp/ghh-qa340b, 2026-10-16): FAIL (one P2).
+STILL OPEN P2: `]` after z is dead when the opened log FITS the viewport
+(noisy 80x24 `⏎ l z g ] ] ]`: ]1 opens group+lands L0007, ]2..4 identical
+frames). jumpRepeat reads cur from position(), which clamps topRow to
+bottom()=0 when content fits, so cur stays line 1 and re-targets L0007;
+`[` also no-op. Works at 80x14 (content overflows). Same clamp makes the
+last two folds of the default view share one stop at 80x24 (benign, both on screen).
+VERIFIED FIXED: buildx #7928 L6761 span (now omitted - runner clock constant;
+1231/1633 spans forward, 29 folds walked); Z w G pin survives 200->80->120->60x20->60x16
+->200->80, k leaves end; noisy ⚠ fold red, "16 lines hidden" kept at 80/60/50;
+range header "· compact" (drops on c); no "↪  "; help View wraps at 80;
+nothing-to-fold toast fits 80x24 (flush right, no margin); fake 1,587 lines.
+render_hygiene PASS on a git-archive clean export (implementer edited view.go
+mid-audit; in-tree render_hygiene build was -dirty, discarded).
+P3: 80-col log footer omits ]/[ and g/G (only in ?). Help body repeats the
+"help · gh hound" title and sits flush on the left border.
+
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.
 **How to apply:** read before every gh-hound audit; update entries when a

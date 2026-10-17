@@ -156,13 +156,14 @@
   <section id="screens" class="wrap">
     <div class="section-head reveal">
       <h2>Best in show.</h2>
-      <p class="lede">One tab per trick: failure forensics, log time travel, a live watch, filters, the palette, the deploy gate, the trail, the scent check, the good ending. Every frame rendered by <span class="hound">gh-hound</span> itself &mdash; the full log is this repo's own CI, caught red-handed.</p>
+      <p class="lede">One tab per trick: failure forensics, log time travel, folded repeats, a live watch, filters, the palette, the deploy gate, the trail, the scent check, the good ending. Every frame rendered by <span class="hound">gh-hound</span> itself &mdash; the full log is this repo's own CI, caught red-handed.</p>
     </div>
     <div class="tabs reveal" role="tablist" aria-label="gh-hound screens">
       <button class="tab" role="tab" aria-selected="true" data-shot="shot-detail">run detail</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-failure">failure</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-log">full log</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-time">time travel</button>
+      <button class="tab" role="tab" aria-selected="false" data-shot="shot-compact">compact logs</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-watch">watch</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-filters">filters</button>
       <button class="tab" role="tab" aria-selected="false" data-shot="shot-palette">palette</button>
@@ -187,6 +188,10 @@
       <figure class="shot" id="shot-time" role="tabpanel" hidden>
         <div class="term"><img src="/assets/shots/time.png" alt="Time-navigation modal over the log: step picker with clocks, a +51s slowest-gap entry, the failure window, and typed time, relative, and range queries" loading="lazy" width="2231" height="917"></div>
         <figcaption class="shot-caption">t opens time travel · step picker, slowest-gap detection, jump or range-filter</figcaption>
+      </figure>
+      <figure class="shot" id="shot-compact" role="tabpanel" hidden>
+        <div class="term"><img src="/assets/shots/compact.png" alt="Compact full log: a two-hour readiness poll folded into one row reading ×720 2-line block, 16:12:11 to 18:12:02, 1,436 lines hidden; a retry block folded around a visible exit code 137; the header says 1,446 lines folded in 2 places and the title bar 1,470 lines to 26 rows" loading="lazy" width="2225" height="1293"></div>
+        <figcaption class="shot-caption">a two-hour poll in one row · rare values stay visible · c for the full log, ]/[ to hop between folds</figcaption>
       </figure>
       <figure class="shot" id="shot-watch" role="tabpanel" hidden>
         <div class="term"><img src="/assets/shots/watch.png" alt="The hunt board: one row per run in the event group with live states, aggregate counts, and follow-worst mode" loading="lazy" width="2242" height="540"></div>

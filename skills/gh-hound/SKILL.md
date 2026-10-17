@@ -80,7 +80,7 @@ Top level: `repo`, `branch`, `runs[]`, optional `diagnostic`. Each run: `id`, `w
 
 `diagnostic` appears only for actionable empty listings. For `target_mismatch`, branch on `kind`, read the human `message`, and execute one of `next_commands[]` instead of silently stopping.
 
-Each `failed[]` entry: `job`, `step`, `exit_code`, `annotations[]` (`path`, `line`, `level`, `message`), `log_excerpt`.
+Each `failed[]` entry: `job`, `step`, `exit_code`, `annotations[]` (`path`, `line`, `level`, `message`), `log_excerpt`, and optional `repeats[]`. A repeating run inside the excerpt (a poll or retry loop) shows as one `⋯ <summary> · N lines hidden (La–Lb)` line, so the excerpt still ends on the failure with context before it; `repeats[]` (`start_line`, `end_line`, `cycles`, `block_lines`, `hidden_lines`, `from`, `to`, `summary`) tells you how long a job spent repeating — e.g. 720 polls over two hours before a timeout.
 
 Artifacts: `gh hound artifacts` lists `{id, name, size_in_bytes, expired, expires_at, digest}` for a run (latest on branch when `--run` omitted); `--download <name|id>` extracts into `<dir>/<artifact-name>/` and reports `downloaded.path`. Exit `0` success, `2` any error (expired artifacts are refused before download). Add `--artifacts` to `runs` for per-run artifact metadata (opt-in: paginated artifact-list calls per run, usually one).
 

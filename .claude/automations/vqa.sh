@@ -23,7 +23,7 @@ esac
 
 screen_filter="${SCREEN:-all}"
 case "$screen_filter" in
-  all) screens=(welcome all_green runs runs-filter-input runs-actor runs-actor-error no-runs runs-waiting runs-flaky rate_limit_toast detail detail-pending failure failure-flaky watch watch-board log dispatch dispatch-picker workflows diff diff-inconclusive flakes flakes-clean queue palette help approvals runs-loading detail-loading failure-loading log-progress rerun-confirm caches caches-pressure caches-empty) ;;
+  all) screens=(welcome all_green runs runs-filter-input runs-actor runs-actor-error no-runs runs-waiting runs-flaky rate_limit_toast detail detail-pending failure failure-flaky watch watch-board log log-compact log-compact-search dispatch dispatch-picker workflows diff diff-inconclusive flakes flakes-clean queue palette help approvals runs-loading detail-loading failure-loading log-progress rerun-confirm caches caches-pressure caches-empty) ;;
   overlays) screens=(dispatch palette help) ;;
   *) screens=("$screen_filter") ;;
 esac

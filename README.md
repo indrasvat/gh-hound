@@ -43,7 +43,7 @@ Because "open Actions, click run, click job, expand logs, search, scroll, open a
 | --- | --- |
 | Is my branch green? | `gh hound` opens the scoped run list with status, age, event, rate budget, and cache/live state. |
 | What failed? | `Enter` drills into jobs and steps; `n` jumps to the next failure. |
-| Where is the useful log line? | `l` opens the full log with folds, search, line numbers, highlights, and a scrollbar. |
+| Where is the useful log line? | `l` opens the full log with folds, search, line numbers, highlights, and a scrollbar. Repeating lines (polls, retries, progress, repeated stack traces) fold into one row that says how many, for how long and what changed; `c` shows the full log. |
 | Can I retry safely? | `r`, `R`, `x`, and dispatch flows are local, visible, and confirmation-gated. |
 | Can an agent consume this? | `--no-tui --json` returns schema-stable CI objects and deterministic exit codes. |
 
@@ -80,6 +80,7 @@ The GIF is deliberately secondary: static shux captures are the visual truth; VH
 | --- | --- |
 | Multiple page loads to reach the failing step. | One terminal launch, then `Enter` / `n` / `l`. |
 | Browser log pages can feel heavy on large logs. | The TUI renders only the visible log window and keeps folding/search state local. |
+| A job that polls for two hours buries its failure under thousands of near-identical lines. | The full log opens compact: `⋯ ×720 2-line block · 16:12:11 → 18:12:02 · 3 changing ids … 1,436 lines hidden`, on its own band so it never looks like a step group, and `]`/`[` jump between folds. Rare or changed values (`exit code 137`) stay visible, and search and time jumps open the fold they land in. |
 | Scope gets lost across tabs. | Header keeps branch/repo scope, loaded count, rate budget, and cache/live state visible. |
 | Rerun/cancel lives away from diagnosis. | Actions are available in context and guarded by explicit confirmation. |
 | Agents get raw pages or raw logs. | `--no-tui --json` returns schema-stable runs, failures, annotations, and excerpts. |
@@ -115,7 +116,7 @@ The local gate includes race-enabled Go tests, large-log performance tests, and 
 - **GitHub queue**: `queue` explains `pending` runs and jobs through GitHub Actions concurrency groups -- target, blockers, positions when GitHub exposes them, and a `decision.action` agents can branch on. A proved concurrency block exits `3`, not `1`: it is a wait state, not a red CI state.
 - **The pack**: `:workflows` lists every workflow with its state badge -- `✔ active`, `◌ asleep` (fell asleep after 60 quiet days, the classic "my cron stopped" mystery), `⊘ muzzled` (disabled by hand), `⊘ fork-disabled`, `✗ deleted` -- and `e` wakes or muzzles the toggleable ones, confirm-gated. The `workflows` pipe verb lists states and flips them by id or file path. Disabled workflows are named on the empty screen, and the dispatch picker badges them instead of hiding them.
 - **Failure diagnosis**: annotations, failing step, exit code, and de-noised failure excerpts.
-- **Full log viewer**: line-number gutter, fold rows, search, match count, wrap toggle, scrollbar, and syntax-aware highlighting.
+- **Full log viewer**: line-number gutter, fold rows, search, match count, wrap toggle, scrollbar, and syntax-aware highlighting. Opens compact: runs of repeating lines become one fold row (count, time span, what varied, a warning when error-like lines are inside); `c` toggles the full log, `z`/`Z` close and open every fold, and `log_compact = false` opens full logs by default. Folding never hides a line without a visible example of it, and falls back to the full log if it cannot finish within its time limit.
 - **Watch mode**: active-run frame with follow, debug toggle, cancel, and detach.
 - **The hunt**: `w` watches the selected run's whole event group — one row per workflow, `the hunt: 3 running · 1 home · 0 lost` header, drill into any run, follow-worst mode — on one runs-list call per poll. `watch --group` streams the same hunt as NDJSON for agents, and dispatch/rerun can hand off straight into watch (`auto_watch`).
 - **Actions**: rerun failed, rerun run/job, cancel, force-cancel, and dispatch with confirmation where appropriate.
@@ -221,7 +222,7 @@ Fixture scenarios are intentionally restricted to non-interactive/test paths. Th
 | Actions | `r` rerun, `R` rerun failed, `x` cancel, `X` force cancel, `D` dispatch |
 | Detail | `Tab` focus, `n` next failure, `l` logs, `a` artifacts, `d` download (overwrite-guarded re-download), `o`/`y` open folder / copy path on a downloaded artifact (browser / run URL otherwise), `J/K` next/previous run |
 | Failure | `l` full log, `o` browser, `y` copy excerpt, `r` rerun job |
-| Log | `/` search, `t` time jump/range, `n/N` matches, `z/Z` fold, `w` wrap, `g/G` top/bottom |
+| Log | `/` search, `t` time jump/range, `n/N` matches, `z/Z` fold, `c` compact/full, `]/[` next/previous repeat fold, `w` wrap, `g/G` top/bottom |
 | Watch | `f` follow, `d` debug, `x` cancel, `Esc` detach |
 | Hunt board | `j/k` move, `Enter` drill into one run, `f` follow worst, `x` cancel, `Esc` back |
 | Dispatch | `Tab` next, arrows/select controls, `Enter` run, `Esc` cancel |
@@ -300,6 +301,7 @@ internal/adapter    GitHub REST port, fake adapter, cache, poller
 internal/render     JSON/Markdown/XML agent renderers
 internal/tui        Bubble Tea-style app shell and screen renderers
 internal/logs       Log parsing, folds, annotations, excerpts
+internal/logs/fold  Folding repeating lines: shapes, detectors, refiners, plans
 .claude/automations shux VQA and interaction audit harness
 ```
 

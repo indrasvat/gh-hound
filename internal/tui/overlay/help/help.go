@@ -64,7 +64,7 @@ func wrapEntries(entries []string, width int) []string {
 		if current != "" {
 			candidate = current + " · " + entry
 		}
-		if current != "" && len([]rune(candidate)) > width {
+		if current != "" && len([]rune(candidate)) >= width { // keep a column off the border
 			lines = append(lines, current)
 			current = entry
 			continue

@@ -1,6 +1,7 @@
 package log
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/indrasvat/gh-hound/internal/logs"
@@ -71,8 +72,9 @@ func TestRangeFilterLimitsVisibleRows(t *testing.T) {
 	if m.RangeLabel != "" {
 		t.Fatal("esc must clear the range first")
 	}
-	if rows := m.VisibleRowNumbers(); len(rows) != 2 || rows[0] != 2 {
-		t.Fatalf("cleared range keeps position and restores subsequent rows, got %v", rows)
+	// the position is kept; a viewport taller than the log shows all of it
+	if rows := m.VisibleRowNumbers(); m.Offset != 2 || !slices.Contains(rows, 2) || !slices.Contains(rows, 3) {
+		t.Fatalf("cleared range keeps position and restores subsequent rows, offset=%d rows=%v", m.Offset, rows)
 	}
 }
 

@@ -1,10 +1,10 @@
 package log
 
 import (
-	"slices"
 	"strings"
 
 	"github.com/indrasvat/gh-hound/internal/logs"
+	"github.com/indrasvat/gh-hound/internal/logs/fold"
 )
 
 type KeyMsg struct {
@@ -22,6 +22,7 @@ type Model struct {
 	Document   logs.Document
 	Offset     int
 	Height     int
+	Width      int // set by the caller; lets wrapped scrolling reach the end
 	Wrap       bool
 	InputMode  bool
 	LastJump   string
@@ -31,6 +32,21 @@ type Model struct {
 	input      string
 	collapsed  map[int]bool
 	Search     SearchState
+	// Compact shows the fold plan's view; it needs a plan (SetPlan).
+	Compact     bool
+	plan        *fold.Plan
+	rangePlan   *fold.Plan
+	open        map[int]bool
+	hits        map[int]bool
+	groups      map[int]logs.Fold
+	rev         int64
+	cache       *rowCache
+	titles      *titleCache
+	rangeTitles *titleCache
+	topRow      int
+	skip        int // screen lines of the wrapped top row scrolled past
+	skipRow     int
+	atEnd       bool // pinned to the last line until the view moves away
 }
 
 func NewModel(doc logs.Document, offset, height int) Model {
@@ -40,11 +56,19 @@ func NewModel(doc logs.Document, offset, height int) Model {
 	if height <= 0 {
 		height = 10
 	}
+	groups := make(map[int]logs.Fold, len(doc.Folds))
+	for _, f := range doc.Folds {
+		groups[f.StartLine] = f
+	}
 	return Model{
+		groups:    groups,
 		Document:  doc,
 		Offset:    offset,
 		Height:    height,
 		collapsed: map[int]bool{},
+		open:      map[int]bool{},
+		cache:     &rowCache{},
+		topRow:    -1,
 	}
 }
 
@@ -58,17 +82,22 @@ func (m Model) Update(msg KeyMsg) Model {
 			m = m.ClearRange()
 		}
 	case "j", "down":
-		m.Offset = min(m.Offset+1, m.maxTop())
+		m.down()
 	case "k", "up":
-		m.Offset = max(m.minTop(), m.Offset-1)
+		m.up()
 	case "g":
-		m.Offset = m.minTop()
+		m.scrollTo(0)
 	case "G":
-		m.Offset = m.maxTop()
+		m.setPosition(m.bottom())
+		m.atEnd = true
 	case "ctrl+d":
-		m.Offset = min(m.Offset+m.Height/2, m.maxTop())
+		for range max(1, m.Height/2) { // like j, so wrapped lines are walked too
+			m.down()
+		}
 	case "ctrl+u":
-		m.Offset = max(m.minTop(), m.Offset-m.Height/2)
+		for range max(1, m.Height/2) {
+			m.up()
+		}
 	case "/":
 		m.InputMode = true
 		m.input = ""
@@ -78,8 +107,16 @@ func (m Model) Update(msg KeyMsg) Model {
 		m.moveMatch(-1)
 	case "z":
 		m.setCollapsed(true)
+		m.setRepeatsOpen(false)
 	case "Z":
 		m.setCollapsed(false)
+		m.setRepeatsOpen(true)
+	case "c":
+		m.toggleCompact()
+	case "]":
+		m.jumpRepeat(1)
+	case "[":
+		m.jumpRepeat(-1)
 	case "w":
 		m.Wrap = !m.Wrap
 	}
@@ -93,6 +130,10 @@ func (m Model) updateInput(msg KeyMsg) Model {
 	case "enter":
 		m.InputMode = false
 		m.Search = buildSearch(m.Document, m.input)
+		m.hits = make(map[int]bool, len(m.Search.Matches))
+		for _, line := range m.Search.Matches {
+			m.hits[line] = true
+		}
 		m.gotoCurrentMatch()
 	case "backspace":
 		if len(m.input) > 0 {
@@ -117,13 +158,15 @@ func (m Model) updateInput(msg KeyMsg) Model {
 // queried wall-clock moment.
 func (m Model) JumpTo(query string) Model {
 	m.jumpToTime(query)
+	m.reveal(m.Offset)
 	return m
 }
 
 // JumpToLine scrolls to an exact line (picker entries).
 func (m Model) JumpToLine(line int) Model {
 	if line >= 1 && line <= len(m.Document.Lines) {
-		m.Offset = line
+		m.Offset, m.atEnd = line, false
+		m.reveal(line)
 	}
 	return m
 }
@@ -131,6 +174,12 @@ func (m Model) JumpToLine(line int) Model {
 // JumpRelative moves by a signed number of seconds from the line at
 // the top of the viewport, clamping to the log's stamped span.
 func (m Model) JumpRelative(deltaSeconds float64) Model {
+	m = m.jumpRelative(deltaSeconds)
+	m.reveal(m.Offset)
+	return m
+}
+
+func (m Model) jumpRelative(deltaSeconds float64) Model {
 	timeline := logs.Timeline(m.Document)
 	if len(timeline) == 0 {
 		return m
@@ -165,7 +214,9 @@ func (m Model) SetRange(start, end int, label string) Model {
 	m.RangeStart = start
 	m.RangeEnd = end
 	m.RangeLabel = label
-	m.Offset = start
+	m.Offset, m.atEnd = start, false
+	m.planRange()
+	m.bump()
 	return m
 }
 
@@ -173,14 +224,16 @@ func (m Model) ClearRange() Model {
 	m.RangeStart = 0
 	m.RangeEnd = 0
 	m.RangeLabel = ""
+	m.rangePlan, m.atEnd = nil, false
+	m.bump()
 	return m
 }
 
-// VisibleRowNumbers exposes the rendered line numbers (tests, header).
+// VisibleRowNumbers exposes each visible row's anchor line (tests).
 func (m Model) VisibleRowNumbers() []int {
 	numbers := []int{}
 	for _, row := range m.visibleRows() {
-		numbers = append(numbers, row.Line.Number)
+		numbers = append(numbers, row.line)
 	}
 	return numbers
 }
@@ -260,37 +313,16 @@ func clockBefore(query, clock string) bool {
 	return query < clock
 }
 
-// maxTop is the highest top-of-viewport line that still fills the
-// screen (Height counts body rows; the header is budgeted by the
-// caller). An active range bounds scrolling to its window.
-func (m Model) maxTop() int {
-	last := len(m.Document.Lines)
-	if m.RangeLabel != "" {
-		last = min(last, m.RangeEnd)
-	}
-	top := max(m.minTop(), last-max(m.Height, 1)+1)
-	return top
-}
-
-// minTop is the lowest top-of-viewport line: 1, or the range start.
-func (m Model) minTop() int {
-	if m.RangeLabel != "" {
-		return max(1, m.RangeStart)
-	}
-	return 1
-}
-
 func (m Model) Collapsed(line int) bool {
 	return m.collapsed[line]
 }
 
 func (m *Model) setCollapsed(value bool) {
-	if m.collapsed == nil {
-		m.collapsed = map[int]bool{}
+	m.collapsed = make(map[int]bool, len(m.Document.Folds))
+	for _, f := range m.Document.Folds {
+		m.collapsed[f.StartLine] = value
 	}
-	for _, fold := range m.Document.Folds {
-		m.collapsed[fold.StartLine] = value
-	}
+	m.bump()
 }
 
 func (m *Model) moveMatch(delta int) {
@@ -313,10 +345,11 @@ func (m *Model) gotoCurrentMatch() {
 		return
 	}
 	line := m.Search.Matches[m.Search.Current-1]
-	if line > m.Offset {
-		m.Offset = max(1, line-1)
-	} else {
-		m.Offset = line
+	m.reveal(line)
+	forward := line > m.Offset
+	m.Offset = line
+	if rows := m.rows(); forward && line > 1 && m.screenLines(rows[rowIndexFor(rows, line-1)]) < m.Height {
+		m.Offset = line - 1 // one line of context when it fits
 	}
 }
 
@@ -339,39 +372,22 @@ func buildSearch(doc logs.Document, query string) SearchState {
 	return state
 }
 
-func (m Model) visibleRows() []row {
-	rows := make([]row, 0, m.Height)
-	folds := map[int]logs.Fold{}
-	for _, fold := range m.Document.Folds {
-		folds[fold.StartLine] = fold
-	}
-	for i := max(0, m.Offset-1); i < len(m.Document.Lines) && len(rows) < max(m.Height, 1); i++ {
-		line := m.Document.Lines[i]
-		if m.RangeLabel != "" && (line.Number < m.RangeStart || line.Number > m.RangeEnd) {
-			if line.Number > m.RangeEnd {
-				break
-			}
-			continue
-		}
-		if fold, ok := folds[line.Number]; ok {
-			rows = append(rows, row{Line: line, Fold: fold, IsFold: true, Collapsed: m.Collapsed(line.Number)})
-			if m.Collapsed(line.Number) {
-				i = max(i, fold.EndLine-1)
-			}
-			continue
-		}
-		rows = append(rows, row{Line: line})
-	}
-	return rows
+// visibleRows fills the viewport: a top too close to the end is drawn from
+// earlier rows, as G would, so a jump never leaves the screen half empty.
+func (m Model) visibleRows() []viewRow {
+	rows := m.rows()
+	top, _ := m.position()
+	return rows[top:min(len(rows), top+max(m.Height, 1))]
 }
 
-type row struct {
-	Line      logs.Line
-	Fold      logs.Fold
-	IsFold    bool
-	Collapsed bool
+// Changed reports whether m would draw differently from before.
+func (m Model) Changed(before Model) bool {
+	return m.rev != before.rev || m.Offset != before.Offset || m.topRow != before.topRow ||
+		m.skip != before.skip || m.atEnd != before.atEnd || m.Wrap != before.Wrap || m.InputMode != before.InputMode ||
+		m.input != before.input || m.Search.Query != before.Search.Query ||
+		m.Search.Current != before.Search.Current || m.Search.Total != before.Search.Total
 }
 
 func (m Model) isMatch(line int) bool {
-	return slices.Contains(m.Search.Matches, line)
+	return m.hits[line]
 }
