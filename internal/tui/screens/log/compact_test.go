@@ -331,6 +331,45 @@ func TestTerminalSafeOnlyPassesPlainSGR(t *testing.T) {
 	}
 }
 
+func TestHalfPagesMoveThroughAnOversizedLine(t *testing.T) {
+	m := NewModel(logs.Parse("first\nhead "+strings.Repeat("x", 900)+" TAIL-END"), 1, 6)
+	m.Width = 60
+	m = m.Update(KeyMsg{Key: "w"})
+	before := plain(View(m, 60))
+	m = m.Update(KeyMsg{Key: "ctrl+d"})
+	if plain(View(m, 60)) == before {
+		t.Fatal("ctrl+d did not move through the wrapped line")
+	}
+	for range 10 {
+		m = m.Update(KeyMsg{Key: "ctrl+d"})
+	}
+	end := plain(View(m, 60))
+	if !strings.Contains(end, "TAIL-E") {
+		t.Fatalf("ctrl+d never reached the end:\n%s", end)
+	}
+	if out := plain(View(m.Update(KeyMsg{Key: "j"}), 60)); out != end {
+		t.Fatalf("j at the end must stay at the end:\n%s", out)
+	}
+	for range 10 {
+		m = m.Update(KeyMsg{Key: "ctrl+u"})
+	}
+	if plain(View(m, 60)) != before {
+		t.Fatal("ctrl+u did not climb back to the top")
+	}
+}
+
+func TestRangeTitlesAreBuiltBeforeDrawing(t *testing.T) {
+	m := compactModel(t, pollLog(), 10).SetRange(4, 600, "10:00-10:50")
+	if m.rangePlan == nil {
+		t.Skip("range planning ran out of budget")
+	}
+	for i, s := range m.rangePlan.Segments {
+		if shownFold(s) && !m.rangeTitles.has(i) {
+			t.Fatalf("range fold %d has no title before View", i)
+		}
+	}
+}
+
 func TestWrapContinuesLongLines(t *testing.T) {
 	doc := logs.Parse("short\n" + strings.Repeat("abcdefghij ", 20) + "\nend")
 	m := NewModel(doc, 1, 10).Update(KeyMsg{Key: "w"})

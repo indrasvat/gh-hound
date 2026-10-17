@@ -73,6 +73,8 @@ func newTitles(p *fold.Plan) *titleCache {
 	return &titleCache{plan: p, titles: map[int]string{}}
 }
 
+func (c *titleCache) has(seg int) bool { _, ok := c.titles[seg]; return ok }
+
 func (c *titleCache) title(seg int) string {
 	if t, ok := c.titles[seg]; ok {
 		return t
@@ -176,10 +178,21 @@ func (m *Model) planRange() {
 	ctx, cancel := context.WithTimeout(context.Background(), rangePlanBudget)
 	defer cancel()
 	p, err := fold.ForRange(ctx, m.Document, m.RangeStart, m.RangeEnd, fold.Default())
-	if err == nil {
-		m.rangePlan = &p
-		m.rangeTitles = newTitles(m.rangePlan)
+	if err != nil {
+		return
 	}
+	// titles inside the same budget, so drawing never summarizes; out of
+	// time means the range shows raw rows
+	titles := newTitles(&p)
+	for i, s := range p.Segments {
+		if ctx.Err() != nil {
+			return
+		}
+		if shownFold(s) {
+			titles.title(i)
+		}
+	}
+	m.rangePlan, m.rangeTitles = &p, titles
 }
 
 func (m Model) rows() []viewRow {
@@ -325,9 +338,9 @@ func (m *Model) setPosition(row, skip int) {
 	if len(rows) == 0 {
 		return
 	}
-	row = min(max(0, row), len(rows)-1)
+	row = max(0, row)
 	br, bs := m.bottom()
-	if row > br || row == br && skip > bs {
+	if row > br || row == br && skip > bs { // past the end is the end, wrapped skip included
 		row, skip = br, bs
 	}
 	m.topRow, m.Offset = row, rows[row].line

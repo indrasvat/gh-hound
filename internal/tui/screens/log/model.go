@@ -91,11 +91,13 @@ func (m Model) Update(msg KeyMsg) Model {
 		m.setPosition(m.bottom())
 		m.atEnd = true
 	case "ctrl+d":
-		top, _ := m.position()
-		m.scrollTo(top + m.Height/2)
+		for range max(1, m.Height/2) { // like j, so wrapped lines are walked too
+			m.down()
+		}
 	case "ctrl+u":
-		top, _ := m.position()
-		m.scrollTo(top - m.Height/2)
+		for range max(1, m.Height/2) {
+			m.up()
+		}
 	case "/":
 		m.InputMode = true
 		m.input = ""
