@@ -157,3 +157,18 @@ func TestJumpEchoStaysWhileStepping(t *testing.T) {
 		t.Fatal("j inside a wrapped line keeps it on screen")
 	}
 }
+
+func TestJumpEchoStaysOnAGroupHeader(t *testing.T) {
+	var b strings.Builder
+	for i := range 60 {
+		fmt.Fprintf(&b, "10:00:%02dZ work %d\n", i, i+1)
+	}
+	b.WriteString("10:01:00Z ##[group]Run make check\n10:01:01Z make check\n10:01:02Z ##[endgroup]\n10:01:03Z done\n")
+	m := NewModel(logs.Parse(b.String()), 1, 10).JumpTo("10:01:00")
+	if m.Offset != 61 || m.LastJump == "" {
+		t.Fatalf("setup: the jump lands on the group header, offset %d", m.Offset)
+	}
+	if m = m.Update(KeyMsg{Key: "k"}); m.LastJump == "" {
+		t.Fatalf("k keeps the group header on screen: rows %v", m.VisibleRowNumbers())
+	}
+}

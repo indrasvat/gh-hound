@@ -421,7 +421,8 @@ func (m Model) hit(line int) hitKind {
 	}
 }
 
-// onScreen reports whether line is drawn as its own row in the viewport.
+// onScreen reports whether line is drawn in the viewport: as a line or a
+// group header, not hidden in a repeat fold.
 func (m Model) onScreen(line int) bool {
 	_, skip := m.position()
 	budget := max(m.Height, 1)
@@ -429,7 +430,7 @@ func (m Model) onScreen(line int) bool {
 		if budget <= 0 {
 			break
 		}
-		if row.kind == rowLine && row.line == line {
+		if row.kind != rowRepeat && row.line == line {
 			return true
 		}
 		n := m.screenLines(row)
