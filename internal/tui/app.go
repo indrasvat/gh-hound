@@ -806,7 +806,8 @@ func (a App) ViewSize(width, height int) string {
 	body := a.screenBody(width, height)
 	footer := keys.FooterForScreenWidth(a.footerScreen(), max(width, minFrameWidth)-2)
 	if a.TopOverlay() != OverlayNone {
-		body = overlayBox(a.theme, a.overlayTitle(), a.overlayView(width, height), width)
+		inner := contentWidth(width)
+		body = layerOver(a.theme, colorizeBody(a.theme, body, inner), overlayBox(a.theme, a.overlayTitle(), a.overlayView(width, height), width), inner)
 		footer = keys.FooterForScreen(keys.ScreenHelp)
 		if a.TopOverlay() == OverlayPalette {
 			footer = keys.FooterForScreen(keys.ScreenPalette)
@@ -826,15 +827,17 @@ func (a App) ViewSize(width, height int) string {
 				footer = "type comment · ⏎ done · ⎋ cancel"
 			}
 		}
-	} else {
-		body = toastLayer(a.theme, body, a.toasts, contentWidth(width))
-		if len(a.toasts.Toasts) > 0 {
-			retry := false
-			for _, t := range a.toasts.Toasts {
-				retry = retry || t.RetryAction != ""
-			}
-			footer = keys.ToastFooter(retry)
+		// The base was coloured before dimming; framing colours the body
+		// again, which would restyle selected rows over the dim.
+		return frameLines(a.theme, title, context, right, body, footer, width, height, true)
+	}
+	body = toastLayer(a.theme, body, a.toasts, contentWidth(width))
+	if len(a.toasts.Toasts) > 0 {
+		retry := false
+		for _, t := range a.toasts.Toasts {
+			retry = retry || t.RetryAction != ""
 		}
+		footer = keys.ToastFooter(retry)
 	}
 	return frameViewSize(a.theme, title, context, right, body, footer, width, height, true)
 }

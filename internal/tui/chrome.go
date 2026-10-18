@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
+	"math"
 	"strconv"
 	"strings"
 
@@ -14,6 +16,11 @@ import (
 const minFrameWidth = 48
 
 func frameViewSize(th theme.Theme, title, context, right, body, footer string, width, height int, focused bool) string {
+	return frameLines(th, title, context, right, colorizeBody(th, body, contentWidth(width)), footer, width, height, focused)
+}
+
+// frameLines frames a body that is already coloured.
+func frameLines(th theme.Theme, title, context, right, body, footer string, width, height int, focused bool) string {
 	if width < minFrameWidth {
 		width = minFrameWidth
 	}
@@ -25,7 +32,6 @@ func frameViewSize(th theme.Theme, title, context, right, body, footer string, w
 	}
 	head := renderHeader(th, title, context, right, inner)
 	foot := renderFooter(th, footer, inner)
-	body = colorizeBody(th, body, inner)
 
 	bodyLines := splitLines(body)
 	if height > 0 {
@@ -97,7 +103,6 @@ func overlayBox(th theme.Theme, title, body string, width int) string {
 		width = minFrameWidth
 	}
 	inner := overlayInnerWidth(width)
-	boxWidth := inner + 2
 	header := lipgloss.NewStyle().Foreground(lipgloss.Color(th.OK)).Bold(true).Render(title)
 	border := lipgloss.NewStyle().Foreground(lipgloss.Color(th.OK)).Render
 	lines := []string{
@@ -109,13 +114,187 @@ func overlayBox(th theme.Theme, title, body string, width int) string {
 		lines = append(lines, boxLine(th, line, inner))
 	}
 	lines = append(lines, border("╰"+strings.Repeat("─", inner)+"╯"))
-
-	pad := max((width-boxWidth)/2, 0)
-	prefix := strings.Repeat(" ", pad)
-	for i, line := range lines {
-		lines[i] = prefix + line
-	}
 	return strings.Join(lines, "\n")
+}
+
+// layerOver centres box in width over base, which is dimmed as the mock's
+// .dimbg. Each box row replaces the base columns it covers; the base keeps
+// its colours either side of it.
+func layerOver(th theme.Theme, base, box string, width int) string {
+	baseLines, boxLines := splitLines(base), splitLines(box)
+	boxWidth := 0
+	for _, line := range boxLines {
+		boxWidth = max(boxWidth, ansi.StringWidth(line))
+	}
+	pad := max((width-boxWidth)/2, 0)
+	out := make([]string, max(len(baseLines), len(boxLines)))
+	for i := range out {
+		if i < len(baseLines) {
+			out[i] = dimANSI(th, baseLines[i])
+		}
+		if i >= len(boxLines) {
+			continue
+		}
+		line, row := out[i], boxLines[i]
+		row += strings.Repeat(" ", boxWidth-ansi.StringWidth(row))
+		// A wide character the box cuts in half becomes a space in the
+		// colours it was drawn in, so tinted rows keep their tint.
+		left := ansi.Truncate(line, pad, "")
+		if gap := pad - ansi.StringWidth(left); gap > 0 {
+			// Truncate keeps line's bytes up to the cut character.
+			at, _ := cellAt(line, pad)
+			left = left[:at] + strings.Repeat(" ", gap) + left[at:]
+		}
+		right := ""
+		if lineWidth := ansi.StringWidth(line); lineWidth > pad+boxWidth {
+			right = ansi.TruncateLeft(line, pad+boxWidth, "")
+			if ansi.StringWidth(right) > lineWidth-pad-boxWidth {
+				from, to := cellAt(right, 0)
+				right = right[:from] + " " + right[to:]
+			}
+		}
+		out[i] = left + sgrReset + row + sgrReset + right
+	}
+	return strings.Join(out, "\n")
+}
+
+// cellAt returns the byte span of the printable cell covering column col
+// of s, skipping escape sequences.
+func cellAt(s string, col int) (from, to int) {
+	state := byte(ansi.NormalState)
+	for i := 0; i < len(s); {
+		_, w, n, next := ansi.DecodeSequence(s[i:], state, nil)
+		if col -= w; w > 0 && col < 0 {
+			return i, i + n
+		}
+		i, state = i+n, next
+	}
+	return len(s), len(s)
+}
+
+// dimANSI dims a line as CSS brightness(.46) saturate(.65) would over the
+// theme background: truecolor colours are rewritten, and text with no
+// colour takes the dimmed foreground.
+func dimANSI(th theme.Theme, line string) string {
+	if line == "" {
+		return line
+	}
+	bg := hexRGB(th.BG)
+	fg := "38;2;" + rgbParams(dimText(th))
+	var b strings.Builder
+	b.WriteString("\x1b[" + fg + "m")
+	for line != "" {
+		at := strings.Index(line, "\x1b[")
+		if at < 0 {
+			b.WriteString(line)
+			break
+		}
+		b.WriteString(line[:at])
+		line = line[at:]
+		end := 2
+		for end < len(line) && (line[end] < 0x40 || line[end] > 0x7e) {
+			end++
+		}
+		if end == len(line) || line[end] != 'm' {
+			b.WriteString(line[:min(end+1, len(line))])
+			line = line[min(end+1, len(line)):]
+			continue
+		}
+		b.WriteString("\x1b[" + dimSGR(line[2:end], fg, bg) + "m")
+		line = line[end+1:]
+	}
+	return b.String()
+}
+
+// dimSGR rewrites every colour an SGR sets (truecolor, 256 and basic
+// palettes, ';' or ':' separated) as a dimmed truecolor.
+func dimSGR(params, fg string, bg [3]int) string {
+	ps := strings.Split(params, ";")
+	out := make([]string, 0, len(ps)+1)
+	dim := func(target string, c [3]int) { out = append(out, target, "2", rgbParams(dimRGB(c, bg))) }
+	for k := 0; k < len(ps); k++ {
+		p := ps[k]
+		n, err := strconv.Atoi(p)
+		switch {
+		case strings.Contains(p, ":"):
+			sub := strings.Split(p, ":")
+			switch {
+			case len(sub) >= 5 && sub[1] == "2" && isColourTarget(sub[0]):
+				dim(sub[0], subRGB(sub[len(sub)-3:]))
+			case len(sub) == 3 && sub[1] == "5" && isColourTarget(sub[0]):
+				i, _ := strconv.Atoi(sub[2])
+				dim(sub[0], paletteRGB(ansi.ExtendedColor(i)))
+			default:
+				out = append(out, p)
+			}
+		case p == "" || err == nil && n == 0:
+			out = append(out, "0", fg)
+		case err != nil:
+			out = append(out, p)
+		case n == 39:
+			out = append(out, fg)
+		case isColourTarget(p) && k+1 < len(ps) && ps[k+1] == "2":
+			if k+4 >= len(ps) { // truncated: keep the rest as it is
+				return strings.Join(append(out, ps[k:]...), ";")
+			}
+			dim(p, subRGB(ps[k+2:k+5]))
+			k += 4
+		case isColourTarget(p) && k+2 < len(ps) && ps[k+1] == "5":
+			i, _ := strconv.Atoi(ps[k+2])
+			dim(p, paletteRGB(ansi.ExtendedColor(i)))
+			k += 2
+		case n >= 30 && n <= 37, n >= 90 && n <= 97:
+			dim("38", paletteRGB(ansi.BasicColor(n%10+(n/90)*8)))
+		case n >= 40 && n <= 47, n >= 100 && n <= 107:
+			dim("48", paletteRGB(ansi.BasicColor(n%10+(n/100)*8)))
+		default:
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, ";")
+}
+
+func isColourTarget(p string) bool { return p == "38" || p == "48" || p == "58" }
+
+func subRGB(ps []string) [3]int {
+	var c [3]int
+	for i := range 3 {
+		c[i], _ = strconv.Atoi(ps[i])
+	}
+	return c
+}
+
+// paletteRGB is a palette colour's RGB in the default xterm palette.
+func paletteRGB(c color.Color) [3]int {
+	r, g, b, _ := c.RGBA()
+	return [3]int{int(r >> 8), int(g >> 8), int(b >> 8)}
+}
+
+// dimText is plain text's dimmed colour: a neutral grey, since a warm one
+// maps to yellow or olive when the writer downsamples to 16 or 256 colours.
+func dimText(th theme.Theme) [3]int {
+	d := dimRGB(hexRGB(th.FG), hexRGB(th.BG))
+	grey := int(math.Round(0.213*float64(d[0]) + 0.715*float64(d[1]) + 0.072*float64(d[2])))
+	return [3]int{grey, grey, grey}
+}
+
+// dimRGB blends c 46% of the way from bg, then keeps 65% of its saturation
+// (CSS saturate weights).
+func dimRGB(c, bg [3]int) [3]int {
+	var f [3]float64
+	for i := range 3 {
+		f[i] = float64(bg[i]) + float64(c[i]-bg[i])*0.46
+	}
+	lum := 0.213*f[0] + 0.715*f[1] + 0.072*f[2]
+	var out [3]int
+	for i := range 3 {
+		out[i] = min(max(int(math.Round(lum+0.65*(f[i]-lum))), 0), 255)
+	}
+	return out
+}
+
+func rgbParams(c [3]int) string {
+	return fmt.Sprintf("%d;%d;%d", c[0], c[1], c[2])
 }
 
 func selectedLine(th theme.Theme, value string, width int) string {
@@ -254,21 +433,29 @@ func backgroundSafeLine(value string, width int, fg string, bg string) string {
 }
 
 func sgrHex(color string, background bool) string {
-	color = strings.TrimPrefix(color, "#")
-	if len(color) != 6 {
-		return ""
-	}
-	r, errR := strconv.ParseUint(color[0:2], 16, 8)
-	g, errG := strconv.ParseUint(color[2:4], 16, 8)
-	b, errB := strconv.ParseUint(color[4:6], 16, 8)
-	if errR != nil || errG != nil || errB != nil {
+	c, ok := parseHex(color)
+	if !ok {
 		return ""
 	}
 	code := 38
 	if background {
 		code = 48
 	}
-	return fmt.Sprintf("\x1b[%d;2;%d;%d;%dm", code, r, g, b)
+	return fmt.Sprintf("\x1b[%d;2;%sm", code, rgbParams(c))
+}
+
+func parseHex(color string) ([3]int, bool) {
+	v, err := strconv.ParseUint(strings.TrimPrefix(color, "#"), 16, 32)
+	if err != nil || len(strings.TrimPrefix(color, "#")) != 6 {
+		return [3]int{}, false
+	}
+	return [3]int{int(v >> 16 & 0xff), int(v >> 8 & 0xff), int(v & 0xff)}, true
+}
+
+// hexRGB is a theme token's colour; tokens are always #RRGGBB.
+func hexRGB(color string) [3]int {
+	c, _ := parseHex(color)
+	return c
 }
 
 const sgrReset = "\x1b[0m"
