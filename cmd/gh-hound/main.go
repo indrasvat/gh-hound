@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/indrasvat/gh-hound/internal/adapter/fake"
 	"github.com/indrasvat/gh-hound/internal/adapter/github"
@@ -1116,17 +1117,21 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 	defer func() {
 		_ = closeTrace()
 	}()
-	app, err := defaultTUIApp(ctx, preparedRuntime, build, options)
+	cfg, err := defaultConfig(runtime.Env)
 	if err != nil {
 		return err
 	}
-	width, height := terminalSize(runtime.Stdout)
-	app = app.WithViewport(width, height)
+	// Raw input and the resize watch come before anything slow: keys
+	// typed while the launch resolves are neither echoed nor lost, and
+	// a resize after the size is read still arrives.
 	restore, err := rawInput(runtime.Stdin, runtime.IsTTY)
 	if err != nil {
 		return err
 	}
 	defer restore()
+	resizeEvents, stopResize := resizeSignals()
+	defer stopResize()
+	width, height := terminalSize(runtime.Stdout)
 	out := runtime.Stdout
 	if runtime.IsTTY {
 		out = tuiOutput(runtime.Stdout, runtime.Env)
@@ -1142,22 +1147,99 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 
 	renderer := newFrameRenderer(out)
 	renderer.SetSize(width, height)
+	startup := tui.NewStartup(cfg)
+	var screen interface {
+		ViewSize(width, height int) string
+	} = startup
 	render := func() error {
 		if runtime.IsTTY {
-			return renderer.Render(app.ViewSize(width, height))
+			return renderer.Render(screen.ViewSize(width, height))
 		}
-		_, err := fmt.Fprintln(runtime.Stdout, app.ViewSize(width, height))
+		_, err := fmt.Fprintln(runtime.Stdout, screen.ViewSize(width, height))
 		return err
+	}
+	resize := func() {
+		width, height = terminalSize(runtime.Stdout)
+		// The terminal reflowed: the previous frame's rows no longer
+		// correspond, so the diff must start over.
+		renderer.SetSize(width, height)
+		renderer.Invalidate()
 	}
 	if err := render(); err != nil {
 		return err
 	}
 
+	// Building the app resolves the launch over the network: the
+	// startup frame keeps painting meanwhile, and keys typed before the
+	// app exists are replayed into it.
+	type built struct {
+		app tui.App
+		err error
+	}
+	appCtx, cancelApp := context.WithCancel(ctx)
+	defer cancelApp()
+	ready := make(chan built, 1)
+	go func() {
+		app, err := defaultTUIApp(appCtx, preparedRuntime, build, options)
+		ready <- built{app, err}
+	}()
 	events := readKeys(runtime.Stdin)
-	resizeEvents, stopResize := resizeSignals()
-	defer stopResize()
-	ticker := time.NewTicker(app.PollInterval())
+	ticker := time.NewTicker(startup.PollInterval())
 	defer ticker.Stop()
+	var typed []string
+	var app tui.App
+	inputEnded := false
+	for starting := true; starting; {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-resizeEvents:
+			resize()
+			if err := render(); err != nil {
+				return err
+			}
+		case event := <-events:
+			if event.err != nil {
+				if !errors.Is(event.err, io.EOF) {
+					return event.err
+				}
+				// The keys before EOF still apply once the app exists.
+				inputEnded, events = true, nil
+				continue
+			}
+			if event.key == "ctrl+c" {
+				return nil
+			}
+			typed = append(typed, event.key)
+		case <-ticker.C:
+			if err := render(); err != nil {
+				return err
+			}
+		case result := <-ready:
+			if result.err != nil {
+				return result.err
+			}
+			app, starting = result.app, false
+		}
+	}
+	app = app.WithViewport(width, height)
+	screen = &app
+	if err := render(); err != nil {
+		return err
+	}
+	for _, key := range typed {
+		var handled bool
+		if app, handled = app.Update(tui.KeyMsg{Key: key}); handled {
+			if err := render(); err != nil {
+				return err
+			}
+		}
+	}
+	if inputEnded {
+		return nil
+	}
+
+	ticker.Reset(app.PollInterval())
 	// Cancel in-flight background fetches on every exit path (quit,
 	// EOF, ctx cancellation) so their goroutines don't outlive the
 	// loop. The closure reads the latest app value at return time.
@@ -1167,12 +1249,8 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-resizeEvents:
-			width, height = terminalSize(runtime.Stdout)
+			resize()
 			app = app.WithViewport(width, height)
-			// The terminal reflowed: the previous frame's rows no
-			// longer correspond, so the diff must start over.
-			renderer.SetSize(width, height)
-			renderer.Invalidate()
 			if err := render(); err != nil {
 				return err
 			}
@@ -1249,18 +1327,25 @@ func (d *keyDecoder) Next(reader io.Reader, scratch []byte) (string, error) {
 }
 
 func (d *keyDecoder) pop() (string, bool) {
-	if len(d.pending) == 0 {
-		return "", false
-	}
-	if len(d.pending) >= 3 && d.pending[0] == 0x1b && d.pending[1] == '[' {
-		if key := keyName(d.pending[:3]); key != "esc" {
-			d.pending = d.pending[3:]
+	for len(d.pending) > 0 {
+		if len(d.pending) >= 3 && d.pending[0] == 0x1b && d.pending[1] == '[' {
+			if key := keyName(d.pending[:3]); key != "esc" {
+				d.pending = d.pending[3:]
+				return key, true
+			}
+		}
+		if !utf8.FullRune(d.pending) {
+			// The rest of the rune is still in flight.
+			return "", false
+		}
+		r, size := utf8.DecodeRune(d.pending)
+		key := keyName(d.pending[:size])
+		d.pending = d.pending[size:]
+		if r != utf8.RuneError || size > 1 {
 			return key, true
 		}
 	}
-	key := keyName(d.pending[:1])
-	d.pending = d.pending[1:]
-	return key, true
+	return "", false
 }
 
 func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildInfo, options cliOptions) (tui.App, error) {
@@ -1997,7 +2082,8 @@ func keyName(input []byte) string {
 	case 0x1b:
 		return "esc"
 	default:
-		return string(rune(input[0]))
+		r, _ := utf8.DecodeRune(input)
+		return string(r)
 	}
 }
 

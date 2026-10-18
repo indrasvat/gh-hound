@@ -27,6 +27,7 @@ const (
 	ScreenPalette    Screen = "palette"
 	ScreenHelp       Screen = "help"
 	ScreenToasts     Screen = "toasts"
+	ScreenStartup    Screen = "startup"
 )
 
 var footerByScreen = map[Screen][]Binding{
@@ -178,6 +179,9 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "g", Action: "dismiss_all", Help: "dismiss all", ShowInFooter: true},
 		{Key: "r", Action: "retry", Help: "retry", ShowInFooter: true},
 		{Key: "?", Action: "help", Help: "help", ShowInFooter: true},
+	},
+	ScreenStartup: {
+		{Key: "ctrl+c", Action: "quit", Help: "quit", ShowInFooter: true},
 	},
 }
 

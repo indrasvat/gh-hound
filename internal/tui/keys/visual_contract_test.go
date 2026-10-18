@@ -28,6 +28,7 @@ func TestScreenFootersMatchVisualContract(t *testing.T) {
 		ScreenWorkflows:  "j/k move · e wake/muzzle · o browser · ⎋ back",
 		ScreenHelp:       ": palette · ? close · ⎋ close",
 		ScreenToasts:     "⎋ dismiss · g dismiss all · r retry · ? help",
+		ScreenStartup:    "ctrl+c quit",
 	}
 
 	for screen, want := range expected {

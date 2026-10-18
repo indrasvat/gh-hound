@@ -59,6 +59,10 @@ scenarios=(
   dispatch-fill
   palette-caches
   caches-delete-confirm
+  input-utf8
+  palette-utf8-backspace
+  help-toggle
+  startup-frame
 )
 
 adapter_for() {
@@ -117,6 +121,18 @@ keys_for() {
     dispatch-fill) printf 'D T v 0 . 1 2 . 0 tab right' ;;
     palette-caches) printf ': c a c h e s enter' ;;
     caches-delete-confirm) printf ': c a c h e s enter d' ;;
+    input-utf8) printf '/ c a f é space ✓' ;;
+    palette-utf8-backspace) printf ': c é backspace ä' ;;
+    help-toggle) printf '? : ? ?' ;;
+    *) printf '' ;;
+  esac
+}
+
+# startup-frame holds the launch's runs listing: the frame must paint
+# before it lands.
+args_for() {
+  case "$1" in
+    startup-frame) printf -- '--latency 5s' ;;
     *) printf '' ;;
   esac
 }
@@ -128,6 +144,7 @@ send_key() {
     enter) shux pane send-keys -s "$session" --data DQ== >/dev/null ;;
     tab) shux pane send-keys -s "$session" --data CQ== >/dev/null ;;
     esc) shux pane send-keys -s "$session" --data Gw== >/dev/null ;;
+    backspace) shux pane send-keys -s "$session" --data fw== >/dev/null ;;
     space) shux pane send-keys -s "$session" --text ' ' >/dev/null ;;
     up) shux pane send-keys -s "$session" --data G1tB >/dev/null ;;
     down) shux pane send-keys -s "$session" --data G1tC >/dev/null ;;
@@ -154,6 +171,7 @@ for scenario in "${scenarios[@]}"; do
   runner="$(mktemp "${TMPDIR:-/tmp}/hound-ia.XXXXXX.sh")"
   adapter="$(adapter_for "$scenario")"
   welcome="$(welcome_for "$scenario")"
+  args="$(args_for "$scenario")"
   cat >"$runner" <<RUNNER
 #!/usr/bin/env bash
 set -euo pipefail
@@ -163,7 +181,7 @@ export CLICOLOR_FORCE=1
 export HOUND_WELCOME="$welcome"
 export GH_HOUND_ARTIFACT_DIR=/tmp/hound-ia-dl
 unset NO_COLOR
-"$abs_bin" __vqa-tui --scenario "$adapter"
+"$abs_bin" __vqa-tui --scenario "$adapter" $args
 RUNNER
   chmod +x "$runner"
   shux session kill "$session" >/dev/null 2>&1 || true

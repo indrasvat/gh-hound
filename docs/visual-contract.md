@@ -121,6 +121,7 @@ Footer text must be generated from keymap data, not copied into renderers.
 | palette | workflows · watch · diff · theme |
 | help | : palette · ? close · ⎋ close |
 | toasts | ⎋ dismiss · g dismiss all · r retry · ? help |
+| startup | ctrl+c quit |
 | approvals overlay | j/k move · space pick · y open gate · n keep shut · c comment · ⎋ close |
 
 The toasts footer drops `r retry` when no visible toast can retry.
@@ -162,6 +163,7 @@ per-screen spinner in any later change is a review-blocking defect.
 
 | Surface | Loading treatment |
 |---|---|
+| live launch | the frame paints before the launch resolves: shared loading body (`picking up the scent`); keys typed meanwhile replay into the app, `ctrl+c` quits |
 | runs reload (`f` `/` `G`) | previous rows dimmed; loading line below the summary |
 | hunt board open (`w`) | rows seed instantly from the runs list; dimmed with the loading line below while the first hunt tick lands |
 | detail open (`⏎`) | skeleton with run header + repo breadcrumb; loading line in the jobs pane |
