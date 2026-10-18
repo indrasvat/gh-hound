@@ -31,7 +31,7 @@ func FuzzViewport(f *testing.F) {
 		pinned := false // G, then only resizes: the end must stay on screen
 		for step := 0; step < 64 && !in.done(); step++ {
 			var event string
-			before := windowStart(m)
+			prev, before := m, windowStart(m)
 			m, event = in.event(m)
 			if forward := event == "j" || event == "down" || event == "ctrl+d"; forward && windowStart(m) < before {
 				t.Fatalf("after %v: %s moved the view backwards", append(events, event), event)
@@ -42,6 +42,17 @@ func FuzzViewport(f *testing.F) {
 			checkFrame(t, m, event, events)
 			if pinned && resized && !endsAtBottom(m) {
 				t.Fatalf("after %v: a resize at the end lost the last line", events)
+			}
+			if event == "esc" && prev.RangeLabel == "" && m.Search.Query != "" {
+				t.Fatalf("after %v: esc kept the search %q", events, m.Search.Query)
+			}
+			if keyed := !resized && !strings.HasPrefix(event, "jump") && !strings.HasPrefix(event, "range"); keyed {
+				drawn := drawsLine(m, m.jumpLine)
+				// "/q" is three keys: the echo may go at "/" and the match land back on the line.
+				single := !strings.HasPrefix(event, "/")
+				if m.LastJump != "" && !drawn || single && prev.LastJump != "" && drawn && m.LastJump == "" {
+					t.Fatalf("after %v: echo %q with line %d drawn=%v", events, m.LastJump, m.jumpLine, drawn)
+				}
 			}
 		}
 		checkCoverage(t, m, events)
@@ -119,9 +130,11 @@ func (in *fuzzInput) event(m Model) (Model, string) {
 		return m, "/" + q
 	case op == 18:
 		line := 1 + in.next()%max(1, len(m.Document.Lines))
-		return m.JumpToLine(line), fmt.Sprintf("jump %d", line)
+		m = m.JumpToLine(line)
+		m.LastJump = "t" // as the app does after a jump
+		return m, fmt.Sprintf("jump %d", line)
 	default:
-		if m.RangeLabel != "" {
+		if m.RangeLabel != "" || m.Search.Query != "" {
 			return m.Update(KeyMsg{Key: "esc"}), "esc"
 		}
 		a := 1 + in.next()%max(1, len(m.Document.Lines))
@@ -155,7 +168,7 @@ func checkFrame(t *testing.T, m Model, event string, events []string) {
 		if w := ansi.StringWidth(l); w > m.Width {
 			fail("line %d cols wide at width %d: %q", w, m.Width, ansi.Strip(l))
 		}
-		if terminalSafe(l) != l {
+		if TerminalSafe(l) != l {
 			fail("control bytes reach the terminal: %q", l)
 		}
 	}
@@ -185,6 +198,23 @@ func checkFrame(t *testing.T, m Model, event string, events []string) {
 		}
 	}
 	checkProjection(t, m, fail)
+}
+
+// drawsLine reports whether the frame shows line: a row whose rendered
+// gutter carries its number (a collapsed repeat's ⋯ row hides it), counted
+// on rendered rows rather than the cached heights.
+func drawsLine(m Model, line int) bool {
+	head := gutterText(line, gutterWidth(len(m.Document.Lines))) + " "
+	start, n := windowStart(m), 0
+	for _, r := range m.rows() {
+		out := m.renderRow(r)
+		rest, ok := strings.CutPrefix(ansi.Strip(out[0]), head)
+		if ok && !strings.HasPrefix(rest, "⋯") && n+len(out) > start && n < start+max(m.Height, 1) {
+			return true
+		}
+		n += len(out)
+	}
+	return false
 }
 
 // windowStart is the first drawn screen line in the flattened oracle.

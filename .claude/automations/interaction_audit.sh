@@ -44,12 +44,16 @@ scenarios=(
   failure-log-refetch
   failure-actions
   log-search-fold
+  log-search-input
+  log-search-esc
+  log-search-esc-back
   log-compact-open
   log-compact-toggle
   log-compact-search
   log-compact-folds
   log-compact-failure
   log-compact-warning
+  log-compact-jump-echo
   watch-toggle
   pack-board
   dispatch-fill
@@ -98,12 +102,16 @@ keys_for() {
     failure-actions) printf 'enter enter' ;;
     failure-log-refetch) printf 'enter enter' ;;
     log-search-fold) printf 'enter enter l / t r a i l enter z' ;;
+    log-search-input) printf 'enter enter l / t r a' ;;
+    log-search-esc) printf 'enter enter l / t r a i l enter esc' ;;
+    log-search-esc-back) printf 'enter enter l / t r a i l enter esc esc' ;;
     log-compact-open) printf 'enter l' ;;
     log-compact-toggle) printf 'enter l c' ;;
     log-compact-search) printf 'enter l / 1 8 : 0 0 : 0 1 enter' ;;
     log-compact-folds) printf 'enter l Z z' ;;
     log-compact-failure) printf 'enter enter l' ;;
     log-compact-warning) printf 'enter l G' ;;
+    log-compact-jump-echo) printf 'enter l t 1 7 : 0 0 enter G' ;;
     watch-toggle) printf 'w f d' ;;
     pack-board) printf 'j w f' ;;
     dispatch-fill) printf 'D T v 0 . 1 2 . 0 tab right' ;;

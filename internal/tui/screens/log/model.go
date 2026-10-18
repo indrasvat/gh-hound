@@ -26,6 +26,7 @@ type Model struct {
 	Wrap       bool
 	InputMode  bool
 	LastJump   string
+	jumpLine   int // LastJump's line; the echo clears once it is off screen
 	RangeStart int
 	RangeEnd   int
 	RangeLabel string
@@ -73,6 +74,14 @@ func NewModel(doc logs.Document, offset, height int) Model {
 }
 
 func (m Model) Update(msg KeyMsg) Model {
+	m = m.update(msg)
+	if m.LastJump != "" && !m.onScreen(m.jumpLine) {
+		m.LastJump = ""
+	}
+	return m
+}
+
+func (m Model) update(msg KeyMsg) Model {
 	if m.InputMode {
 		return m.updateInput(msg)
 	}
@@ -80,6 +89,8 @@ func (m Model) Update(msg KeyMsg) Model {
 	case "esc":
 		if m.RangeLabel != "" {
 			m = m.ClearRange()
+		} else {
+			m.Search, m.hits = SearchState{}, nil
 		}
 	case "j", "down":
 		m.down()
@@ -159,6 +170,7 @@ func (m Model) updateInput(msg KeyMsg) Model {
 func (m Model) JumpTo(query string) Model {
 	m.jumpToTime(query)
 	m.reveal(m.Offset)
+	m.jumpLine = m.Offset
 	return m
 }
 
@@ -167,6 +179,7 @@ func (m Model) JumpToLine(line int) Model {
 	if line >= 1 && line <= len(m.Document.Lines) {
 		m.Offset, m.atEnd = line, false
 		m.reveal(line)
+		m.jumpLine = line
 	}
 	return m
 }
@@ -176,6 +189,7 @@ func (m Model) JumpToLine(line int) Model {
 func (m Model) JumpRelative(deltaSeconds float64) Model {
 	m = m.jumpRelative(deltaSeconds)
 	m.reveal(m.Offset)
+	m.jumpLine = m.Offset
 	return m
 }
 
@@ -384,10 +398,46 @@ func (m Model) visibleRows() []viewRow {
 func (m Model) Changed(before Model) bool {
 	return m.rev != before.rev || m.Offset != before.Offset || m.topRow != before.topRow ||
 		m.skip != before.skip || m.atEnd != before.atEnd || m.Wrap != before.Wrap || m.InputMode != before.InputMode ||
-		m.input != before.input || m.Search.Query != before.Search.Query ||
+		m.input != before.input || m.LastJump != before.LastJump || m.Search.Query != before.Search.Query ||
 		m.Search.Current != before.Search.Current || m.Search.Total != before.Search.Total
 }
 
-func (m Model) isMatch(line int) bool {
-	return m.hits[line]
+type hitKind int
+
+const (
+	noHit hitKind = iota
+	searchHit
+	currentHit
+)
+
+func (m Model) hit(line int) hitKind {
+	switch {
+	case !m.hits[line]:
+		return noHit
+	case m.Search.Current >= 1 && m.Search.Matches[m.Search.Current-1] == line:
+		return currentHit
+	default:
+		return searchHit
+	}
+}
+
+// onScreen reports whether line is drawn in the viewport: as a line or a
+// group header, not hidden in a repeat fold.
+func (m Model) onScreen(line int) bool {
+	_, skip := m.position()
+	budget := max(m.Height, 1)
+	for i, row := range m.visibleRows() {
+		if budget <= 0 {
+			break
+		}
+		if row.kind != rowRepeat && row.line == line {
+			return true
+		}
+		n := m.screenLines(row)
+		if i == 0 {
+			n -= min(skip, n-1)
+		}
+		budget -= n
+	}
+	return false
 }

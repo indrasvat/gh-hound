@@ -937,7 +937,7 @@ func RenderFixtureSize(screen string, width, height int) string {
 		m := sampleDetailModel().Update(detail.KeyMsg{Key: "a"})
 		return frameViewSize(app.theme, "hound", "CI #571 › fix/parser", "artifacts", detail.ViewSize(m, bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
 	case "failure":
-		return frameViewSize(app.theme, "hound", "build › failed step", "exit 1", failure.View(sampleFailureModel(), bodyWidth), keys.FooterForScreen(keys.ScreenFailure), width, height, true)
+		return frameViewSize(app.theme, "hound", "build › failed step", "exit 1", failure.ViewSize(sampleFailureModel(), bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenFailure), width, height, true)
 	case "watch":
 		return frameViewSize(app.theme, "hound", "CI #570", "streaming · follow ●", watch.View(sampleWatchModel(), bodyWidth), keys.FooterForScreen(keys.ScreenWatch), width, height, true)
 	case "watch-board":
@@ -1086,7 +1086,7 @@ func RenderInteractionFixtureSize(scenario string, width, height int) string {
 		for _, key := range []string{"l", "y", "o", "r", "R"} {
 			m = m.Update(failure.KeyMsg{Key: key})
 		}
-		return frameViewSize(app.theme, "hound", "build › failed step", "actions queued", failure.View(m, bodyWidth), keys.FooterForScreen(keys.ScreenFailure), width, height, true)
+		return frameViewSize(app.theme, "hound", "build › failed step", "actions queued", failure.ViewSize(m, bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenFailure), width, height, true)
 	case "log-search-fold":
 		m := sampleLogModel()
 		for _, key := range []string{"/", "t", "r", "a", "i", "l", "enter", "z"} {
@@ -2232,9 +2232,9 @@ func (a App) updateLog(msg KeyMsg) (App, bool) {
 	before := a.log
 	a.log = a.log.Update(logscreen.KeyMsg{Key: msg.Key})
 	if msg.Key == "esc" {
-		if before.InputMode || before.RangeLabel != "" {
-			// Esc only cancelled the input layer or range filter;
-			// stay on the log.
+		if before.InputMode || before.RangeLabel != "" || before.Search.Query != "" {
+			// Esc only cancelled the input, range or search; stay on
+			// the log.
 			return a, true
 		}
 		a.PopRoute()
@@ -4241,6 +4241,9 @@ func (a App) footerScreen() keys.Screen {
 	case RouteFailure:
 		return keys.ScreenFailure
 	case RouteLog:
+		if a.log.InputMode {
+			return keys.ScreenLogSearch
+		}
 		return keys.ScreenLog
 	case RouteWatch:
 		return keys.ScreenWatch
@@ -4305,7 +4308,8 @@ func (a App) overlayView(width, height int) string {
 	case OverlayConfirm:
 		return confirm.View(a.confirm, width-20)
 	case OverlayTimeJump:
-		return timejump.View(a.timeJump, width-20)
+		// Box chrome (4 rows) around the picker.
+		return timejump.ViewSize(a.timeJump, overlayInnerWidth(width), max(bodyHeight(height)-4, 0))
 	case OverlayApprovals:
 		return approvals.View(a.approvals, width-20)
 	default:
@@ -4697,7 +4701,7 @@ func (a App) screenBody(width, height int) string {
 		if load := a.load; load != nil && load.kind == loadKindFailure {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())
 		}
-		return failure.View(a.failure, bodyWidth)
+		return failure.ViewSize(a.failure, bodyWidth, bodyHeight(height))
 	case RouteLog:
 		if load := a.load; load != nil && load.kind == loadKindLog {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())

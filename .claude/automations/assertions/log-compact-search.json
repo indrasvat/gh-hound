@@ -1,1 +1,1 @@
-{"contains": ["log \u00b7 /18:00:01 \u00b7 match 1/1 \u00b7 compact", "\u203a search-hit", "c compact"]}
+{"contains": ["log \u00b7 /18:00:01 \u00b7 match 1/1 \u00b7 compact \u00b7 \u238b clear", "c compact"], "forbid": ["search-hit"]}

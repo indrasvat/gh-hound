@@ -18,6 +18,7 @@ func TestScreenFootersMatchVisualContract(t *testing.T) {
 		ScreenWatch:      "✗ cancel · f follow · d debug · ⎋ detach",
 		ScreenWatchBoard: "j/k move · ⏎ drill in · f follow worst · ✗ cancel · ⎋ back",
 		ScreenLog:        "j/k scroll · g/G ends · / search · t time · n/N match · z/Z fold · c compact · ]/[ repeats · w wrap · ⎋ back",
+		ScreenLogSearch:  "type to search · ⏎ find · ⎋ cancel",
 		ScreenDispatch:   "⏎ run · ⇥ next · ⎋ cancel",
 		ScreenFlakes:     "j/k move · ⏎ open run · ⎋ back",
 		ScreenDiff:       "j/k move · ⏎ first bad · o compare · ⎋ back",

@@ -10,12 +10,20 @@ import (
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 	flakesscreen "github.com/indrasvat/gh-hound/internal/tui/screens/flakes"
+	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
 )
 
 var exitCodeRE = regexp.MustCompile(`exit code (\d+)`)
 var gotWantRE = regexp.MustCompile(`^(.*?): got ("[^"]*") want ("[^"]*")(.*)$`)
 
 func View(m Model, width int) string {
+	return ViewSize(m, width, 0)
+}
+
+// ViewSize draws the excerpt lines that fit in height (0: all of them), so
+// the error-window header counts what is on screen; the flake panel gets
+// what is left.
+func ViewSize(m Model, width, height int) string {
 	if width <= 0 {
 		width = 80
 	}
@@ -26,11 +34,25 @@ func View(m Model, width int) string {
 	for _, annotation := range m.Report.Annotations {
 		lines = append(lines, annotationLine(annotation, width))
 	}
-	lines = append(lines, errorHeader(m, width))
-	for _, line := range m.Excerpt {
+	excerpt := m.Excerpt
+	if room := max(height-len(lines)-1, 0); height > 0 && room < len(excerpt) {
+		excerpt = excerpt[:room]
+	}
+	lines = append(lines, errorHeader(m, len(excerpt), width))
+	for _, line := range excerpt {
 		lines = append(lines, logLine(line, width))
 	}
-	lines = append(lines, flakePanel(m, width)...)
+	if len(excerpt) == len(m.Excerpt) {
+		panel := flakePanel(m, width)
+		if room := height - len(lines); height > 0 && len(panel) > room {
+			// cut the panel, never the counted rows, as the frame would
+			panel = panel[:max(room, 0)]
+			if room > 0 {
+				panel[room-1] = "…"
+			}
+		}
+		lines = append(lines, panel...)
+	}
 	return strings.Join(lines, "\n")
 }
 
@@ -107,8 +129,8 @@ func annotationLine(annotation model.Annotation, width int) string {
 	return fitANSI(value, width)
 }
 
-func errorHeader(m Model, width int) string {
-	left := colorize(sgrDim, fmt.Sprintf("error window · %d of %d lines", visibleLines(m), totalLines(m)))
+func errorHeader(m Model, drawn, width int) string {
+	left := colorize(sgrDim, fmt.Sprintf("error window · %d of %s lines", drawn, groupDigits(totalLines(m))))
 	if m.Flake != nil {
 		// Two focusable panes exist: mark the one that owns j/k.
 		left = focusMark(!m.PanelFocus) + left
@@ -119,7 +141,7 @@ func errorHeader(m Model, width int) string {
 
 func logLine(line logs.Line, width int) string {
 	gutter := colorize(sgrLine2, fmt.Sprintf("%03d", line.Number))
-	value := gutter + " " + renderLogText(line.Text)
+	value := gutter + " " + logscreen.TerminalSafe(renderLogText(line.Text))
 	if isHitLine(line.Text) {
 		return backgroundSafe(value, width, sgrFG, sgrHitBG)
 	}
@@ -191,11 +213,12 @@ func totalLines(m Model) int {
 	return total
 }
 
-func visibleLines(m Model) int {
-	if m.TotalLines > 1000 && len(m.Excerpt) < 12 {
-		return 12
+func groupDigits(n int) string {
+	s := fmt.Sprint(n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
 	}
-	return len(m.Excerpt)
+	return s
 }
 
 func fitANSI(value string, width int) string {

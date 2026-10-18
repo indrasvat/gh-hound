@@ -1,6 +1,7 @@
 package failure
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -151,5 +152,65 @@ func report() usecase.FailureReport {
 			Message:   "FAIL TestLexIdent/trailing_underscore",
 			Title:     "go test",
 		}},
+	}
+}
+
+func TestErrorWindowCountsTheLinesItDraws(t *testing.T) {
+	r := report()
+	lines := make([]string, 0, 1587)
+	for i := range 1583 {
+		lines = append(lines, fmt.Sprintf("ok internal/pkg%d 0.1s", i))
+	}
+	lines = append(lines, "--- FAIL: TestLexIdent (0.00s)", "FAIL", "github.com/indrasvat/gh-hound/internal/parser", "##[error]Process completed with exit code 1")
+	r.Log = logs.Parse(strings.Join(lines, "\n"))
+	m := NewModel("indrasvat/gh-hound", 571, r)
+	plain := ansi.Strip(View(m, 120))
+	drawn := 0
+	for l := range strings.SplitSeq(plain, "\n") {
+		if len(l) > 4 && l[0] == '1' && l[4] == ' ' {
+			drawn++
+		}
+	}
+	if drawn == 0 || drawn >= 12 || !strings.Contains(plain, fmt.Sprintf("error window · %d of 1,587 lines", drawn)) {
+		t.Fatalf("header must count the %d drawn lines of 1,587:\n%s", drawn, plain)
+	}
+}
+
+func TestErrorWindowCountsOnlyTheRowsThatFit(t *testing.T) {
+	m := NewModel("indrasvat/gh-hound", 571, report())
+	view := ViewSize(m, 80, 8)
+	lines := strings.Split(ansi.Strip(view), "\n")
+	if len(lines) > 8 || !strings.Contains(view, "error window · 3 of 8 lines") || !strings.HasPrefix(lines[len(lines)-1], "006 ") {
+		t.Fatalf("8 rows hold the header, 2 annotations and 3 excerpt lines:\n%s", ansi.Strip(view))
+	}
+	if full := ansi.Strip(ViewSize(m, 80, 0)); !strings.Contains(full, "error window · 5 of 8 lines") {
+		t.Fatalf("no height draws the whole excerpt:\n%s", full)
+	}
+	flaky := m.WithFlake(usecase.JobFlake{Job: "build", FlakedRuns: 2, Verdict: usecase.FlakeStatus("flaky")}, 10)
+	for h := 8; h <= 14; h++ {
+		lines := strings.Split(ansi.Strip(ViewSize(flaky, 80, h)), "\n")
+		drawn := 0
+		for _, l := range lines {
+			if len(l) > 3 && l[3] == ' ' && strings.Trim(l[:3], "0123456789") == "" {
+				drawn++
+			}
+		}
+		if len(lines) > h || !strings.Contains(strings.Join(lines, "\n"), fmt.Sprintf("error window · %d of 8 lines", drawn)) {
+			t.Fatalf("height %d: %d lines, header must count %d drawn rows:\n%s", h, len(lines), drawn, strings.Join(lines, "\n"))
+		}
+	}
+	if view := ansi.Strip(ViewSize(flaky, 80, 8)); len(strings.Split(view, "\n")) > 8 || strings.Contains(view, "seen this one before") {
+		t.Fatalf("a cut excerpt leaves no room for the flake panel:\n%s", view)
+	}
+}
+
+func TestExcerptTabsAndEscapesKeepTheRowWidth(t *testing.T) {
+	r := report()
+	r.Log = logs.Parse("ok\n--- FAIL: TestX\nZ\thave ()\x1b[2K\nZ\twant (bool)\n##[error]exit code 1")
+	view := View(NewModel("indrasvat/gh-hound", 571, r), 80)
+	for l := range strings.SplitSeq(view, "\n") {
+		if strings.ContainsAny(l, "\t") || strings.Contains(l, "\x1b[2K") || ansi.StringWidth(l) > 80 {
+			t.Fatalf("a row moves the cursor or overflows: %q", l)
+		}
 	}
 }

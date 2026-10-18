@@ -1,6 +1,7 @@
 package timejump
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -182,5 +183,46 @@ func TestSingleDigitHourQueriesResolve(t *testing.T) {
 	_, action = m2.Commit()
 	if action.Kind != ActionRange || action.Line != 2 || action.EndLine != 2 {
 		t.Fatalf("9:59-10:01 must resolve with padded hours: %#v", action)
+	}
+}
+
+func TestHintWrapsInsteadOfCutting(t *testing.T) {
+	const hint = "j/k pick · HH:MM[:SS] · +30s/-2m relative · A-B range · ⏎ go · ⎋ cancel"
+	for _, tc := range []struct {
+		width int
+		lines []string
+	}{
+		{66, []string{"j/k pick · HH:MM[:SS] · +30s/-2m relative · A-B range · ⏎ go", "⎋ cancel"}},
+		{40, []string{"j/k pick · HH:MM[:SS]", "+30s/-2m relative · A-B range · ⏎ go", "⎋ cancel"}},
+		{80, []string{hint}},
+	} {
+		view := View(New(sampleDoc()), tc.width)
+		lines := strings.Split(view, "\n")
+		if got := lines[len(lines)-len(tc.lines):]; strings.Join(got, "\n") != strings.Join(tc.lines, "\n") || strings.Contains(view, "…") {
+			t.Fatalf("width %d hint = %q, want %q", tc.width, got, tc.lines)
+		}
+	}
+}
+
+func manyStepsDoc() logs.Document {
+	var lines []string
+	for i := range 30 {
+		lines = append(lines, fmt.Sprintf("17:%02d:00.000Z ##[group]step %02d", i, i), fmt.Sprintf("17:%02d:30.000Z work", i), "##[endgroup]")
+	}
+	return logs.Parse(strings.Join(lines, "\n"))
+}
+
+func TestALongPickerScrollsToFitTheHeight(t *testing.T) {
+	m := New(manyStepsDoc())
+	if len(m.Entries) <= 10 {
+		t.Fatalf("setup: %d entries", len(m.Entries))
+	}
+	for range 15 {
+		m = m.Update("j")
+	}
+	lines := strings.Split(ViewSize(m, 66, 12), "\n")
+	selected := m.Entries[m.Selected].Label
+	if len(lines) != 12 || !strings.Contains(lines[len(lines)-1], "⎋ cancel") || !strings.Contains(strings.Join(lines, "\n"), "▌ ▸ "+m.Entries[m.Selected].Clock+"  "+selected) {
+		t.Fatalf("12 rows keep the input, the selected entry and the hint:\n%s", strings.Join(lines, "\n"))
 	}
 }

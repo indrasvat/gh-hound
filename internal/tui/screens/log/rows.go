@@ -54,7 +54,6 @@ type layoutKey struct {
 	rev           int64
 	width, height int
 	wrap          bool
-	query         string
 }
 
 // revs is process-wide, so sibling copies never share a revision.
@@ -393,7 +392,7 @@ func (m Model) screenLines(r viewRow) int {
 
 func (m Model) layoutKey() layoutKey {
 	m.rows() // brings cache.rev up to this model
-	return layoutKey{m.cache.rev, m.Width, m.Height, m.wrapping(), m.Search.Query}
+	return layoutKey{m.cache.rev, m.Width, m.Height, m.wrapping()}
 }
 
 func (m *Model) scrollTo(row int) { m.setPosition(row, 0) }

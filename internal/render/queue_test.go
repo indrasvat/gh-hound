@@ -138,6 +138,26 @@ func TestQueueMarkdownAndXMLAreStructured(t *testing.T) {
 	}
 }
 
+func TestQueueXMLOmitsNextCommandsWhenEmpty(t *testing.T) {
+	result := fixtureQueueResult()
+	var out bytes.Buffer
+	if err := WriteQueue(&out, FormatXML, result); err != nil {
+		t.Fatalf("xml: %v", err)
+	}
+	if strings.Contains(out.String(), "next_commands") {
+		t.Fatalf("no commands, no wrapper:\n%s", out.String())
+	}
+	result.Decision.NextCommands = []string{"gh hound watch --run 30433642", "gh hound queue --run 30433644"}
+	out.Reset()
+	if err := WriteQueue(&out, FormatXML, result); err != nil {
+		t.Fatalf("xml: %v", err)
+	}
+	want := "<next_commands>\n      <command>gh hound watch --run 30433642</command>\n      <command>gh hound queue --run 30433644</command>\n    </next_commands>"
+	if !strings.Contains(out.String(), want) {
+		t.Fatalf("commands must render inside one wrapper:\n%s", out.String())
+	}
+}
+
 func TestQueueSchemaDefinesNestedContracts(t *testing.T) {
 	raw, err := os.ReadFile("testdata/schema.json")
 	if err != nil {
