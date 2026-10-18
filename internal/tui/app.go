@@ -937,7 +937,7 @@ func RenderFixtureSize(screen string, width, height int) string {
 		m := sampleDetailModel().Update(detail.KeyMsg{Key: "a"})
 		return frameViewSize(app.theme, "hound", "CI #571 › fix/parser", "artifacts", detail.ViewSize(m, bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
 	case "failure":
-		return frameViewSize(app.theme, "hound", "build › failed step", "exit 1", failure.View(sampleFailureModel(), bodyWidth), keys.FooterForScreen(keys.ScreenFailure), width, height, true)
+		return frameViewSize(app.theme, "hound", "build › failed step", "exit 1", failure.ViewSize(sampleFailureModel(), bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenFailure), width, height, true)
 	case "watch":
 		return frameViewSize(app.theme, "hound", "CI #570", "streaming · follow ●", watch.View(sampleWatchModel(), bodyWidth), keys.FooterForScreen(keys.ScreenWatch), width, height, true)
 	case "watch-board":
@@ -1086,7 +1086,7 @@ func RenderInteractionFixtureSize(scenario string, width, height int) string {
 		for _, key := range []string{"l", "y", "o", "r", "R"} {
 			m = m.Update(failure.KeyMsg{Key: key})
 		}
-		return frameViewSize(app.theme, "hound", "build › failed step", "actions queued", failure.View(m, bodyWidth), keys.FooterForScreen(keys.ScreenFailure), width, height, true)
+		return frameViewSize(app.theme, "hound", "build › failed step", "actions queued", failure.ViewSize(m, bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenFailure), width, height, true)
 	case "log-search-fold":
 		m := sampleLogModel()
 		for _, key := range []string{"/", "t", "r", "a", "i", "l", "enter", "z"} {
@@ -4308,6 +4308,7 @@ func (a App) overlayView(width, height int) string {
 	case OverlayConfirm:
 		return confirm.View(a.confirm, width-20)
 	case OverlayTimeJump:
+		// Box chrome (4 rows) around the picker.
 		return timejump.ViewSize(a.timeJump, overlayInnerWidth(width), max(bodyHeight(height)-4, 0))
 	case OverlayApprovals:
 		return approvals.View(a.approvals, width-20)

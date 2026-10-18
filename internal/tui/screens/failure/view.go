@@ -21,7 +21,8 @@ func View(m Model, width int) string {
 }
 
 // ViewSize draws the excerpt lines that fit in height (0: all of them), so
-// the error-window header counts what is on screen.
+// the error-window header counts what is on screen; the flake panel gets
+// what is left.
 func ViewSize(m Model, width, height int) string {
 	if width <= 0 {
 		width = 80
@@ -42,7 +43,15 @@ func ViewSize(m Model, width, height int) string {
 		lines = append(lines, logLine(line, width))
 	}
 	if len(excerpt) == len(m.Excerpt) {
-		lines = append(lines, flakePanel(m, width)...)
+		panel := flakePanel(m, width)
+		if room := height - len(lines); height > 0 && len(panel) > room {
+			// cut the panel, never the counted rows, as the frame would
+			panel = panel[:max(room, 0)]
+			if room > 0 {
+				panel[room-1] = "…"
+			}
+		}
+		lines = append(lines, panel...)
 	}
 	return strings.Join(lines, "\n")
 }

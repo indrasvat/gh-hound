@@ -682,6 +682,19 @@ GOTCHA: upgrading shux mid-audit restarted the daemon and killed sessions —
 not an app crash. `shux pane snapshot` drops the frame's rightmost border
 column; judge borders on `window snapshot` or text captures.
 
+Round 25 (#62 task 350 re-gate, e288c95 clean, shux 0.51.0, 2026-10-18): FAIL (one P2).
+F1 still miscounted at the exact-fit height when a flake panel exists: the
+view filled the body with excerpt rows, appended the panel because the
+excerpt "fit", and the frame clip turned the last excerpt row into "…"
+("3 of 7", 2 drawn; flaky fake 80x13/120x13/200x13). LESSON: a
+"count what's drawn" fix must budget every block appended after the counted
+block; test every exact-fit height with all optional panels present.
+VERIFIED: F2 "· ⎋ clear" + esc order, F3 long picker at 80x24 (60×j keeps
+selection visible), F4 tabs in excerpt, Changed() repaint after resize +
+unbound key, full regression (1)-(7) at 80/120/200. P3 (pre-existing): the
+compact "N lines folded" header goes stale after a jump/n opens a fold;
+picker shows no more-above/below marker; "0 of N" header with no rows.
+
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.
 **How to apply:** read before every gh-hound audit; update entries when a

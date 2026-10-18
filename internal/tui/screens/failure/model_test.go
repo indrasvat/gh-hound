@@ -187,6 +187,18 @@ func TestErrorWindowCountsOnlyTheRowsThatFit(t *testing.T) {
 		t.Fatalf("no height draws the whole excerpt:\n%s", full)
 	}
 	flaky := m.WithFlake(usecase.JobFlake{Job: "build", FlakedRuns: 2, Verdict: usecase.FlakeStatus("flaky")}, 10)
+	for h := 8; h <= 14; h++ {
+		lines := strings.Split(ansi.Strip(ViewSize(flaky, 80, h)), "\n")
+		drawn := 0
+		for _, l := range lines {
+			if len(l) > 3 && l[3] == ' ' && strings.Trim(l[:3], "0123456789") == "" {
+				drawn++
+			}
+		}
+		if len(lines) > h || !strings.Contains(strings.Join(lines, "\n"), fmt.Sprintf("error window · %d of 8 lines", drawn)) {
+			t.Fatalf("height %d: %d lines, header must count %d drawn rows:\n%s", h, len(lines), drawn, strings.Join(lines, "\n"))
+		}
+	}
 	if view := ansi.Strip(ViewSize(flaky, 80, 8)); len(strings.Split(view, "\n")) > 8 || strings.Contains(view, "seen this one before") {
 		t.Fatalf("a cut excerpt leaves no room for the flake panel:\n%s", view)
 	}
