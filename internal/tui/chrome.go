@@ -142,13 +142,21 @@ func layerOver(th theme.Theme, base, box string, width int) string {
 		right := ""
 		if lineWidth := ansi.StringWidth(line); lineWidth > pad+boxWidth {
 			// TruncateLeft keeps the colours set before the cut; a wide
-			// character the box cuts in half becomes a space.
+			// character the box cuts in half becomes a space after them.
 			want := lineWidth - pad - boxWidth
 			right = ansi.TruncateLeft(line, pad+boxWidth, "")
 			if ansi.StringWidth(right) > want {
 				right = ansi.TruncateLeft(line, pad+boxWidth+1, "")
 			}
-			right = strings.Repeat(" ", max(want-ansi.StringWidth(right), 0)) + right
+			cut, state := 0, byte(ansi.NormalState)
+			for cut < len(right) {
+				_, w, n, next := ansi.DecodeSequence(right[cut:], state, nil)
+				if w > 0 {
+					break
+				}
+				cut, state = cut+n, next
+			}
+			right = right[:cut] + strings.Repeat(" ", max(want-ansi.StringWidth(right), 0)) + right[cut:]
 		}
 		out[i] = left + sgrReset + row + sgrReset + right
 	}

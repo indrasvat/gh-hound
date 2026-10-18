@@ -372,3 +372,19 @@ func TestDimmedTextStaysGreyWhenDownsampled(t *testing.T) {
 		}
 	}
 }
+
+func TestLayerKeepsTheTintWhereTheBoxSplitsAWideCharacter(t *testing.T) {
+	th := theme.ForMode(theme.ModeBramble)
+	base := "\x1b[48;2;43;33;24mあいうえお\x1b[0m"
+	for _, tc := range []struct {
+		box   string
+		width int
+	}{{"X", 10}, {"XY", 9}} { // the box cuts う on the right, then い on the left
+		out := layerOver(th, base, tc.box, tc.width)
+		for seg := range strings.SplitSeq(out, tc.box) {
+			if before, _, ok := strings.Cut(seg, " "); ok && !strings.Contains(before, "48;2;") {
+				t.Fatalf("box %q: the space for a cut character lost the row tint: %q", tc.box, out)
+			}
+		}
+	}
+}
