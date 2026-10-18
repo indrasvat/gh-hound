@@ -1,1 +1,1 @@
-{"contains": ["full log", "j/k scroll"], "forbid": ["match 1/2", "failed step"]}
+{"contains": ["j/k scroll", "full log"], "forbid": ["match 1/2", "failed step"]}

@@ -398,7 +398,7 @@ func (m Model) visibleRows() []viewRow {
 func (m Model) Changed(before Model) bool {
 	return m.rev != before.rev || m.Offset != before.Offset || m.topRow != before.topRow ||
 		m.skip != before.skip || m.atEnd != before.atEnd || m.Wrap != before.Wrap || m.InputMode != before.InputMode ||
-		m.input != before.input || m.LastJump != before.LastJump || m.Search.Query != before.Search.Query ||
+		m.input != before.input || m.Search.Query != before.Search.Query ||
 		m.Search.Current != before.Search.Current || m.Search.Total != before.Search.Total
 }
 

@@ -22,16 +22,23 @@ IN PROGRESS — issue #62, first of two PRs. This PR fixes the log screen, failu
 
 ## Task List
 
-- [ ] T1 Search hits: no prefix; hit and current-hit tints; the gutter column is identical with and without a search, wrapped or not. Unit tests on the rendered SGR (hit rows, current row, alignment at 60/80/120); `FuzzViewport` still green.
-- [ ] T2 `/` footer: `ScreenLogSearch` in the keymap and visual contract; the log footer switches while `/` is open. Keymap contract test; app test.
-- [ ] T3 Failure header: real count, grouped total. Tests for a long log with a short excerpt (`4 of 1,587`) and the existing fixture.
-- [ ] T4 Esc: clears a committed search before leaving the log; one layer per press with range and search both set. Model and app tests.
-- [ ] T5 `t→` echo: cleared when the jumped-to line leaves the screen, kept while it stays. Model tests (scroll off, small move, `G`, `c`, wrap) and an app test through the modal.
-- [ ] T6 Time-jump hint fits at 80 columns (wraps, no `…`); 120/200 unchanged. Unit test and interaction assertion.
-- [ ] T7 Queue XML: no `next_commands` element when empty; commands still render when present. Render tests; CLI check with `--fake-scenario queue --format xml`.
-- [ ] T8 VQA: update `log-compact-search` assertions; interaction scenarios for the `/` footer, esc after a search, the echo clearing and the modal hint.
+- [x] T1 Search hits: no prefix; hit and current-hit tints; the gutter column is identical with and without a search, wrapped or not. Unit tests on the rendered SGR (hit rows, current row, alignment at 60/80/120); `FuzzViewport` still green.
+- [x] T2 `/` footer: `ScreenLogSearch` in the keymap and visual contract; the log footer switches while `/` is open. Keymap contract test; app test.
+- [x] T3 Failure header: real count, grouped total. Tests for a long log with a short excerpt (`4 of 1,587`) and the existing fixture.
+- [x] T4 Esc: clears a committed search before leaving the log; one layer per press with range and search both set. Model and app tests.
+- [x] T5 `t→` echo: cleared when the jumped-to line leaves the screen, kept while it stays. Model tests (scroll off, small move, `G`, `c`, wrap) and an app test through the modal.
+- [x] T6 Time-jump hint fits at 80 columns (wraps, no `…`); 120/200 unchanged. Unit test and interaction assertion.
+- [x] T7 Queue XML: no `next_commands` element when empty; commands still render when present. Render tests; CLI check with `--fake-scenario queue --format xml`.
+- [x] T8 VQA: update `log-compact-search` assertions; interaction scenarios for the `/` footer, esc after a search, the echo clearing and the modal hint.
 - [ ] T9 Verification: `make ci`, `make vqa`, interaction audit at 80x24/120x40/200x60; shux before/after on fakes and a live repo (read-only); `tui-qa` round (overlay dimming out of scope); adversarial review against this task.
 - [ ] T10 PR referencing #62 (not closing it) with an evidence comment: screenshots and a demo video.
+
+## Found Along The Way
+
+- Live dogfooding (CI #149): a time jump can land on a stamped `##[group]` line, which draws as a fold row; the echo cleared on the first key. Group headers now count as the line (a collapsed repeat still hides it), with a test that failed first. `FuzzViewport` missed it because its echo oracle shared the row-kind rule; it now reads the rendered gutter and finds the reinjected bug in seconds.
+- `FuzzViewport` also fuzzes esc on a committed search and checks the echo after every key against the frame.
+- shux `pane snapshot` PNGs drop the frame's right border column (the text capture has it); evidence uses window snapshots.
+- Out of scope, unchanged: confirm and approvals overlays still render at `width-20`; `groupDigits` now has three private copies (log, fold, failure).
 
 ## Definition Of Done
 

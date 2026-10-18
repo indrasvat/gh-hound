@@ -200,17 +200,19 @@ func checkFrame(t *testing.T, m Model, event string, events []string) {
 	checkProjection(t, m, fail)
 }
 
-// drawsLine reports whether any screen line of the frame belongs to line's
-// row (a line or group header), counted on rendered rows rather than the
-// cached heights.
+// drawsLine reports whether the frame shows line: a row whose rendered
+// gutter carries its number (a collapsed repeat's ⋯ row hides it), counted
+// on rendered rows rather than the cached heights.
 func drawsLine(m Model, line int) bool {
+	head := gutterText(line, gutterWidth(len(m.Document.Lines))) + " "
 	start, n := windowStart(m), 0
 	for _, r := range m.rows() {
-		h := len(m.renderRow(r))
-		if r.kind != rowRepeat && r.line == line && n+h > start && n < start+max(m.Height, 1) {
+		out := m.renderRow(r)
+		rest, ok := strings.CutPrefix(ansi.Strip(out[0]), head)
+		if ok && !strings.HasPrefix(rest, "⋯") && n+len(out) > start && n < start+max(m.Height, 1) {
 			return true
 		}
-		n += h
+		n += len(out)
 	}
 	return false
 }

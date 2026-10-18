@@ -10,13 +10,15 @@ import (
 )
 
 // hitRows returns the plain text of a view's tinted rows; current is the
-// row with the current-hit tint.
+// first row with the current-hit tint.
 func hitRows(view string) (hits []string, current string) {
 	for l := range strings.SplitSeq(view, "\n") {
 		text := strings.TrimRight(plain(l), " ")
 		switch {
 		case strings.HasPrefix(l, sgrFG+sgrCurrentBG):
-			current = text
+			if current == "" {
+				current = text
+			}
 			hits = append(hits, text)
 		case strings.HasPrefix(l, sgrFG+sgrSearchBG):
 			hits = append(hits, text)
@@ -61,6 +63,17 @@ func TestSearchHitsAreTintedWithoutMovingTheGutter(t *testing.T) {
 	}
 }
 
+func TestAWrappedHitIsTintedOnEveryRow(t *testing.T) {
+	doc := logs.Parse("first\nneedle " + strings.Repeat("y", 150) + "\nlast")
+	m := NewModel(doc, 1, 10)
+	m.Width = 60
+	m = search(m.Update(KeyMsg{Key: "w"}), "needle").Update(KeyMsg{Key: "g"})
+	hits, current := hitRows(View(m, 60))
+	if len(hits) != 3 || !strings.HasPrefix(current, "002 needle") || !strings.Contains(hits[1], "↪") {
+		t.Fatalf("all three rows of the wrapped hit are tinted, the first is current: %q current %q", hits, current)
+	}
+}
+
 func TestTheCurrentHitIsMarkedApart(t *testing.T) {
 	m := search(NewModel(document(), 1, 12), "trail").Update(KeyMsg{Key: "g"})
 	view := View(m, 80)
@@ -76,6 +89,9 @@ func TestTheCurrentHitIsMarkedApart(t *testing.T) {
 func TestEscClearsOneLayerAtATime(t *testing.T) {
 	esc := KeyMsg{Key: "esc"}
 	m := search(NewModel(document(), 1, 12), "trail").SetRange(1, 9, "17:42-17:44")
+	if hits, _ := hitRows(View(m, 80)); len(hits) != 2 {
+		t.Fatalf("setup: two tinted hits, got %q", hits)
+	}
 	m = m.Update(esc)
 	if m.RangeLabel != "" || m.Search.Query != "trail" {
 		t.Fatalf("the first esc clears only the range: range %q search %q", m.RangeLabel, m.Search.Query)
