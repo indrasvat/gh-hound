@@ -38,7 +38,8 @@ IN PROGRESS — issue #62, first of two PRs. This PR fixes the log screen, failu
 - Live dogfooding (CI #149): a time jump can land on a stamped `##[group]` line, which draws as a fold row; the echo cleared on the first key. Group headers now count as the line (a collapsed repeat still hides it), with a test that failed first. `FuzzViewport` missed it because its echo oracle shared the row-kind rule; it now reads the rendered gutter and finds the reinjected bug in seconds.
 - `FuzzViewport` also fuzzes esc on a committed search and checks the echo after every key against the frame.
 - Cold `tui-qa` round (0e8f7f6, FAIL on P2s): the failure header still counted the excerpt when annotations pushed it off screen (live CI #149 at 80x24); `⎋ back` was the only esc hint once a search was committed; a long picker pushed the time-jump hint and border off screen at 80x24. All three fixed above, each with a test that failed first. Removing the `LastJump` guard from `Changed` (suggested by review) would skip the repaint when a resize then an unbound key clears the echo; kept, with a test.
-- Pre-existing, not fixed here: tabs in the failure excerpt push its right border out (the full log expands them); search ignores an active time range; match counters are not digit-grouped.
+- Tabs and escapes in the failure excerpt pushed its right border out (pre-existing, but the height fix draws such rows at 80x24 on live CI #149): excerpt rows now go through the full log's `TerminalSafe`, with a test.
+- Pre-existing, not fixed here: search ignores an active time range; match counters are not digit-grouped.
 - shux `pane snapshot` PNGs drop the frame's right border column (the text capture has it); evidence uses window snapshots.
 - Out of scope, unchanged: confirm and approvals overlays still render at `width-20`; `groupDigits` now has three private copies (log, fold, failure).
 

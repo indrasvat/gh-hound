@@ -40,9 +40,9 @@ func (m Model) renderRow(row viewRow) []string {
 	switch row.kind {
 	case rowGroup:
 		f := m.groups[row.line]
-		return []string{renderFold(row.line, gutter, terminalSafe(f.Title), f.CollapsedCount, !row.open, m.Width)}
+		return []string{renderFold(row.line, gutter, TerminalSafe(f.Title), f.CollapsedCount, !row.open, m.Width)}
 	case rowRepeat:
-		return []string{renderRepeat(row.line, gutter, terminalSafe(m.repeatTitle(row)), row.end-row.line+1, !row.open, m.Width)}
+		return []string{renderRepeat(row.line, gutter, TerminalSafe(m.repeatTitle(row)), row.end-row.line+1, !row.open, m.Width)}
 	}
 	line := m.Document.Lines[row.line-1]
 	return renderLine(line, gutter, m.hit(line.Number), m.wrapping(), m.Width)
@@ -274,14 +274,14 @@ func renderLogText(line logs.Line) string {
 		cursor = token.End
 	}
 	writeStyled(&out, text[cursor:], baseStyle)
-	return terminalSafe(out.String())
+	return TerminalSafe(out.String())
 }
 
-// terminalSafe keeps a log's colours but nothing that moves the cursor:
+// TerminalSafe keeps a log's colours but nothing that moves the cursor:
 // other escape sequences, C0/C1 controls and invalid UTF-8 are dropped or
 // replaced, and tabs expand to 8-column stops, so every row is exactly as
 // wide as it measures.
-func terminalSafe(s string) string {
+func TerminalSafe(s string) string {
 	if !strings.ContainsFunc(s, unsafeRune) {
 		return s
 	}

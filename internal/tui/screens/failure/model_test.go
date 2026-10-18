@@ -191,3 +191,14 @@ func TestErrorWindowCountsOnlyTheRowsThatFit(t *testing.T) {
 		t.Fatalf("a cut excerpt leaves no room for the flake panel:\n%s", view)
 	}
 }
+
+func TestExcerptTabsAndEscapesKeepTheRowWidth(t *testing.T) {
+	r := report()
+	r.Log = logs.Parse("ok\n--- FAIL: TestX\nZ\thave ()\x1b[2K\nZ\twant (bool)\n##[error]exit code 1")
+	view := View(NewModel("indrasvat/gh-hound", 571, r), 80)
+	for l := range strings.SplitSeq(view, "\n") {
+		if strings.ContainsAny(l, "\t") || strings.Contains(l, "\x1b[2K") || ansi.StringWidth(l) > 80 {
+			t.Fatalf("a row moves the cursor or overflows: %q", l)
+		}
+	}
+}

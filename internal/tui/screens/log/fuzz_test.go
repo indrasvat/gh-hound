@@ -168,7 +168,7 @@ func checkFrame(t *testing.T, m Model, event string, events []string) {
 		if w := ansi.StringWidth(l); w > m.Width {
 			fail("line %d cols wide at width %d: %q", w, m.Width, ansi.Strip(l))
 		}
-		if terminalSafe(l) != l {
+		if TerminalSafe(l) != l {
 			fail("control bytes reach the terminal: %q", l)
 		}
 	}

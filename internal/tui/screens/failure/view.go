@@ -10,6 +10,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 	flakesscreen "github.com/indrasvat/gh-hound/internal/tui/screens/flakes"
+	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
 )
 
 var exitCodeRE = regexp.MustCompile(`exit code (\d+)`)
@@ -131,7 +132,7 @@ func errorHeader(m Model, drawn, width int) string {
 
 func logLine(line logs.Line, width int) string {
 	gutter := colorize(sgrLine2, fmt.Sprintf("%03d", line.Number))
-	value := gutter + " " + renderLogText(line.Text)
+	value := gutter + " " + logscreen.TerminalSafe(renderLogText(line.Text))
 	if isHitLine(line.Text) {
 		return backgroundSafe(value, width, sgrFG, sgrHitBG)
 	}

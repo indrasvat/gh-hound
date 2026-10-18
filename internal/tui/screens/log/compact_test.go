@@ -325,8 +325,8 @@ func TestTerminalSafeOnlyPassesPlainSGR(t *testing.T) {
 		"a\xffb\xc2":           "a\ufffdb\ufffd",
 		"keep \ufffd and 日本 ✓": "keep \ufffd and 日本 ✓",
 	} {
-		if got := terminalSafe(in); got != want {
-			t.Errorf("terminalSafe(%q) = %q, want %q", in, got, want)
+		if got := TerminalSafe(in); got != want {
+			t.Errorf("TerminalSafe(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
