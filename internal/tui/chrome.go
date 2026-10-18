@@ -137,30 +137,42 @@ func layerOver(th theme.Theme, base, box string, width int) string {
 		}
 		line, row := out[i], boxLines[i]
 		row += strings.Repeat(" ", boxWidth-ansi.StringWidth(row))
+		// A wide character the box cuts in half becomes a space in the
+		// colours it was drawn in, so tinted rows keep their tint.
 		left := ansi.Truncate(line, pad, "")
-		left += strings.Repeat(" ", max(pad-ansi.StringWidth(left), 0))
+		if gap := pad - ansi.StringWidth(left); gap > 0 {
+			// Truncate keeps line's bytes up to the cut character.
+			at := len(left)
+			if ansi.StringWidth(line) > pad {
+				at, _ = cellAt(line, pad)
+			}
+			left = left[:at] + strings.Repeat(" ", gap) + left[at:]
+		}
 		right := ""
 		if lineWidth := ansi.StringWidth(line); lineWidth > pad+boxWidth {
-			// TruncateLeft keeps the colours set before the cut; a wide
-			// character the box cuts in half becomes a space after them.
-			want := lineWidth - pad - boxWidth
 			right = ansi.TruncateLeft(line, pad+boxWidth, "")
-			if ansi.StringWidth(right) > want {
-				right = ansi.TruncateLeft(line, pad+boxWidth+1, "")
+			if ansi.StringWidth(right) > lineWidth-pad-boxWidth {
+				from, to := cellAt(right, 0)
+				right = right[:from] + " " + right[to:]
 			}
-			cut, state := 0, byte(ansi.NormalState)
-			for cut < len(right) {
-				_, w, n, next := ansi.DecodeSequence(right[cut:], state, nil)
-				if w > 0 {
-					break
-				}
-				cut, state = cut+n, next
-			}
-			right = right[:cut] + strings.Repeat(" ", max(want-ansi.StringWidth(right), 0)) + right[cut:]
 		}
 		out[i] = left + sgrReset + row + sgrReset + right
 	}
 	return strings.Join(out, "\n")
+}
+
+// cellAt returns the byte span of the printable cell covering column col
+// of s, skipping escape sequences.
+func cellAt(s string, col int) (from, to int) {
+	state := byte(ansi.NormalState)
+	for i := 0; i < len(s); {
+		_, w, n, next := ansi.DecodeSequence(s[i:], state, nil)
+		if col -= w; w > 0 && col < 0 {
+			return i, i + n
+		}
+		i, state = i+n, next
+	}
+	return len(s), len(s)
 }
 
 // dimANSI dims a line as CSS brightness(.46) saturate(.65) would over the

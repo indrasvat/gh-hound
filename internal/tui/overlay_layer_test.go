@@ -375,16 +375,51 @@ func TestDimmedTextStaysGreyWhenDownsampled(t *testing.T) {
 
 func TestLayerKeepsTheTintWhereTheBoxSplitsAWideCharacter(t *testing.T) {
 	th := theme.ForMode(theme.ModeBramble)
-	base := "\x1b[48;2;43;33;24mあいうえお\x1b[0m"
+	tint := "\x1b[48;2;43;33;24m"
 	for _, tc := range []struct {
-		box   string
-		width int
-	}{{"X", 10}, {"XY", 9}} { // the box cuts う on the right, then い on the left
-		out := layerOver(th, base, tc.box, tc.width)
-		for seg := range strings.SplitSeq(out, tc.box) {
-			if before, _, ok := strings.Cut(seg, " "); ok && !strings.Contains(before, "48;2;") {
-				t.Fatalf("box %q: the space for a cut character lost the row tint: %q", tc.box, out)
+		name, base, box string
+		width           int
+		left            bool   // the cut is left of the box
+		like, unlike    string // the space's background is that of like, not unlike
+	}{
+		{"right", tint + "あいうえお\x1b[0m", "X", 10, false, "え", ""},
+		{"left", tint + "あいうえお\x1b[0m", "XY", 9, true, "あ", ""},
+		{"right, tint ends on the cut", tint + "abcあ\x1b[0m   ", "X", 7, false, "c", ""},
+		{"left, tint ends after the cut", tint + "あいう\x1b[0m", "X", 4, true, "い", ""},
+		{"right, colour changes after the cut", "\x1b[41mabあ\x1b[42mいう", "X", 6, false, "a", "い"},
+	} {
+		out := layerOver(th, tc.base, tc.box, tc.width)
+		boxAt := strings.Index(out, tc.box)
+		space := boxAt + strings.Index(out[boxAt:], " ")
+		if tc.left {
+			space = strings.LastIndex(out[:boxAt], " ")
+		}
+		got := bgBefore(out, space)
+		if want := bgBefore(out, strings.Index(out, tc.like)); got == "" || got != want {
+			t.Errorf("%s: the space for the cut character has background %q, want %q: %q", tc.name, got, want, out)
+		}
+		if tc.unlike != "" && got == bgBefore(out, strings.Index(out, tc.unlike)) {
+			t.Errorf("%s: the space took the colour drawn after the cut: %q", tc.name, out)
+		}
+	}
+}
+
+// bgBefore is the background colour the SGRs in s[:at] leave set.
+func bgBefore(s string, at int) string {
+	bg := ""
+	for _, m := range regexp.MustCompile(`\x1b\[([0-9;:]*)m`).FindAllStringSubmatch(s[:at], -1) {
+		params := strings.Split(m[1], ";")
+		for i := 0; i < len(params); i++ {
+			switch params[i] {
+			case "", "0", "49":
+				bg = ""
+			case "38", "58":
+				i += 4
+			case "48":
+				bg = strings.Join(params[i:min(i+5, len(params))], ";")
+				i += 4
 			}
 		}
 	}
+	return bg
 }
