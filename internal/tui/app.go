@@ -736,11 +736,8 @@ func (a App) Update(msg KeyMsg) (out App, handled bool) {
 			return a.updateApprovals(msg)
 		}
 		switch msg.Key {
-		case "esc":
-			a.overlays = a.overlays[:len(a.overlays)-1]
-			return a, true
-		case "?":
-			a.overlays = append(a.overlays, OverlayHelp)
+		case "esc", "?":
+			a.PopOverlay()
 			return a, true
 		case ":":
 			a = a.openPalette()
@@ -768,7 +765,7 @@ func (a App) Update(msg KeyMsg) (out App, handled bool) {
 		a.toggleTheme()
 		return a, true
 	case "?":
-		a.overlays = append(a.overlays, OverlayHelp)
+		a.pushOverlay(OverlayHelp)
 		return a, true
 	case ":":
 		a = a.openPalette()
@@ -911,7 +908,7 @@ func RenderFixtureSize(screen string, width, height int) string {
 		app.routes = []Route{RouteRuns}
 		run, _ := app.runs.SelectedRun()
 		app.approvals = approvals.NewModel(run, samplePendingDeployments())
-		app.overlays = append(app.overlays, OverlayApprovals)
+		app.pushOverlay(OverlayApprovals)
 		return app.ViewSize(width, height)
 	case "detail-pending":
 		app.runs = sampleWaitingRunsModel()
@@ -1017,7 +1014,7 @@ func RenderFixtureSize(screen string, width, height int) string {
 		pickerApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
 		pickerApp.dispatchWorkflows = sampleDispatchPickerWorkflows()
 		pickerApp.palette = palette.New(dispatchPaletteItems(pickerApp.dispatchWorkflows))
-		pickerApp.overlays = append(pickerApp.overlays, OverlayPalette)
+		pickerApp.pushOverlay(OverlayPalette)
 		return pickerApp.ViewSize(width, height)
 	case "palette":
 		app, _ = app.Update(KeyMsg{Key: ":"})
@@ -2149,9 +2146,7 @@ func (a App) openDownloadConfirm(artifact model.Artifact) App {
 	a.pendingDownloadForce = false
 	target := absArtifactPath(filepath.Join(a.downloadRoot(), artifact.Name))
 	a.confirm = confirm.New(fmt.Sprintf("Download artifact %q (%s)?\n→ %s/", artifact.Name, humanArtifactSize(artifact.SizeInBytes), target))
-	if a.TopOverlay() != OverlayConfirm {
-		a.overlays = append(a.overlays, OverlayConfirm)
-	}
+	a.pushOverlay(OverlayConfirm)
 	return a
 }
 
@@ -2164,9 +2159,7 @@ func (a App) openOverwriteConfirm(artifact model.Artifact, path string) App {
 	a.pendingDownload = &selected
 	a.pendingDownloadForce = true
 	a.confirm = confirm.New(fmt.Sprintf("Destination exists:\n→ %s\nOverwrite and re-download %q?", absArtifactPath(path), artifact.Name))
-	if a.TopOverlay() != OverlayConfirm {
-		a.overlays = append(a.overlays, OverlayConfirm)
-	}
+	a.pushOverlay(OverlayConfirm)
 	return a
 }
 
@@ -2220,7 +2213,7 @@ func (a App) updateLog(msg KeyMsg) (App, bool) {
 	}
 	if msg.Key == "t" && !a.log.InputMode {
 		a.timeJump = timejump.New(a.log.Document)
-		a.overlays = append(a.overlays, OverlayTimeJump)
+		a.pushOverlay(OverlayTimeJump)
 		return a, true
 	}
 	if msg.Key == "c" && !a.log.InputMode && a.log.FoldCount() == 0 {
@@ -2332,9 +2325,7 @@ func (a App) openCacheDeleteConfirm(request CacheDeleteRequest, key string, matc
 	pending := request
 	a.pendingCacheDelete = &pending
 	a.confirm = confirm.New(cacheDeleteConfirmMessage(request, key, matches, a.caches))
-	if a.TopOverlay() != OverlayConfirm {
-		a.overlays = append(a.overlays, OverlayConfirm)
-	}
+	a.pushOverlay(OverlayConfirm)
 	return a
 }
 
@@ -2547,7 +2538,7 @@ func (a App) updatePalette(msg KeyMsg) (App, bool) {
 		a.PopOverlay()
 		return a, true
 	case "?":
-		a.overlays = append(a.overlays, OverlayHelp)
+		a.pushOverlay(OverlayHelp)
 		return a, true
 	case "ctrl+c":
 		a.quit = true
@@ -2649,9 +2640,7 @@ func (a App) openPalette() App {
 	// generic dispatch item stays available and openDispatch resolves
 	// (async) when the user actually selects it.
 	a.palette = palette.New(paletteItems(a.dispatchWorkflows))
-	if a.TopOverlay() != OverlayPalette {
-		a.overlays = append(a.overlays, OverlayPalette)
-	}
+	a.pushOverlay(OverlayPalette)
 	return a
 }
 
@@ -2673,6 +2662,16 @@ func (a App) openDispatchFromPalette(value string) App {
 	}
 	a.PopOverlay()
 	return a.openDispatch()
+}
+
+// pushOverlay raises o to the top. An overlay already open is returned
+// to, closing those above it, never stacked a second time.
+func (a *App) pushOverlay(o Overlay) {
+	if i := slices.Index(a.overlays, o); i >= 0 {
+		a.overlays = a.overlays[:i+1]
+		return
+	}
+	a.overlays = append(a.overlays, o)
 }
 
 func (a *App) PopOverlay() {
@@ -2714,9 +2713,7 @@ func (a App) openApprovals(run model.Run) App {
 				return app
 			}
 			app.approvals = approvals.NewModel(run, pending)
-			if app.TopOverlay() != OverlayApprovals {
-				app.overlays = append(app.overlays, OverlayApprovals)
-			}
+			app.pushOverlay(OverlayApprovals)
 			return app
 		}
 	})
@@ -2730,7 +2727,7 @@ func (a App) updateApprovals(msg KeyMsg) (App, bool) {
 			a.approvals = approvals.Model{}
 			return a, true
 		case "?":
-			a.overlays = append(a.overlays, OverlayHelp)
+			a.pushOverlay(OverlayHelp)
 			return a, true
 		case "q", "ctrl+c":
 			a.quit = true
@@ -3628,9 +3625,7 @@ func (a App) applyDispatchChoices(workflows []dispatch.Workflow) App {
 		a.PushRoute(RouteDispatch)
 	default:
 		a.palette = palette.New(dispatchPaletteItems(workflows))
-		if a.TopOverlay() != OverlayPalette {
-			a.overlays = append(a.overlays, OverlayPalette)
-		}
+		a.pushOverlay(OverlayPalette)
 	}
 	return a
 }
@@ -3897,9 +3892,7 @@ func (a App) openConfirm(route Route, request ActionRequest) App {
 	a.clearRouteError(route)
 	a.pendingAction = &pendingAction{route: route, request: request}
 	a.confirm = confirm.New(confirmMessage(request))
-	if a.TopOverlay() != OverlayConfirm {
-		a.overlays = append(a.overlays, OverlayConfirm)
-	}
+	a.pushOverlay(OverlayConfirm)
 	return a
 }
 
