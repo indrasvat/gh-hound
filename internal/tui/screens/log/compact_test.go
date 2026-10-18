@@ -597,3 +597,13 @@ func TestWrappedContinuationKeepsFailColour(t *testing.T) {
 		t.Fatalf("continuation row lost the fail colour: %q", lines)
 	}
 }
+
+func TestSearchInputBackspaceRemovesAWholeRune(t *testing.T) {
+	m := NewModel(logs.Parse("café\n"), 1, 5)
+	for _, key := range []string{"/", "c", "é", "backspace"} {
+		m = m.Update(KeyMsg{Key: key})
+	}
+	if m.input != "c" {
+		t.Fatalf("input = %q, want %q", m.input, "c")
+	}
+}

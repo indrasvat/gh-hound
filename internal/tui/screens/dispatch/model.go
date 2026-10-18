@@ -115,8 +115,8 @@ func (m Model) Update(msg KeyMsg) Model {
 			field.Value = field.Options[field.Index]
 		}
 	case "backspace":
-		if field.Type == InputText && len(field.Value) > 0 {
-			field.Value = field.Value[:len(field.Value)-1]
+		if runes := []rune(field.Value); field.Type == InputText && len(runes) > 0 {
+			field.Value = string(runes[:len(runes)-1])
 		}
 	case "enter":
 		m.submit()

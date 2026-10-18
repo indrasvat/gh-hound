@@ -117,8 +117,8 @@ func (m Model) updateComment(msg KeyMsg) Model {
 		m.CommentMode = false
 		m.Comment = m.commentBackup
 	case "backspace":
-		if len(m.Comment) > 0 {
-			m.Comment = m.Comment[:len(m.Comment)-1]
+		if runes := []rune(m.Comment); len(runes) > 0 {
+			m.Comment = string(runes[:len(runes)-1])
 		}
 	case "space":
 		m.Comment += " "

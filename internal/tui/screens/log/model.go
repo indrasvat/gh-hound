@@ -147,8 +147,8 @@ func (m Model) updateInput(msg KeyMsg) Model {
 		}
 		m.gotoCurrentMatch()
 	case "backspace":
-		if len(m.input) > 0 {
-			m.input = m.input[:len(m.input)-1]
+		if runes := []rune(m.input); len(runes) > 0 {
+			m.input = string(runes[:len(runes)-1])
 		}
 	case "space":
 		m.input += " "

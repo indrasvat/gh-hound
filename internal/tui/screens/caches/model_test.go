@@ -217,3 +217,13 @@ func stripANSI(value string) string {
 	}
 	return out.String()
 }
+
+func TestFilterBackspaceRemovesAWholeRune(t *testing.T) {
+	m := NewModel("indrasvat/gh-hound", testData())
+	for _, key := range []string{"/", "c", "é", "backspace"} {
+		m = m.Update(KeyMsg{Key: key})
+	}
+	if m.Filter != "c" {
+		t.Fatalf("filter = %q, want %q", m.Filter, "c")
+	}
+}

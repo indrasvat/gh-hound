@@ -85,3 +85,13 @@ func TestNamePrefixMatchesLead(t *testing.T) {
 		t.Fatalf("visible = %+v", got)
 	}
 }
+
+func TestBackspaceRemovesAWholeRune(t *testing.T) {
+	m := New(nil)
+	for _, key := range []string{"c", "é", "backspace"} {
+		m = m.Update(KeyMsg{Key: key})
+	}
+	if m.Query != "c" {
+		t.Fatalf("query = %q, want %q", m.Query, "c")
+	}
+}

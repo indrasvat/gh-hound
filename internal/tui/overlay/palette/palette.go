@@ -71,8 +71,8 @@ func (m Model) Update(msg KeyMsg) Model {
 			m.Intent = Intent{Route: route, Value: item.Value}
 		}
 	case "backspace":
-		if len(m.Query) > 0 {
-			m.Query = m.Query[:len(m.Query)-1]
+		if runes := []rune(m.Query); len(runes) > 0 {
+			m.Query = string(runes[:len(runes)-1])
 			m.Selected = 0
 		}
 	case "space":
