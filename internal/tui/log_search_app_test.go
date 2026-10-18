@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -69,5 +70,30 @@ func TestTimeJumpHintFitsAt80Columns(t *testing.T) {
 	view := ansi.Strip(app.ViewSize(80, 24))
 	if !strings.Contains(view, "A-B range · ⏎ go") || !strings.Contains(view, "│⎋ cancel") || strings.Contains(view, "⏎ g…") {
 		t.Fatalf("the hint must wrap inside the box at 80 columns:\n%s", view)
+	}
+}
+
+func TestFailureHeaderCountsTheRowsOnScreen(t *testing.T) {
+	app := press(logApp(t, config.Default(), noisyRaw()), "enter")
+	app = settleApp(t, app)
+	if app.Route() != RouteFailure {
+		t.Fatalf("setup: route %s", app.Route())
+	}
+	view := ansi.Strip(app.ViewSize(80, 10))
+	if !strings.Contains(view, "error window · 1 of 483 lines") || strings.Contains(view, "│…"+strings.Repeat(" ", 77)+"│") {
+		t.Fatalf("a 4-row body draws 1 excerpt line and says so:\n%s", view)
+	}
+}
+
+func TestTimeJumpModalFitsALongPickerAt80x24(t *testing.T) {
+	var b strings.Builder
+	for i := range 30 {
+		fmt.Fprintf(&b, "17:%02d:00.000Z ##[group]step %02d\n17:%02d:30.000Z work\n##[endgroup]\n", i, i, i)
+	}
+	app := press(openLog(t, logApp(t, config.Default(), b.String())), "t")
+	lines := strings.Split(ansi.Strip(app.ViewSize(80, 24)), "\n")
+	body := strings.Join(lines[3:len(lines)-3], "\n")
+	if !strings.Contains(body, "⎋ cancel") || !strings.Contains(body, "╰") || strings.Contains(body, "│…") {
+		t.Fatalf("the modal keeps its hint and bottom border:\n%s", strings.Join(lines, "\n"))
 	}
 }

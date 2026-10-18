@@ -188,3 +188,25 @@ func TestJumpEchoStaysOnAGroupHeader(t *testing.T) {
 		t.Fatalf("k keeps the group header on screen: rows %v", m.VisibleRowNumbers())
 	}
 }
+
+func TestAClearedEchoRepaints(t *testing.T) {
+	m := NewModel(clockLog(200), 1, 10).JumpToLine(100)
+	m.LastJump = "10:01:39"
+	m.Height = 3 // a resize leaves line 100 below the screen
+	m.Offset = 90
+	before := m
+	if m = m.Update(KeyMsg{Key: "x"}); m.LastJump != "" || !m.Changed(before) {
+		t.Fatalf("a key that only clears the echo must still repaint: echo %q changed %v", m.LastJump, m.Changed(before))
+	}
+}
+
+func TestASearchHeaderSaysEscClearsIt(t *testing.T) {
+	m := search(NewModel(document(), 1, 12), "trail")
+	if head := firstLine(View(m, 80)); head != "log · /trail · match 1/2 · ⎋ clear" {
+		t.Fatalf("header %q", head)
+	}
+	c := search(compactModel(t, pollLog(), 10), "10:30:20")
+	if head := firstLine(View(c, 120)); !strings.HasPrefix(head, "log · /10:30:20 · match 1/1 · compact · ⎋ clear") {
+		t.Fatalf("compact header %q", head)
+	}
+}

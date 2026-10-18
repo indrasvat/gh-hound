@@ -4308,7 +4308,7 @@ func (a App) overlayView(width, height int) string {
 	case OverlayConfirm:
 		return confirm.View(a.confirm, width-20)
 	case OverlayTimeJump:
-		return timejump.View(a.timeJump, overlayInnerWidth(width))
+		return timejump.ViewSize(a.timeJump, overlayInnerWidth(width), max(bodyHeight(height)-4, 0))
 	case OverlayApprovals:
 		return approvals.View(a.approvals, width-20)
 	default:
@@ -4700,7 +4700,7 @@ func (a App) screenBody(width, height int) string {
 		if load := a.load; load != nil && load.kind == loadKindFailure {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())
 		}
-		return failure.View(a.failure, bodyWidth)
+		return failure.ViewSize(a.failure, bodyWidth, bodyHeight(height))
 	case RouteLog:
 		if load := a.load; load != nil && load.kind == loadKindLog {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())

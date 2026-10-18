@@ -46,6 +46,7 @@ scenarios=(
   log-search-fold
   log-search-input
   log-search-esc
+  log-search-esc-back
   log-compact-open
   log-compact-toggle
   log-compact-search
@@ -103,6 +104,7 @@ keys_for() {
     log-search-fold) printf 'enter enter l / t r a i l enter z' ;;
     log-search-input) printf 'enter enter l / t r a' ;;
     log-search-esc) printf 'enter enter l / t r a i l enter esc' ;;
+    log-search-esc-back) printf 'enter enter l / t r a i l enter esc esc' ;;
     log-compact-open) printf 'enter l' ;;
     log-compact-toggle) printf 'enter l c' ;;
     log-compact-search) printf 'enter l / 1 8 : 0 0 : 0 1 enter' ;;

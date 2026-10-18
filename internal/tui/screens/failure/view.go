@@ -16,6 +16,12 @@ var exitCodeRE = regexp.MustCompile(`exit code (\d+)`)
 var gotWantRE = regexp.MustCompile(`^(.*?): got ("[^"]*") want ("[^"]*")(.*)$`)
 
 func View(m Model, width int) string {
+	return ViewSize(m, width, 0)
+}
+
+// ViewSize draws the excerpt lines that fit in height (0: all of them), so
+// the error-window header counts what is on screen.
+func ViewSize(m Model, width, height int) string {
 	if width <= 0 {
 		width = 80
 	}
@@ -26,11 +32,17 @@ func View(m Model, width int) string {
 	for _, annotation := range m.Report.Annotations {
 		lines = append(lines, annotationLine(annotation, width))
 	}
-	lines = append(lines, errorHeader(m, width))
-	for _, line := range m.Excerpt {
+	excerpt := m.Excerpt
+	if room := max(height-len(lines)-1, 0); height > 0 && room < len(excerpt) {
+		excerpt = excerpt[:room]
+	}
+	lines = append(lines, errorHeader(m, len(excerpt), width))
+	for _, line := range excerpt {
 		lines = append(lines, logLine(line, width))
 	}
-	lines = append(lines, flakePanel(m, width)...)
+	if len(excerpt) == len(m.Excerpt) {
+		lines = append(lines, flakePanel(m, width)...)
+	}
 	return strings.Join(lines, "\n")
 }
 
@@ -107,8 +119,8 @@ func annotationLine(annotation model.Annotation, width int) string {
 	return fitANSI(value, width)
 }
 
-func errorHeader(m Model, width int) string {
-	left := colorize(sgrDim, fmt.Sprintf("error window · %d of %s lines", len(m.Excerpt), groupDigits(totalLines(m))))
+func errorHeader(m Model, drawn, width int) string {
+	left := colorize(sgrDim, fmt.Sprintf("error window · %d of %s lines", drawn, groupDigits(totalLines(m))))
 	if m.Flake != nil {
 		// Two focusable panes exist: mark the one that owns j/k.
 		left = focusMark(!m.PanelFocus) + left

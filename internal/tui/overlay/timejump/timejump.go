@@ -295,7 +295,13 @@ func humanSeconds(seconds float64) string {
 }
 
 func View(m Model, width int) string {
-	lines := []string{"t→" + m.Input + "▌", ""}
+	return ViewSize(m, width, 0)
+}
+
+// ViewSize fits the picker in height lines (0: no limit), scrolling the
+// entries so the selected one stays in view.
+func ViewSize(m Model, width, height int) string {
+	entries := make([]string, 0, len(m.Entries))
 	for i, entry := range m.Entries {
 		cursor := "  "
 		if m.Input == "" && i == m.Selected {
@@ -308,14 +314,20 @@ func View(m Model, width int) string {
 		if entry.Kind == EntryFailure {
 			marker = "✗"
 		}
-		lines = append(lines, fit(fmt.Sprintf("%s%s %s  %s", cursor, marker, entry.Clock, entry.Label), width))
+		entries = append(entries, fit(fmt.Sprintf("%s%s %s  %s", cursor, marker, entry.Clock, entry.Label), width))
 	}
+	var tail []string
 	if m.Feedback != "" {
-		lines = append(lines, "", fit("! "+m.Feedback, width))
+		tail = append(tail, "", fit("! "+m.Feedback, width))
 	}
-	lines = append(lines, "")
-	lines = append(lines, wrapHint([]string{"j/k pick", "HH:MM[:SS]", "+30s/-2m relative", "A-B range", "⏎ go", "⎋ cancel"}, width)...)
-	return strings.Join(lines, "\n")
+	tail = append(tail, "")
+	tail = append(tail, wrapHint([]string{"j/k pick", "HH:MM[:SS]", "+30s/-2m relative", "A-B range", "⏎ go", "⎋ cancel"}, width)...)
+	if room := max(height-2-len(tail), 1); height > 0 && len(entries) > room {
+		start := min(max(m.Selected-room+1, 0), len(entries)-room)
+		entries = entries[start : start+room]
+	}
+	lines := append([]string{"t→" + m.Input + "▌", ""}, entries...)
+	return strings.Join(append(lines, tail...), "\n")
 }
 
 // wrapHint joins items with " · ", breaking between items to fit width.

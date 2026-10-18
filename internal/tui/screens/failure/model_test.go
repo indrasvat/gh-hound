@@ -175,3 +175,19 @@ func TestErrorWindowCountsTheLinesItDraws(t *testing.T) {
 		t.Fatalf("header must count the %d drawn lines of 1,587:\n%s", drawn, plain)
 	}
 }
+
+func TestErrorWindowCountsOnlyTheRowsThatFit(t *testing.T) {
+	m := NewModel("indrasvat/gh-hound", 571, report())
+	view := ViewSize(m, 80, 8)
+	lines := strings.Split(ansi.Strip(view), "\n")
+	if len(lines) > 8 || !strings.Contains(view, "error window · 3 of 8 lines") || !strings.HasPrefix(lines[len(lines)-1], "006 ") {
+		t.Fatalf("8 rows hold the header, 2 annotations and 3 excerpt lines:\n%s", ansi.Strip(view))
+	}
+	if full := ansi.Strip(ViewSize(m, 80, 0)); !strings.Contains(full, "error window · 5 of 8 lines") {
+		t.Fatalf("no height draws the whole excerpt:\n%s", full)
+	}
+	flaky := m.WithFlake(usecase.JobFlake{Job: "build", FlakedRuns: 2, Verdict: usecase.FlakeStatus("flaky")}, 10)
+	if view := ansi.Strip(ViewSize(flaky, 80, 8)); len(strings.Split(view, "\n")) > 8 || strings.Contains(view, "seen this one before") {
+		t.Fatalf("a cut excerpt leaves no room for the flake panel:\n%s", view)
+	}
+}

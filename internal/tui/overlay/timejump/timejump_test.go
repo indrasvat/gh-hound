@@ -1,6 +1,7 @@
 package timejump
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -200,5 +201,28 @@ func TestHintWrapsInsteadOfCutting(t *testing.T) {
 		if got := lines[len(lines)-len(tc.lines):]; strings.Join(got, "\n") != strings.Join(tc.lines, "\n") || strings.Contains(view, "…") {
 			t.Fatalf("width %d hint = %q, want %q", tc.width, got, tc.lines)
 		}
+	}
+}
+
+func manyStepsDoc() logs.Document {
+	var lines []string
+	for i := range 30 {
+		lines = append(lines, fmt.Sprintf("17:%02d:00.000Z ##[group]step %02d", i, i), fmt.Sprintf("17:%02d:30.000Z work", i), "##[endgroup]")
+	}
+	return logs.Parse(strings.Join(lines, "\n"))
+}
+
+func TestALongPickerScrollsToFitTheHeight(t *testing.T) {
+	m := New(manyStepsDoc())
+	if len(m.Entries) <= 10 {
+		t.Fatalf("setup: %d entries", len(m.Entries))
+	}
+	for range 15 {
+		m = m.Update("j")
+	}
+	lines := strings.Split(ViewSize(m, 66, 12), "\n")
+	selected := m.Entries[m.Selected].Label
+	if len(lines) != 12 || !strings.Contains(lines[len(lines)-1], "⎋ cancel") || !strings.Contains(strings.Join(lines, "\n"), "▌ ▸ "+m.Entries[m.Selected].Clock+"  "+selected) {
+		t.Fatalf("12 rows keep the input, the selected entry and the hint:\n%s", strings.Join(lines, "\n"))
 	}
 }

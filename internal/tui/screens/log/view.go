@@ -79,7 +79,7 @@ func header(m Model) string {
 		if m.Folded() {
 			head += " · compact"
 		}
-		return head
+		return head + " · ⎋ clear"
 	}
 	if m.Folded() {
 		folds, hidden := m.foldTotals()
