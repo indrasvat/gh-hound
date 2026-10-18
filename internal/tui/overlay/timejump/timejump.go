@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/indrasvat/gh-hound/internal/logs"
 )
@@ -312,8 +313,26 @@ func View(m Model, width int) string {
 	if m.Feedback != "" {
 		lines = append(lines, "", fit("! "+m.Feedback, width))
 	}
-	lines = append(lines, "", fit("j/k pick · HH:MM[:SS] · +30s/-2m relative · A-B range · ⏎ go · ⎋ cancel", width))
+	lines = append(lines, "")
+	lines = append(lines, wrapHint([]string{"j/k pick", "HH:MM[:SS]", "+30s/-2m relative", "A-B range", "⏎ go", "⎋ cancel"}, width)...)
 	return strings.Join(lines, "\n")
+}
+
+// wrapHint joins items with " · ", breaking between items to fit width.
+func wrapHint(items []string, width int) []string {
+	var lines []string
+	line := ""
+	for _, item := range items {
+		if line != "" && width > 0 && utf8.RuneCountInString(line+" · "+item) > width {
+			lines = append(lines, fit(line, width))
+			line = ""
+		}
+		if line != "" {
+			line += " · "
+		}
+		line += item
+	}
+	return append(lines, fit(line, width))
 }
 
 func fit(value string, width int) string {

@@ -33,7 +33,17 @@ type QueueDecision struct {
 	Action       string   `json:"action" xml:"action,attr"`
 	Confidence   string   `json:"confidence" xml:"confidence,attr"`
 	Reason       string   `json:"reason" xml:"reason"`
-	NextCommands []string `json:"next_commands,omitempty" xml:"next_commands>command,omitempty"`
+	NextCommands Commands `json:"next_commands,omitempty" xml:"next_commands,omitempty"`
+}
+
+// Commands marshals as <next_commands><command/>…</next_commands>; a
+// "next_commands>command" tag would still write an empty wrapper.
+type Commands []string
+
+func (c Commands) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	return e.EncodeElement(struct {
+		Items []string `xml:"command"`
+	}{c}, start)
 }
 
 type QueueGroup struct {

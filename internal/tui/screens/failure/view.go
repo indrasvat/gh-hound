@@ -108,7 +108,7 @@ func annotationLine(annotation model.Annotation, width int) string {
 }
 
 func errorHeader(m Model, width int) string {
-	left := colorize(sgrDim, fmt.Sprintf("error window · %d of %d lines", visibleLines(m), totalLines(m)))
+	left := colorize(sgrDim, fmt.Sprintf("error window · %d of %s lines", len(m.Excerpt), groupDigits(totalLines(m))))
 	if m.Flake != nil {
 		// Two focusable panes exist: mark the one that owns j/k.
 		left = focusMark(!m.PanelFocus) + left
@@ -191,11 +191,12 @@ func totalLines(m Model) int {
 	return total
 }
 
-func visibleLines(m Model) int {
-	if m.TotalLines > 1000 && len(m.Excerpt) < 12 {
-		return 12
+func groupDigits(n int) string {
+	s := fmt.Sprint(n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
 	}
-	return len(m.Excerpt)
+	return s
 }
 
 func fitANSI(value string, width int) string {

@@ -45,7 +45,7 @@ func (m Model) renderRow(row viewRow) []string {
 		return []string{renderRepeat(row.line, gutter, terminalSafe(m.repeatTitle(row)), row.end-row.line+1, !row.open, m.Width)}
 	}
 	line := m.Document.Lines[row.line-1]
-	return renderLine(line, gutter, m.isMatch(line.Number), m.wrapping(), m.Width)
+	return renderLine(line, gutter, m.hit(line.Number), m.wrapping(), m.Width)
 }
 
 func gutterWidth(lines int) int {
@@ -190,34 +190,39 @@ func groupDigits(n int) string {
 	return s
 }
 
-// renderLine returns one screen line, or several when wrapping.
-func renderLine(line logs.Line, gutterW int, searchHit, wrap bool, width int) []string {
-	gutter := colorize(sgrLineNo, gutterText(line.Number, gutterW))
-	text := renderLogText(line)
-	prefix := ""
-	if searchHit {
-		prefix = colorize(sgrSearch, "› search-hit") + " "
+// renderLine returns one screen line, or several when wrapping. A search
+// hit is tinted, the current one more strongly with a warn line number;
+// neither changes the row's width.
+func renderLine(line logs.Line, gutterW int, hit hitKind, wrap bool, width int) []string {
+	gutterStyle, bg := sgrLineNo, ""
+	switch hit {
+	case searchHit:
+		bg = sgrSearchBG
+	case currentHit:
+		gutterStyle, bg = sgrSearch, sgrCurrentBG
 	}
+	gutter := colorize(gutterStyle, gutterText(line.Number, gutterW))
+	text := renderLogText(line)
 	if !wrap {
-		value := prefix + gutter + " " + text
-		if searchHit {
-			return []string{backgroundSafe(value, width, sgrFG, sgrSearchBG)}
+		value := gutter + " " + text
+		if bg != "" {
+			return []string{backgroundSafe(value, width, sgrFG, bg)}
 		}
 		return []string{fitANSI(value, width)}
 	}
-	lead := ansi.StringWidth(prefix) + gutterW + 1
+	lead := gutterW + 1
 	parts := strings.Split(ansi.Hardwrap(text, max(1, width-lead), true), "\n")
 	out := make([]string, 0, len(parts))
 	base := baseStyle(line.Tokens)
 	for i, part := range parts {
-		head := prefix + gutter + " "
+		head := gutter + " "
 		if i > 0 {
 			head = strings.Repeat(" ", lead-2) + colorize(sgrDim, "↪") + " " + base
 			part = trimLeadingSpace(part)
 		}
 		value := head + part
-		if searchHit {
-			out = append(out, backgroundSafe(value, width, sgrFG, sgrSearchBG))
+		if bg != "" {
+			out = append(out, backgroundSafe(value, width, sgrFG, bg))
 		} else {
 			out = append(out, fitANSI(value, width))
 		}
@@ -502,4 +507,5 @@ const (
 	sgrHeader     = sgrRepeatHead
 	sgrRepeatBG   = "\x1b[48;2;20;28;33m"
 	sgrSearchBG   = "\x1b[48;2;43;33;24m"
+	sgrCurrentBG  = "\x1b[48;2;76;55;30m"
 )

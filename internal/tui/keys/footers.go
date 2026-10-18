@@ -17,6 +17,7 @@ const (
 	ScreenWatch      Screen = "watch"
 	ScreenWatchBoard Screen = "watch_board"
 	ScreenLog        Screen = "log"
+	ScreenLogSearch  Screen = "log_search"
 	ScreenDispatch   Screen = "dispatch"
 	ScreenDiff       Screen = "diff"
 	ScreenFlakes     Screen = "flakes"
@@ -116,6 +117,12 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "]/[", Action: "repeat_jump", Help: "repeats", ShowInFooter: true, Keep: 1},
 		{Key: "w", Action: "wrap", Help: "wrap", ShowInFooter: true, Keep: 1},
 		{Key: "esc", Display: "⎋", Action: "back", Help: "back", ShowInFooter: true, Keep: KeepAlways},
+	},
+	// While the / input is open every printable key types.
+	ScreenLogSearch: {
+		{Key: "type", Action: "type", Help: "to search", ShowInFooter: true},
+		{Key: "enter", Display: "⏎", Action: "find", Help: "find", ShowInFooter: true},
+		{Key: "esc", Display: "⎋", Action: "cancel", Help: "cancel", ShowInFooter: true},
 	},
 	ScreenDispatch: {
 		{Key: "enter", Display: "⏎", Action: "run", Help: "run", ShowInFooter: true},

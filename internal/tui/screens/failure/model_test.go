@@ -1,6 +1,7 @@
 package failure
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -151,5 +152,26 @@ func report() usecase.FailureReport {
 			Message:   "FAIL TestLexIdent/trailing_underscore",
 			Title:     "go test",
 		}},
+	}
+}
+
+func TestErrorWindowCountsTheLinesItDraws(t *testing.T) {
+	r := report()
+	lines := make([]string, 0, 1587)
+	for i := range 1583 {
+		lines = append(lines, fmt.Sprintf("ok internal/pkg%d 0.1s", i))
+	}
+	lines = append(lines, "--- FAIL: TestLexIdent (0.00s)", "FAIL", "github.com/indrasvat/gh-hound/internal/parser", "##[error]Process completed with exit code 1")
+	r.Log = logs.Parse(strings.Join(lines, "\n"))
+	m := NewModel("indrasvat/gh-hound", 571, r)
+	plain := ansi.Strip(View(m, 120))
+	drawn := 0
+	for l := range strings.SplitSeq(plain, "\n") {
+		if len(l) > 4 && l[0] == '1' && l[4] == ' ' {
+			drawn++
+		}
+	}
+	if drawn == 0 || drawn >= 12 || !strings.Contains(plain, fmt.Sprintf("error window · %d of 1,587 lines", drawn)) {
+		t.Fatalf("header must count the %d drawn lines of 1,587:\n%s", drawn, plain)
 	}
 }

@@ -92,8 +92,8 @@ func TestSearchOpensTheFoldHoldingTheMatch(t *testing.T) {
 	if !found {
 		t.Fatalf("match line %d not visible: %v", match, m.VisibleRowNumbers())
 	}
-	if out := plain(View(m, 120)); !strings.Contains(out, "› search-hit") {
-		t.Fatalf("hit not highlighted:\n%s", out)
+	if _, cur := hitRows(View(m, 120)); !strings.HasPrefix(cur, gutterText(match, gutterWidth(len(m.Document.Lines)))) {
+		t.Fatalf("hit not highlighted, current row %q:\n%s", cur, plain(View(m, 120)))
 	}
 	opened := false
 	for _, r := range m.rows() {
@@ -460,12 +460,12 @@ func TestZClosesTheMatchFoldAndNReopensIt(t *testing.T) {
 		m = m.Update(KeyMsg{Key: k})
 	}
 	m = m.Update(KeyMsg{Key: "enter"}).Update(KeyMsg{Key: "z"})
-	if out := plain(View(m, 80)); !strings.Contains(out, "002 ▸ Run tests") || strings.Contains(out, "search-hit") {
-		t.Fatalf("z should close the group holding the match:\n%s", out)
+	if hits, _ := hitRows(View(m, 80)); !strings.Contains(plain(View(m, 80)), "002 ▸ Run tests") || len(hits) > 0 {
+		t.Fatalf("z should close the group holding the match:\n%s", plain(View(m, 80)))
 	}
 	m = m.Update(KeyMsg{Key: "n"})
-	if out := plain(View(m, 80)); !strings.Contains(out, "› search-hit 007") {
-		t.Fatalf("n should reopen the fold at the next match:\n%s", out)
+	if _, cur := hitRows(View(m, 80)); !strings.HasPrefix(cur, "005 ") {
+		t.Fatalf("n should reopen the fold at the next match:\n%s", plain(View(m, 80)))
 	}
 }
 
@@ -507,8 +507,8 @@ func TestJumpsAfterZOpenTheRepeatFoldInsideAClosedGroup(t *testing.T) {
 		m = m.Update(KeyMsg{Key: k})
 	}
 	m = m.Update(KeyMsg{Key: "enter"})
-	if out := plain(View(m, 80)); !strings.Contains(out, "› search-hit") {
-		t.Fatalf("search after z must reveal the match:\n%s", out)
+	if _, cur := hitRows(View(m, 80)); !strings.Contains(cur, "10:02:00Z waiting") {
+		t.Fatalf("search after z must reveal the match:\n%s", plain(View(m, 80)))
 	}
 	m = m.Update(KeyMsg{Key: "z"}).JumpTo("10:01:30")
 	found := false
@@ -584,8 +584,8 @@ func TestWrappedSearchKeepsTheMatchOnScreen(t *testing.T) {
 	for _, k := range []string{"/", "a", "f", "t", "e", "r", "enter"} {
 		m = m.Update(KeyMsg{Key: k})
 	}
-	if out := plain(View(m, 60)); !strings.Contains(out, "search-hit 003") {
-		t.Fatalf("the match must be on screen:\n%s", out)
+	if _, cur := hitRows(View(m, 60)); !strings.HasPrefix(cur, "003 after") {
+		t.Fatalf("the match must be on screen:\n%s", plain(View(m, 60)))
 	}
 }
 

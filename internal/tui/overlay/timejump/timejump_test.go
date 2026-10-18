@@ -184,3 +184,21 @@ func TestSingleDigitHourQueriesResolve(t *testing.T) {
 		t.Fatalf("9:59-10:01 must resolve with padded hours: %#v", action)
 	}
 }
+
+func TestHintWrapsInsteadOfCutting(t *testing.T) {
+	const hint = "j/k pick · HH:MM[:SS] · +30s/-2m relative · A-B range · ⏎ go · ⎋ cancel"
+	for _, tc := range []struct {
+		width int
+		lines []string
+	}{
+		{66, []string{"j/k pick · HH:MM[:SS] · +30s/-2m relative · A-B range · ⏎ go", "⎋ cancel"}},
+		{40, []string{"j/k pick · HH:MM[:SS]", "+30s/-2m relative · A-B range · ⏎ go", "⎋ cancel"}},
+		{80, []string{hint}},
+	} {
+		view := View(New(sampleDoc()), tc.width)
+		lines := strings.Split(view, "\n")
+		if got := lines[len(lines)-len(tc.lines):]; strings.Join(got, "\n") != strings.Join(tc.lines, "\n") || strings.Contains(view, "…") {
+			t.Fatalf("width %d hint = %q, want %q", tc.width, got, tc.lines)
+		}
+	}
+}

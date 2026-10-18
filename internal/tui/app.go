@@ -2232,9 +2232,9 @@ func (a App) updateLog(msg KeyMsg) (App, bool) {
 	before := a.log
 	a.log = a.log.Update(logscreen.KeyMsg{Key: msg.Key})
 	if msg.Key == "esc" {
-		if before.InputMode || before.RangeLabel != "" {
-			// Esc only cancelled the input layer or range filter;
-			// stay on the log.
+		if before.InputMode || before.RangeLabel != "" || before.Search.Query != "" {
+			// Esc only cancelled the input, range or search; stay on
+			// the log.
 			return a, true
 		}
 		a.PopRoute()
@@ -4241,6 +4241,9 @@ func (a App) footerScreen() keys.Screen {
 	case RouteFailure:
 		return keys.ScreenFailure
 	case RouteLog:
+		if a.log.InputMode {
+			return keys.ScreenLogSearch
+		}
 		return keys.ScreenLog
 	case RouteWatch:
 		return keys.ScreenWatch
@@ -4305,7 +4308,7 @@ func (a App) overlayView(width, height int) string {
 	case OverlayConfirm:
 		return confirm.View(a.confirm, width-20)
 	case OverlayTimeJump:
-		return timejump.View(a.timeJump, width-20)
+		return timejump.View(a.timeJump, overlayInnerWidth(width))
 	case OverlayApprovals:
 		return approvals.View(a.approvals, width-20)
 	default:
