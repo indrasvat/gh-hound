@@ -26,6 +26,11 @@ IN PROGRESS — issue #62, second of two PRs; this one closes #62. The first (ta
 - [ ] T5 Verification: `make ci`, `make vqa`, interaction audit, render hygiene; shux before/after on fakes and live (read-only), Bramble and Bone; cold `tui-qa` and adversarial review.
 - [ ] T6 PR closing #62 with an evidence comment: screenshots and a demo video.
 
+## Measurements
+
+- A help frame at 200x60 renders in 1.22 ms (main: 0.80 ms, which blanks the base; the plain runs frame is 0.63 ms). Frames are drawn on input, so the extra 0.4 ms is not felt.
+- `FuzzLayerOver`: 13M+ execs clean. It found one real crash (a negative pad when text that clusters sits under the box's right edge, fixed with a floor; the seed is kept) and several oracle artifacts; exact columns are checked for ordinary text, every input for crashes and for rows below the box.
+
 ## Definition Of Done
 
 Every T item checked; each fix has a test that fails on `main`; every modal leaves the base readable but clearly behind, with no colour bleed or misalignment at the box edges; `make ci` and `make vqa` pass; evidence lives on the PR only.
