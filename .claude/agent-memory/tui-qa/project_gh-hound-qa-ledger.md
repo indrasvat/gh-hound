@@ -668,6 +668,20 @@ mid-audit; in-tree render_hygiene build was -dirty, discarded).
 P3: 80-col log footer omits ]/[ and g/G (only in ?). Help body repeats the
 "help · gh hound" title and sits flush on the left border.
 
+Round 24 (#62 task 350, 0e8f7f6 clean, shux 0.51.0, 2026-10-18): FAIL (P2s, no P1).
+F1: failure header counted len(Excerpt), not rows on screen — live CI #149
+80x24 read "5 of 489" with 2 drawn (13 annotations push it down); repro
+failing fake 80x13. F2: footer/help "⎋ back" was the only esc hint once a
+search was committed. Older: t modal clipped vertically on long pickers at
+80x24 (hint and bottom border off screen); tabs in failure excerpt rows push
+the right border out; search ignores an active range; match counters not
+digit-grouped. VERIFIED: hit tint / stronger current hit + warn number /
+gutter fixed (wrap too), `/` footer, esc peel input→range→search→back, echo
+boundaries incl. ##[group] header landing, hint wrap, queue XML empty case.
+GOTCHA: upgrading shux mid-audit restarted the daemon and killed sessions —
+not an app crash. `shux pane snapshot` drops the frame's rightmost border
+column; judge borders on `window snapshot` or text captures.
+
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.
 **How to apply:** read before every gh-hound audit; update entries when a
