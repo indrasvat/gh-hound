@@ -708,6 +708,24 @@ excerpt length (3 → 5 rows moves the boundary); count 4-digit gutters with
 \d{3,}. Check `shux --version` against the daemon: a stale daemon can
 answer with an older version than the installed client.
 
+Round 27 (#62 task 360 overlay dimming, 5d49d5b then cb19581 clean, shux 0.51.0, 2026-10-18): PASS on cb19581 (5d49d5b would FAIL on two P2s).
+5d49d5b P2s, fixed in cb19581: dimSGR passed basic/256/colon SGR undimmed
+(live CI #149 ESC[36;1m "make ci" stayed cyan behind t); dimmed plain text
+(115,115,109) downsampled to yellow (16) / olive (256), now neutral grey.
+VERIFIED cb19581: base dims with hues kept on all five modals at 80/120/200;
+cell-level base-vs-overlay column check 0 shifts; selected-row/search/fold
+tints match either side of the box; esc restore pixel-identical; borders
+intact; overlay over loading state; live resize; Bone on OSC-11 light fades
+light; 256 and 16 colour grey; 0 ESC[2J on modal open/close.
+P3: 16-colour vivid log colours cannot dim; Bone hard-coded bands (#56) dim to
+grey slabs; box now exactly centred (one column left of a199cb4); VQA text-only.
+PRE-EXISTING (a199cb4 same): UTF-8 typed input mojibake (keyName byte-wise);
+~1.8 s blank + key echo before the live first paint; startup resize lost.
+GOTCHAS: `shux pane set-size` right after `session create` can be missed —
+wiggle the size after first paint; `__vqa-tui --latency` delays first paint;
+no fake takes a custom log — prove log-ANSI handling live (CI #149) or with a
+throwaway probe build; OSC 10/11 in the pane emulates a light terminal.
+
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.
 **How to apply:** read before every gh-hound audit; update entries when a
