@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"math"
 	"strconv"
 	"strings"
@@ -139,10 +140,10 @@ func layerOver(th theme.Theme, base, box string, width int) string {
 		left := ansi.Truncate(line, pad, "")
 		left += strings.Repeat(" ", max(pad-ansi.StringWidth(left), 0))
 		right := ""
-		if width := ansi.StringWidth(line); width > pad+boxWidth {
+		if lineWidth := ansi.StringWidth(line); lineWidth > pad+boxWidth {
 			// TruncateLeft keeps the colours set before the cut; a wide
 			// character the box cuts in half becomes a space.
-			want := width - pad - boxWidth
+			want := lineWidth - pad - boxWidth
 			right = ansi.TruncateLeft(line, pad+boxWidth, "")
 			if ansi.StringWidth(right) > want {
 				right = ansi.TruncateLeft(line, pad+boxWidth+1, "")
@@ -162,7 +163,7 @@ func dimANSI(th theme.Theme, line string) string {
 		return line
 	}
 	bg := hexRGB(th.BG)
-	fg := "38;2;" + rgbParams(dimRGB(hexRGB(th.FG), bg))
+	fg := "38;2;" + rgbParams(dimText(th))
 	var b strings.Builder
 	b.WriteString("\x1b[" + fg + "m")
 	for line != "" {
@@ -188,31 +189,76 @@ func dimANSI(th theme.Theme, line string) string {
 	return b.String()
 }
 
+// dimSGR rewrites every colour an SGR sets (truecolor, 256 and basic
+// palettes, ';' or ':' separated) as a dimmed truecolor.
 func dimSGR(params, fg string, bg [3]int) string {
 	ps := strings.Split(params, ";")
 	out := make([]string, 0, len(ps)+1)
+	dim := func(target string, c [3]int) { out = append(out, target, "2", rgbParams(dimRGB(c, bg))) }
 	for k := 0; k < len(ps); k++ {
-		switch p := ps[k]; {
-		case p == "" || p == "0":
-			out = append(out, "0", fg)
-		case p == "39":
-			out = append(out, fg)
-		case (p == "38" || p == "48") && k+4 < len(ps) && ps[k+1] == "2":
-			var c [3]int
-			for i := range 3 {
-				v, _ := strconv.Atoi(ps[k+2+i])
-				c[i] = v
+		p := ps[k]
+		n, err := strconv.Atoi(p)
+		switch {
+		case strings.Contains(p, ":"):
+			sub := strings.Split(p, ":")
+			switch {
+			case len(sub) >= 5 && sub[1] == "2" && isColourTarget(sub[0]):
+				dim(sub[0], subRGB(sub[len(sub)-3:]))
+			case len(sub) == 3 && sub[1] == "5" && isColourTarget(sub[0]):
+				i, _ := strconv.Atoi(sub[2])
+				dim(sub[0], paletteRGB(ansi.ExtendedColor(i)))
+			default:
+				out = append(out, p)
 			}
-			out = append(out, p, "2", rgbParams(dimRGB(c, bg)))
+		case p == "" || err == nil && n == 0:
+			out = append(out, "0", fg)
+		case err != nil:
+			out = append(out, p)
+		case n == 39:
+			out = append(out, fg)
+		case isColourTarget(p) && k+1 < len(ps) && ps[k+1] == "2":
+			if k+4 >= len(ps) { // truncated: keep the rest as it is
+				return strings.Join(append(out, ps[k:]...), ";")
+			}
+			dim(p, subRGB(ps[k+2:k+5]))
 			k += 4
-		case (p == "38" || p == "48") && k+2 < len(ps) && ps[k+1] == "5":
-			out = append(out, ps[k:k+3]...)
+		case isColourTarget(p) && k+2 < len(ps) && ps[k+1] == "5":
+			i, _ := strconv.Atoi(ps[k+2])
+			dim(p, paletteRGB(ansi.ExtendedColor(i)))
 			k += 2
+		case n >= 30 && n <= 37, n >= 90 && n <= 97:
+			dim("38", paletteRGB(ansi.BasicColor(n%10+(n/90)*8)))
+		case n >= 40 && n <= 47, n >= 100 && n <= 107:
+			dim("48", paletteRGB(ansi.BasicColor(n%10+(n/100)*8)))
 		default:
 			out = append(out, p)
 		}
 	}
 	return strings.Join(out, ";")
+}
+
+func isColourTarget(p string) bool { return p == "38" || p == "48" || p == "58" }
+
+func subRGB(ps []string) [3]int {
+	var c [3]int
+	for i := range 3 {
+		c[i], _ = strconv.Atoi(ps[i])
+	}
+	return c
+}
+
+// paletteRGB is a palette colour's RGB in the default xterm palette.
+func paletteRGB(c color.Color) [3]int {
+	r, g, b, _ := c.RGBA()
+	return [3]int{int(r >> 8), int(g >> 8), int(b >> 8)}
+}
+
+// dimText is plain text's dimmed colour: a neutral grey, since a warm one
+// maps to yellow or olive when the writer downsamples to 16 or 256 colours.
+func dimText(th theme.Theme) [3]int {
+	d := dimRGB(hexRGB(th.FG), hexRGB(th.BG))
+	grey := int(math.Round(0.213*float64(d[0]) + 0.715*float64(d[1]) + 0.072*float64(d[2])))
+	return [3]int{grey, grey, grey}
 }
 
 // dimRGB blends c 46% of the way from bg, then keeps 65% of its saturation

@@ -827,20 +827,17 @@ func (a App) ViewSize(width, height int) string {
 				footer = "type comment · ⏎ done · ⎋ cancel"
 			}
 		}
-	} else {
-		body = toastLayer(a.theme, body, a.toasts, contentWidth(width))
-		if len(a.toasts.Toasts) > 0 {
-			retry := false
-			for _, t := range a.toasts.Toasts {
-				retry = retry || t.RetryAction != ""
-			}
-			footer = keys.ToastFooter(retry)
-		}
-	}
-	if a.TopOverlay() != OverlayNone {
-		// The base is coloured once, before dimming: framing colours it again
-		// would restyle selected rows over the dim.
+		// The base was coloured before dimming; framing colours the body
+		// again, which would restyle selected rows over the dim.
 		return frameLines(a.theme, title, context, right, body, footer, width, height, true)
+	}
+	body = toastLayer(a.theme, body, a.toasts, contentWidth(width))
+	if len(a.toasts.Toasts) > 0 {
+		retry := false
+		for _, t := range a.toasts.Toasts {
+			retry = retry || t.RetryAction != ""
+		}
+		footer = keys.ToastFooter(retry)
 	}
 	return frameViewSize(a.theme, title, context, right, body, footer, width, height, true)
 }

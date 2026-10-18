@@ -1,22 +1,25 @@
 package tui
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"unicode"
 
+	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/config"
 	"github.com/indrasvat/gh-hound/internal/theme"
+	"github.com/indrasvat/gh-hound/internal/tui/overlay/approvals"
 	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
 )
 
 // Bramble: bg #0E0F0C. Worked by hand from brightness(.46) toward the bg,
 // then saturate(.65) with the CSS weights .213/.715/.072.
 const (
-	dimFGBramble = "38;2;115;115;109" // fg #EAE8D9
+	dimFGBramble = "38;2;115;115;115" // fg #EAE8D9 → 115,115,109, as a neutral grey
 	dimOKBramble = "38;2;60;100;72"   // ok #4FD37A
 )
 
@@ -40,7 +43,7 @@ func TestDimKeepsAttributesAndDimsBackgrounds(t *testing.T) {
 
 func TestDimOnBoneFadesTowardTheLightBackground(t *testing.T) {
 	th := theme.ForMode(theme.ModeBone)
-	fg, bg := rgbOf(t, th.FG), rgbOf(t, th.BG)
+	fg, bg := hexRGB(th.FG), hexRGB(th.BG)
 	dimmed := truecolors(dimANSI(th, "text"))
 	if len(dimmed) != 1 {
 		t.Fatalf("plain text takes the dimmed fg, got %v", dimmed)
@@ -103,15 +106,15 @@ func FuzzLayerOver(f *testing.F) {
 	f.Add("0123456789\nabc", "AB\nCD", 10)
 	f.Add("\x1b[48;2;1;2;3mあいう\x1b[0m\n\x1b[38;2;9;9;9mz", "X", 7)
 	f.Fuzz(func(t *testing.T, base, box string, width int) {
-		width = 1 + abs(width)%120
+		width = 1 + int(uint(width)%120)
 		// a box is drawn UI: ASCII and box drawing (no marks that join the
 		// base's characters); the base is any log text
-		base, box = sanitizeFuzz(base), strings.Map(func(r rune) rune {
+		base, box = logscreen.TerminalSafe(base), strings.Map(func(r rune) rune {
 			if r > '~' && (r < '─' || r > '╿') {
 				return '?'
 			}
 			return r
-		}, sanitizeFuzz(box))
+		}, logscreen.TerminalSafe(box))
 		th := theme.ForMode(theme.ModeBramble)
 		out := strings.Split(layerOver(th, base, box, width), "\n")
 		baseLines, boxLines := splitLines(base), splitLines(box)
@@ -128,8 +131,9 @@ func FuzzLayerOver(f *testing.F) {
 				}
 				continue
 			}
-			// exact columns are promised for ordinary text; any input must
-			// still draw without panicking
+			// exact columns are promised for ordinary text: a lone combining
+			// or zero-width character just before the box joins its border
+			// (cosmetic, exotic). Any input must still draw without panicking.
 			if i < len(baseLines) && !ordinary(ansi.Strip(baseLines[i])) {
 				continue
 			}
@@ -146,22 +150,11 @@ func FuzzLayerOver(f *testing.F) {
 	})
 }
 
-// sanitizeFuzz keeps colours but nothing that moves the cursor, as screens
-// draw them.
-func sanitizeFuzz(s string) string { return logscreen.TerminalSafe(s) }
-
 // ordinary text: printable ASCII, CJK and kana, box drawing.
 func ordinary(s string) bool {
 	return !strings.ContainsFunc(s, func(r rune) bool {
 		return (r < ' ' || r > '~') && (r < '─' || r > '╿') && !unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana)
 	})
-}
-
-func abs(n int) int {
-	if n < 0 {
-		return -n
-	}
-	return n
 }
 
 var (
@@ -191,63 +184,131 @@ func truecolors(s string) [][3]int {
 	return out
 }
 
-func rgbOf(t *testing.T, hex string) [3]int {
-	t.Helper()
-	v, err := strconv.ParseUint(strings.TrimPrefix(hex, "#"), 16, 32)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return [3]int{int(v >> 16 & 0xff), int(v >> 8 & 0xff), int(v & 0xff)}
-}
-
 func TestEveryModalDimsTheBase(t *testing.T) {
-	timeJump := func(w, h int) string {
-		return typeKeys(t, openLog(t, logApp(t, config.Default(), noisyRaw())), "t").ViewSize(w, h)
+	coloured := strings.Join([]string{
+		"10:00:00Z \x1b[31mERROR boom\x1b[0m",
+		"10:00:01Z \x1b[1;36mRun make ci\x1b[0m",
+		"10:00:02Z \x1b[38;5;196mred from a 256 palette\x1b[0m",
+		"10:00:03Z \x1b[38:2::255:0:0mcolon truecolor\x1b[0m",
+		"10:00:04Z \x1b[42mgreen background\x1b[0m",
+	}, "\n")
+	type scene struct {
+		name string
+		app  func(*testing.T) App
+		open string
 	}
-	for _, size := range [][2]int{{80, 24}, {120, 40}, {200, 60}} {
-		w, h := size[0], size[1]
-		for name, view := range map[string]string{
-			"help":          RenderFixtureSize("help", w, h),
-			"palette":       RenderFixtureSize("palette", w, h),
-			"approvals":     RenderFixtureSize("approvals", w, h),
-			"rerun-confirm": RenderFixtureSize("rerun-confirm", w, h),
-			"time-jump":     timeJump(w, h),
-		} {
-			lines := strings.Split(view, "\n")
-			body := lines[3 : len(lines)-3] // between the frame's header and footer
-			top, bottom := -1, -1
-			for i, line := range body {
-				if strings.Contains(line, "╭") && top < 0 {
-					top = i
+	scenes := []scene{
+		{"help", func(*testing.T) App { return NewScenarioApp("failure", BuildInfo{}) }, "?"},
+		{"palette", func(*testing.T) App { return NewScenarioApp("failure", BuildInfo{}) }, ":"},
+		{"confirm", func(*testing.T) App { return NewScenarioApp("failure", BuildInfo{}) }, "r"},
+		{"approvals", func(*testing.T) App {
+			app := NewScenarioApp("failure", BuildInfo{})
+			app.runs = sampleWaitingRunsModel()
+			return app
+		}, ""},
+		{"time-jump", func(t *testing.T) App { return openLog(t, logApp(t, config.Default(), noisyRaw())) }, "t"},
+		{"time-jump over ANSI log colours", func(t *testing.T) App { return openLog(t, logApp(t, config.Default(), coloured)) }, "t"},
+	}
+	for _, mode := range []theme.Mode{theme.ModeBramble, theme.ModeBone} {
+		for _, sc := range scenes {
+			for _, size := range [][2]int{{80, 24}, {120, 40}, {200, 60}} {
+				w, h := size[0], size[1]
+				app := sc.app(t)
+				app.theme = theme.ForMode(mode)
+				base := app.ViewSize(w, h)
+				if sc.open == "" {
+					run, _ := app.runs.SelectedRun()
+					app.approvals = approvals.NewModel(run, samplePendingDeployments())
+					app.overlays = append(app.overlays, OverlayApprovals)
+				} else {
+					app = typeKeys(t, app, sc.open)
 				}
-				if strings.Contains(line, "╰") {
-					bottom = i
-				}
-			}
-			if top < 0 {
-				t.Fatalf("%s %dx%d: no box", name, w, h)
-			}
-			inner := frameInner(body[top])
-			edge := ansi.StringWidth(inner[:strings.Index(inner, "╭")])
-			if strings.TrimSpace(ansi.Truncate(ansi.Strip(inner), edge, "")) == "" {
-				t.Fatalf("%s %dx%d: nothing of the base beside the box: %q", name, w, h, ansi.Strip(body[top]))
-			}
-			var outside []string
-			for _, line := range body[top : max(bottom, top)+1] { // left of the box on every box row
-				outside = append(outside, trailingSGR.ReplaceAllString(ansi.Truncate(frameInner(line), edge, ""), ""))
-			}
-			if bottom >= 0 {
-				for _, line := range body[bottom+1:] {
-					outside = append(outside, frameInner(line))
-				}
-			}
-			for _, c := range truecolors(strings.Join(outside, "\n")) {
-				if c[0] > 125 || c[1] > 125 || c[2] > 125 {
-					t.Fatalf("%s %dx%d: undimmed colour %v outside the box", name, w, h, c)
-				}
+				where := fmt.Sprintf("%s %s %dx%d", mode, sc.name, w, h)
+				checkDimmedBase(t, where, app.theme, base, app.ViewSize(w, h))
 			}
 		}
 	}
+}
+
+// checkDimmedBase: beside and below the box every colour is truecolor and
+// the dimmed image of a colour the undimmed frame draws.
+func checkDimmedBase(t *testing.T, where string, th theme.Theme, base, view string) {
+	t.Helper()
+	bg := hexRGB(th.BG)
+	allowed := map[[3]int]bool{dimText(th): true}
+	for _, c := range colours(base) {
+		allowed[dimRGB(c.rgb, bg)] = true
+	}
+	lines := strings.Split(view, "\n")
+	body := lines[3 : len(lines)-3] // between the frame's header and footer
+	top, bottom := -1, -1
+	for i, line := range body {
+		if strings.Contains(line, "╭") && top < 0 {
+			top = i
+		}
+		if strings.Contains(line, "╰") {
+			bottom = i
+		}
+	}
+	if top < 0 {
+		t.Fatalf("%s: no box", where)
+	}
+	inner := frameInner(body[top])
+	edge := ansi.StringWidth(inner[:strings.Index(inner, "╭")])
+	if strings.TrimSpace(ansi.Truncate(ansi.Strip(inner), edge, "")) == "" {
+		t.Fatalf("%s: nothing of the base beside the box: %q", where, ansi.Strip(body[top]))
+	}
+	var outside []string
+	for _, line := range body[top : max(bottom, top)+1] { // left of the box on every box row
+		outside = append(outside, trailingSGR.ReplaceAllString(ansi.Truncate(frameInner(line), edge, ""), ""))
+	}
+	if bottom >= 0 {
+		for _, line := range body[bottom+1:] {
+			outside = append(outside, frameInner(line))
+		}
+	}
+	for _, c := range colours(strings.Join(outside, "\n")) {
+		if !c.truecolor || !allowed[c.rgb] {
+			t.Fatalf("%s: colour %s %v outside the box is not a dimmed base colour", where, c.form, c.rgb)
+		}
+	}
+}
+
+type colourUse struct {
+	form      string
+	rgb       [3]int
+	truecolor bool
+}
+
+var sgrRE = regexp.MustCompile(`\x1b\[([0-9;:]*)m`)
+
+// colours lists every colour an SGR sets, palette colours by their RGB.
+func colours(s string) []colourUse {
+	var out []colourUse
+	for _, m := range sgrRE.FindAllStringSubmatch(s, -1) {
+		ps := strings.FieldsFunc(m[1], func(r rune) bool { return r == ';' || r == ':' })
+		for k := 0; k < len(ps); k++ {
+			n, _ := strconv.Atoi(ps[k])
+			switch {
+			case (n == 38 || n == 48 || n == 58) && k+4 < len(ps) && ps[k+1] == "2":
+				var c [3]int
+				for i := range 3 {
+					c[i], _ = strconv.Atoi(ps[k+2+i])
+				}
+				out = append(out, colourUse{m[1], c, true})
+				k += 4
+			case (n == 38 || n == 48) && k+2 < len(ps) && ps[k+1] == "5":
+				i, _ := strconv.Atoi(ps[k+2])
+				out = append(out, colourUse{m[1], paletteRGB(ansi.ExtendedColor(i)), false})
+				k += 2
+			case n >= 30 && n <= 37 || n >= 40 && n <= 47:
+				out = append(out, colourUse{m[1], paletteRGB(ansi.BasicColor(n % 10)), false})
+			case n >= 90 && n <= 97 || n >= 100 && n <= 107:
+				out = append(out, colourUse{m[1], paletteRGB(ansi.BasicColor(n%10 + 8)), false})
+			}
+		}
+	}
+	return out
 }
 
 func TestEscRestoresTheUndimmedBase(t *testing.T) {
@@ -260,6 +321,54 @@ func TestEscRestoresTheUndimmedBase(t *testing.T) {
 		}
 		if app = typeKeys(t, app, "esc"); app.ViewSize(120, 40) != before {
 			t.Fatalf("esc after %q must restore the frame exactly", open)
+		}
+	}
+}
+
+func TestDimEveryColourForm(t *testing.T) {
+	th := theme.ForMode(theme.ModeBramble)
+	bg := hexRGB(th.BG)
+	dim := func(c [3]int) string { return rgbParams(dimRGB(c, bg)) }
+	basic := func(n int) [3]int { return paletteRGB(ansi.BasicColor(n)) }
+	ext := func(n int) [3]int { return paletteRGB(ansi.ExtendedColor(n)) }
+	for _, tc := range []struct{ in, want string }{
+		{"31", "38;2;" + dim(basic(1))},
+		{"1;36", "1;38;2;" + dim(basic(6))},
+		{"91", "38;2;" + dim(basic(9))},
+		{"41", "48;2;" + dim(basic(1))},
+		{"101", "48;2;" + dim(basic(9))},
+		{"38;5;196", "38;2;" + dim(ext(196))},
+		{"48;5;0", "48;2;" + dim(ext(0))}, // 0 here is a colour, not a reset
+		{"38:2::255:0:0", "38;2;" + dim([3]int{255, 0, 0})},
+		{"38:2:255:0:0", "38;2;" + dim([3]int{255, 0, 0})},
+		{"38:5:196", "38;2;" + dim(ext(196))},
+		{"58;2;255;0;0", "58;2;" + dim([3]int{255, 0, 0})},
+		{"38;2;255;0", "38;2;255;0"}, // truncated: left as is, no reset read into it
+	} {
+		got := dimANSI(th, "\x1b["+tc.in+"mX")
+		if want := "\x1b[" + dimFGBramble + "m\x1b[" + tc.want + "mX"; got != want {
+			t.Errorf("%q:\n got %q\nwant %q", tc.in, got, want)
+		}
+	}
+}
+
+func TestDimmedTextStaysGreyWhenDownsampled(t *testing.T) {
+	for _, mode := range []theme.Mode{theme.ModeBramble, theme.ModeBone} {
+		dimmed := dimANSI(theme.ForMode(mode), "text")
+		for prof, ok := range map[colorprofile.Profile]func(string) bool{
+			colorprofile.ANSI: func(s string) bool { return strings.Contains(s, "[90m") || strings.Contains(s, "[37m") },
+			colorprofile.ANSI256: func(s string) bool {
+				c := colours(s)
+				return len(c) == 1 && c[0].rgb[0] == c[0].rgb[1] && c[0].rgb[1] == c[0].rgb[2]
+			},
+		} {
+			var b strings.Builder
+			if _, err := (&colorprofile.Writer{Forward: &b, Profile: prof}).Write([]byte(dimmed)); err != nil {
+				t.Fatal(err)
+			}
+			if !ok(b.String()) {
+				t.Fatalf("%s on %v: dimmed text should stay grey, got %q", mode, prof, b.String())
+			}
 		}
 	}
 }

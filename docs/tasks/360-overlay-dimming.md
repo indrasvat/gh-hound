@@ -12,16 +12,16 @@ IN PROGRESS — issue #62, second of two PRs; this one closes #62. The first (ta
 
 ## Decisions
 
-- **The base view stays visible behind every modal, dimmed as the mock's `.dimbg` (`brightness(.46) saturate(.65)`).** Each truecolor (`38;2`/`48;2`) colour is blended toward the theme background by 0.46, then desaturated to 0.65 (CSS saturate weights). Text without a colour takes the dimmed theme foreground, also after every reset. On Bramble this is the mock's filter; on Bone it fades toward the light background instead of smearing dark.
-- **Colours are rewritten before the output writer downsamples**, so 256- and 16-colour terminals dim too; no profile logic here.
+- **The base view stays visible behind every modal, dimmed after the mock's `.dimbg` (`brightness(.46) saturate(.65)`).** Every colour an SGR sets — truecolor, 256-colour, the 16 basic colours, `;` or `:` separated, as raw CI log colours arrive — becomes a truecolor taken 46% of the way from the theme background (the mock's brightness, measured from the background rather than black, so cells painted the background colour do not turn into darker patches), then keeps 65% of its saturation (the CSS saturate matrix, exactly). Text without a colour takes the theme foreground dimmed to a neutral grey, also after every reset. On Bone the base fades toward the light background, which suits a light terminal (the mock's terminal is dark).
+- **Colours are rewritten before the output writer downsamples.** Plain text is a neutral grey so it stays grey at 16 colours (`90`) and 256 colours (a grey index) instead of turning yellow or olive; hued colours collapse to dim greys there.
 - **The box keeps today's place** (centred horizontally, from the top of the body) and is spliced into the dimmed rows: the base keeps its columns left and right of the box, and the right side carries the colour state from before the box, so tinted rows do not change colour across it. Box rows are never dimmed.
-- **Toasts are unchanged**: they are non-blocking, and dimming the screen under them would read as disabled.
+- **Toasts are unchanged**: they are non-blocking, and dimming the screen under them would read as disabled. This departs from the mock, whose toast screen is its only `.dimbg`; visual contract ⑦ records it.
 
 ## Task List
 
-- [x] T1 Dimming: unit tests for the blend (Bramble and Bone), resets and default colour, background colours, non-colour SGR passed through; a full frame's dimmed rows contain no undimmed colour.
+- [x] T1 Dimming: unit tests for the blend (Bramble and Bone), every colour form (basic, bright, 256, colon, `58`, truncated), resets and default colour, attributes passed through; downsampled plain text stays grey. App test, both themes: every colour beside and below the box is truecolor and the dimmed image of a colour the undimmed frame draws, including a log full of raw ANSI colours under the time-jump modal.
 - [x] T2 Layering: splice tests (box intact, base columns kept, colour carried across the box, wide characters at the edges, base shorter than the box); a fuzz test against a plain-text oracle.
-- [x] T3 App: help, palette, confirm, time-jump and approvals each show the dimmed base around the box at 80x24/120x40/200x60; esc restores the exact frame from before the overlay.
+- [x] T3 App: help, palette, confirm, time-jump and approvals each show the dimmed base around the box at 80x24/120x40/200x60, on Bramble and Bone. A regression guard (it passes on main too) checks esc restores the exact frame from before the overlay.
 - [x] T4 Visual contract, fixtures and VQA assertions for the five overlays.
 - [ ] T5 Verification: `make ci`, `make vqa`, interaction audit, render hygiene; shux before/after on fakes and live (read-only), Bramble and Bone; cold `tui-qa` and adversarial review.
 - [ ] T6 PR closing #62 with an evidence comment: screenshots and a demo video.
