@@ -21,7 +21,7 @@ IN PROGRESS — issue #62, second of two PRs; this one closes #62. The first (ta
 
 - [x] T1 Dimming: unit tests for the blend (Bramble and Bone), resets and default colour, background colours, non-colour SGR passed through; a full frame's dimmed rows contain no undimmed colour.
 - [x] T2 Layering: splice tests (box intact, base columns kept, colour carried across the box, wide characters at the edges, base shorter than the box); a fuzz test against a plain-text oracle.
-- [x] T3 App: help, palette, confirm, time-jump and approvals each show the dimmed base around the box at 80x24/120x40/200x60; esc restores the undimmed base.
+- [x] T3 App: help, palette, confirm, time-jump and approvals each show the dimmed base around the box at 80x24/120x40/200x60; esc restores the exact frame from before the overlay.
 - [x] T4 Visual contract, fixtures and VQA assertions for the five overlays.
 - [ ] T5 Verification: `make ci`, `make vqa`, interaction audit, render hygiene; shux before/after on fakes and live (read-only), Bramble and Bone; cold `tui-qa` and adversarial review.
 - [ ] T6 PR closing #62 with an evidence comment: screenshots and a demo video.

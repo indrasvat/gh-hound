@@ -249,3 +249,17 @@ func TestEveryModalDimsTheBase(t *testing.T) {
 		}
 	}
 }
+
+func TestEscRestoresTheUndimmedBase(t *testing.T) {
+	for _, open := range []string{"?", ":", "r"} {
+		app := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		before := app.ViewSize(120, 40)
+		app = typeKeys(t, app, open)
+		if app.TopOverlay() == OverlayNone {
+			t.Fatalf("%q opened no overlay", open)
+		}
+		if app = typeKeys(t, app, "esc"); app.ViewSize(120, 40) != before {
+			t.Fatalf("esc after %q must restore the frame exactly", open)
+		}
+	}
+}
