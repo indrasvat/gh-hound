@@ -2,7 +2,7 @@
 
 ## Status
 
-IN PROGRESS — issue #62, first of two PRs. This PR fixes the log screen, failure header, time-jump modal and queue XML items; it references #62 without closing it. The overlay dimming item (help, palette, confirm, time-jump and approvals all replace the base view today) is the second PR, which closes #62.
+IMPLEMENTED — issue #62, first of two PRs (PR #63); it references #62 without closing it. The overlay dimming item (help, palette, confirm, time-jump and approvals all replace the base view today) is the second PR, which closes #62. `make ci`, `make vqa`, interaction audit and render hygiene pass; verified with shux on fakes and live read-only on CI #149; two adversarial reviews and three cold `tui-qa` rounds (24 and 25 failed, 26 passed), each finding fixed with a test that failed first or recorded below.
 
 ## Ownership Boundary
 
@@ -31,7 +31,7 @@ IN PROGRESS — issue #62, first of two PRs. This PR fixes the log screen, failu
 - [x] T7 Queue XML: no `next_commands` element when empty; commands still render when present. Render tests; CLI check with `--fake-scenario queue --format xml`.
 - [x] T8 VQA: update `log-compact-search` assertions; interaction scenarios for the `/` footer, esc after a search (stays, then goes back), the echo clearing and the modal hint.
 - [x] T9 Verification: `make ci`, `make vqa`, interaction audit at 80x24/120x40/200x60; shux before/after on fakes and a live repo (read-only); `tui-qa` round (overlay dimming out of scope); adversarial review against this task.
-- [ ] T10 PR referencing #62 (not closing it) with an evidence comment: screenshots and a demo video.
+- [x] T10 PR #63 referencing #62 (not closing it) with an evidence comment: screenshots and a demo video.
 
 ## Found Along The Way
 
