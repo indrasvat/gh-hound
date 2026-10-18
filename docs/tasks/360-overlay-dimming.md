@@ -2,7 +2,7 @@
 
 ## Status
 
-IN PROGRESS — issue #62, second of two PRs; this one closes #62. The first (task 350, PR #63) shipped the search tint, truthful headers, esc layers, time-jump echo and modal hint, and queue XML.
+IMPLEMENTED — issue #62, second of two PRs (PR #64), which closes it. The first (task 350, PR #63) shipped the search tint, truthful headers, esc layers, time-jump echo and modal hint, and queue XML. `make ci`, `make vqa`, interaction audit and render hygiene pass; verified with shux on fakes, live read-only, Bone on a light terminal and a 256-colour terminal; an adversarial review and a cold `tui-qa` round (PASS on cb19581), each finding fixed with a test that failed first or recorded below.
 
 ## Ownership Boundary
 
@@ -24,7 +24,7 @@ IN PROGRESS — issue #62, second of two PRs; this one closes #62. The first (ta
 - [x] T3 App: help, palette, confirm, time-jump and approvals each show the dimmed base around the box at 80x24/120x40/200x60, on Bramble and Bone. A regression guard (it passes on main too) checks esc restores the exact frame from before the overlay.
 - [x] T4 Visual contract, fixtures and VQA assertions for the five overlays.
 - [x] T5 Verification: `make ci`, `make vqa`, interaction audit, render hygiene; shux before/after on fakes and live (read-only), Bramble and Bone; cold `tui-qa` and adversarial review.
-- [ ] T6 PR closing #62 with an evidence comment: screenshots and a demo video.
+- [x] T6 PR #64 closing #62 with an evidence comment: screenshots and a demo video.
 
 ## Found Along The Way
 
