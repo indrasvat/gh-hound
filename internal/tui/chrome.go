@@ -142,10 +142,7 @@ func layerOver(th theme.Theme, base, box string, width int) string {
 		left := ansi.Truncate(line, pad, "")
 		if gap := pad - ansi.StringWidth(left); gap > 0 {
 			// Truncate keeps line's bytes up to the cut character.
-			at := len(left)
-			if ansi.StringWidth(line) > pad {
-				at, _ = cellAt(line, pad)
-			}
+			at, _ := cellAt(line, pad)
 			left = left[:at] + strings.Repeat(" ", gap) + left[at:]
 		}
 		right := ""

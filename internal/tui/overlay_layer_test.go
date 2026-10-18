@@ -404,10 +404,12 @@ func TestLayerKeepsTheTintWhereTheBoxSplitsAWideCharacter(t *testing.T) {
 	}
 }
 
-// bgBefore is the background colour the SGRs in s[:at] leave set.
+var sgrPattern = regexp.MustCompile(`\x1b\[([0-9;:]*)m`)
+
+// bgBefore is the background colour the truecolor SGRs in s[:at] leave set.
 func bgBefore(s string, at int) string {
 	bg := ""
-	for _, m := range regexp.MustCompile(`\x1b\[([0-9;:]*)m`).FindAllStringSubmatch(s[:at], -1) {
+	for _, m := range sgrPattern.FindAllStringSubmatch(s[:at], -1) {
 		params := strings.Split(m[1], ";")
 		for i := 0; i < len(params); i++ {
 			switch params[i] {
