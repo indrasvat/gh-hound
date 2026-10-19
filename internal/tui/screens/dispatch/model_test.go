@@ -51,7 +51,7 @@ func TestTextInputBackspaceRemovesAWholeRune(t *testing.T) {
 
 func TestLongTextFieldKeepsItsEndInView(t *testing.T) {
 	m := NewModel(Workflow{Name: "Release", Inputs: []Input{{Name: "note", Type: InputText}}})
-	for _, key := range strings.Split(strings.Repeat("x", 90)+"END", "") {
+	for key := range strings.SplitSeq(strings.Repeat("x", 90)+"END", "") {
 		m = m.Update(KeyMsg{Key: key})
 	}
 	if view := View(m, 70); !strings.Contains(view, "END") {

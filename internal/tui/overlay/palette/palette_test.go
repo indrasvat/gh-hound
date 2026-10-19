@@ -100,11 +100,11 @@ func TestBackspaceRemovesAWholeRune(t *testing.T) {
 
 func TestLongQueryKeepsItsEndInView(t *testing.T) {
 	m := New(nil)
-	for _, key := range strings.Split(strings.Repeat("x", 90)+"END", "") {
+	for key := range strings.SplitSeq(strings.Repeat("x", 90)+"END", "") {
 		m = m.Update(KeyMsg{Key: key})
 	}
 	view := View(m, 60)
-	for _, line := range strings.Split(view, "\n") {
+	for line := range strings.SplitSeq(view, "\n") {
 		if ansi.StringWidth(line) > 60 {
 			t.Fatalf("line wider than the box: %q", line)
 		}
