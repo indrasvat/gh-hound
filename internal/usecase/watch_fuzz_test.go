@@ -16,7 +16,8 @@ import (
 // changing status, steps, order and membership; run switches; failing
 // fetches) and checks every tick against a model: a log is fetched
 // only when the session does not hold it, a job with no steps is never
-// fetched, lines follow job order, and a failed tick keeps the cache.
+// fetched, lines follow job order, and a failed tick keeps the logs it
+// held and fetched.
 func FuzzWatchSession(f *testing.F) {
 	f.Add([]byte{0x31, 0x12, 0x33, 0x00, 0x31, 0x12, 0x33, 0x00, 0x31, 0x12, 0x33})
 	f.Add([]byte{0x11, 0x22, 0x00, 0x91, 0x00, 0x51, 0x62, 0x00, 0x11, 0x22})
@@ -74,6 +75,14 @@ func FuzzWatchSession(f *testing.F) {
 			if failed {
 				if err == nil {
 					t.Fatalf("tick %x: failing fetch of job %d reported no error", tick, failFor)
+				}
+				// The session keeps what it held plus what this tick fetched.
+				held, heldRun = maps.Clone(cached), runID
+				if held == nil {
+					held = map[int64]bool{}
+				}
+				for id := range wantFetch {
+					held[id] = true
 				}
 				continue
 			}

@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"maps"
 	"sync"
 	"time"
 
@@ -13,7 +14,6 @@ type WatchState struct {
 	Repo  string
 	RunID int64
 	Run   model.Run
-	Jobs  []model.Job
 	// Lines holds the completed jobs' log lines, in job order.
 	Lines []logs.Line
 	// JobLogs maps each listed completed job with a log to its parsed
@@ -31,7 +31,8 @@ type WatchService struct {
 }
 
 // Tick never mutates state.JobLogs: the next state gets a new map, so
-// concurrent ticks may share one.
+// concurrent ticks may share one. A failed log fetch still returns the
+// logs held so far, fetched ones included, with the error.
 func (s WatchService) Tick(ctx context.Context, state WatchState) (WatchState, error) {
 	minPoll := s.MinPoll
 	if minPoll <= 0 {
@@ -51,12 +52,11 @@ func (s WatchService) Tick(ctx context.Context, state WatchState) (WatchState, e
 		return WatchState{}, err
 	}
 	state.Run = run
-	state.Jobs = jobs
 	state.Lines = nil
 	jobLogs := make(map[int64][]logs.Line, len(jobs))
 	for _, job := range jobs {
-		// A job that completed without running a step (skipped, or
-		// cancelled before it started) has no log; GitHub answers 404.
+		// A completed job that ran no step (skipped, cancelled before it
+		// started, stopped at an environment gate) has no log: GitHub 404s.
 		if job.Status != model.StatusCompleted || len(job.Steps) == 0 {
 			continue
 		}
@@ -64,7 +64,13 @@ func (s WatchService) Tick(ctx context.Context, state WatchState) (WatchState, e
 		if !cached {
 			raw, err := s.GitHub.FetchJobLog(ctx, state.Repo, job.ID)
 			if err != nil {
-				return WatchState{}, err
+				held := maps.Clone(state.JobLogs)
+				if held == nil {
+					held = jobLogs
+				} else {
+					maps.Copy(held, jobLogs)
+				}
+				return WatchState{Repo: state.Repo, RunID: state.RunID, JobLogs: held}, err
 			}
 			lines = logs.Parse(raw).Lines
 		}
@@ -82,7 +88,8 @@ func (s WatchService) Tick(ctx context.Context, state WatchState) (WatchState, e
 }
 
 // WatchSession carries one run's job logs from tick to tick, so each
-// completed job's log is fetched once. Ticks may run concurrently.
+// completed job's log is fetched once. Ticks may run concurrently; the
+// state a tick returns shares the session's logs and is read-only.
 type WatchSession struct {
 	Service WatchService
 
@@ -98,11 +105,13 @@ func (s *WatchSession) Tick(ctx context.Context, repo string, run model.Run) (Wa
 	}
 	s.mu.Unlock()
 	next, err := s.Service.Tick(ctx, state)
+	if next.JobLogs != nil {
+		s.mu.Lock()
+		s.last = next
+		s.mu.Unlock()
+	}
 	if err != nil {
 		return WatchState{}, err
 	}
-	s.mu.Lock()
-	s.last = next
-	s.mu.Unlock()
 	return next, nil
 }

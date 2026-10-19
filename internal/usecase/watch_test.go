@@ -204,6 +204,25 @@ func TestWatchSessionKeepsCacheAcrossAFailedTick(t *testing.T) {
 	}
 }
 
+// A log that keeps failing (expired, say) must not cost the jobs
+// listed before it a download on every tick.
+func TestWatchSessionKeepsLogsFetchedBeforeAFailure(t *testing.T) {
+	gh := &watchGitHub{jobs: []model.Job{
+		watchJob(1, model.StatusCompleted, 1),
+		watchJob(2, model.StatusCompleted, 1),
+		watchJob(3, model.StatusCompleted, 1),
+	}}
+	session := &usecase.WatchSession{Service: usecase.WatchService{GitHub: &failingLogs{watchGitHub: gh, failFor: 3}}}
+	for range 4 {
+		if _, err := session.Tick(context.Background(), "o/r", model.Run{ID: 570}); err == nil {
+			t.Fatal("tick with a failing log fetch must report the error")
+		}
+	}
+	if _, perJob := gh.fetchCounts(); perJob[1] != 1 || perJob[2] != 1 {
+		t.Fatalf("fetched %v, want jobs 1 and 2 once each despite job 3 failing", perJob)
+	}
+}
+
 // Concurrent ticks (the initial load and a poll can overlap) share the
 // cache without racing; once settled, a tick fetches nothing.
 func TestWatchSessionConcurrentTicks(t *testing.T) {
