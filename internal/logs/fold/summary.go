@@ -160,7 +160,7 @@ func (s Summary) Span() (string, string) {
 
 // Marker is the one-line stand-in for a fold in plain text output.
 func (s Summary) Marker() string {
-	return fmt.Sprintf("⋯ %s · %d lines hidden (L%d–L%d)", s.Title(), s.Hidden, s.FirstLine, s.LastLine)
+	return fmt.Sprintf("⋯ %s · %s lines hidden (L%d–L%d)", s.Title(), numfmt.Group(s.Hidden), s.FirstLine, s.LastLine)
 }
 
 // Title describes the fold without its size: shape, time span, varying

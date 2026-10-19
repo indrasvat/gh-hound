@@ -4549,7 +4549,7 @@ func runsRight(m runs.Model, refreshCount int, meta usecase.RequestMeta) string 
 		}
 		return "no runs loaded"
 	}
-	value := fmt.Sprintf("%d runs loaded", count)
+	value := numfmt.Group(count) + " runs loaded"
 	if refreshCount > 0 {
 		value += " · live"
 	}
@@ -4574,7 +4574,7 @@ func compactCount(n int) string {
 }
 
 func logRight(m logscreen.Model) string {
-	if m.Search.Total > 0 {
+	if m.Search.Query != "" {
 		return "match " + numfmt.Group(m.Search.Current) + "/" + numfmt.Group(m.Search.Total)
 	}
 	if m.Folded() {

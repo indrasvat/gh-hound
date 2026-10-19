@@ -87,7 +87,7 @@ func header(m Model, width int) string {
 		return head + " · ⎋ clear"
 	}
 	if m.Folded() {
-		folds, hidden := m.closedFolds()
+		folds, hidden := m.folds(true)
 		if folds == 0 {
 			return "log · compact"
 		}

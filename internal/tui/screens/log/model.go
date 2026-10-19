@@ -226,7 +226,7 @@ func (m Model) SetRange(start, end int, label string) Model {
 	m.RangeLabel = label
 	m.Offset, m.atEnd = start, false
 	m.planRange()
-	m.runSearch(m.Search.Query)
+	m.rematch()
 	m.bump()
 	return m
 }
@@ -236,9 +236,31 @@ func (m Model) ClearRange() Model {
 	m.RangeEnd = 0
 	m.RangeLabel = ""
 	m.rangePlan, m.atEnd = nil, false
-	m.runSearch(m.Search.Query)
+	m.rematch()
 	m.bump()
 	return m
+}
+
+// rematch re-runs a committed search for the lines now in view: the
+// current match is the old one if it still is one, else the next after
+// it (or after the view's top), and the view shows it.
+func (m *Model) rematch() {
+	from := m.Offset
+	if m.Search.Total > 0 {
+		from = m.Search.Matches[m.Search.Current-1]
+	}
+	m.runSearch(m.Search.Query)
+	if m.Search.Total == 0 {
+		return
+	}
+	m.Search.Current = 1
+	for i, line := range m.Search.Matches {
+		if line >= from {
+			m.Search.Current = i + 1
+			break
+		}
+	}
+	m.gotoCurrentMatch()
 }
 
 // runSearch matches query against the lines in view: the active range,

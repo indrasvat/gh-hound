@@ -126,3 +126,14 @@ func TestFrameMatchCounterIsDigitGrouped(t *testing.T) {
 		t.Fatalf("frame counter = %q", got)
 	}
 }
+
+func TestFrameCounterSaysNoMatches(t *testing.T) {
+	m := logscreen.NewModel(logs.Parse(strings.Repeat("hay\n", 1200)), 1, 10)
+	for k := range strings.SplitSeq("/needle", "") {
+		m = m.Update(logscreen.KeyMsg{Key: k})
+	}
+	m = m.Update(logscreen.KeyMsg{Key: "enter"})
+	if got := logRight(m); got != "match 0/0" {
+		t.Fatalf("frame counter = %q, the header says match 0/0", got)
+	}
+}

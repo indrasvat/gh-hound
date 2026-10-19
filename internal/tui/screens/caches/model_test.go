@@ -254,3 +254,13 @@ func TestAppliedFilterLineSaysEscClearsIt(t *testing.T) {
 		t.Fatalf("while typing, the footer owns the keys:\n%s", view)
 	}
 }
+
+func TestOneFilterMatchIsSingular(t *testing.T) {
+	m := NewModel("indrasvat/gh-hound", testData())
+	for _, key := range []string{"/", "s", "e", "t", "u", "p", "enter"} {
+		m = m.Update(KeyMsg{Key: key})
+	}
+	if view := ansi.Strip(ViewSize(m, 100, 20, time.Now())); !strings.Contains(view, "/setup  1 match · ⎋ clear") {
+		t.Fatalf("filter line:\n%s", view)
+	}
+}

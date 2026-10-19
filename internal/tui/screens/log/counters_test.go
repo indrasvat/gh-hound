@@ -83,3 +83,45 @@ func TestMatchCounterIsDigitGrouped(t *testing.T) {
 		t.Fatalf("header %q", head)
 	}
 }
+
+func needles() logs.Document { // "needle" on lines 10, 50, 60, 200
+	var b strings.Builder
+	for i := 1; i <= 300; i++ {
+		w := "hay"
+		if i == 10 || i == 50 || i == 60 || i == 200 {
+			w = "needle"
+		}
+		fmt.Fprintf(&b, "line %d %s\n", i, w)
+	}
+	return logs.Parse(b.String())
+}
+
+func searched(m Model, q string) Model {
+	for k := range strings.SplitSeq("/"+q, "") {
+		m = m.Update(KeyMsg{Key: k})
+	}
+	return m.Update(KeyMsg{Key: "enter"})
+}
+
+// A range set under a committed search shows the current match.
+func TestSetRangeShowsTheCurrentMatch(t *testing.T) {
+	m := searched(NewModel(needles(), 1, 5), "needle").SetRange(40, 100, "R")
+	cur := m.Search.Matches[m.Search.Current-1]
+	if !m.onScreen(cur) {
+		t.Fatalf("header says match %d (line %d) but rows %v", m.Search.Current, cur, m.VisibleRowNumbers())
+	}
+}
+
+// Clearing the range keeps the current match, on screen, so n goes on
+// from it.
+func TestClearRangeKeepsTheCurrentMatchInView(t *testing.T) {
+	m := searched(NewModel(needles(), 1, 5), "needle").SetRange(40, 100, "R").Update(KeyMsg{Key: "n"})
+	before := m.Search.Matches[m.Search.Current-1] // line 60
+	c := m.Update(KeyMsg{Key: "esc"})
+	if got := c.Search.Matches[c.Search.Current-1]; got != before || !c.onScreen(got) {
+		t.Fatalf("after clearing the range: current line %d (was %d), rows %v", got, before, c.VisibleRowNumbers())
+	}
+	if n := c.Update(KeyMsg{Key: "n"}); n.Offset < m.Offset {
+		t.Fatalf("n after clearing the range went backwards: %d -> %d", m.Offset, n.Offset)
+	}
+}

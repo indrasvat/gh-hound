@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/numfmt"
 	"github.com/indrasvat/gh-hound/internal/tui/components/textinput"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 	"github.com/indrasvat/gh-hound/internal/usecase"
@@ -35,9 +36,13 @@ func ViewSize(m Model, width, height int, now time.Time) string {
 	visible := m.VisibleCaches()
 	showFilter := m.InputMode || strings.TrimSpace(m.Filter) != ""
 	if showFilter {
-		tail := fmt.Sprintf("  %d matches · ⎋ clear", len(visible))
+		count := numfmt.Group(len(visible)) + " matches"
+		if len(visible) == 1 {
+			count = "1 match"
+		}
+		tail := "  " + count + " · ⎋ clear"
 		if m.InputMode {
-			tail = fmt.Sprintf("▌  %d matches", len(visible))
+			tail = "▌  " + count
 		}
 		filter := textinput.Tail(m.Filter, width-3-ansi.StringWidth(tail))
 		lines = append(lines, dimLine("  /"+filter+tail, width))
