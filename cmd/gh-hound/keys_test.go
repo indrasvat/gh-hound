@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"testing/iotest"
+	"time"
 	"unicode"
 	"unicode/utf8"
 )
@@ -137,5 +138,24 @@ func TestKeyDecoderDropsBidiControls(t *testing.T) {
 	got := decodeAll(t, strings.NewReader("a\u202eb\u2066c\u200dd"))
 	if want := []string{"a", "b", "c", "\u200d", "d"}; !slices.Equal(got, want) {
 		t.Fatalf("keys = %q, want %q", got, want)
+	}
+}
+
+// Keys typed together arrive in one read; an esc at the end of them is
+// a keypress and must not wait for the next byte.
+func TestReadKeysDeliversATrailingEscWithoutWaiting(t *testing.T) {
+	stdin, keys := io.Pipe()
+	defer func() { _ = keys.Close() }()
+	events := readKeys(stdin)
+	go func() { _, _ = io.WriteString(keys, "1234567\x1b") }()
+	for _, want := range []string{"1", "2", "3", "4", "5", "6", "7", "esc"} {
+		select {
+		case event := <-events:
+			if event.key != want {
+				t.Fatalf("key = %q, want %q", event.key, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("%q never arrived", want)
+		}
 	}
 }

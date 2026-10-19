@@ -1318,7 +1318,9 @@ type keyEvent struct {
 func readKeys(reader io.Reader) <-chan keyEvent {
 	events := make(chan keyEvent, 1)
 	go func() {
-		buf := make([]byte, 8)
+		// Large enough that keys typed together arrive in one short
+		// read: only a read that fills it can end mid-sequence.
+		buf := make([]byte, 256)
 		decoder := keyDecoder{}
 		for {
 			key, err := decoder.Next(reader, buf)

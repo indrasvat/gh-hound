@@ -610,10 +610,13 @@ func TestSearchInputBackspaceRemovesAWholeRune(t *testing.T) {
 
 func TestLongSearchInputKeepsItsEndInView(t *testing.T) {
 	m := NewModel(logs.Parse("café\n"), 1, 5)
-	for _, key := range append([]string{"/"}, strings.Split(strings.Repeat("x", 90)+"END", "")...) {
+	for _, key := range append([]string{"/"}, strings.Split(strings.Repeat("a漢", 60)+"END", "")...) {
 		m = m.Update(KeyMsg{Key: key})
 	}
-	if view := ansi.Strip(View(m, 70)); !strings.Contains(view, "END▌") {
-		t.Fatalf("typed end scrolled off:\n%s", view)
+	for width := 40; width <= 120; width++ {
+		head := strings.SplitN(View(m, width), "\n", 2)[0]
+		if !strings.Contains(ansi.Strip(head), "END▌") || ansi.StringWidth(head) > width {
+			t.Fatalf("width %d: typed end scrolled off: %q", width, ansi.Strip(head))
+		}
 	}
 }
