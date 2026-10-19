@@ -8,11 +8,13 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	goruntime "runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -1132,6 +1134,11 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 	defer restore()
 	resizeEvents, stopResize := resizeSignals()
 	defer stopResize()
+	// Raw mode and the alt screen are undone by deferred calls, so a
+	// termination signal must end the loop, not the process.
+	quitSignals := make(chan os.Signal, 1)
+	signal.Notify(quitSignals, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(quitSignals)
 	width, height := terminalSize(runtime.Stdout)
 	out := runtime.Stdout
 	if runtime.IsTTY {
@@ -1194,6 +1201,8 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case sig := <-quitSignals:
+			return signalExit(sig)
 		case <-resizeEvents:
 			resize()
 			if err := render(); err != nil {
@@ -1206,13 +1215,16 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 				}
 				// The keys before EOF still apply once the app exists.
 				inputEnded, events = true, nil
+			} else if event.key == "ctrl+c" {
+				return nil
+			} else {
+				typed = append(typed, event.key)
+			}
+		case <-ticker.C:
+			// Only a terminal animates; elsewhere each frame is printed.
+			if !runtime.IsTTY {
 				continue
 			}
-			if event.key == "ctrl+c" {
-				return nil
-			}
-			typed = append(typed, event.key)
-		case <-ticker.C:
 			if err := render(); err != nil {
 				return err
 			}
@@ -1223,12 +1235,19 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 			app, starting = result.app, false
 		}
 	}
+	// Cancel in-flight background fetches on every exit path (quit,
+	// EOF, ctx cancellation) so their goroutines don't outlive the
+	// loop. The closure reads the latest app value at return time.
+	defer func() { app.Shutdown() }()
 	app = app.WithViewport(width, height)
 	screen = &app
 	if err := render(); err != nil {
 		return err
 	}
 	for _, key := range typed {
+		if app.ShouldQuit() {
+			return nil
+		}
 		var handled bool
 		if app, handled = app.Update(tui.KeyMsg{Key: key}); handled {
 			if err := render(); err != nil {
@@ -1241,14 +1260,12 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 	}
 
 	ticker.Reset(app.PollInterval())
-	// Cancel in-flight background fetches on every exit path (quit,
-	// EOF, ctx cancellation) so their goroutines don't outlive the
-	// loop. The closure reads the latest app value at return time.
-	defer func() { app.Shutdown() }()
 	for !app.ShouldQuit() {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case sig := <-quitSignals:
+			return signalExit(sig)
 		case <-resizeEvents:
 			resize()
 			app = app.WithViewport(width, height)
@@ -1282,6 +1299,14 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 		}
 	}
 	return nil
+}
+
+// signalExit reports a signal the shell way: 128 plus its number.
+func signalExit(sig os.Signal) error {
+	if number, ok := sig.(syscall.Signal); ok {
+		return outcomeError{code: 128 + int(number)}
+	}
+	return outcomeError{code: render.ExitError}
 }
 
 type keyEvent struct {

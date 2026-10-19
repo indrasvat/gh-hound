@@ -65,6 +65,7 @@ func startBlockedTUI(t *testing.T) (*syncBuffer, io.Writer, blockedGitHub, <-cha
 			Stderr: io.Discard,
 			Stdin:  stdin,
 			Env:    mapEnv(map[string]string{"HOUND_WELCOME": "false"}),
+			IsTTY:  true,
 			GitHub: github,
 			Repo: &cliRepo{context: usecase.RepositoryContext{
 				Repo: "indrasvat/gh-hound", Branch: "main", Actor: "indrasvat",
@@ -114,5 +115,82 @@ func TestCtrlCQuitsWhileTheLaunchIsStillLoading(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("ctrl+c did not quit while the launch was loading")
+	}
+}
+
+// filterGitHub releases the launch listing on release and holds every
+// status:success listing (a replayed filter) until its load is cancelled.
+type filterGitHub struct {
+	blockedGitHub
+	filtered  chan struct{}
+	cancelled chan struct{}
+}
+
+func (g filterGitHub) ListRuns(ctx context.Context, filter usecase.RunFilter) ([]model.Run, error) {
+	if filter.Status != "success" {
+		return g.blockedGitHub.ListRuns(ctx, filter)
+	}
+	close(g.filtered)
+	<-ctx.Done()
+	close(g.cancelled)
+	return nil, ctx.Err()
+}
+
+func runFilteredLaunch(t *testing.T, typed string, closeInput bool) filterGitHub {
+	t.Helper()
+	out := &syncBuffer{}
+	stdin, keys := io.Pipe()
+	t.Cleanup(func() { _ = keys.Close() })
+	github := filterGitHub{
+		blockedGitHub: blockedGitHub{
+			cliGitHub: &cliGitHub{runs: []model.Run{cliRun(910, "CI", model.StatusCompleted, model.ConclusionFailure)}},
+			release:   make(chan struct{}),
+		},
+		filtered:  make(chan struct{}),
+		cancelled: make(chan struct{}),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
+	done := make(chan error, 1)
+	go func() {
+		done <- runTUI(ctx, commandRuntime{
+			Stdout: out, Stderr: io.Discard, Stdin: stdin, IsTTY: true,
+			Env:    mapEnv(map[string]string{"HOUND_WELCOME": "false"}),
+			GitHub: github,
+			Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+		}, buildInfo{Version: "test"}, cliOptions{})
+	}()
+	waitForOutput(t, out, "picking up the scent")
+	if _, err := io.WriteString(keys, typed); err != nil {
+		t.Fatal(err)
+	}
+	if closeInput {
+		_ = keys.Close()
+	}
+	time.Sleep(50 * time.Millisecond)
+	close(github.release)
+	if err := <-done; err != nil {
+		t.Fatalf("runTUI err = %v", err)
+	}
+	return github
+}
+
+func TestKeysTypedAfterAQuitAreNotReplayed(t *testing.T) {
+	github := runFilteredLaunch(t, "q/status:success\r", false)
+	select {
+	case <-github.filtered:
+		t.Fatal("a filter typed after q ran anyway")
+	default:
+	}
+}
+
+func TestEOFDuringStartupStillCancelsReplayedLoads(t *testing.T) {
+	github := runFilteredLaunch(t, "/status:success\r", true)
+	for name, ch := range map[string]chan struct{}{"started": github.filtered, "cancelled": github.cancelled} {
+		select {
+		case <-ch:
+		case <-time.After(time.Second):
+			t.Fatalf("the replayed filter's load was never %s", name)
+		}
 	}
 }
