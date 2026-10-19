@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,12 +9,16 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	goruntime "runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/indrasvat/gh-hound/internal/adapter/fake"
 	"github.com/indrasvat/gh-hound/internal/adapter/github"
@@ -1116,17 +1121,37 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 	defer func() {
 		_ = closeTrace()
 	}()
-	app, err := defaultTUIApp(ctx, preparedRuntime, build, options)
+	cfg, err := defaultConfig(runtime.Env)
 	if err != nil {
 		return err
 	}
-	width, height := terminalSize(runtime.Stdout)
-	app = app.WithViewport(width, height)
+	// Raw input and the resize watch come before anything slow: keys
+	// typed while the launch resolves are neither echoed nor lost, and
+	// a resize after the size is read still arrives.
 	restore, err := rawInput(runtime.Stdin, runtime.IsTTY)
 	if err != nil {
 		return err
 	}
 	defer restore()
+	resizeEvents, stopResize := resizeSignals()
+	defer stopResize()
+	// Raw mode and the alt screen are undone by deferred calls, so a
+	// termination signal must end the loop, not the process. It cancels
+	// the context everything runs on, so a request stuck inside the
+	// loop (a confirmed action) returns and the loop can exit.
+	quitSignals := make(chan os.Signal, 1)
+	signal.Notify(quitSignals, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(quitSignals)
+	ctx, quit := context.WithCancelCause(ctx)
+	defer quit(nil)
+	go func() {
+		select {
+		case sig := <-quitSignals:
+			quit(signalExit(sig))
+		case <-ctx.Done():
+		}
+	}()
+	width, height := terminalSize(runtime.Stdout)
 	out := runtime.Stdout
 	if runtime.IsTTY {
 		out = tuiOutput(runtime.Stdout, runtime.Env)
@@ -1142,37 +1167,117 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 
 	renderer := newFrameRenderer(out)
 	renderer.SetSize(width, height)
+	startup := tui.NewStartup(cfg, options.Repo)
+	var screen interface {
+		ViewSize(width, height int) string
+	} = startup
 	render := func() error {
 		if runtime.IsTTY {
-			return renderer.Render(app.ViewSize(width, height))
+			return renderer.Render(screen.ViewSize(width, height))
 		}
-		_, err := fmt.Fprintln(runtime.Stdout, app.ViewSize(width, height))
+		_, err := fmt.Fprintln(runtime.Stdout, screen.ViewSize(width, height))
 		return err
+	}
+	resize := func() {
+		width, height = terminalSize(runtime.Stdout)
+		// The terminal reflowed: the previous frame's rows no longer
+		// correspond, so the diff must start over.
+		renderer.SetSize(width, height)
+		renderer.Invalidate()
 	}
 	if err := render(); err != nil {
 		return err
 	}
 
+	// Building the app resolves the launch over the network: the
+	// startup frame keeps painting meanwhile, and keys typed before the
+	// app exists are replayed into it.
+	type built struct {
+		app tui.App
+		err error
+	}
+	appCtx, cancelApp := context.WithCancel(ctx)
+	defer cancelApp()
+	ready := make(chan built, 1)
+	go func() {
+		app, err := defaultTUIApp(appCtx, preparedRuntime, build, options)
+		ready <- built{app, err}
+	}()
 	events := readKeys(runtime.Stdin)
-	resizeEvents, stopResize := resizeSignals()
-	defer stopResize()
-	ticker := time.NewTicker(app.PollInterval())
+	ticker := time.NewTicker(startup.PollInterval())
 	defer ticker.Stop()
+	var typed []string
+	var app tui.App
+	inputEnded := false
+	for starting := true; starting; {
+		select {
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		case <-resizeEvents:
+			resize()
+			if err := render(); err != nil {
+				return err
+			}
+		case event := <-events:
+			if event.err != nil {
+				if !errors.Is(event.err, io.EOF) {
+					return event.err
+				}
+				// The keys before EOF still apply once the app exists.
+				inputEnded, events = true, nil
+			} else if event.key == "ctrl+c" || (event.key == "q" && len(typed) == 0) {
+				// A first q would quit on any launch route once replayed.
+				return nil
+			} else {
+				typed = append(typed, event.key)
+			}
+		case <-ticker.C:
+			// Only a terminal animates; elsewhere each frame is printed.
+			if !runtime.IsTTY {
+				continue
+			}
+			if err := render(); err != nil {
+				return err
+			}
+		case result := <-ready:
+			if result.err != nil {
+				return result.err
+			}
+			app, starting = result.app, false
+		}
+	}
 	// Cancel in-flight background fetches on every exit path (quit,
 	// EOF, ctx cancellation) so their goroutines don't outlive the
 	// loop. The closure reads the latest app value at return time.
 	defer func() { app.Shutdown() }()
+	app = app.WithViewport(width, height)
+	screen = &app
+	if err := render(); err != nil {
+		return err
+	}
+	for _, key := range typed {
+		if app.ShouldQuit() {
+			return nil
+		}
+		var handled bool
+		if app, handled = app.Update(tui.KeyMsg{Key: key}); handled {
+			if err := render(); err != nil {
+				return err
+			}
+		}
+	}
+	if inputEnded {
+		return nil
+	}
+
+	ticker.Reset(app.PollInterval())
 	for !app.ShouldQuit() {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return context.Cause(ctx)
 		case <-resizeEvents:
-			width, height = terminalSize(runtime.Stdout)
+			resize()
 			app = app.WithViewport(width, height)
-			// The terminal reflowed: the previous frame's rows no
-			// longer correspond, so the diff must start over.
-			renderer.SetSize(width, height)
-			renderer.Invalidate()
 			if err := render(); err != nil {
 				return err
 			}
@@ -1205,21 +1310,65 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 	return nil
 }
 
+// signalExit reports a signal the shell way: 128 plus its number.
+func signalExit(sig os.Signal) error {
+	if number, ok := sig.(syscall.Signal); ok {
+		return outcomeError{code: 128 + int(number)}
+	}
+	return outcomeError{code: render.ExitError}
+}
+
 type keyEvent struct {
 	key string
 	err error
 }
 
+// escDelay is how long a lone ESC waits for the rest of an escape
+// sequence before it counts as the esc key (vim's ttimeout, tmux's
+// escape-time): how full a read was says nothing about what follows.
+const escDelay = 50 * time.Millisecond
+
 func readKeys(reader io.Reader) <-chan keyEvent {
-	events := make(chan keyEvent, 1)
+	type chunk struct {
+		data []byte
+		err  error
+	}
+	chunks := make(chan chunk)
 	go func() {
-		buf := make([]byte, 8)
-		decoder := keyDecoder{}
+		buf := make([]byte, 256)
 		for {
-			key, err := decoder.Next(reader, buf)
-			events <- keyEvent{key: key, err: err}
+			n, err := reader.Read(buf)
+			chunks <- chunk{bytes.Clone(buf[:n]), err}
 			if err != nil {
 				return
+			}
+		}
+	}()
+	events := make(chan keyEvent, 1)
+	go func() {
+		decoder := keyDecoder{}
+		for {
+			if key, ok := decoder.pop(); ok {
+				events <- keyEvent{key: key}
+				continue
+			}
+			var escWait <-chan time.Time
+			if decoder.escPending() {
+				escWait = time.After(escDelay)
+			}
+			select {
+			case c := <-chunks:
+				decoder.pending = append(decoder.pending, c.data...)
+				if c.err != nil {
+					for key, ok := decoder.flush(); ok; key, ok = decoder.flush() {
+						events <- keyEvent{key: key}
+					}
+					events <- keyEvent{err: c.err}
+					return
+				}
+			case <-escWait:
+				key, _ := decoder.flush()
+				events <- keyEvent{key: key}
 			}
 		}
 	}()
@@ -1228,8 +1377,11 @@ func readKeys(reader io.Reader) <-chan keyEvent {
 
 type keyDecoder struct {
 	pending []byte
+	err     error
 }
 
+// Next decodes synchronously; when input ends, what can no longer
+// complete is flushed (a lone ESC is the esc key).
 func (d *keyDecoder) Next(reader io.Reader, scratch []byte) (string, error) {
 	if len(scratch) == 0 {
 		scratch = make([]byte, 8)
@@ -1238,29 +1390,84 @@ func (d *keyDecoder) Next(reader io.Reader, scratch []byte) (string, error) {
 		if key, ok := d.pop(); ok {
 			return key, nil
 		}
+		if d.err != nil {
+			if key, ok := d.flush(); ok {
+				return key, nil
+			}
+			return "", d.err
+		}
 		n, err := reader.Read(scratch)
-		if err != nil {
-			return "", err
-		}
-		if n > 0 {
-			d.pending = append(d.pending, scratch[:n]...)
-		}
+		d.pending = append(d.pending, scratch[:n]...)
+		d.err = err
 	}
 }
 
-func (d *keyDecoder) pop() (string, bool) {
-	if len(d.pending) == 0 {
-		return "", false
+// escPending reports an ESC waiting for the rest of its sequence.
+func (d *keyDecoder) escPending() bool {
+	return len(d.pending) > 0 && d.pending[0] == 0x1b
+}
+
+// flush gives up waiting: a pending ESC is the esc key, and the rest
+// decodes on its own; a partial rune is dropped.
+func (d *keyDecoder) flush() (string, bool) {
+	if d.escPending() {
+		d.pending = d.pending[1:]
+		return "esc", true
 	}
-	if len(d.pending) >= 3 && d.pending[0] == 0x1b && d.pending[1] == '[' {
-		if key := keyName(d.pending[:3]); key != "esc" {
-			d.pending = d.pending[3:]
+	if key, ok := d.pop(); ok {
+		return key, true
+	}
+	d.pending = nil
+	return "", false
+}
+
+func (d *keyDecoder) pop() (string, bool) {
+	for len(d.pending) > 0 {
+		if n := escapeSequence(d.pending); n < 0 || string(d.pending) == "\x1b" {
+			return "", false
+		} else if n > 0 {
+			key := keyName(d.pending[:n])
+			d.pending = d.pending[n:]
+			if key != "" {
+				return key, true
+			}
+			continue
+		}
+		if !utf8.FullRune(d.pending) {
+			// The rest of the rune is still in flight.
+			return "", false
+		}
+		r, size := utf8.DecodeRune(d.pending)
+		key := keyName(d.pending[:size])
+		d.pending = d.pending[size:]
+		if key != "" && (r != utf8.RuneError || size > 1) {
 			return key, true
 		}
 	}
-	key := keyName(d.pending[:1])
-	d.pending = d.pending[1:]
-	return key, true
+	return "", false
+}
+
+// escapeSequence measures the CSI (ESC [) or SS3 (ESC O) sequence that
+// starts b: 0 when none does, -1 while its final byte is in flight.
+func escapeSequence(b []byte) int {
+	if len(b) < 2 || b[0] != 0x1b || (b[1] != '[' && b[1] != 'O') {
+		return 0
+	}
+	if b[1] == 'O' {
+		if len(b) < 3 {
+			return -1
+		}
+		return 3
+	}
+	for i := 2; i < len(b); i++ {
+		switch c := b[i]; {
+		case c >= 0x40 && c <= 0x7e:
+			return i + 1
+		case c < 0x20 || c > 0x3f:
+			return 0
+		}
+	}
+	return -1
 }
 
 func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildInfo, options cliOptions) (tui.App, error) {
@@ -1966,16 +2173,20 @@ func keyName(input []byte) string {
 		return ""
 	}
 	switch string(input) {
-	case "\x1b[A":
+	case "\x1b[A", "\x1bOA":
 		return "up"
-	case "\x1b[B":
+	case "\x1b[B", "\x1bOB":
 		return "down"
-	case "\x1b[C":
+	case "\x1b[C", "\x1bOC":
 		return "right"
-	case "\x1b[D":
+	case "\x1b[D", "\x1bOD":
 		return "left"
 	case "\x1b[Z":
 		return "shift+tab"
+	}
+	if len(input) > 1 && input[0] == 0x1b {
+		// An escape sequence for a key the TUI doesn't bind.
+		return ""
 	}
 	switch input[0] {
 	case 0x03:
@@ -1997,7 +2208,12 @@ func keyName(input []byte) string {
 	case 0x1b:
 		return "esc"
 	default:
-		return string(rune(input[0]))
+		r, _ := utf8.DecodeRune(input)
+		if unicode.IsControl(r) || unicode.Is(unicode.Bidi_Control, r) {
+			// Unbound: typed into an input it would reach the terminal.
+			return ""
+		}
+		return string(r)
 	}
 }
 

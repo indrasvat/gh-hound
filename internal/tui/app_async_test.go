@@ -784,3 +784,23 @@ func TestWelcomeEnterIntoDispatchLaunchOpensForm(t *testing.T) {
 		t.Fatal("dispatch form not loaded after welcome enter")
 	}
 }
+
+// A first log open has no previous log to show: the loading body owns
+// the screen, never the "log unavailable" error.
+func TestFirstLogOpenShowsLoadingNotUnavailable(t *testing.T) {
+	app := asyncTestApp()
+	app.log = logscreen.Model{}
+	release := make(chan struct{})
+	app.logResolver = func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error) {
+		<-release
+		return sampleLogModel(), nil
+	}
+	app, _ = app.Update(KeyMsg{Key: "l"})
+	app.load.started = time.Now().Add(-200 * time.Millisecond)
+	view := ansi.Strip(app.ViewSized(124))
+	if strings.Contains(view, "log unavailable") || !strings.Contains(view, "fetching log") {
+		t.Fatalf("first log open must show the loading body:\n%s", view)
+	}
+	close(release)
+	settleApp(t, app)
+}

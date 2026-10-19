@@ -38,3 +38,25 @@ func TestDispatchFormInputsValidationAndSubmit(t *testing.T) {
 		}
 	}
 }
+
+func TestTextInputBackspaceRemovesAWholeRune(t *testing.T) {
+	m := NewModel(Workflow{Name: "Release", Inputs: []Input{{Name: "note", Type: InputText}}})
+	for _, key := range []string{"c", "é", "backspace"} {
+		m = m.Update(KeyMsg{Key: key})
+	}
+	if m.Fields[0].Value != "c" {
+		t.Fatalf("value = %q, want %q", m.Fields[0].Value, "c")
+	}
+}
+
+func TestLongTextFieldKeepsItsEndInView(t *testing.T) {
+	m := NewModel(Workflow{Name: "Release", Inputs: []Input{{Name: "note", Type: InputText}}})
+	for key := range strings.SplitSeq(strings.Repeat("a漢", 60)+"END", "") {
+		m = m.Update(KeyMsg{Key: key})
+	}
+	for width := 40; width <= 120; width++ {
+		if view := View(m, width); !strings.Contains(view, "END]") {
+			t.Fatalf("width %d: typed end scrolled off:\n%s", width, view)
+		}
+	}
+}

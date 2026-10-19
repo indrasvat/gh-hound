@@ -597,3 +597,26 @@ func TestWrappedContinuationKeepsFailColour(t *testing.T) {
 		t.Fatalf("continuation row lost the fail colour: %q", lines)
 	}
 }
+
+func TestSearchInputBackspaceRemovesAWholeRune(t *testing.T) {
+	m := NewModel(logs.Parse("café\n"), 1, 5)
+	for _, key := range []string{"/", "c", "é", "backspace"} {
+		m = m.Update(KeyMsg{Key: key})
+	}
+	if m.input != "c" {
+		t.Fatalf("input = %q, want %q", m.input, "c")
+	}
+}
+
+func TestLongSearchInputKeepsItsEndInView(t *testing.T) {
+	m := NewModel(logs.Parse("café\n"), 1, 5)
+	for _, key := range append([]string{"/"}, strings.Split(strings.Repeat("a漢", 60)+"END", "")...) {
+		m = m.Update(KeyMsg{Key: key})
+	}
+	for width := 40; width <= 120; width++ {
+		head := strings.SplitN(View(m, width), "\n", 2)[0]
+		if !strings.Contains(ansi.Strip(head), "END▌") || ansi.StringWidth(head) > width {
+			t.Fatalf("width %d: typed end scrolled off: %q", width, ansi.Strip(head))
+		}
+	}
+}

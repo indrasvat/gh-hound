@@ -8,7 +8,9 @@ import (
 	"maps"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/tui/components/textinput"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 )
 
@@ -117,8 +119,8 @@ func (m Model) updateComment(msg KeyMsg) Model {
 		m.CommentMode = false
 		m.Comment = m.commentBackup
 	case "backspace":
-		if len(m.Comment) > 0 {
-			m.Comment = m.Comment[:len(m.Comment)-1]
+		if runes := []rune(m.Comment); len(runes) > 0 {
+			m.Comment = string(runes[:len(runes)-1])
 		}
 	case "space":
 		m.Comment += " "
@@ -187,7 +189,8 @@ func View(m Model, width int) string {
 		commentLine = `comment: reviewed from gh-hound (default) · c to edit`
 	}
 	if m.CommentMode {
-		commentLine = "comment" + icons.Prompt + " " + m.Comment + "▏(enter done · esc cancel)"
+		prompt, hint := "comment"+icons.Prompt+" ", "▏(enter done · esc cancel)"
+		commentLine = prompt + textinput.Tail(m.Comment, width-ansi.StringWidth(prompt+hint)) + hint
 	}
 	lines = append(lines, fit(commentLine, width))
 	if m.Notice != "" {

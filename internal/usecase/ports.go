@@ -32,6 +32,7 @@ type RequestMeta struct {
 	Status        int
 	Cache         string
 	RateRemaining string
+	RateLimit     string
 }
 
 type LogRefetchNotice struct {

@@ -124,8 +124,8 @@ func (m Model) updateInput(msg KeyMsg) Model {
 		m.InputMode = false
 		m.Selected = 0
 	case "backspace":
-		if len(m.Filter) > 0 {
-			m.Filter = m.Filter[:len(m.Filter)-1]
+		if runes := []rune(m.Filter); len(runes) > 0 {
+			m.Filter = string(runes[:len(runes)-1])
 		}
 	case "space":
 		m.Filter += " "

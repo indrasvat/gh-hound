@@ -15,7 +15,12 @@ func View(screen keys.Screen, width int) string {
 		if binding.Display != "" {
 			key = binding.Display
 		}
-		text := key + " " + binding.Help
+		label := binding.Help
+		if label == "" {
+			// A footer drops a label for room; help has the room.
+			label = strings.ReplaceAll(binding.Action, "_", " ")
+		}
+		text := key + " " + label
 		switch binding.Action {
 		case "open", "expand", "back", "scroll", "top_bottom", "continue", "move":
 			nav = append(nav, text)

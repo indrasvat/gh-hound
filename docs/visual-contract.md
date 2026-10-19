@@ -116,11 +116,13 @@ Footer text must be generated from keymap data, not copied into renderers.
 | diff | j/k move · ⏎ first bad · o compare · ⎋ back |
 | flakes | j/k move · ⏎ open run · ⎋ back |
 | caches | j/k move · s sort · / filter · d dig up · D dig up key · ⎋ back · ? |
+| caches_filter | type to filter · ⏎ apply · ⎋ clear |
 | workflows | j/k move · e wake/muzzle · o browser · ⎋ back |
 | queue | j/k move · ⏎ open run · y copy JSON · ⎋ back · ? |
 | palette | workflows · watch · diff · theme |
 | help | : palette · ? close · ⎋ close |
 | toasts | ⎋ dismiss · g dismiss all · r retry · ? help |
+| startup | ctrl+c quit |
 | approvals overlay | j/k move · space pick · y open gate · n keep shut · c comment · ⎋ close |
 
 The toasts footer drops `r retry` when no visible toast can retry.
@@ -162,6 +164,7 @@ per-screen spinner in any later change is a review-blocking defect.
 
 | Surface | Loading treatment |
 |---|---|
+| live launch | the frame paints before the launch resolves: shared loading body (`picking up the scent`); keys typed meanwhile replay into the app, `ctrl+c` quits |
 | runs reload (`f` `/` `G`) | previous rows dimmed; loading line below the summary |
 | hunt board open (`w`) | rows seed instantly from the runs list; dimmed with the loading line below while the first hunt tick lands |
 | detail open (`⏎`) | skeleton with run header + repo breadcrumb; loading line in the jobs pane |

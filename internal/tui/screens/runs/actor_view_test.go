@@ -218,3 +218,14 @@ func TestLongNoticesAndEmptyMessagesWrapWhole(t *testing.T) {
 		t.Fatalf("advice clipped:\n%s", view)
 	}
 }
+
+// Wide runes take two cells: scrolling must count cells, not runes.
+func TestInputLineScrollsWideRunesByWidth(t *testing.T) {
+	st := stylesFor(theme.ForMode(theme.ModeBramble))
+	for _, draft := range []string{strings.Repeat("世", 37) + "末", strings.Repeat("\U0001F415", 80) + "末"} {
+		line := inputLine(draft, st, 78)
+		if plain := ansi.Strip(line); !strings.Contains(plain, "末") || ansi.StringWidth(line) != 78 {
+			t.Fatalf("width %d, the end must stay visible: %q", ansi.StringWidth(line), plain)
+		}
+	}
+}

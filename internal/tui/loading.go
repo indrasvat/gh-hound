@@ -9,8 +9,10 @@ import (
 
 	"github.com/charmbracelet/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/indrasvat/gh-hound/internal/config"
 	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
+	"github.com/indrasvat/gh-hound/internal/tui/keys"
 )
 
 // The Task 220 invariant: no keystroke may block on the network. The
@@ -155,4 +157,32 @@ func humanBytes(bytes int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+// Startup is the frame a live launch paints before its App exists:
+// building the App resolves the launch over the network, and the
+// terminal must not sit blank meanwhile.
+type Startup struct {
+	theme theme.Theme
+	repo  string
+	load  *pendingLoad
+}
+
+// NewStartup takes the repo the launch named (-R), if any.
+func NewStartup(cfg config.Config, repo string) Startup {
+	return Startup{
+		theme: theme.ForMode(theme.Mode(cfg.Theme)),
+		repo:  repo,
+		load:  &pendingLoad{label: "picking up the scent", started: time.Now()},
+	}
+}
+
+func (s Startup) ViewSize(width, height int) string {
+	body := loadingBody(s.theme, s.load, contentWidth(width), time.Now())
+	return frameViewSize(s.theme, "hound", s.repo, "", body, keys.FooterForScreen(keys.ScreenStartup), width, height, true)
+}
+
+// PollInterval is the spinner's frame rate.
+func (s Startup) PollInterval() time.Duration {
+	return loadFrameInterval
 }

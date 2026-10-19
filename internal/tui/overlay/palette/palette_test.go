@@ -3,6 +3,8 @@ package palette
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestPaletteFiltersMovesAndSelectsRoute(t *testing.T) {
@@ -83,5 +85,31 @@ func TestNamePrefixMatchesLead(t *testing.T) {
 	m.Query = "all"
 	if got := m.Visible(); len(got) != 2 || got[0].Name != "All actors" {
 		t.Fatalf("visible = %+v", got)
+	}
+}
+
+func TestBackspaceRemovesAWholeRune(t *testing.T) {
+	m := New(nil)
+	for _, key := range []string{"c", "é", "backspace"} {
+		m = m.Update(KeyMsg{Key: key})
+	}
+	if m.Query != "c" {
+		t.Fatalf("query = %q, want %q", m.Query, "c")
+	}
+}
+
+func TestLongQueryKeepsItsEndInView(t *testing.T) {
+	m := New(nil)
+	for key := range strings.SplitSeq(strings.Repeat("x", 90)+"END", "") {
+		m = m.Update(KeyMsg{Key: key})
+	}
+	view := View(m, 60)
+	for line := range strings.SplitSeq(view, "\n") {
+		if ansi.StringWidth(line) > 60 {
+			t.Fatalf("line wider than the box: %q", line)
+		}
+	}
+	if !strings.Contains(view, "END") {
+		t.Fatalf("typed end scrolled off:\n%s", view)
 	}
 }
