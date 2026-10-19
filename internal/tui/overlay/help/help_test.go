@@ -53,3 +53,12 @@ func TestHelpOmitsEmptyActionsSection(t *testing.T) {
 		}
 	}
 }
+
+// Footers drop some labels for room (runs: "j/k", "?"); help has the
+// room and must never show a bare key.
+func TestHelpLabelsEveryKey(t *testing.T) {
+	view := View(keys.ScreenRunsList, 100)
+	if strings.Contains(view, "j/k  ·") || !strings.Contains(view, "j/k move") || !strings.Contains(view, "? help") {
+		t.Fatalf("help shows a bare key:\n%s", view)
+	}
+}

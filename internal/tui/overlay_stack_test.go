@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/indrasvat/gh-hound/internal/config"
+	"github.com/indrasvat/gh-hound/internal/theme"
 )
 
 func overlayTestApp() App {
@@ -85,4 +86,12 @@ func FuzzOverlayStack(f *testing.F) {
 			t.Fatalf("after %q: one esc per overlay left %v", input, app.overlays)
 		}
 	})
+}
+
+// The palette's footer advertises "theme": it must be a real entry.
+func TestPaletteThemeEntryTogglesTheTheme(t *testing.T) {
+	app := pressKeys(overlayTestApp(), ":", "t", "h", "e", "m", "e", "enter")
+	if app.Theme().Mode != theme.ModeBone || len(app.overlays) != 0 {
+		t.Fatalf("theme = %s, overlays = %v; want Bone and the palette closed", app.Theme().Mode, app.overlays)
+	}
 }

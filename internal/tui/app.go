@@ -2630,6 +2630,9 @@ func (a App) handlePaletteIntent(intent palette.Intent) App {
 	case string(RouteWorkflows):
 		a.PopOverlay()
 		a = a.openWorkflows()
+	case "theme":
+		a.PopOverlay()
+		a.toggleTheme()
 	}
 	return a
 }
@@ -4618,6 +4621,7 @@ func paletteItems(workflows []dispatch.Workflow) []palette.Item {
 		{Name: "queue", Description: "GitHub queue · concurrency blockers", Route: string(RouteQueue)},
 		{Name: "caches", Description: "the kennel · cache usage & eviction", Route: string(RouteCaches)},
 		{Name: "workflows", Description: "the pack · states, wake & muzzle", Route: string(RouteWorkflows)},
+		{Name: "theme", Description: "switch Bramble / Bone (T)", Route: "theme"},
 	}
 	if len(workflows) == 0 {
 		items = append(items, palette.Item{Name: "dispatch", Description: "trigger workflow_dispatch", Route: string(RouteDispatch)})
