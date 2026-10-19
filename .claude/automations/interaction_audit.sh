@@ -60,6 +60,7 @@ scenarios=(
   palette-caches
   caches-delete-confirm
   input-utf8
+  input-wide
   palette-utf8-backspace
   help-toggle
   startup-frame
@@ -122,6 +123,7 @@ keys_for() {
     palette-caches) printf ': c a c h e s enter' ;;
     caches-delete-confirm) printf ': c a c h e s enter d' ;;
     input-utf8) printf '/ c a f é space ✓' ;;
+    input-wide) printf '/ %s末' "$(printf '世%.0s' $(seq 40))" ;;
     palette-utf8-backspace) printf ': c é backspace ä' ;;
     help-toggle) printf '? : ? ?' ;;
     *) printf '' ;;
