@@ -8,26 +8,27 @@ import (
 type Screen string
 
 const (
-	ScreenWelcome    Screen = "welcome"
-	ScreenAllGreen   Screen = "all_green"
-	ScreenRunsList   Screen = "runs_list"
-	ScreenRunsFilter Screen = "runs_filter"
-	ScreenDetail     Screen = "detail"
-	ScreenFailure    Screen = "failure"
-	ScreenWatch      Screen = "watch"
-	ScreenWatchBoard Screen = "watch_board"
-	ScreenLog        Screen = "log"
-	ScreenLogSearch  Screen = "log_search"
-	ScreenDispatch   Screen = "dispatch"
-	ScreenDiff       Screen = "diff"
-	ScreenFlakes     Screen = "flakes"
-	ScreenCaches     Screen = "caches"
-	ScreenQueue      Screen = "queue"
-	ScreenWorkflows  Screen = "workflows"
-	ScreenPalette    Screen = "palette"
-	ScreenHelp       Screen = "help"
-	ScreenToasts     Screen = "toasts"
-	ScreenStartup    Screen = "startup"
+	ScreenWelcome      Screen = "welcome"
+	ScreenAllGreen     Screen = "all_green"
+	ScreenRunsList     Screen = "runs_list"
+	ScreenRunsFilter   Screen = "runs_filter"
+	ScreenDetail       Screen = "detail"
+	ScreenFailure      Screen = "failure"
+	ScreenWatch        Screen = "watch"
+	ScreenWatchBoard   Screen = "watch_board"
+	ScreenLog          Screen = "log"
+	ScreenLogSearch    Screen = "log_search"
+	ScreenDispatch     Screen = "dispatch"
+	ScreenDiff         Screen = "diff"
+	ScreenFlakes       Screen = "flakes"
+	ScreenCaches       Screen = "caches"
+	ScreenCachesFilter Screen = "caches_filter"
+	ScreenQueue        Screen = "queue"
+	ScreenWorkflows    Screen = "workflows"
+	ScreenPalette      Screen = "palette"
+	ScreenHelp         Screen = "help"
+	ScreenToasts       Screen = "toasts"
+	ScreenStartup      Screen = "startup"
 )
 
 var footerByScreen = map[Screen][]Binding{
@@ -124,6 +125,11 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "type", Action: "type", Help: "to search", ShowInFooter: true},
 		{Key: "enter", Display: "⏎", Action: "find", Help: "find", ShowInFooter: true},
 		{Key: "esc", Display: "⎋", Action: "cancel", Help: "cancel", ShowInFooter: true},
+	},
+	ScreenCachesFilter: {
+		{Key: "type", Action: "type", Help: "to filter", ShowInFooter: true},
+		{Key: "enter", Display: "⏎", Action: "apply", Help: "apply", ShowInFooter: true},
+		{Key: "esc", Display: "⎋", Action: "clear", Help: "clear", ShowInFooter: true},
 	},
 	ScreenDispatch: {
 		{Key: "enter", Display: "⏎", Action: "run", Help: "run", ShowInFooter: true},

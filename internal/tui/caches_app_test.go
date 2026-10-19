@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/caches"
 	"github.com/indrasvat/gh-hound/internal/usecase"
@@ -225,5 +226,24 @@ func TestCachesFixturesRender(t *testing.T) {
 		if !strings.Contains(view, needle) {
 			t.Fatalf("fixture %s missing %q:\n%s", fixture, needle, view)
 		}
+	}
+}
+
+// While the / input is open, j and s type: the footer must say so, and
+// the field shows a cursor like every other input.
+func TestCachesFilterInputHasItsOwnFooterAndCursor(t *testing.T) {
+	app := asyncTestApp()
+	app.cachesResolver = func(context.Context) (caches.Data, error) { return cachesTestData(), nil }
+	app, ok := openCachesViaPalette(t, app).SettleLoads(time.Second)
+	if !ok {
+		t.Fatal("caches load did not settle")
+	}
+	app = pressKeys(app, "/", "g", "o")
+	view := ansi.Strip(app.ViewSize(100, 30))
+	if !strings.Contains(view, "type to filter · ⏎ apply · ⎋ clear") || strings.Contains(view, "D dig up key") {
+		t.Fatalf("filter footer must describe typing:\n%s", view)
+	}
+	if !strings.Contains(view, "/go▌") {
+		t.Fatalf("filter input needs a cursor:\n%s", view)
 	}
 }

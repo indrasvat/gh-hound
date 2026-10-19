@@ -116,6 +116,7 @@ Footer text must be generated from keymap data, not copied into renderers.
 | diff | j/k move · ⏎ first bad · o compare · ⎋ back |
 | flakes | j/k move · ⏎ open run · ⎋ back |
 | caches | j/k move · s sort · / filter · d dig up · D dig up key · ⎋ back · ? |
+| caches_filter | type to filter · ⏎ apply · ⎋ clear |
 | workflows | j/k move · e wake/muzzle · o browser · ⎋ back |
 | queue | j/k move · ⏎ open run · y copy JSON · ⎋ back · ? |
 | palette | workflows · watch · diff · theme |

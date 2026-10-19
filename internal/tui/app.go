@@ -4252,6 +4252,9 @@ func (a App) footerScreen() keys.Screen {
 	case RouteFlakes:
 		return keys.ScreenFlakes
 	case RouteCaches:
+		if a.caches.InputMode {
+			return keys.ScreenCachesFilter
+		}
 		return keys.ScreenCaches
 	case RouteQueue:
 		return keys.ScreenQueue
@@ -4783,7 +4786,8 @@ func (a App) unloadedRouteBody(route Route, width int) (string, bool) {
 			message = "failure unavailable: select a failed job with live GitHub data loaded"
 		}
 	case RouteLog:
-		if len(a.log.Document.Lines) == 0 {
+		pendingLog := a.load != nil && a.load.kind == loadKindLog
+		if len(a.log.Document.Lines) == 0 && !pendingLog {
 			message = "log unavailable: select a job with live GitHub logs loaded"
 		}
 	case RouteWatch:
