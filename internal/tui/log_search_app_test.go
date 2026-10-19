@@ -8,6 +8,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/config"
+	"github.com/indrasvat/gh-hound/internal/logs"
+	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
 )
 
 func footerLine(app App, width, height int) string {
@@ -111,5 +113,16 @@ func TestFailureFixturesCountTheRowsOnScreen(t *testing.T) {
 				t.Fatalf("height %d: header must count the %d drawn rows:\n%s", h, drawn, plain)
 			}
 		}
+	}
+}
+
+func TestFrameMatchCounterIsDigitGrouped(t *testing.T) {
+	m := logscreen.NewModel(logs.Parse(strings.Repeat("hit\n", 1234)), 1, 10)
+	for k := range strings.SplitSeq("/hit", "") {
+		m = m.Update(logscreen.KeyMsg{Key: k})
+	}
+	m = m.Update(logscreen.KeyMsg{Key: "enter"})
+	if got := logRight(m); got != "match 1/1,234" {
+		t.Fatalf("frame counter = %q", got)
 	}
 }

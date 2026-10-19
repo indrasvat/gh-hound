@@ -153,6 +153,21 @@ func (m Model) foldTotals() (folds, hidden int) {
 	return folds, hidden
 }
 
+// closedFolds counts the full-log plan's folds still closed, and the
+// lines they hide: opening one (a jump, a search hit) takes it out.
+func (m Model) closedFolds() (folds, hidden int) {
+	if m.plan == nil {
+		return 0, 0
+	}
+	for _, s := range m.plan.Segments {
+		if shownFold(s) && !m.open[s.Start+1] {
+			folds++
+			hidden += s.End - s.Start
+		}
+	}
+	return folds, hidden
+}
+
 // Rows is how many rows the view has now, folds open or closed.
 func (m Model) Rows() int { return len(m.rows()) }
 

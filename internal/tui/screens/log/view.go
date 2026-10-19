@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/logs/fold"
+	"github.com/indrasvat/gh-hound/internal/numfmt"
 	"github.com/indrasvat/gh-hound/internal/tui/components/textinput"
 )
 
@@ -63,6 +64,9 @@ func header(m Model, width int) string {
 	}
 	if m.RangeLabel != "" {
 		head := fmt.Sprintf("log · [%s]", m.RangeLabel)
+		if m.Search.Query != "" {
+			head += " · " + matchCounter(m)
+		}
 		if m.Folded() {
 			head += " · compact"
 		}
@@ -76,17 +80,24 @@ func header(m Model, width int) string {
 		return head
 	}
 	if m.Search.Query != "" {
-		head := fmt.Sprintf("log · /%s · match %d/%d", m.Search.Query, m.Search.Current, m.Search.Total)
+		head := "log · " + matchCounter(m)
 		if m.Folded() {
 			head += " · compact"
 		}
 		return head + " · ⎋ clear"
 	}
 	if m.Folded() {
-		folds, hidden := m.foldTotals()
-		return fmt.Sprintf("log · compact · %s lines folded in %s place%s", groupDigits(hidden), groupDigits(folds), plural(folds))
+		folds, hidden := m.closedFolds()
+		if folds == 0 {
+			return "log · compact"
+		}
+		return fmt.Sprintf("log · compact · %s lines folded in %s place%s", numfmt.Group(hidden), numfmt.Group(folds), plural(folds))
 	}
 	return "log"
+}
+
+func matchCounter(m Model) string {
+	return fmt.Sprintf("/%s · match %s/%s", m.Search.Query, numfmt.Group(m.Search.Current), numfmt.Group(m.Search.Total))
 }
 
 // scrollIndicator is a compact viewport-position gauge for the header.
@@ -116,7 +127,7 @@ func foldGlyph(collapsed bool) string {
 func renderFold(number, gutterW int, title string, count int, collapsed bool, width int) string {
 	gutter := colorize(sgrLineNo, gutterText(number, gutterW))
 	label := colorize(sgrOK, foldGlyph(collapsed)) + " " + colorize(sgrFold, title)
-	countText := colorize(sgrDim, groupDigits(count)+" line"+plural(count))
+	countText := colorize(sgrDim, numfmt.Group(count)+" line"+plural(count))
 	return backgroundSafe(gutter+" "+label+" "+countText, width, sgrFG, sgrFoldBG)
 }
 
@@ -131,7 +142,7 @@ func renderRepeat(number, gutterW int, title string, count int, collapsed bool, 
 	main, severe, _ := strings.Cut(rest, fold.SevereGlyph+" ")
 	main = strings.TrimSuffix(main, " · ")
 	avail := width - gutterW - 3 - 1 // gutter, marker, right padding
-	digits := groupDigits(count)
+	digits := numfmt.Group(count)
 	full, short := digits+" line"+plural(count)+" hidden", digits+" hidden"
 	if !collapsed {
 		full, short = digits+" line"+plural(count), digits
@@ -181,14 +192,6 @@ func fitPlainWidth(value string, width int) string {
 		return value
 	}
 	return ansi.Truncate(value, width, "…")
-}
-
-func groupDigits(n int) string {
-	s := fmt.Sprint(n)
-	for i := len(s) - 3; i > 0; i -= 3 {
-		s = s[:i] + "," + s[i:]
-	}
-	return s
 }
 
 // renderLine returns one screen line, or several when wrapping. A search

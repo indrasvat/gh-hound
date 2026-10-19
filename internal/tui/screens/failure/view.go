@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/numfmt"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 	flakesscreen "github.com/indrasvat/gh-hound/internal/tui/screens/flakes"
 	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
@@ -154,7 +155,7 @@ func annotationLine(annotation model.Annotation, width int) string {
 }
 
 func errorHeader(m Model, drawn, width int) string {
-	left := colorize(sgrDim, fmt.Sprintf("error window · %d of %s lines", drawn, groupDigits(totalLines(m))))
+	left := colorize(sgrDim, fmt.Sprintf("error window · %d of %s lines", drawn, numfmt.Group(totalLines(m))))
 	if m.Flake != nil {
 		// Two focusable panes exist: mark the one that owns j/k.
 		left = focusMark(!m.PanelFocus) + left
@@ -235,14 +236,6 @@ func totalLines(m Model) int {
 		return len(m.Excerpt)
 	}
 	return total
-}
-
-func groupDigits(n int) string {
-	s := fmt.Sprint(n)
-	for i := len(s) - 3; i > 0; i -= 3 {
-		s = s[:i] + "," + s[i:]
-	}
-	return s
 }
 
 func fitANSI(value string, width int) string {

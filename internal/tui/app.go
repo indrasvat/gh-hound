@@ -16,6 +16,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/config"
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/numfmt"
 	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/banner"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
@@ -4570,25 +4571,17 @@ func compactCount(n int) string {
 
 func logRight(m logscreen.Model) string {
 	if m.Search.Total > 0 {
-		return fmt.Sprintf("match %d/%d", m.Search.Current, m.Search.Total)
+		return "match " + numfmt.Group(m.Search.Current) + "/" + numfmt.Group(m.Search.Total)
 	}
 	if m.Folded() {
-		return fmt.Sprintf("%s lines → %s rows", groupThousands(len(m.Document.Lines)), groupThousands(m.Rows()))
+		return fmt.Sprintf("%s lines → %s rows", numfmt.Group(len(m.Document.Lines)), numfmt.Group(m.Rows()))
 	}
-	return groupThousands(len(m.Document.Lines)) + " lines"
-}
-
-func groupThousands(n int) string {
-	s := strconv.Itoa(n)
-	for i := len(s) - 3; i > 0; i -= 3 {
-		s = s[:i] + "," + s[i:]
-	}
-	return s
+	return numfmt.Group(len(m.Document.Lines)) + " lines"
 }
 
 func failureRight(m failure.Model) string {
 	if m.TotalLines > 0 {
-		return groupThousands(m.TotalLines) + " log lines"
+		return numfmt.Group(m.TotalLines) + " log lines"
 	}
 	return ""
 }

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/indrasvat/gh-hound/internal/numfmt"
 )
 
 // Summary describes what a fold hides: how many lines, the time span, the
@@ -168,7 +170,7 @@ func (s Summary) Title() string {
 	if s.Run.Set {
 		fmt.Fprintf(&b, "%d recurring line%s", s.Shapes, plural(s.Shapes))
 	} else {
-		fmt.Fprintf(&b, "×%s", groupDigits(s.Run.Count))
+		fmt.Fprintf(&b, "×%s", numfmt.Group(s.Run.Count))
 		if s.Run.Period > 1 {
 			fmt.Fprintf(&b, " %d-line block", s.Run.Period)
 		}
@@ -250,14 +252,6 @@ func short(v string) string {
 		return v[:8] + "…"
 	}
 	return v
-}
-
-func groupDigits(n int) string {
-	s := fmt.Sprint(n)
-	for i := len(s) - 3; i > 0; i -= 3 {
-		s = s[:i] + "," + s[i:]
-	}
-	return s
 }
 
 func plural(n int) string {
