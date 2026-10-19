@@ -1499,7 +1499,7 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 		Limiter: mutationLimiter,
 	}
 	failureService := usecase.FailureService{GitHub: githubClient}
-	watchService := usecase.WatchService{GitHub: githubClient, MinPoll: cfg.PollMin, MaxPoll: cfg.PollMax}
+	watchSession := &usecase.WatchSession{Service: usecase.WatchService{GitHub: githubClient, MinPoll: cfg.PollMin, MaxPoll: cfg.PollMax}}
 	launch := usecase.LaunchService{
 		Config:     cfg,
 		GitHub:     githubClient,
@@ -1584,7 +1584,7 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			return logscreen.Fold(loadCtx, logscreen.NewModel(logs.Parse(raw), 1, 6)), nil
 		},
 		WatchResolver: func(loadCtx context.Context, run model.Run) (watch.Model, error) {
-			state, err := watchService.Tick(loadCtx, usecase.WatchState{Repo: launch.Repo, RunID: run.ID, Run: run})
+			state, err := watchSession.Tick(loadCtx, launch.Repo, run)
 			if err != nil {
 				return watch.Model{}, err
 			}
@@ -1595,7 +1595,7 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 				Repo:    launch.Repo,
 				Branch:  firstNonEmptyString(launch.Branch, run.HeadBranch),
 				Run:     state.Run,
-				Lines:   state.Appended,
+				Lines:   state.Lines,
 				Elapsed: elapsedRun(state.Run),
 			}), nil
 		},

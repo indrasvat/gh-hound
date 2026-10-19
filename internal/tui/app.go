@@ -2254,6 +2254,9 @@ func (a App) updateWatch(msg KeyMsg) (App, bool) {
 	a.watch = a.watch.Update(watch.KeyMsg{Key: msg.Key})
 	switch a.watch.Intent.Kind {
 	case watch.IntentCancel:
+		if a.watch.State.Run.ID == 0 {
+			break // a failed load: no run to call off
+		}
 		a = a.handleAction(RouteWatch, ActionRequest{Action: usecase.ActionCancelRun, Run: a.watch.State.Run})
 	case watch.IntentDetach:
 		a.PopRoute()
@@ -3551,13 +3554,20 @@ func (a App) loadWatch(run model.Run) App {
 		resolved, err := resolver(ctx, run)
 		return func(app App) App {
 			if err != nil {
-				app.setRouteError(RouteWatch, "watch unavailable: "+err.Error())
-				return app
+				return app.failWatch(err)
 			}
 			app.watch = resolved
 			return app
 		}
 	})
+}
+
+// failWatch drops the previous run's watch along with the error, so it
+// neither stays on screen nor keeps polling (and clearing the error).
+func (a App) failWatch(err error) App {
+	a.watch = watch.Model{}
+	a.setRouteError(RouteWatch, "watch unavailable: "+err.Error())
+	return a
 }
 
 func (a App) openDispatch() App {
@@ -3878,18 +3888,14 @@ func (a App) attachRerunWatch(run model.Run) App {
 		if attach != nil {
 			updated, err := attach(ctx, run)
 			if err != nil {
-				return func(app App) App {
-					app.setRouteError(RouteWatch, "watch unavailable: "+err.Error())
-					return app
-				}
+				return func(app App) App { return app.failWatch(err) }
 			}
 			fresh = updated
 		}
 		resolved, err := watchResolver(ctx, fresh)
 		return func(app App) App {
 			if err != nil {
-				app.setRouteError(RouteWatch, "watch unavailable: "+err.Error())
-				return app
+				return app.failWatch(err)
 			}
 			app.watch = resolved
 			return app
