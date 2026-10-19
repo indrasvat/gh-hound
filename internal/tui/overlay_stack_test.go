@@ -5,8 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/config"
 	"github.com/indrasvat/gh-hound/internal/theme"
+	"github.com/indrasvat/gh-hound/internal/tui/overlay/approvals"
 )
 
 func overlayTestApp() App {
@@ -93,5 +95,25 @@ func TestPaletteThemeEntryTogglesTheTheme(t *testing.T) {
 	app := pressKeys(overlayTestApp(), ":", "t", "h", "e", "m", "e", "enter")
 	if app.Theme().Mode != theme.ModeBone || len(app.overlays) != 0 {
 		t.Fatalf("theme = %s, overlays = %v; want Bone and the palette closed", app.Theme().Mode, app.overlays)
+	}
+}
+
+// Overlays with an input (palette, approvals comment) are given the
+// width their box draws, so a long draft's end stays inside the box.
+func TestOverlayInputEndStaysInsideTheBox(t *testing.T) {
+	app := pressKeys(overlayTestApp(), ":")
+	app = pressKeys(app, strings.Split(strings.Repeat("x", 90)+"END", "")...)
+	gate := overlayTestApp()
+	run, _ := sampleWaitingRunsModel().SelectedRun()
+	gate.approvals = approvals.NewModel(run, samplePendingDeployments())
+	gate.pushOverlay(OverlayApprovals)
+	gate = pressKeys(gate, "c")
+	gate = pressKeys(gate, strings.Split(strings.Repeat("x", 90)+"END", "")...)
+	for _, width := range []int{80, 120, 200} {
+		for name, overlay := range map[string]App{"palette": app, "approvals": gate} {
+			if view := ansi.Strip(overlay.ViewSize(width, 30)); !strings.Contains(view, "END") {
+				t.Fatalf("%s at width %d: typed end cut by the box:\n%s", name, width, view)
+			}
+		}
 	}
 }

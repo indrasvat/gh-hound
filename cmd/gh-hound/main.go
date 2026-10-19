@@ -1136,10 +1136,21 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 	resizeEvents, stopResize := resizeSignals()
 	defer stopResize()
 	// Raw mode and the alt screen are undone by deferred calls, so a
-	// termination signal must end the loop, not the process.
+	// termination signal must end the loop, not the process. It cancels
+	// the context everything runs on, so a request stuck inside the
+	// loop (a confirmed action) returns and the loop can exit.
 	quitSignals := make(chan os.Signal, 1)
 	signal.Notify(quitSignals, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(quitSignals)
+	ctx, quit := context.WithCancelCause(ctx)
+	defer quit(nil)
+	go func() {
+		select {
+		case sig := <-quitSignals:
+			quit(signalExit(sig))
+		case <-ctx.Done():
+		}
+	}()
 	width, height := terminalSize(runtime.Stdout)
 	out := runtime.Stdout
 	if runtime.IsTTY {
@@ -1201,9 +1212,7 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 	for starting := true; starting; {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
-		case sig := <-quitSignals:
-			return signalExit(sig)
+			return context.Cause(ctx)
 		case <-resizeEvents:
 			resize()
 			if err := render(); err != nil {
@@ -1265,9 +1274,7 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 	for !app.ShouldQuit() {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
-		case sig := <-quitSignals:
-			return signalExit(sig)
+			return context.Cause(ctx)
 		case <-resizeEvents:
 			resize()
 			app = app.WithViewport(width, height)

@@ -4306,14 +4306,14 @@ func (a App) overlayView(width, height int) string {
 		if height > 0 {
 			maxItems = max(bodyHeight(height)-7, 3)
 		}
-		return palette.ViewSize(a.palette, width-20, maxItems)
+		return palette.ViewSize(a.palette, overlayInnerWidth(width), maxItems)
 	case OverlayConfirm:
 		return confirm.View(a.confirm, width-20)
 	case OverlayTimeJump:
 		// Box chrome (4 rows) around the picker.
 		return timejump.ViewSize(a.timeJump, overlayInnerWidth(width), max(bodyHeight(height)-4, 0))
 	case OverlayApprovals:
-		return approvals.View(a.approvals, width-20)
+		return approvals.View(a.approvals, overlayInnerWidth(width))
 	default:
 		return ""
 	}
