@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
+	"github.com/indrasvat/gh-hound/internal/tui/components/textinput"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -156,11 +158,12 @@ func View(m Model, width int) string {
 		if i == m.Focused {
 			prefix = "▌"
 		}
-		control := "[" + field.Value + "]"
+		label := fmt.Sprintf("%s%-12s ", prefix, field.Name)
+		control := "[" + textinput.Tail(field.Value, width-ansi.StringWidth(label)-2) + "]"
 		if len(field.Options) > 0 {
 			control = optionControl(field)
 		}
-		lines = append(lines, fit(fmt.Sprintf("%s%-12s %s", prefix, field.Name, control), width))
+		lines = append(lines, fit(label+control, width))
 	}
 	lines = append(lines, fit("POST …/workflows/"+m.Workflow.ID+"/dispatches", width))
 	return strings.Join(lines, "\n")

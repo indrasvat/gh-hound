@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
@@ -225,5 +226,15 @@ func TestFilterBackspaceRemovesAWholeRune(t *testing.T) {
 	}
 	if m.Filter != "c" {
 		t.Fatalf("filter = %q, want %q", m.Filter, "c")
+	}
+}
+
+func TestLongFilterKeepsItsEndInView(t *testing.T) {
+	m := NewModel("indrasvat/gh-hound", testData())
+	for _, key := range append([]string{"/"}, strings.Split(strings.Repeat("x", 90)+"END", "")...) {
+		m = m.Update(KeyMsg{Key: key})
+	}
+	if view := ansi.Strip(ViewSize(m, 70, 20, time.Now())); !strings.Contains(view, "END") {
+		t.Fatalf("typed end scrolled off:\n%s", view)
 	}
 }

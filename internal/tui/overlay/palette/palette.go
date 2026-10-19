@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/indrasvat/gh-hound/internal/tui/components/textinput"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 )
 
@@ -114,7 +115,7 @@ func View(m Model, width int) string {
 // list scrolls with the selection and its last row counts the rest, so
 // the overlay never outgrows a small frame.
 func ViewSize(m Model, width, maxItems int) string {
-	lines := []string{": jump to…", icons.Prompt + " " + m.Query}
+	lines := []string{": jump to…", icons.Prompt + " " + textinput.Tail(m.Query, width-2)}
 	visible := m.Visible()
 	start, end, more := 0, len(visible), 0
 	if maxItems > 0 && len(visible) > maxItems {

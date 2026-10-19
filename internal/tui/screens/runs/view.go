@@ -10,6 +10,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/components/sparkline"
+	"github.com/indrasvat/gh-hound/internal/tui/components/textinput"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
@@ -383,8 +384,8 @@ func inputLine(draft string, st styles, width int) string {
 	body := draft
 	if body == "" {
 		body = st.dim + "\x1b[3m" + "Filter runs…" + "\x1b[23m" + st.fg
-	} else if room := width - 6; ansi.StringWidth(body) > room {
-		body = "…" + ansi.TruncateLeft(body, ansi.StringWidth(body)-max(room-1, 1), "")
+	} else {
+		body = textinput.Tail(body, width-6)
 	}
 	content := "  " + st.ok + "/" + st.fg + " "
 	if draft == "" {

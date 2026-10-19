@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/logs/fold"
+	"github.com/indrasvat/gh-hound/internal/tui/components/textinput"
 )
 
 func View(m Model, width int) string {
@@ -16,7 +17,7 @@ func View(m Model, width int) string {
 		width = 80
 	}
 	m.Width = width
-	lines := []string{fitANSI(strings.TrimSpace(colorize(sgrHeader, header(m))+"  "+scrollIndicator(m)), width)}
+	lines := []string{fitANSI(strings.TrimSpace(colorize(sgrHeader, header(m, width))+"  "+scrollIndicator(m)), width)}
 	budget := max(m.Height, 1)
 	_, skip := m.position()
 	for i, row := range m.visibleRows() {
@@ -56,9 +57,9 @@ func gutterText(number, width int) string {
 	return fmt.Sprintf("%0*d", width, number)
 }
 
-func header(m Model) string {
+func header(m Model, width int) string {
 	if m.InputMode {
-		return fmt.Sprintf("log · /%s▌", m.input)
+		return "log · /" + textinput.Tail(m.input, width-8) + "▌"
 	}
 	if m.RangeLabel != "" {
 		head := fmt.Sprintf("log · [%s]", m.RangeLabel)
