@@ -35,13 +35,12 @@ func ViewSize(m Model, width, height int, now time.Time) string {
 	visible := m.VisibleCaches()
 	showFilter := m.InputMode || strings.TrimSpace(m.Filter) != ""
 	if showFilter {
-		cursor := ""
+		tail := fmt.Sprintf("  %d matches · ⎋ clear", len(visible))
 		if m.InputMode {
-			cursor = "▌"
+			tail = fmt.Sprintf("▌  %d matches", len(visible))
 		}
-		count := fmt.Sprintf("  %d matches", len(visible))
-		filter := textinput.Tail(m.Filter, width-3-len(cursor)-len(count))
-		lines = append(lines, dimLine("  /"+filter+cursor+count, width))
+		filter := textinput.Tail(m.Filter, width-3-ansi.StringWidth(tail))
+		lines = append(lines, dimLine("  /"+filter+tail, width))
 	}
 	if len(m.Caches) == 0 {
 		lines = append(lines, dimLine("  the kennel's empty — nothing cached on this repo.", width))

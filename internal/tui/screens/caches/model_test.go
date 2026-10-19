@@ -238,3 +238,19 @@ func TestLongFilterKeepsItsEndInView(t *testing.T) {
 		t.Fatalf("typed end scrolled off:\n%s", view)
 	}
 }
+
+// An applied filter is cleared by the next esc, so its line says so, as
+// the runs filter and the log search do.
+func TestAppliedFilterLineSaysEscClearsIt(t *testing.T) {
+	m := NewModel("indrasvat/gh-hound", testData())
+	for _, key := range []string{"/", "g", "o", "enter"} {
+		m = m.Update(KeyMsg{Key: key})
+	}
+	if view := ansi.Strip(ViewSize(m, 100, 20, time.Now())); !strings.Contains(view, "/go  3 matches · ⎋ clear") {
+		t.Fatalf("applied filter line:\n%s", view)
+	}
+	m = m.Update(KeyMsg{Key: "/"})
+	if view := ansi.Strip(ViewSize(m, 100, 20, time.Now())); strings.Contains(view, "⎋ clear") {
+		t.Fatalf("while typing, the footer owns the keys:\n%s", view)
+	}
+}
