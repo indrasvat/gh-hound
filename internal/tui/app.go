@@ -2164,6 +2164,9 @@ func (a App) openOverwriteConfirm(artifact model.Artifact, path string) App {
 }
 
 func (a App) updateFailure(msg KeyMsg) (App, bool) {
+	if a.viewportHeight > 0 {
+		a.failure.Height = bodyHeight(a.viewportHeight)
+	}
 	a.failure = a.failure.Update(failure.KeyMsg{Key: msg.Key})
 	switch a.failure.Intent.Kind {
 	case failure.IntentFullLog:

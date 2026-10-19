@@ -27,6 +27,9 @@ func ViewSize(m Model, width, height int) string {
 	if width <= 0 {
 		width = 80
 	}
+	m.Height = height
+	m = m.fit()
+	excerptRows, _ := m.drawn()
 	lines := []string{
 		fitANSI(header(m), width),
 		annotationHeader(width),
@@ -34,15 +37,11 @@ func ViewSize(m Model, width, height int) string {
 	for _, annotation := range m.Report.Annotations {
 		lines = append(lines, annotationLine(annotation, width))
 	}
-	excerpt := m.Excerpt
-	if room := max(height-len(lines)-1, 0); height > 0 && room < len(excerpt) {
-		excerpt = excerpt[:room]
-	}
-	lines = append(lines, errorHeader(m, len(excerpt), width))
-	for _, line := range excerpt {
+	lines = append(lines, errorHeader(m, excerptRows, width))
+	for _, line := range m.Excerpt[:excerptRows] {
 		lines = append(lines, logLine(line, width))
 	}
-	if len(excerpt) == len(m.Excerpt) {
+	if excerptRows == len(m.Excerpt) {
 		panel := flakePanel(m, width)
 		if room := height - len(lines); height > 0 && len(panel) > room {
 			// cut the panel, never the counted rows, as the frame would
@@ -54,6 +53,31 @@ func ViewSize(m Model, width, height int) string {
 		lines = append(lines, panel...)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// drawn counts what ViewSize draws at m.Height: excerpt rows, and the
+// evidence rows of the flake panel that survive its cut.
+func (m Model) drawn() (excerptRows, evidenceRows int) {
+	excerptRows = len(m.Excerpt)
+	if m.Height <= 0 {
+		if m.Flake != nil {
+			evidenceRows = len(m.Flake.Evidence)
+		}
+		return excerptRows, evidenceRows
+	}
+	used := 3 + len(m.Report.Annotations) // header, "Annotations", error window
+	excerptRows = min(excerptRows, max(m.Height-used, 0))
+	if excerptRows < len(m.Excerpt) || m.Flake == nil {
+		return excerptRows, 0
+	}
+	// The panel is a blank line, its header, the evidence rows and a hint;
+	// a cut replaces its last drawn row with "…".
+	room := m.Height - used - excerptRows
+	evidenceRows = len(m.Flake.Evidence)
+	if 3+evidenceRows > room {
+		evidenceRows = max(room-3, 0)
+	}
+	return excerptRows, evidenceRows
 }
 
 // flakePanel renders the scent panel once the async verdict lands.

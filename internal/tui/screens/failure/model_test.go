@@ -2,6 +2,7 @@ package failure
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/tui/icons"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -211,6 +213,83 @@ func TestExcerptTabsAndEscapesKeepTheRowWidth(t *testing.T) {
 	for l := range strings.SplitSeq(view, "\n") {
 		if strings.ContainsAny(l, "\t") || strings.Contains(l, "\x1b[2K") || ansi.StringWidth(l) > 80 {
 			t.Fatalf("a row moves the cursor or overflows: %q", l)
+		}
+	}
+}
+
+func flakyModel() Model {
+	evidence := make([]usecase.FlakeEvidence, 0, 4)
+	for i := range 4 {
+		evidence = append(evidence, usecase.FlakeEvidence{
+			Run: model.Run{ID: int64(560 + i), RunNumber: 560 + i}, Kind: "attempt_flip", Detail: "failed, then passed",
+		})
+	}
+	return NewModel("indrasvat/gh-hound", 571, report()).WithFlake(usecase.JobFlake{
+		Job: "build", FlakedRuns: 2, Verdict: usecase.FlakeStatus("flaky"), Evidence: evidence,
+	}, 10)
+}
+
+// drawnRows reads the view: the excerpt line numbers on screen, the
+// evidence rows on screen, and whether the selection marker is one of
+// them.
+func drawnRows(m Model) (excerpt []int, evidence int, selectedDrawn bool) {
+	for line := range strings.SplitSeq(ansi.Strip(ViewSize(m, 80, m.Height)), "\n") {
+		var n int
+		if _, err := fmt.Sscanf(line, "%03d ", &n); err == nil && len(line) > 3 && line[3] == ' ' {
+			excerpt = append(excerpt, n)
+		}
+		if strings.Contains(line, " attempt_flip ") {
+			evidence++
+			selectedDrawn = selectedDrawn || strings.HasPrefix(strings.TrimSpace(line), icons.Cursor)
+		}
+	}
+	return excerpt, evidence, selectedDrawn
+}
+
+// A cut view only offers what it draws, at every terminal height from 8
+// to 24 (body 2 to 18): j/k reaches every excerpt line, tab skips a
+// panel with no evidence drawn, and the selection stays on a drawn row.
+func TestCutFailureViewOnlyOffersWhatItDraws(t *testing.T) {
+	failing := len(report().Log.Failure.Lines)
+	for body := 2; body <= 18; body++ {
+		m := flakyModel()
+		m.Height = body
+		seen := map[int]bool{}
+		for _, key := range append(slices.Repeat([]string{"j"}, 12), slices.Repeat([]string{"k"}, 12)...) {
+			m = m.Update(KeyMsg{Key: key})
+			excerpt, _, _ := drawnRows(m)
+			for _, n := range excerpt {
+				seen[n] = true
+			}
+		}
+		if len(seen) > 0 && len(seen) != failing {
+			t.Fatalf("body %d: j/k reached %d of %d excerpt lines", body, len(seen), failing)
+		}
+		_, evidence, _ := drawnRows(m)
+		m = m.Update(KeyMsg{Key: "tab"})
+		if m.PanelFocus != (evidence > 0) {
+			t.Fatalf("body %d: tab focus = %v with %d evidence rows drawn", body, m.PanelFocus, evidence)
+		}
+		for range 6 {
+			m = m.Update(KeyMsg{Key: "j"})
+			if _, _, selected := drawnRows(m); m.PanelFocus && !selected {
+				t.Fatalf("body %d: the selection left the drawn rows (selected %d)", body, m.PanelSelected)
+			}
+		}
+	}
+}
+
+// The failure can open with its window past the last full window (the
+// anchor sits near the end): j must not move it up.
+func TestJNeverScrollsTheExcerptUp(t *testing.T) {
+	r := report()
+	r.Log = logs.Parse("one\ntwo\n--- FAIL: TestX\nfour\n##[error]Process completed with exit code 1")
+	m := NewModel("indrasvat/gh-hound", 571, r)
+	for _, height := range []int{0, 7, 30} {
+		m.Height = height
+		before := m.Offset
+		if got := m.Update(KeyMsg{Key: "j"}); got.Offset < before {
+			t.Fatalf("height %d: j moved the window up from %d to %d", height, before, got.Offset)
 		}
 	}
 }

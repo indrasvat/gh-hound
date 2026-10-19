@@ -55,6 +55,9 @@ type Model struct {
 	// row cursor.
 	PanelFocus    bool
 	PanelSelected int
+	// Height is the body height the view draws into (0: unbounded), so
+	// keys only reach what is drawn.
+	Height int
 }
 
 func NewModel(repo string, runID int64, report usecase.FailureReport) Model {
@@ -86,6 +89,7 @@ func (m Model) WithFlake(job usecase.JobFlake, window int) Model {
 
 func (m Model) Update(msg KeyMsg) Model {
 	m.Intent = Intent{}
+	m = m.fit()
 	switch msg.Key {
 	case "l":
 		m.Intent = m.intent(IntentFullLog)
@@ -98,7 +102,7 @@ func (m Model) Update(msg KeyMsg) Model {
 	case "R":
 		m.Intent = m.intent(IntentRerunFailed)
 	case "tab":
-		if m.Flake != nil {
+		if _, evidenceRows := m.drawn(); evidenceRows > 0 {
 			m.PanelFocus = !m.PanelFocus
 		}
 	case "j", "down":
@@ -122,24 +126,39 @@ func (m Model) Update(msg KeyMsg) Model {
 // move drives whichever pane has focus: the evidence cursor when the
 // panel is focused, the excerpt viewport otherwise.
 func (m Model) move(delta int) Model {
-	if m.PanelFocus && m.Flake != nil {
-		next := m.PanelSelected + delta
-		if next >= 0 && next < len(m.Flake.Evidence) {
-			m.PanelSelected = next
-		}
+	if m.PanelFocus {
+		_, evidenceRows := m.drawn()
+		m.PanelSelected = min(max(m.PanelSelected+delta, 0), evidenceRows-1)
 		return m
 	}
 	return m.scrollExcerpt(delta)
 }
 
+// fit keeps focus and selection on what the view draws at m.Height: a
+// panel cut away gives focus back to the excerpt.
+func (m Model) fit() Model {
+	_, evidenceRows := m.drawn()
+	if evidenceRows == 0 {
+		m.PanelFocus = false
+	}
+	m.PanelSelected = min(m.PanelSelected, max(evidenceRows-1, 0))
+	return m
+}
+
+// scrollExcerpt moves the window by the rows drawn, not the 5 the
+// excerpt holds, so a short view still reaches the last line.
 func (m Model) scrollExcerpt(delta int) Model {
 	lines := m.Report.Log.Failure.Lines
 	if len(lines) == 0 {
 		return m
 	}
+	window := len(m.Excerpt)
+	if m.Height > 0 {
+		window, _ = m.drawn()
+	}
 	first := lines[0].Number
 	last := lines[len(lines)-1].Number
-	maxOffset := max(last-4, first)
+	maxOffset := max(last-max(window, 1)+1, first)
 	next := min(max(m.Offset+delta, first), maxOffset)
 	if next == m.Offset {
 		return m
