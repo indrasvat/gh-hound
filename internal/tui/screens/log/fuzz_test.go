@@ -43,6 +43,17 @@ func FuzzViewport(f *testing.F) {
 			if pinned && resized && !endsAtBottom(m) {
 				t.Fatalf("after %v: a resize at the end lost the last line", events)
 			}
+			if want := buildSearch(m.Document, m.Search.Query, m.RangeStart, m.RangeEnd); m.Search.Total != want.Total {
+				t.Fatalf("after %v: %d matches, %d in the lines in view", events, m.Search.Total, want.Total)
+			}
+			if reranged := strings.HasPrefix(event, "range") || event == "esc" && prev.RangeLabel != ""; reranged && m.Search.Total > 0 && !m.onScreen(m.Search.Matches[m.Search.Current-1]) {
+				t.Fatalf("after %v: the current match is off screen", events)
+			}
+			for _, line := range m.Search.Matches {
+				if m.RangeLabel != "" && (line < m.RangeStart || line > m.RangeEnd) {
+					t.Fatalf("after %v: match on line %d outside the range %d-%d", events, line, m.RangeStart, m.RangeEnd)
+				}
+			}
 			if event == "esc" && prev.RangeLabel == "" && m.Search.Query != "" {
 				t.Fatalf("after %v: esc kept the search %q", events, m.Search.Query)
 			}

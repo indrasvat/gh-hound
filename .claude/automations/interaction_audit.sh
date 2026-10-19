@@ -64,6 +64,14 @@ scenarios=(
   palette-utf8-backspace
   help-toggle
   startup-frame
+  failure-cut-scroll
+  failure-scroll-grow
+  log-range-search
+  log-match-grouped
+  log-fold-count
+  timejump-small
+  timejump-tiny
+  caches-filter-clear
 )
 
 adapter_for() {
@@ -74,7 +82,8 @@ adapter_for() {
     watch-toggle) printf 'running' ;;
     pack-board) printf 'pack' ;;
     failure-log-refetch) printf 'log_refetch' ;;
-    log-compact-*) printf 'noisy' ;;
+    log-compact-* | log-range-search | log-match-grouped | log-fold-count | timejump-small | timejump-tiny) printf 'noisy' ;;
+    failure-cut-scroll | failure-scroll-grow) printf 'failing' ;;
     *) printf 'failing' ;;
   esac
 }
@@ -126,6 +135,13 @@ keys_for() {
     input-wide) printf '/ %s末' "$(printf '世%.0s' $(seq 40))" ;;
     palette-utf8-backspace) printf ': c é backspace ä' ;;
     help-toggle) printf '? : ? ?' ;;
+    failure-cut-scroll) printf 'enter enter j j j j j' ;;
+    failure-scroll-grow) printf 'enter enter j j j j j resize:120x40' ;;
+    log-range-search) printf 'enter l t 1 6 : 1 2 : 0 2 - 1 6 : 1 2 : 1 2 enter / r e q u e s t - i d enter' ;;
+    log-match-grouped) printf 'enter l / 2 0 2 6 enter' ;;
+    log-fold-count) printf 'enter l t 1 6 : 1 2 : 2 1 enter G' ;;
+    timejump-small | timejump-tiny) printf 'enter l t' ;;
+    caches-filter-clear) printf ': c a c h e s enter / n o d e enter' ;;
     *) printf '' ;;
   esac
 }
@@ -136,6 +152,16 @@ args_for() {
   case "$1" in
     startup-frame) printf -- '--latency 5s' ;;
     *) printf '' ;;
+  esac
+}
+
+# The small-frame scenarios run where the frame cuts the screen.
+size_for() {
+  case "$1" in
+    failure-cut-scroll | failure-scroll-grow) printf '80x12' ;;
+    timejump-small) printf '80x14' ;;
+    timejump-tiny) printf '80x9' ;;
+    *) printf '80x24' ;;
   esac
 }
 
@@ -152,6 +178,11 @@ send_key() {
     down) shux pane send-keys -s "$session" --data G1tC >/dev/null ;;
     right) shux pane send-keys -s "$session" --data G1tD >/dev/null ;;
     left) shux pane send-keys -s "$session" --data G1tE >/dev/null ;;
+    resize:*)
+      local size="${key#resize:}"
+      shux pane set-size -s "$session" --cols "${size%x*}" --rows "${size#*x}" >/dev/null
+      cols="${size%x*}" rows="${size#*x}"
+      ;;
     *) shux pane send-keys -s "$session" --text "$key" >/dev/null ;;
   esac
 }
@@ -174,6 +205,9 @@ for scenario in "${scenarios[@]}"; do
   adapter="$(adapter_for "$scenario")"
   welcome="$(welcome_for "$scenario")"
   args="$(args_for "$scenario")"
+  size="$(size_for "$scenario")"
+  cols="${size%x*}"
+  rows="${size#*x}"
   cat >"$runner" <<RUNNER
 #!/usr/bin/env bash
 set -euo pipefail
@@ -193,7 +227,7 @@ RUNNER
     rm -f "$runner"
   }
   trap cleanup EXIT
-  shux pane set-size -s "$session" --cols 80 --rows 24 >/dev/null
+  shux pane set-size -s "$session" --cols "$cols" --rows "$rows" >/dev/null
   shux pane wait-for -s "$session" --text 'hound' --timeout-ms 20000 >/dev/null
   sleep 0.1
   for key in $(keys_for "$scenario"); do
@@ -205,9 +239,9 @@ RUNNER
   sleep 0.15
   txt="$out_dir/${scenario}.txt"
   png="$out_dir/${scenario}.png"
-  shux pane capture -s "$session" --lines 24 --format plain >"$txt"
+  shux pane capture -s "$session" --lines "$rows" --format plain >"$txt"
   shux pane snapshot -s "$session" -o "$png" >/dev/null
-  python3 .claude/automations/verify_capture.py "$assertion" "$txt" "$png" 80 24
+  python3 .claude/automations/verify_capture.py "$assertion" "$txt" "$png" "$cols" "$rows"
   cleanup
   trap - EXIT
   printf "audited real-pty interaction %s -> %s\n" "$scenario" "$png"

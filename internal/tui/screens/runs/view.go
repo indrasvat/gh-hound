@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/numfmt"
 	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/components/sparkline"
 	"github.com/indrasvat/gh-hound/internal/tui/components/textinput"
@@ -364,7 +365,7 @@ func matchCount(m Model, q Query, matches int) string {
 		return ""
 	}
 	if len(q.Text) > 0 {
-		return fmt.Sprintf("%d of %d loaded", matches, len(m.activeRuns()))
+		return numfmt.Group(matches) + " of " + numfmt.Group(len(m.activeRuns())) + " loaded"
 	}
 	more := ""
 	if m.Context.HasMore {

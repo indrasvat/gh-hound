@@ -316,18 +316,61 @@ func ViewSize(m Model, width, height int) string {
 		}
 		entries = append(entries, fit(fmt.Sprintf("%s%s %s  %s", cursor, marker, entry.Clock, entry.Label), width))
 	}
-	var tail []string
+	var feedback []string
 	if m.Feedback != "" {
-		tail = append(tail, "", fit("! "+m.Feedback, width))
+		feedback = []string{fit("! "+m.Feedback, width)}
 	}
-	tail = append(tail, "")
-	tail = append(tail, wrapHint([]string{"j/k pick", "HH:MM[:SS]", "+30s/-2m relative", "A-B range", "⏎ go", "⎋ cancel"}, width)...)
-	if room := max(height-2-len(tail), 1); height > 0 && len(entries) > room {
-		start := min(max(m.Selected-room+1, 0), len(entries)-room)
-		entries = entries[start : start+room]
+	hint := wrapHint([]string{"j/k pick", "HH:MM[:SS]", "+30s/-2m relative", "A-B range", "⏎ go", "⎋ cancel"}, width)
+	gap := []string{""}
+	head := "t→" + m.Input + "▌"
+	if height > 0 {
+		// The picker needs one entry, and a marker when any is hidden.
+		need := min(len(entries), 2)
+		// Short of room, drop the spacers, then the hint (the footer
+		// keeps the keys), then the feedback (the input still shows the
+		// query); the input and the picker stay.
+		fixed := func() int { return 1 + len(gap)*(1+len(feedback)+min(len(hint), 1)) + len(feedback) + len(hint) }
+		for _, drop := range []*[]string{&gap, &hint, &feedback} {
+			if fixed()+need > height {
+				*drop = nil
+			}
+		}
+		all := entries
+		entries = window(entries, m.Selected, height-fixed())
+		if len(entries) == 0 && m.Input == "" && len(all) > 0 {
+			// one row: the input line carries the selected entry
+			head = fit(head+strings.TrimPrefix(all[m.Selected], "▌"), width)
+		}
 	}
-	lines := append([]string{"t→" + m.Input + "▌", ""}, entries...)
-	return strings.Join(append(lines, tail...), "\n")
+	lines := append([]string{head}, gap...)
+	lines = append(lines, entries...)
+	for _, section := range [][]string{feedback, hint} {
+		if len(section) > 0 {
+			lines = append(append(lines, gap...), section...)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// window keeps the rows around selected that fit in room; when rows are
+// hidden, the last row counts them, as the palette does.
+func window(rows []string, selected, room int) []string {
+	if len(rows) <= room {
+		return rows
+	}
+	if room < 2 {
+		return rows[selected : selected+min(room, 1)]
+	}
+	shown := room - 1
+	start := min(max(selected-shown+1, 0), len(rows)-shown)
+	hidden := []string{}
+	if start > 0 {
+		hidden = append(hidden, fmt.Sprintf("↑ %d", start))
+	}
+	if below := len(rows) - start - shown; below > 0 {
+		hidden = append(hidden, fmt.Sprintf("↓ %d", below))
+	}
+	return append(rows[start:start+shown:start+shown], " … "+strings.Join(hidden, " · ")+" more")
 }
 
 // wrapHint joins items with " · ", breaking between items to fit width.

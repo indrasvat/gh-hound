@@ -156,3 +156,37 @@ func TestLogTitleCountsTheRowsOnScreen(t *testing.T) {
 }
 
 func firstLine(s string) string { l, _, _ := strings.Cut(s, "\n"); return l }
+
+// The time-jump modal fits small frames: its box closes inside the body
+// and the picker counts the entries it cannot show.
+func TestTimeJumpModalFitsSmallFrames(t *testing.T) {
+	var b strings.Builder
+	for i := range 12 {
+		fmt.Fprintf(&b, "2026-10-15T17:%02d:00.0000000Z ##[group]step %d\n2026-10-15T17:%02d:30.0000000Z work\n##[endgroup]\n", i, i, i)
+	}
+	for _, width := range []int{48, 60, 80} {
+		for height := 7; height <= 16; height++ {
+			app := openLog(t, logApp(t, config.Default(), b.String())).WithViewport(width, height)
+			app, _ = app.Update(KeyMsg{Key: "t"})
+			lines := strings.Split(ansi.Strip(app.ViewSize(width, height)), "\n")
+			body := strings.Join(lines[3:len(lines)-3], "\n")
+			if len(lines) != height || !strings.Contains(body, "t→") || !strings.Contains(body, "17:00:00") ||
+				strings.Contains(body, "╭") != strings.Contains(body, "╰") {
+				t.Fatalf("%dx%d: the modal does not fit the body:\n%s", width, height, strings.Join(lines, "\n"))
+			}
+			if height >= 11 && !strings.Contains(strings.Join(lines, "\n"), "more") {
+				t.Fatalf("%dx%d: hidden entries are not counted:\n%s", width, height, strings.Join(lines, "\n"))
+			}
+		}
+	}
+}
+
+func TestOtherOverlaysKeepTheirBoxWhenCut(t *testing.T) {
+	for height := 8; height <= 30; height++ { // at 7 the frame cuts its one body row to "…"
+		app := openLog(t, logApp(t, config.Default(), "one\ntwo")).WithViewport(80, height)
+		app, _ = app.Update(KeyMsg{Key: "?"})
+		if view := ansi.Strip(app.ViewSize(80, height)); strings.Count(view, "╭") < 2 {
+			t.Fatalf("80x%d: help lost its top border:\n%s", height, view)
+		}
+	}
+}

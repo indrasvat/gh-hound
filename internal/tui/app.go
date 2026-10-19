@@ -16,6 +16,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/config"
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/numfmt"
 	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/banner"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
@@ -804,7 +805,15 @@ func (a App) ViewSize(width, height int) string {
 	footer := keys.FooterForScreenWidth(a.footerScreen(), max(width, minFrameWidth)-2)
 	if a.TopOverlay() != OverlayNone {
 		inner := contentWidth(width)
-		body = layerOver(a.theme, colorizeBody(a.theme, body, inner), overlayBox(a.theme, a.overlayTitle(), a.overlayView(width, height), width), inner)
+		room := 0 // other overlays keep their box and the frame cuts it
+		if a.TopOverlay() == OverlayTimeJump {
+			room = bodyHeight(height)
+			if lines := splitLines(body); room > 0 && len(lines) > room {
+				// under the box, so the frame's cut marker would land on it
+				body = strings.Join(lines[:room], "\n")
+			}
+		}
+		body = layerOver(a.theme, colorizeBody(a.theme, body, inner), overlayBox(a.theme, a.overlayTitle(), a.overlayView(width, height), width, room), inner)
 		footer = keys.FooterForScreen(keys.ScreenHelp)
 		if a.TopOverlay() == OverlayPalette {
 			footer = keys.FooterForScreen(keys.ScreenPalette)
@@ -2164,6 +2173,7 @@ func (a App) openOverwriteConfirm(artifact model.Artifact, path string) App {
 }
 
 func (a App) updateFailure(msg KeyMsg) (App, bool) {
+	a.failure.Height = bodyHeight(a.viewportHeight)
 	a.failure = a.failure.Update(failure.KeyMsg{Key: msg.Key})
 	switch a.failure.Intent.Kind {
 	case failure.IntentFullLog:
@@ -2380,7 +2390,7 @@ func (a App) startCacheDelete(request CacheDeleteRequest) App {
 			}
 			message := "dug that one up."
 			if count > 1 {
-				message = fmt.Sprintf("dug up %d caches.", count)
+				message = "dug up " + numfmt.Group(count) + " caches."
 			}
 			app.pushToast("cache-deleted", usecase.Resilience{
 				Severity: usecase.SeverityOK,
@@ -4310,8 +4320,16 @@ func (a App) overlayView(width, height int) string {
 	case OverlayConfirm:
 		return confirm.View(a.confirm, width-20)
 	case OverlayTimeJump:
-		// Box chrome (4 rows) around the picker.
-		return timejump.ViewSize(a.timeJump, overlayInnerWidth(width), max(bodyHeight(height)-4, 0))
+		// The picker wants three rows (input, entry, marker); see overlayBox.
+		rows := 0 // unbounded
+		if body := bodyHeight(height); body >= 7 {
+			rows = body - 4
+		} else if body >= 3 {
+			rows = body - 2
+		} else if body > 0 {
+			rows = body
+		}
+		return timejump.ViewSize(a.timeJump, overlayInnerWidth(width), rows)
 	case OverlayApprovals:
 		return approvals.View(a.approvals, overlayInnerWidth(width))
 	default:
@@ -4541,7 +4559,10 @@ func runsRight(m runs.Model, refreshCount int, meta usecase.RequestMeta) string 
 		}
 		return "no runs loaded"
 	}
-	value := fmt.Sprintf("%d runs loaded", count)
+	value := numfmt.Group(count) + " runs loaded"
+	if count == 1 {
+		value = "1 run loaded"
+	}
 	if refreshCount > 0 {
 		value += " · live"
 	}
@@ -4566,26 +4587,18 @@ func compactCount(n int) string {
 }
 
 func logRight(m logscreen.Model) string {
-	if m.Search.Total > 0 {
-		return fmt.Sprintf("match %d/%d", m.Search.Current, m.Search.Total)
+	if m.Search.Query != "" {
+		return "match " + numfmt.Group(m.Search.Current) + "/" + numfmt.Group(m.Search.Total)
 	}
 	if m.Folded() {
-		return fmt.Sprintf("%s lines → %s rows", groupThousands(len(m.Document.Lines)), groupThousands(m.Rows()))
+		return fmt.Sprintf("%s lines → %s rows", numfmt.Group(len(m.Document.Lines)), numfmt.Group(m.Rows()))
 	}
-	return groupThousands(len(m.Document.Lines)) + " lines"
-}
-
-func groupThousands(n int) string {
-	s := strconv.Itoa(n)
-	for i := len(s) - 3; i > 0; i -= 3 {
-		s = s[:i] + "," + s[i:]
-	}
-	return s
+	return numfmt.Group(len(m.Document.Lines)) + " lines"
 }
 
 func failureRight(m failure.Model) string {
 	if m.TotalLines > 0 {
-		return groupThousands(m.TotalLines) + " log lines"
+		return numfmt.Group(m.TotalLines) + " log lines"
 	}
 	return ""
 }

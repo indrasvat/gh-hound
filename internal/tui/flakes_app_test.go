@@ -150,16 +150,17 @@ func TestFailurePanelTabFocusAndEvidenceDrillDown(t *testing.T) {
 	app := NewScenarioApp("failure", BuildInfo{Version: "test"})
 	app = failureWithPanel(t, app)
 
-	// j/k drive the excerpt viewport while it has focus.
+	// j/k drive the excerpt viewport while it has focus. The window
+	// already shows the last line, so only k can move it.
 	beforeOffset := app.failure.Offset
-	app, handled := app.Update(KeyMsg{Key: "j"})
+	app, handled := app.Update(KeyMsg{Key: "k"})
 	if !handled {
-		t.Fatal("failure j must be handled (excerpt scroll)")
+		t.Fatal("failure k must be handled (excerpt scroll)")
 	}
 	if app.failure.Offset == beforeOffset {
 		t.Fatalf("excerpt offset = %d, want scrolled from %d", app.failure.Offset, beforeOffset)
 	}
-	app, _ = app.Update(KeyMsg{Key: "k"})
+	app, _ = app.Update(KeyMsg{Key: "j"})
 
 	// tab hands focus to the panel; j/k then move the evidence cursor.
 	app, handled = app.Update(KeyMsg{Key: "tab"})
@@ -382,5 +383,24 @@ func TestPaletteJumpFromFailureCancelsTheScan(t *testing.T) {
 			t.Fatal("palette jump did not cancel the in-flight scan")
 		}
 		time.Sleep(time.Millisecond)
+	}
+}
+
+// The app tells the failure screen its height before each key: where the
+// flake panel isn't drawn, tab must not focus it.
+func TestFailureTabSkipsAPanelTheFrameCuts(t *testing.T) {
+	report := sampleFlakeReport()
+	for _, tt := range []struct {
+		height int
+		focus  bool
+	}{{12, false}, {30, true}} {
+		app := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		app.failure = sampleFailureModel().WithFlake(report.Jobs[0], report.RunsScanned)
+		app.routes = []Route{RouteRuns, RouteDetail, RouteFailure}
+		app = app.WithViewport(80, tt.height)
+		app, _ = app.Update(KeyMsg{Key: "tab"})
+		if app.failure.PanelFocus != tt.focus {
+			t.Fatalf("80x%d: tab focus = %v, want %v", tt.height, app.failure.PanelFocus, tt.focus)
+		}
 	}
 }

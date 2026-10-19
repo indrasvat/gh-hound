@@ -55,13 +55,13 @@ type Model struct {
 	// row cursor.
 	PanelFocus    bool
 	PanelSelected int
+	// Height is the body height the view draws into (0: unbounded), so
+	// keys only reach what is drawn.
+	Height int
 }
 
 func NewModel(repo string, runID int64, report usecase.FailureReport) Model {
-	offset := report.Log.Failure.AnchorLine
-	if offset > 1 {
-		offset--
-	}
+	offset := openingOffset(report)
 	excerpt := excerptFrom(report.Log.Failure.Lines, offset, 5)
 	return Model{
 		Repo:       repo,
@@ -71,6 +71,14 @@ func NewModel(repo string, runID int64, report usecase.FailureReport) Model {
 		Excerpt:    excerpt,
 		TotalLines: len(report.Log.Lines),
 	}
+}
+
+// openingOffset puts one line of context above the failure's anchor.
+func openingOffset(report usecase.FailureReport) int {
+	if anchor := report.Log.Failure.AnchorLine; anchor > 1 {
+		return anchor - 1
+	}
+	return report.Log.Failure.AnchorLine
 }
 
 // WithFlake attaches the scent panel once the async verdict lands.
@@ -86,6 +94,7 @@ func (m Model) WithFlake(job usecase.JobFlake, window int) Model {
 
 func (m Model) Update(msg KeyMsg) Model {
 	m.Intent = Intent{}
+	m = m.fit()
 	switch msg.Key {
 	case "l":
 		m.Intent = m.intent(IntentFullLog)
@@ -98,7 +107,7 @@ func (m Model) Update(msg KeyMsg) Model {
 	case "R":
 		m.Intent = m.intent(IntentRerunFailed)
 	case "tab":
-		if m.Flake != nil {
+		if _, evidenceRows := m.drawn(); evidenceRows > 0 {
 			m.PanelFocus = !m.PanelFocus
 		}
 	case "j", "down":
@@ -106,7 +115,7 @@ func (m Model) Update(msg KeyMsg) Model {
 	case "k", "up":
 		m = m.move(-1)
 	case "enter":
-		if m.PanelFocus && m.Flake != nil {
+		if m.PanelFocus {
 			if evidence, ok := m.selectedEvidence(); ok && evidence.Run.ID != 0 {
 				intent := m.intent(IntentOpenEvidence)
 				intent.EvidenceRun = evidence.Run
@@ -122,24 +131,46 @@ func (m Model) Update(msg KeyMsg) Model {
 // move drives whichever pane has focus: the evidence cursor when the
 // panel is focused, the excerpt viewport otherwise.
 func (m Model) move(delta int) Model {
-	if m.PanelFocus && m.Flake != nil {
-		next := m.PanelSelected + delta
-		if next >= 0 && next < len(m.Flake.Evidence) {
-			m.PanelSelected = next
-		}
+	if m.PanelFocus {
+		_, evidenceRows := m.drawn()
+		m.PanelSelected = min(max(m.PanelSelected+delta, 0), evidenceRows-1)
 		return m
 	}
 	return m.scrollExcerpt(delta)
 }
 
+// fit keeps the excerpt, focus and selection on what m.Height draws; a
+// refill never climbs above where the view opened.
+func (m Model) fit() Model {
+	if lines := m.Report.Log.Failure.Lines; m.Height > 0 && len(lines) > 0 {
+		if rows := min(m.Height-m.chrome(), 5); rows > 0 {
+			full := max(lines[len(lines)-1].Number-rows+1, lines[0].Number)
+			m.Offset = min(m.Offset, max(full, openingOffset(m.Report)))
+			m.Excerpt = excerptFrom(lines, m.Offset, 5)
+		}
+	}
+	_, evidenceRows := m.drawn()
+	if evidenceRows == 0 {
+		m.PanelFocus = false
+	}
+	m.PanelSelected = min(m.PanelSelected, max(evidenceRows-1, 0))
+	return m
+}
+
+// scrollExcerpt moves the window by the rows drawn, not the 5 the
+// excerpt holds, so a short view still reaches the last line.
 func (m Model) scrollExcerpt(delta int) Model {
 	lines := m.Report.Log.Failure.Lines
 	if len(lines) == 0 {
 		return m
 	}
+	window, _ := m.drawn()
+	if window == 0 {
+		return m
+	}
 	first := lines[0].Number
 	last := lines[len(lines)-1].Number
-	maxOffset := max(last-4, first)
+	maxOffset := max(last-window+1, first)
 	next := min(max(m.Offset+delta, first), maxOffset)
 	if next == m.Offset {
 		return m

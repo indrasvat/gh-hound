@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/numfmt"
 )
 
 // SuspectCommitCap bounds the rendered suspect list; TotalSuspects
@@ -248,24 +249,5 @@ func (w *runHistoryWalker) Next(ctx context.Context) (model.Run, bool, error) {
 
 // coldTrailLine voices the capped-scan verdict.
 func coldTrailLine(runsScanned int) string {
-	return fmt.Sprintf("trail went cold after %s runs.", groupThousands(runsScanned))
-}
-
-func groupThousands(value int) string {
-	raw := fmt.Sprintf("%d", value)
-	if len(raw) <= 3 {
-		return raw
-	}
-	var out strings.Builder
-	lead := len(raw) % 3
-	if lead > 0 {
-		out.WriteString(raw[:lead])
-	}
-	for i := lead; i < len(raw); i += 3 {
-		if out.Len() > 0 {
-			out.WriteString(",")
-		}
-		out.WriteString(raw[i : i+3])
-	}
-	return out.String()
+	return fmt.Sprintf("trail went cold after %s runs.", numfmt.Group(runsScanned))
 }

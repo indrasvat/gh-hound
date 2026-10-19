@@ -140,11 +140,7 @@ func (m Model) updateInput(msg KeyMsg) Model {
 		m.InputMode = false
 	case "enter":
 		m.InputMode = false
-		m.Search = buildSearch(m.Document, m.input)
-		m.hits = make(map[int]bool, len(m.Search.Matches))
-		for _, line := range m.Search.Matches {
-			m.hits[line] = true
-		}
+		m.runSearch(m.input)
 		m.gotoCurrentMatch()
 	case "backspace":
 		if runes := []rune(m.input); len(runes) > 0 {
@@ -230,6 +226,7 @@ func (m Model) SetRange(start, end int, label string) Model {
 	m.RangeLabel = label
 	m.Offset, m.atEnd = start, false
 	m.planRange()
+	m.rematch()
 	m.bump()
 	return m
 }
@@ -239,8 +236,43 @@ func (m Model) ClearRange() Model {
 	m.RangeEnd = 0
 	m.RangeLabel = ""
 	m.rangePlan, m.atEnd = nil, false
+	m.rematch()
 	m.bump()
 	return m
+}
+
+// rematch re-runs a committed search for the lines now in view, keeping
+// the current match or the next after it in view.
+func (m *Model) rematch() {
+	from := m.Offset
+	if m.Search.Total > 0 {
+		from = m.Search.Matches[m.Search.Current-1]
+	}
+	m.runSearch(m.Search.Query)
+	if m.Search.Total == 0 {
+		return
+	}
+	m.Search.Current = 1
+	for i, line := range m.Search.Matches {
+		if line >= from {
+			m.Search.Current = i + 1
+			break
+		}
+	}
+	m.gotoCurrentMatch()
+}
+
+// runSearch matches query against the lines in view: the active range,
+// or the whole log.
+func (m *Model) runSearch(query string) {
+	m.Search, m.hits = buildSearch(m.Document, query, m.RangeStart, m.RangeEnd), nil
+	if m.Search.Query == "" {
+		return
+	}
+	m.hits = make(map[int]bool, len(m.Search.Matches))
+	for _, line := range m.Search.Matches {
+		m.hits[line] = true
+	}
 }
 
 // VisibleRowNumbers exposes each visible row's anchor line (tests).
@@ -367,7 +399,8 @@ func (m *Model) gotoCurrentMatch() {
 	}
 }
 
-func buildSearch(doc logs.Document, query string) SearchState {
+// buildSearch matches lines start..end (end 0: to the last line).
+func buildSearch(doc logs.Document, query string, start, end int) SearchState {
 	query = strings.TrimSpace(query)
 	state := SearchState{Query: query}
 	if query == "" {
@@ -375,6 +408,9 @@ func buildSearch(doc logs.Document, query string) SearchState {
 	}
 	lower := strings.ToLower(query)
 	for _, line := range doc.Lines {
+		if line.Number < start || (end > 0 && line.Number > end) {
+			continue
+		}
 		if strings.Contains(strings.ToLower(line.Text), lower) {
 			state.Matches = append(state.Matches, line.Number)
 		}

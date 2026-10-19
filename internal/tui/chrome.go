@@ -98,22 +98,33 @@ func overlayInnerWidth(width int) int {
 	return max(boxWidth-2, 1)
 }
 
-func overlayBox(th theme.Theme, title, body string, width int) string {
+// overlayBox frames body under its title. Short of room (rows, 0:
+// unbounded), the title moves into the top border, then the borders go.
+func overlayBox(th theme.Theme, title, body string, width, room int) string {
 	if width < minFrameWidth {
 		width = minFrameWidth
 	}
 	inner := overlayInnerWidth(width)
 	header := lipgloss.NewStyle().Foreground(lipgloss.Color(th.OK)).Bold(true).Render(title)
 	border := lipgloss.NewStyle().Foreground(lipgloss.Color(th.OK)).Render
-	lines := []string{
-		border("╭" + strings.Repeat("─", inner) + "╮"),
-		boxLine(th, header, inner),
-		border("├" + strings.Repeat("─", inner) + "┤"),
-	}
-	for _, line := range splitLines(fitANSIBlock(body, inner)) {
+	rows := splitLines(fitANSIBlock(body, inner))
+	lines := []string{}
+	for _, line := range rows {
 		lines = append(lines, boxLine(th, line, inner))
 	}
-	lines = append(lines, border("╰"+strings.Repeat("─", inner)+"╯"))
+	bottom := border("╰" + strings.Repeat("─", inner) + "╯")
+	switch {
+	case room <= 0 || len(rows)+4 <= room:
+		lines = append([]string{
+			border("╭" + strings.Repeat("─", inner) + "╮"),
+			boxLine(th, header, inner),
+			border("├" + strings.Repeat("─", inner) + "┤"),
+		}, append(lines, bottom)...)
+	case len(rows)+2 <= room:
+		header = fitPlain(header, max(inner-3, 0))
+		top := border("╭─ ") + header + border(" "+strings.Repeat("─", max(inner-3-ansi.StringWidth(header), 0))+"╮")
+		lines = append([]string{top}, append(lines, bottom)...)
+	}
 	return strings.Join(lines, "\n")
 }
 

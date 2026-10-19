@@ -3,6 +3,8 @@ package logview
 import (
 	"fmt"
 	"strings"
+
+	"github.com/indrasvat/gh-hound/internal/numfmt"
 )
 
 func Line(number int, text string, width int) string {
@@ -14,7 +16,7 @@ func Fold(number int, title string, count int, collapsed bool, width int) string
 	if collapsed {
 		glyph = "▸"
 	}
-	return fit(fmt.Sprintf("%03d %s %s %d lines", number, glyph, title, count), width)
+	return fit(fmt.Sprintf("%03d %s %s %s lines", number, glyph, title, numfmt.Group(count)), width)
 }
 
 func fit(value string, width int) string {

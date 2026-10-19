@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/numfmt"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 	flakesscreen "github.com/indrasvat/gh-hound/internal/tui/screens/flakes"
 	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
@@ -27,6 +28,9 @@ func ViewSize(m Model, width, height int) string {
 	if width <= 0 {
 		width = 80
 	}
+	m.Height = height
+	m = m.fit()
+	excerptRows, _ := m.drawn()
 	lines := []string{
 		fitANSI(header(m), width),
 		annotationHeader(width),
@@ -34,15 +38,11 @@ func ViewSize(m Model, width, height int) string {
 	for _, annotation := range m.Report.Annotations {
 		lines = append(lines, annotationLine(annotation, width))
 	}
-	excerpt := m.Excerpt
-	if room := max(height-len(lines)-1, 0); height > 0 && room < len(excerpt) {
-		excerpt = excerpt[:room]
-	}
-	lines = append(lines, errorHeader(m, len(excerpt), width))
-	for _, line := range excerpt {
+	lines = append(lines, errorHeader(m, excerptRows, width))
+	for _, line := range m.Excerpt[:excerptRows] {
 		lines = append(lines, logLine(line, width))
 	}
-	if len(excerpt) == len(m.Excerpt) {
+	if excerptRows == len(m.Excerpt) {
 		panel := flakePanel(m, width)
 		if room := height - len(lines); height > 0 && len(panel) > room {
 			// cut the panel, never the counted rows, as the frame would
@@ -55,6 +55,35 @@ func ViewSize(m Model, width, height int) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// drawn counts what ViewSize draws at m.Height: excerpt rows, and the
+// evidence rows of the flake panel that survive its cut.
+func (m Model) drawn() (excerptRows, evidenceRows int) {
+	excerptRows = len(m.Excerpt)
+	if m.Height <= 0 {
+		if m.Flake != nil {
+			evidenceRows = len(m.Flake.Evidence)
+		}
+		return excerptRows, evidenceRows
+	}
+	used := m.chrome()
+	excerptRows = min(excerptRows, max(m.Height-used, 0))
+	if excerptRows < len(m.Excerpt) || m.Flake == nil {
+		return excerptRows, 0
+	}
+	// The panel is a blank line, its header, the evidence rows and a hint;
+	// a cut replaces its last drawn row with "…".
+	room := m.Height - used - excerptRows
+	evidenceRows = len(m.Flake.Evidence)
+	if 3+evidenceRows > room {
+		evidenceRows = max(room-3, 0)
+	}
+	return excerptRows, evidenceRows
+}
+
+// chrome is the rows drawn above the excerpt: the header, "Annotations",
+// one row per annotation and the error-window header.
+func (m Model) chrome() int { return 3 + len(m.Report.Annotations) }
 
 // flakePanel renders the scent panel once the async verdict lands.
 // The focused pane is marked with the cursor glyph: tab moves focus,
@@ -125,12 +154,12 @@ func annotationLine(annotation model.Annotation, width int) string {
 		line = annotation.EndLine
 	}
 	path := underlineInfo(fmt.Sprintf("%s:%d", annotation.Path, line))
-	value := colorize(sgrFail, icons.Failure) + " " + path + "  " + colorize(sgrFGSoft, annotation.Message)
+	value := colorize(sgrFail, icons.Failure) + " " + path + "  " + colorize(sgrFGSoft, strings.Join(strings.Fields(annotation.Message), " "))
 	return fitANSI(value, width)
 }
 
 func errorHeader(m Model, drawn, width int) string {
-	left := colorize(sgrDim, fmt.Sprintf("error window · %d of %s lines", drawn, groupDigits(totalLines(m))))
+	left := colorize(sgrDim, fmt.Sprintf("error window · %d of %s lines", drawn, numfmt.Group(totalLines(m))))
 	if m.Flake != nil {
 		// Two focusable panes exist: mark the one that owns j/k.
 		left = focusMark(!m.PanelFocus) + left
@@ -211,14 +240,6 @@ func totalLines(m Model) int {
 		return len(m.Excerpt)
 	}
 	return total
-}
-
-func groupDigits(n int) string {
-	s := fmt.Sprint(n)
-	for i := len(s) - 3; i > 0; i -= 3 {
-		s = s[:i] + "," + s[i:]
-	}
-	return s
 }
 
 func fitANSI(value string, width int) string {

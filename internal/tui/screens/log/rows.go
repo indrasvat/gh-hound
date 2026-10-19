@@ -130,27 +130,23 @@ func shownFold(s fold.Segment) bool {
 
 // FoldCount is how many repeat folds the full-log plan shows.
 func (m Model) FoldCount() int {
-	n, _ := m.foldTotals()
+	n, _ := m.folds(false)
 	return n
 }
 
-// FoldedLines is how many lines the shown repeat folds hide.
-func (m Model) FoldedLines() int {
-	_, hidden := m.foldTotals()
-	return hidden
-}
-
-func (m Model) foldTotals() (folds, hidden int) {
+// folds counts the full-log plan's shown folds (only those still closed
+// when closedOnly: a jump or a search hit opens one) and the lines they hide.
+func (m Model) folds(closedOnly bool) (count, hidden int) {
 	if m.plan == nil {
 		return 0, 0
 	}
 	for _, s := range m.plan.Segments {
-		if shownFold(s) {
-			folds++
+		if shownFold(s) && (!closedOnly || !m.open[s.Start+1]) {
+			count++
 			hidden += s.End - s.Start
 		}
 	}
-	return folds, hidden
+	return count, hidden
 }
 
 // Rows is how many rows the view has now, folds open or closed.
