@@ -2254,8 +2254,8 @@ func (a App) updateWatch(msg KeyMsg) (App, bool) {
 	a.watch = a.watch.Update(watch.KeyMsg{Key: msg.Key})
 	switch a.watch.Intent.Kind {
 	case watch.IntentCancel:
-		if a.watch.State.Run.ID == 0 {
-			break // a failed load: no run to call off
+		if !a.watchOnScreen() {
+			break
 		}
 		a = a.handleAction(RouteWatch, ActionRequest{Action: usecase.ActionCancelRun, Run: a.watch.State.Run})
 	case watch.IntentDetach:
@@ -3194,6 +3194,7 @@ func (a App) applyWatchRefresh(run model.Run, resolved watch.Model, err error) A
 	}
 	a.clearRouteError(RouteWatch)
 	a.refreshCount++
+	resolved.Follow, resolved.Debug = a.watch.Follow, a.watch.Debug
 	a.watch = resolved
 	a.pollInterval = nextPollIntervalForRuns([]model.Run{resolved.State.Run}, a.pollInterval, a.config)
 	return a
@@ -3562,6 +3563,13 @@ func (a App) loadWatch(run model.Run) App {
 	})
 }
 
+// watchOnScreen reports whether the watch shows a run the keys act on:
+// not while a watch loads (the model may still be the run the user
+// left), nor after a failed open.
+func (a App) watchOnScreen() bool {
+	return a.watch.State.Run.ID != 0 && (a.load == nil || a.load.kind != loadKindWatch)
+}
+
 // failWatch drops the previous run's watch along with the error, so it
 // neither stays on screen nor keeps polling (and clearing the error).
 func (a App) failWatch(err error) App {
@@ -3824,6 +3832,7 @@ func (a App) attachDispatchWatch(request ActionRequest, result usecase.ActionRes
 	if a.dispatchAttachResolver == nil {
 		return a
 	}
+	a.clearRouteError(RouteWatch)
 	resolver := a.dispatchAttachResolver
 	watchResolver := a.watchResolver
 	workflowID := request.Workflow.ID
@@ -3881,6 +3890,7 @@ func (a App) attachRerunWatch(run model.Run) App {
 	if run.ID == 0 || a.loadBlocked(loadKindWatch) {
 		return a
 	}
+	a.clearRouteError(RouteWatch)
 	attach := a.rerunAttachResolver
 	watchResolver := a.watchResolver
 	a = a.startLoad(loadKindWatch, "back on the trail", func(ctx context.Context) func(App) App {
@@ -4261,6 +4271,9 @@ func (a App) footerScreen() keys.Screen {
 		}
 		return keys.ScreenLog
 	case RouteWatch:
+		if !a.watchOnScreen() {
+			return keys.ScreenWatchPending
+		}
 		return keys.ScreenWatch
 	case RouteWatchBoard:
 		return keys.ScreenWatchBoard
@@ -4364,8 +4377,14 @@ func (a App) chromeParts() (string, string, string) {
 		if load := a.load; load != nil && load.kind == loadKindWatch {
 			return "hound", "watch", "chasing…"
 		}
-		run := a.watch.State.Run
-		return "hound", runChromeTitle(run), "streaming · follow ●"
+		if a.watch.State.Run.ID == 0 {
+			return "hound", "watch", ""
+		}
+		follow := "follow ○"
+		if a.watch.Follow {
+			follow = "follow ●"
+		}
+		return "hound", runChromeTitle(a.watch.State.Run), "streaming · " + follow
 	case RouteWatchBoard:
 		return "hound", packContext(a.board), a.board.Summary().String()
 	case RouteDispatch:

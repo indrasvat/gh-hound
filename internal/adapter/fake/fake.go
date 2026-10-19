@@ -42,6 +42,14 @@ const (
 	ScenarioActorsAnon Scenario = "actors_anon"
 	// ScenarioNoisy is a failing run whose job log is mostly repeats.
 	ScenarioNoisy Scenario = "noisy"
+	// ScenarioSkippedJob is a failing run with a job that never ran
+	// (no steps, no log) and an older run whose log has expired.
+	ScenarioSkippedJob Scenario = "skipped_job"
+)
+
+const (
+	skippedJobID = 399444497
+	expiredJobID = 399444498
 )
 
 type Adapter struct {
@@ -124,6 +132,11 @@ func (a *Adapter) listScenarioRuns() ([]model.Run, error) {
 		return flakyHistory(), nil
 	case ScenarioActors, ScenarioActorsAnon:
 		return actorRuns(), nil
+	case ScenarioSkippedJob:
+		run, expired := greenRun(571), greenRun(570)
+		run.Conclusion, expired.Conclusion = model.ConclusionFailure, model.ConclusionFailure
+		expired.HeadSHA = "0f9e8d7"
+		return []model.Run{run, expired}, nil
 	case ScenarioQueue:
 		run := greenRun(644)
 		run.ID = queueRunID
@@ -163,8 +176,18 @@ func (a *Adapter) GetRun(ctx context.Context, repo string, runID int64) (model.R
 	return model.Run{}, errors.New("run not found")
 }
 
-func (a *Adapter) ListJobs(context.Context, string, int64) ([]model.Job, error) {
-	return []model.Job{job()}, nil
+func (a *Adapter) ListJobs(_ context.Context, _ string, runID int64) ([]model.Job, error) {
+	if a.scenario != ScenarioSkippedJob {
+		return []model.Job{job()}, nil
+	}
+	if runID == greenRun(570).ID {
+		expired := job()
+		expired.ID = expiredJobID
+		return []model.Job{expired}, nil
+	}
+	skipped := job()
+	skipped.ID, skipped.Name, skipped.Conclusion, skipped.Steps = skippedJobID, "deploy", model.ConclusionSkipped, nil
+	return []model.Job{job(), skipped}, nil
 }
 
 func (a *Adapter) GetRunAttempt(ctx context.Context, repo string, runID int64, attempt int) (model.Run, error) {
@@ -379,7 +402,15 @@ func (a *Adapter) ReviewPendingDeployments(_ context.Context, repo string, runID
 	return a.actionResult(action, repo, runID, 0, "")
 }
 
-func (a *Adapter) FetchJobLog(context.Context, string, int64) (string, error) {
+func (a *Adapter) FetchJobLog(_ context.Context, _ string, jobID int64) (string, error) {
+	if a.scenario == ScenarioSkippedJob {
+		switch jobID {
+		case skippedJobID:
+			return "", fmt.Errorf("github log download failed for job %d: status 404", jobID)
+		case expiredJobID:
+			return "", fmt.Errorf("github log download failed for job %d: status 410", jobID)
+		}
+	}
 	if a.scenario == ScenarioLogRender {
 		return "", usecase.LogRenderError{Message: "link expired"}
 	}

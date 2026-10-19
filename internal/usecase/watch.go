@@ -93,13 +93,17 @@ func (s WatchService) Tick(ctx context.Context, state WatchState) (WatchState, e
 type WatchSession struct {
 	Service WatchService
 
-	mu   sync.Mutex
-	last WatchState
+	mu      sync.Mutex
+	last    WatchState
+	started uint64 // ticks begun
+	stored  uint64 // the tick that stored last; an older one never replaces it
 }
 
 func (s *WatchSession) Tick(ctx context.Context, repo string, run model.Run) (WatchState, error) {
 	state := WatchState{Repo: repo, RunID: run.ID, Run: run}
 	s.mu.Lock()
+	s.started++
+	tick := s.started
 	if s.last.Repo == repo && s.last.RunID == run.ID {
 		state.JobLogs = s.last.JobLogs
 	}
@@ -107,7 +111,9 @@ func (s *WatchSession) Tick(ctx context.Context, repo string, run model.Run) (Wa
 	next, err := s.Service.Tick(ctx, state)
 	if next.JobLogs != nil {
 		s.mu.Lock()
-		s.last = next
+		if tick > s.stored {
+			s.last, s.stored = next, tick
+		}
 		s.mu.Unlock()
 	}
 	if err != nil {

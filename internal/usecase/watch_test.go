@@ -252,6 +252,49 @@ func TestWatchSessionConcurrentTicks(t *testing.T) {
 	}
 }
 
+// A tick for the run the user left that lands after the current run's
+// tick must not evict the current run's logs.
+func TestWatchSessionIgnoresALateTickForAnotherRun(t *testing.T) {
+	gh := &watchGitHub{jobs: []model.Job{watchJob(7, model.StatusCompleted, 1)}}
+	held := &heldRun{watchGitHub: gh, run: 1, entered: make(chan struct{}), release: make(chan struct{})}
+	session := &usecase.WatchSession{Service: usecase.WatchService{GitHub: held}}
+	late := make(chan error)
+	go func() {
+		_, err := session.Tick(context.Background(), "o/r", model.Run{ID: 1})
+		late <- err
+	}()
+	<-held.entered
+	if _, err := session.Tick(context.Background(), "o/r", model.Run{ID: 2}); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+	close(held.release)
+	if err := <-late; err != nil {
+		t.Fatalf("late tick: %v", err)
+	}
+	if _, err := session.Tick(context.Background(), "o/r", model.Run{ID: 2}); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+	if _, perJob := gh.fetchCounts(); perJob[7] != 2 {
+		t.Fatalf("job 7 fetched %d times, want 2 (once per run)", perJob[7])
+	}
+}
+
+// heldRun blocks ListJobs for one run until released.
+type heldRun struct {
+	*watchGitHub
+	run     int64
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (h *heldRun) ListJobs(ctx context.Context, repo string, id int64) ([]model.Job, error) {
+	if id == h.run {
+		close(h.entered)
+		<-h.release
+	}
+	return h.watchGitHub.ListJobs(ctx, repo, id)
+}
+
 type failingLogs struct {
 	*watchGitHub
 	failFor int64
