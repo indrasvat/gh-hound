@@ -134,8 +134,8 @@ func TestKeyDecoderKeepsAnArrowSplitAtAFullRead(t *testing.T) {
 
 // Bidi controls reorder the line on terminals that honour them.
 func TestKeyDecoderDropsBidiControls(t *testing.T) {
-	got := decodeAll(t, strings.NewReader("a‮b⁦c‍d"))
-	if want := []string{"a", "b", "c", "‍", "d"}; !slices.Equal(got, want) {
+	got := decodeAll(t, strings.NewReader("a\u202eb\u2066c\u200dd"))
+	if want := []string{"a", "b", "c", "\u200d", "d"}; !slices.Equal(got, want) {
 		t.Fatalf("keys = %q, want %q", got, want)
 	}
 }
