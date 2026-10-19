@@ -180,3 +180,13 @@ func TestTimeJumpModalFitsSmallFrames(t *testing.T) {
 		}
 	}
 }
+
+func TestOtherOverlaysKeepTheirBoxWhenCut(t *testing.T) {
+	for height := 8; height <= 30; height++ { // at 7 the frame cuts its one body row to "…"
+		app := openLog(t, logApp(t, config.Default(), "one\ntwo")).WithViewport(80, height)
+		app, _ = app.Update(KeyMsg{Key: "?"})
+		if view := ansi.Strip(app.ViewSize(80, height)); strings.Count(view, "╭") < 2 {
+			t.Fatalf("80x%d: help lost its top border:\n%s", height, view)
+		}
+	}
+}

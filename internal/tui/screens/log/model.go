@@ -241,9 +241,8 @@ func (m Model) ClearRange() Model {
 	return m
 }
 
-// rematch re-runs a committed search for the lines now in view: the
-// current match is the old one if it still is one, else the next after
-// it (or after the view's top), and the view shows it.
+// rematch re-runs a committed search for the lines now in view, keeping
+// the current match or the next after it in view.
 func (m *Model) rematch() {
 	from := m.Offset
 	if m.Search.Total > 0 {

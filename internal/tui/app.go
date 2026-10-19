@@ -805,11 +805,15 @@ func (a App) ViewSize(width, height int) string {
 	footer := keys.FooterForScreenWidth(a.footerScreen(), max(width, minFrameWidth)-2)
 	if a.TopOverlay() != OverlayNone {
 		inner := contentWidth(width)
-		if lines := splitLines(body); height > 0 && len(lines) > bodyHeight(height) {
-			// under the box, so the frame's cut marker would land on it
-			body = strings.Join(lines[:bodyHeight(height)], "\n")
+		room := 0 // other overlays keep their box and the frame cuts it
+		if a.TopOverlay() == OverlayTimeJump {
+			room = bodyHeight(height)
+			if lines := splitLines(body); room > 0 && len(lines) > room {
+				// under the box, so the frame's cut marker would land on it
+				body = strings.Join(lines[:room], "\n")
+			}
 		}
-		body = layerOver(a.theme, colorizeBody(a.theme, body, inner), overlayBox(a.theme, a.overlayTitle(), a.overlayView(width, height), width, bodyHeight(height)), inner)
+		body = layerOver(a.theme, colorizeBody(a.theme, body, inner), overlayBox(a.theme, a.overlayTitle(), a.overlayView(width, height), width, room), inner)
 		footer = keys.FooterForScreen(keys.ScreenHelp)
 		if a.TopOverlay() == OverlayPalette {
 			footer = keys.FooterForScreen(keys.ScreenPalette)
@@ -4316,8 +4320,7 @@ func (a App) overlayView(width, height int) string {
 	case OverlayConfirm:
 		return confirm.View(a.confirm, width-20)
 	case OverlayTimeJump:
-		// The picker wants three rows (input, entry, marker); the box gives
-		// up its title row and separator, then its borders, for them.
+		// The picker wants three rows (input, entry, marker); see overlayBox.
 		rows := 0 // unbounded
 		if body := bodyHeight(height); body >= 7 {
 			rows = body - 4

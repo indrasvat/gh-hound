@@ -139,10 +139,8 @@ func (m Model) move(delta int) Model {
 	return m.scrollExcerpt(delta)
 }
 
-// fit keeps the excerpt, focus and selection on what the view draws at
-// m.Height: a view grown after a scroll refills (never above where it
-// opened, unless scrolled there), a panel cut away gives focus back to
-// the excerpt.
+// fit keeps the excerpt, focus and selection on what m.Height draws; a
+// refill never climbs above where the view opened.
 func (m Model) fit() Model {
 	if lines := m.Report.Log.Failure.Lines; m.Height > 0 && len(lines) > 0 {
 		if rows := min(m.Height-m.chrome(), 5); rows > 0 {

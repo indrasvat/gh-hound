@@ -370,7 +370,7 @@ func window(rows []string, selected, room int) []string {
 	if below := len(rows) - start - shown; below > 0 {
 		hidden = append(hidden, fmt.Sprintf("↓ %d", below))
 	}
-	return append(rows[start:start+shown], " … "+strings.Join(hidden, " · ")+" more")
+	return append(rows[start:start+shown:start+shown], " … "+strings.Join(hidden, " · ")+" more")
 }
 
 // wrapHint joins items with " · ", breaking between items to fit width.
