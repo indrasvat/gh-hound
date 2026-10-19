@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -1315,18 +1316,52 @@ type keyEvent struct {
 	err error
 }
 
+// escDelay is how long a lone ESC waits for the rest of an escape
+// sequence before it counts as the esc key (vim's ttimeout, tmux's
+// escape-time): how full a read was says nothing about what follows.
+const escDelay = 50 * time.Millisecond
+
 func readKeys(reader io.Reader) <-chan keyEvent {
-	events := make(chan keyEvent, 1)
+	type chunk struct {
+		data []byte
+		err  error
+	}
+	chunks := make(chan chunk)
 	go func() {
-		// Large enough that keys typed together arrive in one short
-		// read: only a read that fills it can end mid-sequence.
 		buf := make([]byte, 256)
-		decoder := keyDecoder{}
 		for {
-			key, err := decoder.Next(reader, buf)
-			events <- keyEvent{key: key, err: err}
+			n, err := reader.Read(buf)
+			chunks <- chunk{bytes.Clone(buf[:n]), err}
 			if err != nil {
 				return
+			}
+		}
+	}()
+	events := make(chan keyEvent, 1)
+	go func() {
+		decoder := keyDecoder{}
+		for {
+			if key, ok := decoder.pop(); ok {
+				events <- keyEvent{key: key}
+				continue
+			}
+			var escWait <-chan time.Time
+			if decoder.escPending() {
+				escWait = time.After(escDelay)
+			}
+			select {
+			case c := <-chunks:
+				decoder.pending = append(decoder.pending, c.data...)
+				if c.err != nil {
+					for key, ok := decoder.flush(); ok; key, ok = decoder.flush() {
+						events <- keyEvent{key: key}
+					}
+					events <- keyEvent{err: c.err}
+					return
+				}
+			case <-escWait:
+				key, _ := decoder.flush()
+				events <- keyEvent{key: key}
 			}
 		}
 	}()
@@ -1335,11 +1370,11 @@ func readKeys(reader io.Reader) <-chan keyEvent {
 
 type keyDecoder struct {
 	pending []byte
-	// full is set when the last read filled the buffer: more input is
-	// already waiting, so a trailing ESC may start a sequence.
-	full bool
+	err     error
 }
 
+// Next decodes synchronously; when input ends, what can no longer
+// complete is flushed (a lone ESC is the esc key).
 func (d *keyDecoder) Next(reader io.Reader, scratch []byte) (string, error) {
 	if len(scratch) == 0 {
 		scratch = make([]byte, 8)
@@ -1348,20 +1383,40 @@ func (d *keyDecoder) Next(reader io.Reader, scratch []byte) (string, error) {
 		if key, ok := d.pop(); ok {
 			return key, nil
 		}
+		if d.err != nil {
+			if key, ok := d.flush(); ok {
+				return key, nil
+			}
+			return "", d.err
+		}
 		n, err := reader.Read(scratch)
-		if err != nil {
-			return "", err
-		}
-		d.full = n == len(scratch)
-		if n > 0 {
-			d.pending = append(d.pending, scratch[:n]...)
-		}
+		d.pending = append(d.pending, scratch[:n]...)
+		d.err = err
 	}
+}
+
+// escPending reports an ESC waiting for the rest of its sequence.
+func (d *keyDecoder) escPending() bool {
+	return len(d.pending) > 0 && d.pending[0] == 0x1b
+}
+
+// flush gives up waiting: a pending ESC is the esc key, and the rest
+// decodes on its own; a partial rune is dropped.
+func (d *keyDecoder) flush() (string, bool) {
+	if d.escPending() {
+		d.pending = d.pending[1:]
+		return "esc", true
+	}
+	if key, ok := d.pop(); ok {
+		return key, true
+	}
+	d.pending = nil
+	return "", false
 }
 
 func (d *keyDecoder) pop() (string, bool) {
 	for len(d.pending) > 0 {
-		if n := escapeSequence(d.pending); n < 0 || (d.full && string(d.pending) == "\x1b") {
+		if n := escapeSequence(d.pending); n < 0 || string(d.pending) == "\x1b" {
 			return "", false
 		} else if n > 0 {
 			key := keyName(d.pending[:n])

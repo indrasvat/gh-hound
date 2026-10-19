@@ -141,14 +141,38 @@ func TestKeyDecoderDropsBidiControls(t *testing.T) {
 	}
 }
 
-// Keys typed together arrive in one read; an esc at the end of them is
-// a keypress and must not wait for the next byte.
+// An esc at the end of a read is a keypress, however full the read was
+// (a paste, then esc): nothing following it soon means nothing will.
 func TestReadKeysDeliversATrailingEscWithoutWaiting(t *testing.T) {
 	stdin, keys := io.Pipe()
 	defer func() { _ = keys.Close() }()
 	events := readKeys(stdin)
-	go func() { _, _ = io.WriteString(keys, "1234567\x1b") }()
-	for _, want := range []string{"1", "2", "3", "4", "5", "6", "7", "esc"} {
+	paste := strings.Repeat("x", 255)
+	go func() { _, _ = io.WriteString(keys, paste+"\x1b") }()
+	for _, want := range append(strings.Split(paste, ""), "esc") {
+		select {
+		case event := <-events:
+			if event.key != want {
+				t.Fatalf("key = %q, want %q", event.key, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("%q never arrived", want)
+		}
+	}
+}
+
+// An escape sequence split across writes (a full read, or SSH) is one
+// key when its rest arrives inside the escape window.
+func TestReadKeysJoinsASequenceSplitAcrossWrites(t *testing.T) {
+	stdin, keys := io.Pipe()
+	defer func() { _ = keys.Close() }()
+	events := readKeys(stdin)
+	go func() {
+		_, _ = io.WriteString(keys, "\x1b")
+		time.Sleep(escDelay / 5)
+		_, _ = io.WriteString(keys, "[Bj")
+	}()
+	for _, want := range []string{"down", "j"} {
 		select {
 		case event := <-events:
 			if event.key != want {
