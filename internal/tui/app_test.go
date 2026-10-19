@@ -1073,7 +1073,7 @@ func TestRunsChromeShowsRealRateAndCacheMetadata(t *testing.T) {
 			}},
 		},
 		RunsResolver: func(context.Context, usecase.RunFilter) ([]model.Run, error) {
-			meta = usecase.RequestMeta{Status: 304, Cache: "hit", RateRemaining: "4998"}
+			meta = usecase.RequestMeta{Status: 304, Cache: "hit", RateRemaining: "4998", RateLimit: "5000"}
 			return []model.Run{{
 				ID:         9001,
 				Name:       "CI",
@@ -1884,5 +1884,16 @@ func TestGUsesRealViewportHeight(t *testing.T) {
 	view := ansi.Strip(app.ViewSize(120, 40))
 	if !strings.Contains(view, "060 ") {
 		t.Fatalf("G with a 40-row viewport must reach the last line:\n%s", view)
+	}
+}
+
+func TestRunsHeaderShowsTheRealRateLimitAndFilterMisses(t *testing.T) {
+	m := sampleRunsModel()
+	if got := runsRight(m, 0, usecase.RequestMeta{RateRemaining: "14967", RateLimit: "15000"}); !strings.Contains(got, "14967/15k") {
+		t.Fatalf("header = %q, want the real 15k limit", got)
+	}
+	m.Filter = "nothing-matches-this"
+	if got := runsRight(m, 0, usecase.RequestMeta{}); got != "no runs match" {
+		t.Fatalf("header = %q, want %q under a filter that matches nothing", got, "no runs match")
 	}
 }

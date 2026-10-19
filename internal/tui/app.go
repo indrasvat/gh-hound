@@ -4536,6 +4536,9 @@ func runsRight(m runs.Model, refreshCount int, meta usecase.RequestMeta) string 
 		count = len(m.FilteredRuns())
 	}
 	if count == 0 {
+		if strings.TrimSpace(m.Filter) != "" {
+			return "no runs match"
+		}
 		return "no runs loaded"
 	}
 	value := fmt.Sprintf("%d runs loaded", count)
@@ -4543,12 +4546,23 @@ func runsRight(m runs.Model, refreshCount int, meta usecase.RequestMeta) string 
 		value += " · live"
 	}
 	if meta.RateRemaining != "" {
-		value += fmt.Sprintf(" · %s/5k", meta.RateRemaining)
+		value += " · " + meta.RateRemaining
+		if limit, err := strconv.Atoi(meta.RateLimit); err == nil && limit > 0 {
+			value += "/" + compactCount(limit)
+		}
 	}
 	if meta.Status == 304 || meta.Cache == "hit" {
 		value += " · 304"
 	}
 	return value
+}
+
+// compactCount shortens a round thousand: 5000 → 5k.
+func compactCount(n int) string {
+	if n >= 1000 && n%1000 == 0 {
+		return strconv.Itoa(n/1000) + "k"
+	}
+	return strconv.Itoa(n)
 }
 
 func logRight(m logscreen.Model) string {

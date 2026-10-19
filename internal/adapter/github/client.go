@@ -223,7 +223,7 @@ func (c *Client) getRaw(ctx context.Context, resource string, query url.Values) 
 		defer func() {
 			_ = resp.Body.Close()
 		}()
-		c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: resource, Status: resp.StatusCode, Duration: time.Since(start), RateRemaining: resp.Header.Get("X-RateLimit-Remaining")})
+		c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: resource, Status: resp.StatusCode, Duration: time.Since(start), RateRemaining: resp.Header.Get("X-RateLimit-Remaining"), RateLimit: resp.Header.Get("X-RateLimit-Limit")})
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			limited, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 			return mapReadHTTPError(req.Method, resource, resp.StatusCode, resp.Header, bytes.TrimSpace(limited))
@@ -272,7 +272,7 @@ func (c *Client) getJSONWithResponse(ctx context.Context, resource string, query
 			if inspect != nil {
 				inspect(resp)
 			}
-			c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: resource, Status: resp.StatusCode, Duration: time.Since(start), IfNoneMatch: ifNoneMatch, RateRemaining: resp.Header.Get("X-RateLimit-Remaining"), Cache: "hit"})
+			c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: resource, Status: resp.StatusCode, Duration: time.Since(start), IfNoneMatch: ifNoneMatch, RateRemaining: resp.Header.Get("X-RateLimit-Remaining"), RateLimit: resp.Header.Get("X-RateLimit-Limit"), Cache: "hit"})
 			cached, ok := c.cache.Body(reqURL)
 			if !ok {
 				return fmt.Errorf("not modified without cached body for %s", reqURL)
@@ -284,7 +284,7 @@ func (c *Client) getJSONWithResponse(ctx context.Context, resource string, query
 			if inspect != nil {
 				inspect(resp)
 			}
-			c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: resource, Status: resp.StatusCode, Duration: time.Since(start), IfNoneMatch: ifNoneMatch, RateRemaining: resp.Header.Get("X-RateLimit-Remaining"), Cache: "miss"})
+			c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: resource, Status: resp.StatusCode, Duration: time.Since(start), IfNoneMatch: ifNoneMatch, RateRemaining: resp.Header.Get("X-RateLimit-Remaining"), RateLimit: resp.Header.Get("X-RateLimit-Limit"), Cache: "miss"})
 			limited, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 			return mapReadHTTPError(req.Method, resource, resp.StatusCode, resp.Header, bytes.TrimSpace(limited))
 		}
@@ -296,7 +296,7 @@ func (c *Client) getJSONWithResponse(ctx context.Context, resource string, query
 			return err
 		}
 		etag := resp.Header.Get("ETag")
-		c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: resource, Status: resp.StatusCode, Duration: time.Since(start), IfNoneMatch: ifNoneMatch, ETag: etag, RateRemaining: resp.Header.Get("X-RateLimit-Remaining"), Cache: "miss"})
+		c.traceHTTP(ctx, traceRecord{Method: req.Method, Resource: resource, Status: resp.StatusCode, Duration: time.Since(start), IfNoneMatch: ifNoneMatch, ETag: etag, RateRemaining: resp.Header.Get("X-RateLimit-Remaining"), RateLimit: resp.Header.Get("X-RateLimit-Limit"), Cache: "miss"})
 		if etag != "" {
 			c.cache.Store(reqURL, etag, body)
 		}
@@ -319,6 +319,7 @@ type traceRecord struct {
 	ETag          string
 	IfNoneMatch   string
 	RateRemaining string
+	RateLimit     string
 	Cache         string
 	Err           string
 }
@@ -367,6 +368,7 @@ func (c *Client) storeRequestMeta(record traceRecord) {
 		Status:        record.Status,
 		Cache:         record.Cache,
 		RateRemaining: record.RateRemaining,
+		RateLimit:     record.RateLimit,
 	}
 }
 
