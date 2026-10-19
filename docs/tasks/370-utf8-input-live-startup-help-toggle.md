@@ -22,7 +22,7 @@ IMPLEMENTED — issue #65, first of two PRs. The second (the cut failure view's 
 - [x] T2 Inputs: a backspace test per text input (palette, approvals comment, log search, dispatch field, caches filter).
 - [x] T3 Startup: a launch whose runs listing is held paints the frame, replays a key typed meanwhile, and quits on `ctrl+c` without waiting.
 - [x] T4 Overlays: `?` in help closes it; table of key sequences; `FuzzOverlayStack` (no duplicate, one esc per overlay gets out).
-- [x] T5 PTY scenarios `input-utf8`, `palette-utf8-backspace`, `help-toggle`, `startup-frame` (each fails on main); visual contract rows for the startup footer and loading state.
+- [x] T5 PTY scenarios `input-utf8`, `input-wide`, `palette-utf8-backspace`, `help-toggle`, `startup-frame` (each fails on main); visual contract rows for the startup and caches-filter footers and the startup loading state.
 - [x] T6 Verification: `make ci`, `make vqa`; shux before/after on fakes and live; adversarial review and a cold `tui-qa` round.
 
 ## Found Along The Way
@@ -33,8 +33,9 @@ IMPLEMENTED — issue #65, first of two PRs. The second (the cut failure view's 
 - Adversarial review (input surface): with UTF-8 decoded, 37+ wide runes in the runs filter panicked (it compared width, then sliced by rune count), and unbound control characters (ctrl+L, BEL, 8-bit CSI) were typed into inputs and written to the terminal. Both fixed, each with a test that failed first.
 - Adversarial review (startup surface): entering raw mode and the alt screen before the slow launch made a SIGTERM/SIGHUP during it leave the terminal raw in the alt screen (main left it clean only because it was still cooked then). Main had the same hole once the app was up. Fixed for both. Also fixed: keys after a replayed `q` still ran, EOF during startup skipped `Shutdown`, and a non-terminal run printed a full frame every spinner tick.
 - Cold `tui-qa` round 1 (773cfd0, FAIL): the wide-rune panic above, which the UTF-8 scenarios missed because they typed only a few runes (`input-wide` now types 40 at 80 cols); it also found the escape-sequence and control-character holes, fixed as above.
-- Not changed: `:` over help over the palette returns to the palette with a fresh query (main reset it the same way); `q` during startup is queued until the app arrives (the footer promises only `ctrl+c quit`).
-- Pre-existing, seen during QA, not fixed here: the caches filter keeps its browse footer while typing; `l` from the runs list shows an error panel for a moment while the log loads instead of the shared loading body; the runs footer and help's View row end with a bare `?`.
+- Cold `tui-qa` round 2 (1335fb8, FAIL on items pre-existing on main): a burst of 6+ arrows in one write split an escape sequence at the 8-byte read and decoded as esc (a trailing ESC after a full read now waits for the rest); the palette footer advertised a `theme` entry that did not exist (it does now). Bidi controls are dropped from input like other unbound control characters.
+- Fixed here though pre-existing (seen in QA, each small and on the same input/chrome surface): the caches filter kept its browse footer while typing (now `type to filter · ⏎ apply · ⎋ clear`, with a cursor); a first log open showed "log unavailable" during the fetch (pending-load guard, like its sibling routes); help showed bare keys where a footer drops a label for room (`j/k move`, `? help`); five inputs cut a long draft at the end being typed (all six share `textinput.Tail`); the rate gauge hard-coded `/5k` (it reads `X-RateLimit-Limit` now); a filter matching nothing said `no runs loaded` (now `no runs match`); `q` as the first key during startup waited for the launch (it quits at once; later keys still replay); with `-R` the startup header names the repo.
+- Not changed: `:` over help over the palette returns to the palette with a fresh query (main reset it the same way); Alt+[ followed by a key is read as one unbound escape sequence (Alt+[ is not bound); the runs and detail footers keep their bare `?` (the visual contract's footer, kept short for 80 columns).
 
 ## Measurements
 
