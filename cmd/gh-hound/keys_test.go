@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"testing/iotest"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -69,8 +70,8 @@ func TestKeyDecoderDropsInvalidUTF8(t *testing.T) {
 }
 
 // FuzzKeyDecoder feeds arbitrary bytes in arbitrary read sizes: every
-// key is valid UTF-8, one named key or one rune, and text without
-// control bytes comes back exactly as typed however the reads split.
+// key is one named key or one printable rune, and text without
+// control characters comes back exactly as typed however the reads split.
 func FuzzKeyDecoder(f *testing.F) {
 	for _, seed := range []string{"café ✓", "\U0001F415j\x1b[A", "\xc3", "\xe2\x9c", "é\x1b", "\xff\xfe", "a\x1b[3~b", "\x1b[1;5C\x1bOP"} {
 		f.Add([]byte(seed), uint8(1))
@@ -80,8 +81,8 @@ func FuzzKeyDecoder(f *testing.F) {
 		keys := decodeAll(t, &chunkReader{data: slices.Clone(data), size: int(size%8) + 1})
 		var typed strings.Builder
 		for _, key := range keys {
-			if !utf8.ValidString(key) || key == "" {
-				t.Fatalf("%q: key %q is not one valid rune or name", data, key)
+			if !utf8.ValidString(key) || key == "" || strings.ContainsFunc(key, unicode.IsControl) {
+				t.Fatalf("%q: key %q is not one printable rune or name", data, key)
 			}
 			if key == "space" {
 				typed.WriteByte(' ')
@@ -89,7 +90,7 @@ func FuzzKeyDecoder(f *testing.F) {
 				typed.WriteString(key)
 			}
 		}
-		if !utf8.Valid(data) || strings.ContainsFunc(string(data), func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+		if !utf8.Valid(data) || strings.ContainsFunc(string(data), unicode.IsControl) {
 			return
 		}
 		if typed.String() != string(data) {
@@ -107,6 +108,15 @@ func TestKeyDecoderSwallowsUnboundEscapeSequences(t *testing.T) {
 	input := "a\x1b[3~b\x1b[Hc\x1bOPd\x1b[5~e\x1b[1;5Cf\x1bOA\x1b[Z\x1b"
 	want := []string{"a", "b", "c", "d", "e", "f", "up", "shift+tab", "esc"}
 	if got := decodeAll(t, strings.NewReader(input)); !slices.Equal(got, want) {
+		t.Fatalf("keys = %q, want %q", got, want)
+	}
+}
+
+// Unbound control characters (ctrl+L, BEL, NUL, 8-bit CSI) must never
+// reach an input, which would write them to the terminal.
+func TestKeyDecoderDropsUnboundControlRunes(t *testing.T) {
+	got := decodeAll(t, strings.NewReader("a\x0c\x0b\x0e\x07\x00\xc2\x9b\xc2\x85b\x03"))
+	if want := []string{"a", "b", "ctrl+c"}; !slices.Equal(got, want) {
 		t.Fatalf("keys = %q, want %q", got, want)
 	}
 }

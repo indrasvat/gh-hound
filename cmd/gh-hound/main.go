@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/indrasvat/gh-hound/internal/adapter/fake"
@@ -1345,7 +1346,7 @@ func (d *keyDecoder) pop() (string, bool) {
 		r, size := utf8.DecodeRune(d.pending)
 		key := keyName(d.pending[:size])
 		d.pending = d.pending[size:]
-		if r != utf8.RuneError || size > 1 {
+		if key != "" && (r != utf8.RuneError || size > 1) {
 			return key, true
 		}
 	}
@@ -2114,6 +2115,10 @@ func keyName(input []byte) string {
 		return "esc"
 	default:
 		r, _ := utf8.DecodeRune(input)
+		if unicode.IsControl(r) {
+			// Unbound: typed into an input it would reach the terminal.
+			return ""
+		}
 		return string(r)
 	}
 }

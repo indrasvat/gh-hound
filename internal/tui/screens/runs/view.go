@@ -384,8 +384,7 @@ func inputLine(draft string, st styles, width int) string {
 	if body == "" {
 		body = st.dim + "\x1b[3m" + "Filter runs…" + "\x1b[23m" + st.fg
 	} else if room := width - 6; ansi.StringWidth(body) > room {
-		runes := []rune(body)
-		body = "…" + string(runes[len(runes)-max(room-1, 1):])
+		body = "…" + ansi.TruncateLeft(body, ansi.StringWidth(body)-max(room-1, 1), "")
 	}
 	content := "  " + st.ok + "/" + st.fg + " "
 	if draft == "" {
