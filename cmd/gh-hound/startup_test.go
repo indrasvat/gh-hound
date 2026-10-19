@@ -176,7 +176,7 @@ func runFilteredLaunch(t *testing.T, typed string, closeInput bool) filterGitHub
 }
 
 func TestKeysTypedAfterAQuitAreNotReplayed(t *testing.T) {
-	github := runFilteredLaunch(t, "q/status:success\r", false)
+	github := runFilteredLaunch(t, "jq/status:success\r", false)
 	select {
 	case <-github.filtered:
 		t.Fatal("a filter typed after q ran anyway")
@@ -192,5 +192,23 @@ func TestEOFDuringStartupStillCancelsReplayedLoads(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatalf("the replayed filter's load was never %s", name)
 		}
+	}
+}
+
+// q as the first key would quit on every launch route once replayed,
+// so it quits at once instead of waiting for the launch.
+func TestQAsTheFirstKeyQuitsWhileTheLaunchIsLoading(t *testing.T) {
+	out, keys, _, done := startBlockedTUI(t)
+	waitForOutput(t, out, "hound")
+	if _, err := io.WriteString(keys, "q"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runTUI err = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("q did not quit while the launch was loading")
 	}
 }

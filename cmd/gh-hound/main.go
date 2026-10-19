@@ -1215,7 +1215,8 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 				}
 				// The keys before EOF still apply once the app exists.
 				inputEnded, events = true, nil
-			} else if event.key == "ctrl+c" {
+			} else if event.key == "ctrl+c" || (event.key == "q" && len(typed) == 0) {
+				// A first q would quit on any launch route once replayed.
 				return nil
 			} else {
 				typed = append(typed, event.key)
