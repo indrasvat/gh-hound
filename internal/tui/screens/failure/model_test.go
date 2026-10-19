@@ -287,9 +287,52 @@ func TestJNeverScrollsTheExcerptUp(t *testing.T) {
 	m := NewModel("indrasvat/gh-hound", 571, r)
 	for _, height := range []int{0, 7, 30} {
 		m.Height = height
-		before := m.Offset
-		if got := m.Update(KeyMsg{Key: "j"}); got.Offset < before {
-			t.Fatalf("height %d: j moved the window up from %d to %d", height, before, got.Offset)
+		before, _, _ := drawnRows(m)
+		after, _, _ := drawnRows(m.Update(KeyMsg{Key: "j"}))
+		if after[0] < before[0] {
+			t.Fatalf("height %d: j moved the window up from %v to %v", height, before, after)
 		}
+	}
+}
+
+func TestGrowingTheViewRefillsAScrolledExcerpt(t *testing.T) {
+	m := NewModel("indrasvat/gh-hound", 571, report())
+	m.Height = 4 // one excerpt row
+	for range 10 {
+		m = m.Update(KeyMsg{Key: "j"})
+	}
+	m.Height = 30
+	if excerpt, _, _ := drawnRows(m); len(excerpt) != len(m.Report.Log.Failure.Lines) && len(excerpt) != 5 {
+		t.Fatalf("grown view draws %v, want a full window", excerpt)
+	}
+}
+
+func TestJKDoNothingWithNoExcerptRowDrawn(t *testing.T) {
+	m := NewModel("indrasvat/gh-hound", 571, report())
+	m.Height = 4 // header, two annotations, error window
+	if got := m.Update(KeyMsg{Key: "j"}); got.Offset != m.Offset {
+		t.Fatalf("j moved an undrawn excerpt from %d to %d", m.Offset, got.Offset)
+	}
+}
+
+func TestMultiLineAnnotationTakesOneRow(t *testing.T) {
+	r := report()
+	r.Annotations[0].Message = "first line\nsecond line\r\nthird"
+	m := NewModel("indrasvat/gh-hound", 571, r)
+	for height := 6; height <= 12; height++ {
+		if lines := strings.Split(ViewSize(m, 80, height), "\n"); len(lines) > height {
+			t.Fatalf("height %d drew %d lines", height, len(lines))
+		}
+	}
+}
+
+func TestAFailureNearTheEndOpensTheFullLogWhereItOpened(t *testing.T) {
+	r := report()
+	r.Log = logs.Parse("one\ntwo\n--- FAIL: TestX\nfour\n##[error]Process completed with exit code 1")
+	m := NewModel("indrasvat/gh-hound", 571, r)
+	opened := m.Offset
+	m.Height = 30
+	if got := m.Update(KeyMsg{Key: "l"}).Intent.Offset; got != opened {
+		t.Fatalf("l opens the full log at %d, want %d where the view opened", got, opened)
 	}
 }

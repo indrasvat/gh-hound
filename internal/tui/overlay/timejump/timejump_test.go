@@ -236,7 +236,7 @@ var moreRE = regexp.MustCompile(`^ … (?:↑ (\d+))?(?: · )?(?:↓ (\d+))? mor
 // entry always, and a marker counting the entries above and below.
 func TestPickerFitsSmallHeightsAndCountsHiddenEntries(t *testing.T) {
 	for _, width := range []int{44, 66, 80} {
-		for height := 2; height <= 20; height++ {
+		for height := 1; height <= 20; height++ {
 			for _, feedback := range []string{"", "no line at 99:99"} {
 				m := New(manyStepsDoc())
 				m.Feedback = feedback
@@ -254,7 +254,7 @@ func TestPickerFitsSmallHeightsAndCountsHiddenEntries(t *testing.T) {
 						}
 						if strings.Contains(line, " 17:") {
 							drawn++
-							cursor = cursor || strings.HasPrefix(line, "▌ ")
+							cursor = cursor || strings.HasPrefix(line, "▌ ") || height == 1 && strings.Contains(line, m.Entries[selected].Clock)
 						}
 						if match := moreRE.FindStringSubmatch(line); match != nil {
 							above, _ = strconv.Atoi(match[1])

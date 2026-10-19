@@ -318,3 +318,10 @@ func run(number int, name, event string, status model.Status, conclusion model.C
 		UpdatedAt:    time.Date(2026, 6, 7, 17, 44, 0, 0, time.UTC),
 	}
 }
+
+func TestTextMatchCountIsDigitGrouped(t *testing.T) {
+	m := Model{Context: usecase.LaunchContext{Scope: usecase.LaunchScopeRepo, RepoRuns: make([]model.Run, 1234)}}
+	if got := matchCount(m, Query{Text: []string{"x"}}, 1001); got != "1,001 of 1,234 loaded" {
+		t.Fatalf("matchCount = %q", got)
+	}
+}

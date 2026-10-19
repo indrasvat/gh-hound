@@ -66,7 +66,7 @@ func (m Model) drawn() (excerptRows, evidenceRows int) {
 		}
 		return excerptRows, evidenceRows
 	}
-	used := 3 + len(m.Report.Annotations) // header, "Annotations", error window
+	used := m.chrome()
 	excerptRows = min(excerptRows, max(m.Height-used, 0))
 	if excerptRows < len(m.Excerpt) || m.Flake == nil {
 		return excerptRows, 0
@@ -80,6 +80,10 @@ func (m Model) drawn() (excerptRows, evidenceRows int) {
 	}
 	return excerptRows, evidenceRows
 }
+
+// chrome is the rows drawn above the excerpt: the header, "Annotations",
+// one row per annotation and the error-window header.
+func (m Model) chrome() int { return 3 + len(m.Report.Annotations) }
 
 // flakePanel renders the scent panel once the async verdict lands.
 // The focused pane is marked with the cursor glyph: tab moves focus,
@@ -150,7 +154,7 @@ func annotationLine(annotation model.Annotation, width int) string {
 		line = annotation.EndLine
 	}
 	path := underlineInfo(fmt.Sprintf("%s:%d", annotation.Path, line))
-	value := colorize(sgrFail, icons.Failure) + " " + path + "  " + colorize(sgrFGSoft, annotation.Message)
+	value := colorize(sgrFail, icons.Failure) + " " + path + "  " + colorize(sgrFGSoft, strings.Join(strings.Fields(annotation.Message), " "))
 	return fitANSI(value, width)
 }
 

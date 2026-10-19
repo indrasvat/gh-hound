@@ -805,7 +805,11 @@ func (a App) ViewSize(width, height int) string {
 	footer := keys.FooterForScreenWidth(a.footerScreen(), max(width, minFrameWidth)-2)
 	if a.TopOverlay() != OverlayNone {
 		inner := contentWidth(width)
-		body = layerOver(a.theme, colorizeBody(a.theme, body, inner), overlayBox(a.theme, a.overlayTitle(), a.overlayView(width, height), width), inner)
+		if lines := splitLines(body); height > 0 && len(lines) > bodyHeight(height) {
+			// under the box, so the frame's cut marker would land on it
+			body = strings.Join(lines[:bodyHeight(height)], "\n")
+		}
+		body = layerOver(a.theme, colorizeBody(a.theme, body, inner), overlayBox(a.theme, a.overlayTitle(), a.overlayView(width, height), width, bodyHeight(height)), inner)
 		footer = keys.FooterForScreen(keys.ScreenHelp)
 		if a.TopOverlay() == OverlayPalette {
 			footer = keys.FooterForScreen(keys.ScreenPalette)
@@ -2165,9 +2169,7 @@ func (a App) openOverwriteConfirm(artifact model.Artifact, path string) App {
 }
 
 func (a App) updateFailure(msg KeyMsg) (App, bool) {
-	if a.viewportHeight > 0 {
-		a.failure.Height = bodyHeight(a.viewportHeight)
-	}
+	a.failure.Height = bodyHeight(a.viewportHeight)
 	a.failure = a.failure.Update(failure.KeyMsg{Key: msg.Key})
 	switch a.failure.Intent.Kind {
 	case failure.IntentFullLog:
@@ -2384,7 +2386,7 @@ func (a App) startCacheDelete(request CacheDeleteRequest) App {
 			}
 			message := "dug that one up."
 			if count > 1 {
-				message = fmt.Sprintf("dug up %d caches.", count)
+				message = "dug up " + numfmt.Group(count) + " caches."
 			}
 			app.pushToast("cache-deleted", usecase.Resilience{
 				Severity: usecase.SeverityOK,
@@ -4314,10 +4316,15 @@ func (a App) overlayView(width, height int) string {
 	case OverlayConfirm:
 		return confirm.View(a.confirm, width-20)
 	case OverlayTimeJump:
-		// Box chrome (4 rows) around the picker.
+		// The picker wants three rows (input, entry, marker); the box gives
+		// up its title row and separator, then its borders, for them.
 		rows := 0 // unbounded
-		if height > 0 {
-			rows = max(bodyHeight(height)-4, 1)
+		if body := bodyHeight(height); body >= 7 {
+			rows = body - 4
+		} else if body >= 3 {
+			rows = body - 2
+		} else if body > 0 {
+			rows = body
 		}
 		return timejump.ViewSize(a.timeJump, overlayInnerWidth(width), rows)
 	case OverlayApprovals:
@@ -4550,6 +4557,9 @@ func runsRight(m runs.Model, refreshCount int, meta usecase.RequestMeta) string 
 		return "no runs loaded"
 	}
 	value := numfmt.Group(count) + " runs loaded"
+	if count == 1 {
+		value = "1 run loaded"
+	}
 	if refreshCount > 0 {
 		value += " · live"
 	}

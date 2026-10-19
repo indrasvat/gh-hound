@@ -65,10 +65,12 @@ scenarios=(
   help-toggle
   startup-frame
   failure-cut-scroll
+  failure-scroll-grow
   log-range-search
   log-match-grouped
   log-fold-count
   timejump-small
+  timejump-tiny
   caches-filter-clear
 )
 
@@ -80,8 +82,8 @@ adapter_for() {
     watch-toggle) printf 'running' ;;
     pack-board) printf 'pack' ;;
     failure-log-refetch) printf 'log_refetch' ;;
-    log-compact-* | log-range-search | log-match-grouped | log-fold-count | timejump-small) printf 'noisy' ;;
-    failure-cut-scroll) printf 'failing' ;;
+    log-compact-* | log-range-search | log-match-grouped | log-fold-count | timejump-small | timejump-tiny) printf 'noisy' ;;
+    failure-cut-scroll | failure-scroll-grow) printf 'failing' ;;
     *) printf 'failing' ;;
   esac
 }
@@ -134,10 +136,11 @@ keys_for() {
     palette-utf8-backspace) printf ': c é backspace ä' ;;
     help-toggle) printf '? : ? ?' ;;
     failure-cut-scroll) printf 'enter enter j j j j j' ;;
+    failure-scroll-grow) printf 'enter enter j j j j j resize:120x40' ;;
     log-range-search) printf 'enter l t 1 6 : 1 2 : 0 2 - 1 6 : 1 2 : 1 2 enter / r e q u e s t - i d enter' ;;
     log-match-grouped) printf 'enter l / 2 0 2 6 enter' ;;
     log-fold-count) printf 'enter l t 1 6 : 1 2 : 2 1 enter G' ;;
-    timejump-small) printf 'enter l t' ;;
+    timejump-small | timejump-tiny) printf 'enter l t' ;;
     caches-filter-clear) printf ': c a c h e s enter / n o d e enter' ;;
     *) printf '' ;;
   esac
@@ -155,8 +158,9 @@ args_for() {
 # The small-frame scenarios run where the frame cuts the screen.
 size_for() {
   case "$1" in
-    failure-cut-scroll) printf '80x12' ;;
+    failure-cut-scroll | failure-scroll-grow) printf '80x12' ;;
     timejump-small) printf '80x14' ;;
+    timejump-tiny) printf '80x9' ;;
     *) printf '80x24' ;;
   esac
 }
@@ -174,6 +178,11 @@ send_key() {
     down) shux pane send-keys -s "$session" --data G1tC >/dev/null ;;
     right) shux pane send-keys -s "$session" --data G1tD >/dev/null ;;
     left) shux pane send-keys -s "$session" --data G1tE >/dev/null ;;
+    resize:*)
+      local size="${key#resize:}"
+      shux pane set-size -s "$session" --cols "${size%x*}" --rows "${size#*x}" >/dev/null
+      cols="${size%x*}" rows="${size#*x}"
+      ;;
     *) shux pane send-keys -s "$session" --text "$key" >/dev/null ;;
   esac
 }

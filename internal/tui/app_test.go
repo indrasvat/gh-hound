@@ -1094,7 +1094,7 @@ func TestRunsChromeShowsRealRateAndCacheMetadata(t *testing.T) {
 	}
 	app, _ = pollCycle(t, app)
 	after := ansi.Strip(app.ViewSize(120, 20))
-	for _, want := range []string{"1 runs loaded", "live", "4998/5k", "304"} {
+	for _, want := range []string{"1 run loaded", "live", "4998/5k", "304"} {
 		if !strings.Contains(after, want) {
 			t.Fatalf("header missing %q:\n%s", want, after)
 		}

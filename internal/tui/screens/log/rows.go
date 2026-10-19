@@ -141,7 +141,7 @@ func (m Model) folds(closedOnly bool) (count, hidden int) {
 		return 0, 0
 	}
 	for _, s := range m.plan.Segments {
-		if shownFold(s) && !(closedOnly && m.open[s.Start+1]) {
+		if shownFold(s) && (!closedOnly || !m.open[s.Start+1]) {
 			count++
 			hidden += s.End - s.Start
 		}

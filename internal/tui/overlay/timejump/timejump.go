@@ -322,6 +322,7 @@ func ViewSize(m Model, width, height int) string {
 	}
 	hint := wrapHint([]string{"j/k pick", "HH:MM[:SS]", "+30s/-2m relative", "A-B range", "⏎ go", "⎋ cancel"}, width)
 	gap := []string{""}
+	head := "t→" + m.Input + "▌"
 	if height > 0 {
 		// The picker needs one entry, and a marker when any is hidden.
 		need := min(len(entries), 2)
@@ -334,9 +335,14 @@ func ViewSize(m Model, width, height int) string {
 				*drop = nil
 			}
 		}
+		all := entries
 		entries = window(entries, m.Selected, height-fixed())
+		if len(entries) == 0 && m.Input == "" && len(all) > 0 {
+			// one row: the input line carries the selected entry
+			head = fit(head+strings.TrimPrefix(all[m.Selected], "▌"), width)
+		}
 	}
-	lines := append([]string{"t→" + m.Input + "▌"}, gap...)
+	lines := append([]string{head}, gap...)
 	lines = append(lines, entries...)
 	for _, section := range [][]string{feedback, hint} {
 		if len(section) > 0 {
@@ -364,7 +370,7 @@ func window(rows []string, selected, room int) []string {
 	if below := len(rows) - start - shown; below > 0 {
 		hidden = append(hidden, fmt.Sprintf("↓ %d", below))
 	}
-	return append(rows[start:start+shown:start+shown], " … "+strings.Join(hidden, " · ")+" more")
+	return append(rows[start:start+shown], " … "+strings.Join(hidden, " · ")+" more")
 }
 
 // wrapHint joins items with " · ", breaking between items to fit width.
