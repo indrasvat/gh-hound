@@ -59,7 +59,7 @@ func TestFailedWatchLoadDoesNotKeepThePreviousRun(t *testing.T) {
 	app := watchTwoRunsApp(Options{
 		WatchResolver: func(_ context.Context, run model.Run) (watch.Model, error) {
 			if run.ID == watchRunB.ID {
-				return watch.Model{}, errors.New("github log download failed for job 7: status 404")
+				return watch.Model{}, errors.New("github log url https://api.github.com/repos/indrasvat/gh-hound/actions/jobs/7/logs returned 502: Bad Gateway")
 			}
 			firstCalls.Add(1)
 			return watch.NewModel(watch.State{Repo: "indrasvat/gh-hound", Branch: "main", Run: run}), nil
@@ -76,7 +76,7 @@ func TestFailedWatchLoadDoesNotKeepThePreviousRun(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	view := ansi.Strip(app.ViewSize(100, 24))
-	if strings.Contains(view, "#41") || !strings.Contains(view, "watch unavailable: github log download failed") {
+	if strings.Contains(view, "#41") || !strings.Contains(view, "watch unavailable: github log url") {
 		t.Fatalf("failed watch of #42 must show its error, not #41:\n%s", view)
 	}
 	if calls := firstCalls.Load(); calls != opened {
@@ -211,5 +211,27 @@ func TestWatchPollKeepsFollowAndDebug(t *testing.T) {
 	}
 	if view := ansi.Strip(app.ViewSize(100, 24)); !strings.Contains(view, "follow ○") || strings.Contains(view, "follow ●") {
 		t.Fatalf("view does not show follow off:\n%s", view)
+	}
+}
+
+// A finished run's watch offers no cancel and claims no stream.
+func TestFinishedRunWatchOffersNoCancel(t *testing.T) {
+	done := watchRunA
+	done.Status, done.Conclusion = model.StatusCompleted, model.ConclusionSuccess
+	app := watchTwoRunsApp(Options{
+		WatchResolver: func(_ context.Context, run model.Run) (watch.Model, error) {
+			return watch.NewModel(watch.State{Run: done}), nil
+		},
+	})
+	defer app.Shutdown()
+	app, _ = app.Update(KeyMsg{Key: "w"})
+	app, _ = app.SettleLoads(time.Second)
+	view := ansi.Strip(app.ViewSize(100, 24))
+	if strings.Contains(view, "cancel") || strings.Contains(view, "streaming") ||
+		!strings.Contains(view, "f follow · d debug · ⎋ detach") || !strings.Contains(view, "success · follow ●") {
+		t.Fatalf("finished run's watch:\n%s", view)
+	}
+	if app, _ = app.Update(KeyMsg{Key: "x"}); app.TopOverlay() != OverlayNone {
+		t.Fatalf("x on a finished run opened %s", app.TopOverlay())
 	}
 }

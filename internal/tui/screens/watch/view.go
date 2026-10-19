@@ -14,8 +14,17 @@ func View(m Model, width int) string {
 		width = 80
 	}
 	lines := []string{fit(header(m), width)}
+	notes := noLogNotes(m.State.NoLog)
+	for _, note := range notes {
+		lines = append(lines, fitANSI(colorize(sgrDim, note), width))
+	}
 	if len(m.State.Lines) == 0 {
-		lines = append(lines, fitANSI(colorize(sgrDim, "waiting for completed job logs from GitHub Actions"), width))
+		switch {
+		case !m.Finished():
+			lines = append(lines, fitANSI(colorize(sgrDim, "waiting for completed job logs from GitHub Actions"), width))
+		case len(notes) == 0:
+			lines = append(lines, fitANSI(colorize(sgrDim, "no job logs to show"), width))
+		}
 		return strings.Join(lines, "\n")
 	}
 	lines = append(lines, foldLine(width))
@@ -25,7 +34,7 @@ func View(m Model, width int) string {
 	}
 	visible := m.State.Lines[start:]
 	for index, line := range visible {
-		lines = append(lines, logLine(line, width, index == len(visible)-1))
+		lines = append(lines, logLine(line, width, !m.Finished() && index == len(visible)-1))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -43,15 +52,44 @@ func header(m Model) string {
 	if m.Debug {
 		debug = " · debug"
 	}
-	return fmt.Sprintf("watch · %s #%d · %s streaming %s %s %s%s",
+	state := "streaming " + icons.InProgress
+	if m.Finished() {
+		state = icons.ForConclusion(m.State.Run.Conclusion) + " " + m.Outcome()
+	}
+	return fmt.Sprintf("watch · %s #%d · %s %s %s %s%s",
 		m.State.Run.Name,
 		m.State.Run.RunNumber,
 		m.State.Branch,
-		icons.InProgress,
+		state,
 		elapsed,
 		follow,
 		debug,
 	)
+}
+
+// noLogNotes reads "log expired · build, test" and "log not available
+// yet · deploy": the status leads, so a cut line keeps it.
+func noLogNotes(missing []NoLog) []string {
+	var expired, notYet []string
+	for _, job := range missing {
+		name := strings.Join(strings.Fields(job.Job), " ")
+		if name == "" {
+			name = "job"
+		}
+		if job.Expired {
+			expired = append(expired, name)
+		} else {
+			notYet = append(notYet, name)
+		}
+	}
+	var notes []string
+	if len(expired) > 0 {
+		notes = append(notes, "log expired · "+strings.Join(expired, ", "))
+	}
+	if len(notYet) > 0 {
+		notes = append(notes, "log not available yet · "+strings.Join(notYet, ", "))
+	}
+	return notes
 }
 
 func foldLine(width int) string {

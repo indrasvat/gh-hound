@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"sync"
 	"time"
@@ -19,9 +20,25 @@ type WatchState struct {
 	// JobLogs maps each listed completed job with a log to its parsed
 	// lines; a completed job's log never changes, so the next tick
 	// reuses it.
-	JobLogs  map[int64][]logs.Line
+	JobLogs map[int64]JobLog
+	// NoLog lists the completed jobs shown without their log, in job
+	// order.
+	NoLog    []MissingLog
 	Terminal bool
 	NextPoll time.Duration
+}
+
+// JobLog is a completed job's parsed log, or the fact that it expired.
+type JobLog struct {
+	Lines   []logs.Line
+	Expired bool
+}
+
+// MissingLog is a completed job with no log to show: expired (410,
+// final) or not there yet (404, asked for again next tick).
+type MissingLog struct {
+	Job     model.Job
+	Expired bool
 }
 
 type WatchService struct {
@@ -52,18 +69,25 @@ func (s WatchService) Tick(ctx context.Context, state WatchState) (WatchState, e
 		return WatchState{}, err
 	}
 	state.Run = run
-	state.Lines = nil
-	jobLogs := make(map[int64][]logs.Line, len(jobs))
+	state.Lines, state.NoLog = nil, nil
+	jobLogs := make(map[int64]JobLog, len(jobs))
 	for _, job := range jobs {
 		// A completed job that ran no step (skipped, cancelled before it
 		// started, stopped at an environment gate) has no log: GitHub 404s.
 		if job.Status != model.StatusCompleted || len(job.Steps) == 0 {
 			continue
 		}
-		lines, cached := state.JobLogs[job.ID]
+		entry, cached := state.JobLogs[job.ID]
 		if !cached {
 			raw, err := s.GitHub.FetchJobLog(ctx, state.Repo, job.ID)
-			if err != nil {
+			missing, noLog := errors.AsType[LogUnavailableError](err)
+			switch {
+			case noLog && !missing.Expired():
+				state.NoLog = append(state.NoLog, MissingLog{Job: job})
+				continue
+			case noLog:
+				entry = JobLog{Expired: true}
+			case err != nil:
 				held := maps.Clone(state.JobLogs)
 				if held == nil {
 					held = jobLogs
@@ -71,11 +95,15 @@ func (s WatchService) Tick(ctx context.Context, state WatchState) (WatchState, e
 					maps.Copy(held, jobLogs)
 				}
 				return WatchState{Repo: state.Repo, RunID: state.RunID, JobLogs: held}, err
+			default:
+				entry = JobLog{Lines: logs.Parse(raw).Lines}
 			}
-			lines = logs.Parse(raw).Lines
 		}
-		jobLogs[job.ID] = lines
-		state.Lines = append(state.Lines, lines...)
+		jobLogs[job.ID] = entry
+		if entry.Expired {
+			state.NoLog = append(state.NoLog, MissingLog{Job: job, Expired: true})
+		}
+		state.Lines = append(state.Lines, entry.Lines...)
 	}
 	state.JobLogs = jobLogs
 	state.Terminal = run.Status == model.StatusCompleted

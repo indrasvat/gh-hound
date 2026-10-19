@@ -1,1 +1,1 @@
-{"contains": ["watch · CI #571", "✗ cancel · f follow · d debug · ⎋ detach"], "forbid": ["watch unavailable"]}
+{"contains": ["watch · CI #571", "✗ failure", "f follow · d debug · ⎋ detach"], "forbid": ["watch unavailable", "streaming", "cancel"]}

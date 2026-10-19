@@ -4274,6 +4274,9 @@ func (a App) footerScreen() keys.Screen {
 		if !a.watchOnScreen() {
 			return keys.ScreenWatchPending
 		}
+		if a.watch.Finished() {
+			return keys.ScreenWatchDone
+		}
 		return keys.ScreenWatch
 	case RouteWatchBoard:
 		return keys.ScreenWatchBoard
@@ -4384,7 +4387,11 @@ func (a App) chromeParts() (string, string, string) {
 		if a.watch.Follow {
 			follow = "follow ●"
 		}
-		return "hound", runChromeTitle(a.watch.State.Run), "streaming · " + follow
+		state := "streaming"
+		if a.watch.Finished() {
+			state = a.watch.Outcome()
+		}
+		return "hound", runChromeTitle(a.watch.State.Run), state + " · " + follow
 	case RouteWatchBoard:
 		return "hound", packContext(a.board), a.board.Summary().String()
 	case RouteDispatch:

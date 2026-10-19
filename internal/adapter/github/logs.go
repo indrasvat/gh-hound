@@ -3,6 +3,7 @@ package github
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,6 +23,15 @@ func (c *Client) FetchJobLog(ctx context.Context, repo string, jobID int64) (str
 // the redirected download streams; total <= 0 when Content-Length is
 // unknown (e.g. compressed transfers).
 func (c *Client) FetchJobLogWithProgress(ctx context.Context, repo string, jobID int64, progress func(read, total int64)) (string, error) {
+	text, err := c.fetchJobLog(ctx, repo, jobID, progress)
+	if missing, ok := errors.AsType[usecase.LogUnavailableError](err); ok {
+		missing.JobID = jobID
+		return "", missing
+	}
+	return text, err
+}
+
+func (c *Client) fetchJobLog(ctx context.Context, repo string, jobID int64, progress func(read, total int64)) (string, error) {
 	resource := resourcePath(repo, "actions/jobs/"+strconv.FormatInt(jobID, 10)+"/logs")
 	endpoint := c.baseURL + resource
 	body, status, err := c.fetchLogURL(ctx, endpoint, resource, progress)
@@ -43,8 +53,10 @@ func (c *Client) FetchJobLogWithProgress(ctx context.Context, repo string, jobID
 			})
 		}
 	}
-	if status < 200 || status >= 300 {
-		return "", fmt.Errorf("github log download failed for job %d: status %d", jobID, status)
+	// Still missing behind a fresh link: the log is not there (yet).
+	// Only the API's own 410 means retention.
+	if status == http.StatusNotFound || status == http.StatusGone {
+		return "", usecase.LogUnavailableError{Status: http.StatusNotFound}
 	}
 	return string(body), nil
 }
@@ -95,6 +107,10 @@ func (c *Client) fetchLogURL(ctx context.Context, rawURL, resource string, progr
 			location = base.ResolveReference(location)
 		}
 		return c.fetchRedirectedLog(ctx, location.String(), progress)
+	}
+	// From the API itself, 404 and 410 are final: the job has no log.
+	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone {
+		return nil, resp.StatusCode, usecase.LogUnavailableError{Status: resp.StatusCode}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		limited, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))

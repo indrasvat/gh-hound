@@ -73,6 +73,7 @@ scenarios=(
   timejump-tiny
   caches-filter-clear
   watch-skipped-job
+  watch-expired-log
   watch-failed-open
 )
 
@@ -86,7 +87,7 @@ adapter_for() {
     failure-log-refetch) printf 'log_refetch' ;;
     log-compact-* | log-range-search | log-match-grouped | log-fold-count | timejump-small | timejump-tiny) printf 'noisy' ;;
     failure-cut-scroll | failure-scroll-grow) printf 'failing' ;;
-    watch-skipped-job | watch-failed-open) printf 'skipped_job' ;;
+    watch-skipped-job | watch-expired-log | watch-failed-open) printf 'skipped_job' ;;
     *) printf 'failing' ;;
   esac
 }
@@ -141,7 +142,8 @@ keys_for() {
     failure-cut-scroll) printf 'enter enter j j j j j' ;;
     failure-scroll-grow) printf 'enter enter j j j j j resize:120x40' ;;
     watch-skipped-job) printf 'w' ;;
-    watch-failed-open) printf 'w esc j w' ;;
+    watch-expired-log) printf 'w esc j w' ;;
+    watch-failed-open) printf 'w esc j j w' ;;
     log-range-search) printf 'enter l t 1 6 : 1 2 : 0 2 - 1 6 : 1 2 : 1 2 enter / r e q u e s t - i d enter' ;;
     log-match-grouped) printf 'enter l / 2 0 2 6 enter' ;;
     log-fold-count) printf 'enter l t 1 6 : 1 2 : 2 1 enter G' ;;

@@ -6,11 +6,18 @@ import (
 )
 
 type State struct {
-	Repo    string
-	Branch  string
-	Run     model.Run
-	Lines   []logs.Line
+	Repo   string
+	Branch string
+	Run    model.Run
+	Lines  []logs.Line
+	// NoLog names the finished jobs shown without their log.
+	NoLog   []NoLog
 	Elapsed string
+}
+
+type NoLog struct {
+	Job     string
+	Expired bool
 }
 
 type KeyMsg struct {
@@ -41,6 +48,20 @@ func NewModel(state State) Model {
 	return Model{State: state, Follow: true}
 }
 
+// Finished reports a run that has ended: nothing streams, nothing to
+// cancel.
+func (m Model) Finished() bool {
+	return m.State.Run.Status == model.StatusCompleted
+}
+
+// Outcome names how a finished run ended.
+func (m Model) Outcome() string {
+	if m.State.Run.Conclusion == model.ConclusionNone {
+		return "completed"
+	}
+	return string(m.State.Run.Conclusion)
+}
+
 func (m Model) Update(msg KeyMsg) Model {
 	m.Intent = Intent{}
 	switch msg.Key {
@@ -49,7 +70,9 @@ func (m Model) Update(msg KeyMsg) Model {
 	case "d":
 		m.Debug = !m.Debug
 	case "x":
-		m.Intent = Intent{Kind: IntentCancel, RunID: m.State.Run.ID}
+		if !m.Finished() {
+			m.Intent = Intent{Kind: IntentCancel, RunID: m.State.Run.ID}
+		}
 	case "esc":
 		m.Intent = Intent{Kind: IntentDetach, RunID: m.State.Run.ID}
 	}

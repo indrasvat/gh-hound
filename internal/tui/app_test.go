@@ -1401,7 +1401,9 @@ func TestNestedMutationShortcutsRequireConfirmation(t *testing.T) {
 			key:    "x",
 			action: usecase.ActionCancelRun,
 			setup: func(app App) App {
-				app.watch = watchModelForTest(run)
+				running := run // a finished run has nothing to cancel
+				running.Status, running.Conclusion = model.StatusInProgress, model.ConclusionNone
+				app.watch = watchModelForTest(running)
 				app.PushRoute(RouteWatch)
 				return app
 			},
