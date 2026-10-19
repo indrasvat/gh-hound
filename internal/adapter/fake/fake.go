@@ -43,8 +43,8 @@ const (
 	// ScenarioNoisy is a failing run whose job log is mostly repeats.
 	ScenarioNoisy Scenario = "noisy"
 	// ScenarioSkippedJob is a failing run with a job that never ran
-	// (no steps, no log), an older run whose log has expired, and an
-	// older one still whose log download fails.
+	// (no steps, no log), an older run with an expired log and one not
+	// there yet, and an older one still whose log download fails.
 	ScenarioSkippedJob Scenario = "skipped_job"
 )
 
@@ -52,6 +52,7 @@ const (
 	skippedJobID = 399444497
 	expiredJobID = 399444498
 	brokenJobID  = 399444499
+	pendingJobID = 399444500
 )
 
 type Adapter struct {
@@ -184,9 +185,10 @@ func (a *Adapter) ListJobs(_ context.Context, _ string, runID int64) ([]model.Jo
 	}
 	switch runID {
 	case greenRun(570).ID:
-		expired := job()
+		expired, pending := job(), job()
 		expired.ID = expiredJobID
-		return []model.Job{expired}, nil
+		pending.ID, pending.Name = pendingJobID, "test"
+		return []model.Job{expired, pending}, nil
 	case greenRun(569).ID:
 		broken := job()
 		broken.ID = brokenJobID
@@ -416,8 +418,10 @@ func (a *Adapter) FetchJobLog(_ context.Context, _ string, jobID int64) (string,
 			return "", usecase.LogUnavailableError{JobID: jobID, Status: http.StatusNotFound}
 		case expiredJobID:
 			return "", usecase.LogUnavailableError{JobID: jobID, Status: http.StatusGone}
+		case pendingJobID:
+			return "", usecase.LogUnavailableError{JobID: jobID, Status: http.StatusNotFound}
 		case brokenJobID:
-			return "", fmt.Errorf("github log download failed for job %d: status 502", jobID)
+			return "", fmt.Errorf("github log url https://api.github.com/repos/indrasvat/gh-hound/actions/jobs/%d/logs returned 502: Bad Gateway", jobID)
 		}
 	}
 	if a.scenario == ScenarioLogRender {

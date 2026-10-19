@@ -159,3 +159,17 @@ func TestViewNamesJobsWithoutALog(t *testing.T) {
 		assertWidth(t, view, width)
 	}
 }
+
+// A finished run has no active step: no running cursor on its last
+// line, and the no-log note stands alone when nothing else shows.
+func TestFinishedRunHasNoActiveCursor(t *testing.T) {
+	done := model.Run{ID: 164, Name: "CI", RunNumber: 164, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess}
+	m := NewModel(State{Branch: "main", Run: done, Lines: logs.Parse("17:43:02Z go test ./...\nok internal/api 0.214s\n").Lines})
+	if plain := ansi.Strip(View(m, 80)); strings.Contains(plain, "█") {
+		t.Fatalf("finished run draws the running cursor:\n%s", plain)
+	}
+	m = NewModel(State{Branch: "main", Run: done, NoLog: []NoLog{{Job: "build", Expired: true}}})
+	if plain := ansi.Strip(View(m, 80)); strings.Contains(plain, "no job logs to show") {
+		t.Fatalf("the note is repeated:\n%s", plain)
+	}
+}

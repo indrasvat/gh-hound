@@ -53,11 +53,10 @@ func (c *Client) fetchJobLog(ctx context.Context, repo string, jobID int64, prog
 			})
 		}
 	}
+	// Still missing behind a fresh link: the log is not there (yet).
+	// Only the API's own 410 means retention.
 	if status == http.StatusNotFound || status == http.StatusGone {
-		return "", usecase.LogUnavailableError{Status: status}
-	}
-	if status < 200 || status >= 300 {
-		return "", fmt.Errorf("github log download failed for job %d: status %d", jobID, status)
+		return "", usecase.LogUnavailableError{Status: http.StatusNotFound}
 	}
 	return string(body), nil
 }

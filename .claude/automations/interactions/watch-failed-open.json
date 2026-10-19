@@ -1,1 +1,1 @@
-{"contains": ["watch unavailable: github log download failed for job 399444499: status 502", "⎋ back"], "forbid": ["#571", "#570", "cancel", "streaming"]}
+{"contains": ["watch unavailable: github log url", "returned 502: Bad Gateway", "⎋ back"], "forbid": ["#571", "#570", "cancel", "streaming"]}

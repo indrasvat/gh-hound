@@ -59,7 +59,7 @@ func TestFailedWatchLoadDoesNotKeepThePreviousRun(t *testing.T) {
 	app := watchTwoRunsApp(Options{
 		WatchResolver: func(_ context.Context, run model.Run) (watch.Model, error) {
 			if run.ID == watchRunB.ID {
-				return watch.Model{}, errors.New("github log download failed for job 7: status 404")
+				return watch.Model{}, errors.New("github log url https://api.github.com/repos/indrasvat/gh-hound/actions/jobs/7/logs returned 502: Bad Gateway")
 			}
 			firstCalls.Add(1)
 			return watch.NewModel(watch.State{Repo: "indrasvat/gh-hound", Branch: "main", Run: run}), nil
@@ -76,7 +76,7 @@ func TestFailedWatchLoadDoesNotKeepThePreviousRun(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	view := ansi.Strip(app.ViewSize(100, 24))
-	if strings.Contains(view, "#41") || !strings.Contains(view, "watch unavailable: github log download failed") {
+	if strings.Contains(view, "#41") || !strings.Contains(view, "watch unavailable: github log url") {
 		t.Fatalf("failed watch of #42 must show its error, not #41:\n%s", view)
 	}
 	if calls := firstCalls.Load(); calls != opened {

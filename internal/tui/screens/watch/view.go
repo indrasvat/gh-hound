@@ -14,15 +14,17 @@ func View(m Model, width int) string {
 		width = 80
 	}
 	lines := []string{fit(header(m), width)}
-	for _, note := range noLogNotes(m.State.NoLog) {
+	notes := noLogNotes(m.State.NoLog)
+	for _, note := range notes {
 		lines = append(lines, fitANSI(colorize(sgrDim, note), width))
 	}
 	if len(m.State.Lines) == 0 {
-		empty := "waiting for completed job logs from GitHub Actions"
-		if m.Finished() {
-			empty = "no job logs to show"
+		switch {
+		case !m.Finished():
+			lines = append(lines, fitANSI(colorize(sgrDim, "waiting for completed job logs from GitHub Actions"), width))
+		case len(notes) == 0:
+			lines = append(lines, fitANSI(colorize(sgrDim, "no job logs to show"), width))
 		}
-		lines = append(lines, fitANSI(colorize(sgrDim, empty), width))
 		return strings.Join(lines, "\n")
 	}
 	lines = append(lines, foldLine(width))
@@ -32,7 +34,7 @@ func View(m Model, width int) string {
 	}
 	visible := m.State.Lines[start:]
 	for index, line := range visible {
-		lines = append(lines, logLine(line, width, index == len(visible)-1))
+		lines = append(lines, logLine(line, width, !m.Finished() && index == len(visible)-1))
 	}
 	return strings.Join(lines, "\n")
 }

@@ -192,23 +192,28 @@ func TestFetchJobLogReportsAMissingLog(t *testing.T) {
 	}
 }
 
-// A stale redirect is re-requested once; if the log is still missing
-// the error is the same typed one.
+// A stale redirect is re-requested once; if the download is still
+// missing, the log is not there (yet): only the API's own 410 means
+// retention, so a blob store's 410 is not read as expired.
 func TestFetchJobLogReportsAMissingLogAfterTheRefetch(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/repos/indrasvat/gh-hound/actions/jobs/399444496/logs":
-			http.Redirect(w, r, "/blob", http.StatusFound)
-		case "/blob":
-			http.Error(w, "BlobNotFound", http.StatusNotFound)
-		}
-	}))
-	defer server.Close()
+	for _, status := range []int{http.StatusNotFound, http.StatusGone} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/repos/indrasvat/gh-hound/actions/jobs/399444496/logs":
+					http.Redirect(w, r, "/blob", http.StatusFound)
+				case "/blob":
+					http.Error(w, "BlobNotFound", status)
+				}
+			}))
+			defer server.Close()
 
-	client := NewClient(server.URL, server.Client())
-	_, err := client.FetchJobLog(context.Background(), "indrasvat/gh-hound", 399444496)
-	var missing usecase.LogUnavailableError
-	if !errors.As(err, &missing) || missing.Status != http.StatusNotFound {
-		t.Fatalf("err = %#v, want LogUnavailableError with 404", err)
+			client := NewClient(server.URL, server.Client())
+			_, err := client.FetchJobLog(context.Background(), "indrasvat/gh-hound", 399444496)
+			var missing usecase.LogUnavailableError
+			if !errors.As(err, &missing) || missing.Expired() || missing.JobID != 399444496 {
+				t.Fatalf("err = %#v, want a not-yet LogUnavailableError for job 399444496", err)
+			}
+		})
 	}
 }
