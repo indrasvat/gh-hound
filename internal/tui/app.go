@@ -4389,7 +4389,7 @@ func (a App) chromeParts() (string, string, string) {
 		}
 		state := "streaming"
 		if a.watch.Finished() {
-			state = string(a.watch.State.Run.Conclusion)
+			state = a.watch.Outcome()
 		}
 		return "hound", runChromeTitle(a.watch.State.Run), state + " · " + follow
 	case RouteWatchBoard:

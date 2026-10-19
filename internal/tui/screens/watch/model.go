@@ -54,6 +54,14 @@ func (m Model) Finished() bool {
 	return m.State.Run.Status == model.StatusCompleted
 }
 
+// Outcome names how a finished run ended.
+func (m Model) Outcome() string {
+	if m.State.Run.Conclusion == model.ConclusionNone {
+		return "completed"
+	}
+	return string(m.State.Run.Conclusion)
+}
+
 func (m Model) Update(msg KeyMsg) Model {
 	m.Intent = Intent{}
 	switch msg.Key {

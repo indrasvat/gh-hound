@@ -52,7 +52,7 @@ func header(m Model) string {
 	}
 	state := "streaming " + icons.InProgress
 	if m.Finished() {
-		state = icons.ForConclusion(m.State.Run.Conclusion) + " " + string(m.State.Run.Conclusion)
+		state = icons.ForConclusion(m.State.Run.Conclusion) + " " + m.Outcome()
 	}
 	return fmt.Sprintf("watch · %s #%d · %s %s %s %s%s",
 		m.State.Run.Name,

@@ -117,6 +117,7 @@ func TestFinishedRunShowsItsConclusion(t *testing.T) {
 		{model.ConclusionSuccess, "✔ success 4m45s follow ●"},
 		{model.ConclusionFailure, "✗ failure 4m45s follow ●"},
 		{model.ConclusionCancelled, "⊘ cancelled 4m45s follow ●"},
+		{model.ConclusionNone, "◇ completed 4m45s follow ●"},
 	} {
 		m := NewModel(State{
 			Branch: "main", Elapsed: "4m45s",
