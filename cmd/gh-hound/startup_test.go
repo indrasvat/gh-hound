@@ -70,7 +70,7 @@ func startBlockedTUI(t *testing.T) (*syncBuffer, io.Writer, blockedGitHub, <-cha
 			Repo: &cliRepo{context: usecase.RepositoryContext{
 				Repo: "indrasvat/gh-hound", Branch: "main", Actor: "indrasvat",
 			}},
-		}, buildInfo{Version: "test"}, cliOptions{})
+		}, buildInfo{Version: "test"}, cliOptions{Repo: "indrasvat/gh-hound"})
 	}()
 	return out, keys, github, done
 }
@@ -88,6 +88,7 @@ func waitForOutput(t *testing.T, out *syncBuffer, want string) {
 
 func TestLiveLaunchPaintsBeforeTheRunsLoadAndKeepsTypedKeys(t *testing.T) {
 	out, keys, github, done := startBlockedTUI(t)
+	waitForOutput(t, out, "hound indrasvat/gh-hound")
 	waitForOutput(t, out, "picking up the scent")
 	if _, err := io.WriteString(keys, "?"); err != nil {
 		t.Fatal(err)

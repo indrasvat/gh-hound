@@ -164,19 +164,22 @@ func humanBytes(bytes int64) string {
 // terminal must not sit blank meanwhile.
 type Startup struct {
 	theme theme.Theme
+	repo  string
 	load  *pendingLoad
 }
 
-func NewStartup(cfg config.Config) Startup {
+// NewStartup takes the repo the launch named (-R), if any.
+func NewStartup(cfg config.Config, repo string) Startup {
 	return Startup{
 		theme: theme.ForMode(theme.Mode(cfg.Theme)),
+		repo:  repo,
 		load:  &pendingLoad{label: "picking up the scent", started: time.Now()},
 	}
 }
 
 func (s Startup) ViewSize(width, height int) string {
 	body := loadingBody(s.theme, s.load, contentWidth(width), time.Now())
-	return frameViewSize(s.theme, "hound", "", "", body, keys.FooterForScreen(keys.ScreenStartup), width, height, true)
+	return frameViewSize(s.theme, "hound", s.repo, "", body, keys.FooterForScreen(keys.ScreenStartup), width, height, true)
 }
 
 // PollInterval is the spinner's frame rate.

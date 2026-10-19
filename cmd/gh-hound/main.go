@@ -1155,7 +1155,7 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 
 	renderer := newFrameRenderer(out)
 	renderer.SetSize(width, height)
-	startup := tui.NewStartup(cfg)
+	startup := tui.NewStartup(cfg, options.Repo)
 	var screen interface {
 		ViewSize(width, height int) string
 	} = startup
