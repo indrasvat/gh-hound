@@ -33,12 +33,13 @@ IMPLEMENTED — issue #60. `make ci` and `make vqa` pass; verified with shux 0.5
 - Live on main: CI #164 (5 finished jobs) downloaded 5 logs on every 3 s tick; CI #162, whose matrix build was cancelled before it started, could not be watched (`status 404`). From the runs list, `w` on #162 after watching #164 showed #164 and kept polling it.
 - `FuzzWatchSession` found that caching a step-less job as "no log" hid its log if it later listed steps; such jobs are now skipped, not cached (seed committed).
 - Cold `tui-qa` round (381b3fb, FAIL): the failed open's footer and help offered cancel, follow and debug, which did nothing there; no fixture reached the new states; f was undone by the next poll (also on main). All fixed, each with a test that failed first.
+- Cold `tui-qa` round 2 (d56a598): PASS.
 - Not changed (also on main): the watch header reads `streaming ⠹` and the footer offers `✗ cancel` on a run that has finished; the follow view shows six lines at any height; log lines are not colored as the mock; the error view's title is `Runs unavailable` on every route; a failed open does not retry until `w`.
 - Adversarial review (also on main): `x` while another run's watch loaded offered to cancel the previous run; a rerun or 204-dispatch auto-watch after a failed watch showed that failure until the first poll. Fixed, each with a test that failed first.
 - Adversarial review: a late tick for the run the user left replaced the current run's logs, costing one re-download; fixed with a test that failed first.
 - Adversarial review: a failed tick dropped the logs it had fetched, so a log that kept failing re-downloaded every job before it on every tick; fixed with a test that failed first. The returned state shares the session's logs and is read-only (the resolver only reads `Lines`).
 - Live probe (282 jobs on this repo): every zero-step job within retention 404s, every job with steps returned its log; a zero-step job can also be a `failure` stopped at an environment gate.
-- Not changed: a job with steps whose log fails (briefly 404 right after it completes, or 410 past retention) still fails the tick, so a run older than log retention cannot be watched, as on main; skipping it needs a typed log error from the adapter, which the failure and log screens share.
+- Not changed: a job with steps whose log fails (briefly 404 right after it completes, or 410 past retention) still fails the tick, so a run older than log retention cannot be watched, as on main, and its error shows the raw API body; skipping it needs a typed log error from the adapter, which the failure and log screens share.
 
 ## Definition Of Done
 
