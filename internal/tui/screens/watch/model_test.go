@@ -106,3 +106,48 @@ func assertWidth(t *testing.T, view string, width int) {
 		}
 	}
 }
+
+// A finished run is no longer streaming: the header names how it ended
+// and x has nothing to call off.
+func TestFinishedRunShowsItsConclusion(t *testing.T) {
+	for _, tc := range []struct {
+		conclusion model.Conclusion
+		want       string
+	}{
+		{model.ConclusionSuccess, "✔ success 4m45s follow ●"},
+		{model.ConclusionFailure, "✗ failure 4m45s follow ●"},
+		{model.ConclusionCancelled, "⊘ cancelled 4m45s follow ●"},
+	} {
+		m := NewModel(State{
+			Branch: "main", Elapsed: "4m45s",
+			Run: model.Run{ID: 164, Name: "CI", RunNumber: 164, Status: model.StatusCompleted, Conclusion: tc.conclusion},
+		})
+		plain := ansi.Strip(View(m, 80))
+		if !strings.Contains(plain, "watch · CI #164 · main "+tc.want) || strings.Contains(plain, "streaming") {
+			t.Fatalf("%s header:\n%s", tc.conclusion, plain)
+		}
+		if strings.Contains(plain, "waiting for completed job logs") || !strings.Contains(plain, "no job logs to show") {
+			t.Fatalf("%s run with no lines waits for logs:\n%s", tc.conclusion, plain)
+		}
+		if m.Update(KeyMsg{Key: "x"}).Intent.Kind != IntentNone {
+			t.Fatalf("x on a %s run asks to cancel it", tc.conclusion)
+		}
+	}
+}
+
+// Jobs shown without a log are named, expired or not there yet.
+func TestViewNamesJobsWithoutALog(t *testing.T) {
+	m := NewModel(State{
+		Branch: "main",
+		Run:    model.Run{ID: 148, Name: "Release", RunNumber: 148, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess},
+		NoLog:  []NoLog{{Job: "build", Expired: true}, {Job: "publish", Expired: true}, {Job: "notify"}},
+	})
+	for _, width := range []int{80, 120} {
+		view := View(m, width)
+		plain := ansi.Strip(view)
+		if !strings.Contains(plain, "no log · build, publish expired · notify not available yet") {
+			t.Fatalf("view at %d does not name the jobs without a log:\n%s", width, plain)
+		}
+		assertWidth(t, view, width)
+	}
+}

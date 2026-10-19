@@ -1591,11 +1591,16 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			if state.Run.ID == 0 {
 				state.Run = run
 			}
+			noLog := make([]watch.NoLog, 0, len(state.NoLog))
+			for _, missing := range state.NoLog {
+				noLog = append(noLog, watch.NoLog{Job: missing.Job.Name, Expired: missing.Expired})
+			}
 			return watch.NewModel(watch.State{
 				Repo:    launch.Repo,
 				Branch:  firstNonEmptyString(launch.Branch, run.HeadBranch),
 				Run:     state.Run,
 				Lines:   state.Lines,
+				NoLog:   noLog,
 				Elapsed: elapsedRun(state.Run),
 			}), nil
 		},

@@ -3,6 +3,7 @@ package usecase
 import (
 	"fmt"
 	"net"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -80,6 +81,24 @@ type LogRenderError struct {
 
 func (e LogRenderError) Error() string {
 	return e.Message
+}
+
+// LogUnavailableError is GitHub having no log for a job: 410 once the
+// log is past the repository's retention, 404 when there is none (yet).
+type LogUnavailableError struct {
+	JobID  int64
+	Status int
+}
+
+func (e LogUnavailableError) Expired() bool {
+	return e.Status == http.StatusGone
+}
+
+func (e LogUnavailableError) Error() string {
+	if e.Expired() {
+		return fmt.Sprintf("the log for job %d has expired (past the repository's log retention)", e.JobID)
+	}
+	return fmt.Sprintf("GitHub has no log for job %d", e.JobID)
 }
 
 func ResilienceFor(err error, context ErrorContext) Resilience {

@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -9,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
 func TestFetchJobLogRefetchesWhenRedirectExpired(t *testing.T) {
@@ -154,5 +157,58 @@ func TestFetchJobLogWithNilProgressMatchesPlainFetch(t *testing.T) {
 	logText, err := client.FetchJobLogWithProgress(context.Background(), "indrasvat/gh-hound", 7, nil)
 	if err != nil || logText != "plain body\n" {
 		t.Fatalf("nil-progress fetch = %q, %v", logText, err)
+	}
+}
+
+// GitHub answers 410 for a log past the repository's retention and 404
+// for a job with no log. Either is final from the API itself: no
+// re-request, and a typed error with a clean message, not the raw URL
+// and JSON body.
+func TestFetchJobLogReportsAMissingLog(t *testing.T) {
+	for _, status := range []int{http.StatusGone, http.StatusNotFound} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			var calls atomic.Int64
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"message":"Server Error","documentation_url":"https://docs.github.com/rest"}`))
+			}))
+			defer server.Close()
+
+			client := NewClient(server.URL, server.Client())
+			_, err := client.FetchJobLog(context.Background(), "indrasvat/gh-hound", 399444496)
+			var missing usecase.LogUnavailableError
+			if !errors.As(err, &missing) || missing.JobID != 399444496 || missing.Status != status {
+				t.Fatalf("err = %#v, want LogUnavailableError{399444496, %d}", err, status)
+			}
+			if strings.Contains(err.Error(), "http") || strings.Contains(err.Error(), "{") {
+				t.Fatalf("error carries the raw response: %q", err)
+			}
+			if got := calls.Load(); got != 1 {
+				t.Fatalf("log endpoint calls = %d, want 1", got)
+			}
+		})
+	}
+}
+
+// A stale redirect is re-requested once; if the log is still missing
+// the error is the same typed one.
+func TestFetchJobLogReportsAMissingLogAfterTheRefetch(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/indrasvat/gh-hound/actions/jobs/399444496/logs":
+			http.Redirect(w, r, "/blob", http.StatusFound)
+		case "/blob":
+			http.Error(w, "BlobNotFound", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client())
+	_, err := client.FetchJobLog(context.Background(), "indrasvat/gh-hound", 399444496)
+	var missing usecase.LogUnavailableError
+	if !errors.As(err, &missing) || missing.Status != http.StatusNotFound {
+		t.Fatalf("err = %#v, want LogUnavailableError with 404", err)
 	}
 }

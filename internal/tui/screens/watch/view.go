@@ -14,8 +14,15 @@ func View(m Model, width int) string {
 		width = 80
 	}
 	lines := []string{fit(header(m), width)}
+	if note := noLogNote(m.State.NoLog); note != "" {
+		lines = append(lines, fitANSI(colorize(sgrDim, note), width))
+	}
 	if len(m.State.Lines) == 0 {
-		lines = append(lines, fitANSI(colorize(sgrDim, "waiting for completed job logs from GitHub Actions"), width))
+		empty := "waiting for completed job logs from GitHub Actions"
+		if m.Finished() {
+			empty = "no job logs to show"
+		}
+		lines = append(lines, fitANSI(colorize(sgrDim, empty), width))
 		return strings.Join(lines, "\n")
 	}
 	lines = append(lines, foldLine(width))
@@ -43,15 +50,43 @@ func header(m Model) string {
 	if m.Debug {
 		debug = " · debug"
 	}
-	return fmt.Sprintf("watch · %s #%d · %s streaming %s %s %s%s",
+	state := "streaming " + icons.InProgress
+	if m.Finished() {
+		state = icons.ForConclusion(m.State.Run.Conclusion) + " " + string(m.State.Run.Conclusion)
+	}
+	return fmt.Sprintf("watch · %s #%d · %s %s %s %s%s",
 		m.State.Run.Name,
 		m.State.Run.RunNumber,
 		m.State.Branch,
-		icons.InProgress,
+		state,
 		elapsed,
 		follow,
 		debug,
 	)
+}
+
+// noLogNote reads "no log · build, test expired · deploy not available
+// yet".
+func noLogNote(missing []NoLog) string {
+	var expired, notYet []string
+	for _, job := range missing {
+		if job.Expired {
+			expired = append(expired, job.Job)
+		} else {
+			notYet = append(notYet, job.Job)
+		}
+	}
+	parts := []string{"no log"}
+	if len(expired) > 0 {
+		parts = append(parts, strings.Join(expired, ", ")+" expired")
+	}
+	if len(notYet) > 0 {
+		parts = append(parts, strings.Join(notYet, ", ")+" not available yet")
+	}
+	if len(parts) == 1 {
+		return ""
+	}
+	return strings.Join(parts, " · ")
 }
 
 func foldLine(width int) string {

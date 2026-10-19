@@ -1142,6 +1142,7 @@ type cliGitHub struct {
 	runErrors        []error
 	jobs             []model.Job
 	jobLog           string
+	logStatus        map[int64]int // job → 404/410: GitHub has no log
 	annotations      []model.Annotation
 	artifactList     []model.Artifact
 	artifactZip      string
@@ -1258,10 +1259,13 @@ func (g *cliGitHub) ListAnnotations(context.Context, string, model.Job) ([]model
 	return g.annotations, nil
 }
 
-func (g *cliGitHub) FetchJobLog(context.Context, string, int64) (string, error) {
+func (g *cliGitHub) FetchJobLog(_ context.Context, _ string, id int64) (string, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.fetchJobLog++
+	if status, ok := g.logStatus[id]; ok {
+		return "", usecase.LogUnavailableError{JobID: id, Status: status}
+	}
 	return g.jobLog, nil
 }
 

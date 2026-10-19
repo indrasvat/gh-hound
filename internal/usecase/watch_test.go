@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net/http"
 	"slices"
 	"sync"
 	"testing"
@@ -293,6 +294,55 @@ func (h *heldRun) ListJobs(ctx context.Context, repo string, id int64) ([]model.
 		<-h.release
 	}
 	return h.watchGitHub.ListJobs(ctx, repo, id)
+}
+
+// A log past retention (410) shows as expired, never fails the tick
+// and is asked for once; a log not there yet (404) shows as missing and
+// is asked for again next tick.
+func TestWatchSessionShowsMissingLogsWithoutFailing(t *testing.T) {
+	gh := &watchGitHub{jobs: []model.Job{
+		watchJob(1, model.StatusCompleted, 1),
+		watchJob(2, model.StatusCompleted, 1),
+		watchJob(3, model.StatusCompleted, 1),
+	}}
+	missing := &missingLogs{watchGitHub: gh, status: map[int64]int{2: http.StatusGone, 3: http.StatusNotFound}}
+	session := &usecase.WatchSession{Service: usecase.WatchService{GitHub: missing}}
+	var state usecase.WatchState
+	for range 3 {
+		var err error
+		if state, err = session.Tick(context.Background(), "o/r", model.Run{ID: 570}); err != nil {
+			t.Fatalf("tick: %v", err)
+		}
+	}
+	want := []usecase.MissingLog{{Job: gh.jobs[1], Expired: true}, {Job: gh.jobs[2]}}
+	if !slices.EqualFunc(state.NoLog, want, func(a, b usecase.MissingLog) bool { return a.Job.ID == b.Job.ID && a.Expired == b.Expired }) {
+		t.Fatalf("no-log = %+v, want job 2 expired and job 3 not there yet", state.NoLog)
+	}
+	if got := lineTexts(state.Lines); !slices.Equal(got, []string{"job 1 line 1", "job 1 line 2"}) {
+		t.Fatalf("lines = %q", got)
+	}
+	if _, perJob := gh.fetchCounts(); perJob[1] != 1 || perJob[2] != 1 || perJob[3] != 3 {
+		t.Fatalf("fetched %v, want job 1 and the expired job 2 once, job 3 every tick", perJob)
+	}
+
+	delete(missing.status, 3) // the log lands
+	if state, _ = session.Tick(context.Background(), "o/r", model.Run{ID: 570}); len(state.NoLog) != 1 || len(state.Lines) != 4 {
+		t.Fatalf("after job 3's log lands: no-log %+v, %d lines", state.NoLog, len(state.Lines))
+	}
+}
+
+// missingLogs answers like GitHub for jobs without a log.
+type missingLogs struct {
+	*watchGitHub
+	status map[int64]int
+}
+
+func (m *missingLogs) FetchJobLog(ctx context.Context, repo string, id int64) (string, error) {
+	if status, ok := m.status[id]; ok {
+		_, _ = m.watchGitHub.FetchJobLog(ctx, repo, id) // count the request
+		return "", usecase.LogUnavailableError{JobID: id, Status: status}
+	}
+	return m.watchGitHub.FetchJobLog(ctx, repo, id)
 }
 
 type failingLogs struct {
