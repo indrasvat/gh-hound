@@ -32,6 +32,7 @@ IMPLEMENTED — the two items task 390 left open. `make ci` and `make vqa` pass;
 - Adversarial review: a blob store's 404 or 410 behind a re-requested link was read as expired and held for good; only the API's own 410 means retention now, so it is asked for again. The old `log download failed … status N` return became unreachable and is gone; the fake's failing download uses the adapter's real message.
 - Not changed: the log and failure screens show a missing log in the shared route-error view, whose title (`Runs unavailable`) and hint (check auth, rate limits) are generic on every route (task 390); the message itself is now plain.
 - Cold `tui-qa` round 1 (93d37b4, FAIL): no fixture reached the not-yet line (the fake's only 404 was on a job with no steps, which is never fetched); fixed with a not-yet job on #570. Also fixed: a finished run drew the running cursor on its last line, and `no job logs to show` repeated the no-log note.
+- Cold `tui-qa` round 2 (ecc2194): PASS.
 - Not changed (also on main): the follow view shows six lines at any height; `d` only labels the header.
 - Not changed (also on main): `x` pressed while a run is still going opens the confirm; if the run finishes before `y`, the cancel is sent and GitHub's 409 shows as a rejected mutation (polls do not apply under a confirm).
 
