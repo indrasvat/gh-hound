@@ -32,7 +32,9 @@ IMPLEMENTED — issue #65, first of two PRs. The second (the cut failure view's 
 
 - Adversarial review (input surface): with UTF-8 decoded, 37+ wide runes in the runs filter panicked (it compared width, then sliced by rune count), and unbound control characters (ctrl+L, BEL, 8-bit CSI) were typed into inputs and written to the terminal. Both fixed, each with a test that failed first.
 - Adversarial review (startup surface): entering raw mode and the alt screen before the slow launch made a SIGTERM/SIGHUP during it leave the terminal raw in the alt screen (main left it clean only because it was still cooked then). Main had the same hole once the app was up. Fixed for both. Also fixed: keys after a replayed `q` still ran, EOF during startup skipped `Shutdown`, and a non-terminal run printed a full frame every spinner tick.
-- Not changed: `:` over help over the palette returns to the palette with a fresh query (main reset it the same way).
+- Cold `tui-qa` round 1 (773cfd0, FAIL): the wide-rune panic above, which the UTF-8 scenarios missed because they typed only a few runes (`input-wide` now types 40 at 80 cols); it also found the escape-sequence and control-character holes, fixed as above.
+- Not changed: `:` over help over the palette returns to the palette with a fresh query (main reset it the same way); `q` during startup is queued until the app arrives (the footer promises only `ctrl+c quit`).
+- Pre-existing, seen during QA, not fixed here: the caches filter keeps its browse footer while typing; `l` from the runs list shows an error panel for a moment while the log loads instead of the shared loading body; the runs footer and help's View row end with a bare `?`.
 
 ## Measurements
 
