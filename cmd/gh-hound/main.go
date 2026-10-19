@@ -1332,6 +1332,9 @@ func readKeys(reader io.Reader) <-chan keyEvent {
 
 type keyDecoder struct {
 	pending []byte
+	// full is set when the last read filled the buffer: more input is
+	// already waiting, so a trailing ESC may start a sequence.
+	full bool
 }
 
 func (d *keyDecoder) Next(reader io.Reader, scratch []byte) (string, error) {
@@ -1346,6 +1349,7 @@ func (d *keyDecoder) Next(reader io.Reader, scratch []byte) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		d.full = n == len(scratch)
 		if n > 0 {
 			d.pending = append(d.pending, scratch[:n]...)
 		}
@@ -1354,7 +1358,7 @@ func (d *keyDecoder) Next(reader io.Reader, scratch []byte) (string, error) {
 
 func (d *keyDecoder) pop() (string, bool) {
 	for len(d.pending) > 0 {
-		if n := escapeSequence(d.pending); n < 0 {
+		if n := escapeSequence(d.pending); n < 0 || (d.full && string(d.pending) == "\x1b") {
 			return "", false
 		} else if n > 0 {
 			key := keyName(d.pending[:n])
@@ -2140,7 +2144,7 @@ func keyName(input []byte) string {
 		return "esc"
 	default:
 		r, _ := utf8.DecodeRune(input)
-		if unicode.IsControl(r) {
+		if unicode.IsControl(r) || unicode.Is(unicode.Bidi_Control, r) {
 			// Unbound: typed into an input it would reach the terminal.
 			return ""
 		}

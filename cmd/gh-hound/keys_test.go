@@ -90,7 +90,8 @@ func FuzzKeyDecoder(f *testing.F) {
 				typed.WriteString(key)
 			}
 		}
-		if !utf8.Valid(data) || strings.ContainsFunc(string(data), unicode.IsControl) {
+		unbound := func(r rune) bool { return unicode.IsControl(r) || unicode.Is(unicode.Bidi_Control, r) }
+		if !utf8.Valid(data) || strings.ContainsFunc(string(data), unbound) {
 			return
 		}
 		if typed.String() != string(data) {
@@ -117,6 +118,24 @@ func TestKeyDecoderSwallowsUnboundEscapeSequences(t *testing.T) {
 func TestKeyDecoderDropsUnboundControlRunes(t *testing.T) {
 	got := decodeAll(t, strings.NewReader("a\x0c\x0b\x0e\x07\x00\xc2\x9b\xc2\x85b\x03"))
 	if want := []string{"a", "b", "ctrl+c"}; !slices.Equal(got, want) {
+		t.Fatalf("keys = %q, want %q", got, want)
+	}
+}
+
+// A burst of arrows fills the read buffer and can end on a lone ESC:
+// the sequence's rest is still to come, so it is not an esc key.
+func TestKeyDecoderKeepsAnArrowSplitAtAFullRead(t *testing.T) {
+	burst := strings.Repeat("\x1b[B", 6)
+	want := slices.Repeat([]string{"down"}, 6)
+	if got := decodeAll(t, &chunkReader{data: []byte(burst), size: 8}); !slices.Equal(got, want) {
+		t.Fatalf("keys = %q, want %q", got, want)
+	}
+}
+
+// Bidi controls reorder the line on terminals that honour them.
+func TestKeyDecoderDropsBidiControls(t *testing.T) {
+	got := decodeAll(t, strings.NewReader("a‮b⁦c‍d"))
+	if want := []string{"a", "b", "c", "‍", "d"}; !slices.Equal(got, want) {
 		t.Fatalf("keys = %q, want %q", got, want)
 	}
 }
