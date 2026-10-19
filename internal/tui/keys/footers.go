@@ -15,6 +15,7 @@ const (
 	ScreenDetail       Screen = "detail"
 	ScreenFailure      Screen = "failure"
 	ScreenWatch        Screen = "watch"
+	ScreenWatchPending Screen = "watch_pending"
 	ScreenWatchBoard   Screen = "watch_board"
 	ScreenLog          Screen = "log"
 	ScreenLogSearch    Screen = "log_search"
@@ -100,6 +101,10 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "f", Action: "follow", Help: "follow", ShowInFooter: true},
 		{Key: "d", Action: "debug", Help: "debug", ShowInFooter: true},
 		{Key: "esc", Display: "⎋", Action: "detach", Help: "detach", ShowInFooter: true},
+	},
+	// No run on screen yet: the watch is loading or failed to open.
+	ScreenWatchPending: {
+		{Key: "esc", Display: "⎋", Action: "back", Help: "back", ShowInFooter: true},
 	},
 	ScreenWatchBoard: {
 		{Key: "j/k", Action: "move", Help: "move", ShowInFooter: true},
