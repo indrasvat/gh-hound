@@ -156,3 +156,29 @@ func TestLogTitleCountsTheRowsOnScreen(t *testing.T) {
 }
 
 func firstLine(s string) string { l, _, _ := strings.Cut(s, "\n"); return l }
+
+// The time-jump modal fits small frames: its box closes inside the body
+// and the picker counts the entries it cannot show.
+func TestTimeJumpModalFitsSmallFrames(t *testing.T) {
+	var b strings.Builder
+	for i := range 12 {
+		fmt.Fprintf(&b, "2026-10-15T17:%02d:00.0000000Z ##[group]step %d\n2026-10-15T17:%02d:30.0000000Z work\n##[endgroup]\n", i, i, i)
+	}
+	for _, width := range []int{48, 60, 80} {
+		for height := 11; height <= 16; height++ {
+			app := openLog(t, logApp(t, config.Default(), b.String())).WithViewport(width, height)
+			app, _ = app.Update(KeyMsg{Key: "t"})
+			lines := strings.Split(ansi.Strip(app.ViewSize(width, height)), "\n")
+			closed := false
+			for _, line := range lines[3 : len(lines)-3] {
+				closed = closed || strings.Contains(line, "╰")
+			}
+			if !closed || len(lines) != height {
+				t.Fatalf("%dx%d: the modal's box does not close inside the body:\n%s", width, height, strings.Join(lines, "\n"))
+			}
+			if height >= 13 && !strings.Contains(strings.Join(lines, "\n"), "more") {
+				t.Fatalf("%dx%d: hidden entries are not counted:\n%s", width, height, strings.Join(lines, "\n"))
+			}
+		}
+	}
+}

@@ -4315,7 +4315,11 @@ func (a App) overlayView(width, height int) string {
 		return confirm.View(a.confirm, width-20)
 	case OverlayTimeJump:
 		// Box chrome (4 rows) around the picker.
-		return timejump.ViewSize(a.timeJump, overlayInnerWidth(width), max(bodyHeight(height)-4, 0))
+		rows := 0 // unbounded
+		if height > 0 {
+			rows = max(bodyHeight(height)-4, 1)
+		}
+		return timejump.ViewSize(a.timeJump, overlayInnerWidth(width), rows)
 	case OverlayApprovals:
 		return approvals.View(a.approvals, overlayInnerWidth(width))
 	default:

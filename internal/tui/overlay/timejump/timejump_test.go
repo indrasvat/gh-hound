@@ -2,8 +2,11 @@ package timejump
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/indrasvat/gh-hound/internal/logs"
 )
@@ -224,5 +227,48 @@ func TestALongPickerScrollsToFitTheHeight(t *testing.T) {
 	selected := m.Entries[m.Selected].Label
 	if len(lines) != 12 || !strings.Contains(lines[len(lines)-1], "⎋ cancel") || !strings.Contains(strings.Join(lines, "\n"), "▌ ▸ "+m.Entries[m.Selected].Clock+"  "+selected) {
 		t.Fatalf("12 rows keep the input, the selected entry and the hint:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+var moreRE = regexp.MustCompile(`^ … (?:↑ (\d+))?(?: · )?(?:↓ (\d+))? more$`)
+
+// The picker fits the height it is given: the input first, the selected
+// entry always, and a marker counting the entries above and below.
+func TestPickerFitsSmallHeightsAndCountsHiddenEntries(t *testing.T) {
+	for _, width := range []int{44, 66, 80} {
+		for height := 2; height <= 20; height++ {
+			for _, feedback := range []string{"", "no line at 99:99"} {
+				m := New(manyStepsDoc())
+				m.Feedback = feedback
+				for _, selected := range []int{0, len(m.Entries) / 2, len(m.Entries) - 1} {
+					m.Selected = selected
+					lines := strings.Split(ViewSize(m, width, height), "\n")
+					where := fmt.Sprintf("%dx%d selected %d feedback %q", width, height, selected, feedback)
+					if len(lines) > height || !strings.HasPrefix(lines[0], "t→") {
+						t.Fatalf("%s: %d lines, first %q", where, len(lines), lines[0])
+					}
+					drawn, cursor, above, below := 0, false, 0, 0
+					for _, line := range lines {
+						if utf8.RuneCountInString(line) > width {
+							t.Fatalf("%s: line wider than %d: %q", where, width, line)
+						}
+						if strings.Contains(line, " 17:") {
+							drawn++
+							cursor = cursor || strings.HasPrefix(line, "▌ ")
+						}
+						if match := moreRE.FindStringSubmatch(line); match != nil {
+							above, _ = strconv.Atoi(match[1])
+							below, _ = strconv.Atoi(match[2])
+						}
+					}
+					if !cursor {
+						t.Fatalf("%s: the selected entry is not drawn:\n%s", where, strings.Join(lines, "\n"))
+					}
+					if height >= 3 && drawn+above+below != len(m.Entries) {
+						t.Fatalf("%s: %d drawn + %d above + %d below != %d entries:\n%s", where, drawn, above, below, len(m.Entries), strings.Join(lines, "\n"))
+					}
+				}
+			}
+		}
 	}
 }
