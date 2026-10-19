@@ -14,7 +14,7 @@ func View(m Model, width int) string {
 		width = 80
 	}
 	lines := []string{fit(header(m), width)}
-	if note := noLogNote(m.State.NoLog); note != "" {
+	for _, note := range noLogNotes(m.State.NoLog) {
 		lines = append(lines, fitANSI(colorize(sgrDim, note), width))
 	}
 	if len(m.State.Lines) == 0 {
@@ -65,28 +65,29 @@ func header(m Model) string {
 	)
 }
 
-// noLogNote reads "no log · build, test expired · deploy not available
-// yet".
-func noLogNote(missing []NoLog) string {
+// noLogNotes reads "log expired · build, test" and "log not available
+// yet · deploy": the status leads, so a cut line keeps it.
+func noLogNotes(missing []NoLog) []string {
 	var expired, notYet []string
 	for _, job := range missing {
+		name := strings.Join(strings.Fields(job.Job), " ")
+		if name == "" {
+			name = "job"
+		}
 		if job.Expired {
-			expired = append(expired, job.Job)
+			expired = append(expired, name)
 		} else {
-			notYet = append(notYet, job.Job)
+			notYet = append(notYet, name)
 		}
 	}
-	parts := []string{"no log"}
+	var notes []string
 	if len(expired) > 0 {
-		parts = append(parts, strings.Join(expired, ", ")+" expired")
+		notes = append(notes, "log expired · "+strings.Join(expired, ", "))
 	}
 	if len(notYet) > 0 {
-		parts = append(parts, strings.Join(notYet, ", ")+" not available yet")
+		notes = append(notes, "log not available yet · "+strings.Join(notYet, ", "))
 	}
-	if len(parts) == 1 {
-		return ""
-	}
-	return strings.Join(parts, " · ")
+	return notes
 }
 
 func foldLine(width int) string {

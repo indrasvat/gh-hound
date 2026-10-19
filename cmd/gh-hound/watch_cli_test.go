@@ -112,7 +112,7 @@ func TestTUIWatchShowsAnExpiredLog(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	view := ansi.Strip(app.ViewSize(120, 32))
-	if !strings.Contains(view, "no log · build expired") || !strings.Contains(view, "ok internal/api") || strings.Contains(view, "unavailable") {
+	if !strings.Contains(view, "log expired · build") || !strings.Contains(view, "ok internal/api") || strings.Contains(view, "unavailable") {
 		t.Fatalf("watch of a run with an expired log:\n%s", view)
 	}
 	if fetches := github.jobLogFetches(); fetches != 2 {

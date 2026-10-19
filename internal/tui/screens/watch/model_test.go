@@ -136,18 +136,25 @@ func TestFinishedRunShowsItsConclusion(t *testing.T) {
 	}
 }
 
-// Jobs shown without a log are named, expired or not there yet.
+// Jobs shown without a log are named under what happened to them, the
+// status first so a cut line never loses it.
 func TestViewNamesJobsWithoutALog(t *testing.T) {
+	long := "integration-tests (ubuntu-latest, go 1.24, postgres 16, redis 7, kafka 3.7)"
 	m := NewModel(State{
 		Branch: "main",
 		Run:    model.Run{ID: 148, Name: "Release", RunNumber: 148, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess},
-		NoLog:  []NoLog{{Job: "build", Expired: true}, {Job: "publish", Expired: true}, {Job: "notify"}},
+		NoLog:  []NoLog{{Job: long, Expired: true}, {Job: "publish\nstep", Expired: true}, {Job: "notify"}, {Job: " "}},
 	})
 	for _, width := range []int{80, 120} {
 		view := View(m, width)
 		plain := ansi.Strip(view)
-		if !strings.Contains(plain, "no log · build, publish expired · notify not available yet") {
-			t.Fatalf("view at %d does not name the jobs without a log:\n%s", width, plain)
+		for _, want := range []string{"log expired · integration-tests", "log not available yet · notify, job"} {
+			if !strings.Contains(plain, want) {
+				t.Fatalf("view at %d missing %q:\n%s", width, want, plain)
+			}
+		}
+		if width == 120 && !strings.Contains(plain, "kafka 3.7), publish step") {
+			t.Fatalf("names are not joined on one line at 120:\n%s", plain)
 		}
 		assertWidth(t, view, width)
 	}
