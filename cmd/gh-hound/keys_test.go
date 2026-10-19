@@ -72,7 +72,7 @@ func TestKeyDecoderDropsInvalidUTF8(t *testing.T) {
 // key is valid UTF-8, one named key or one rune, and text without
 // control bytes comes back exactly as typed however the reads split.
 func FuzzKeyDecoder(f *testing.F) {
-	for _, seed := range []string{"café ✓", "\U0001F415j\x1b[A", "\xc3", "\xe2\x9c", "é\x1b", "\xff\xfe"} {
+	for _, seed := range []string{"café ✓", "\U0001F415j\x1b[A", "\xc3", "\xe2\x9c", "é\x1b", "\xff\xfe", "a\x1b[3~b", "\x1b[1;5C\x1bOP"} {
 		f.Add([]byte(seed), uint8(1))
 		f.Add([]byte(seed), uint8(3))
 	}
@@ -99,4 +99,14 @@ func FuzzKeyDecoder(f *testing.F) {
 			t.Fatalf("%q: %d keys for %d runes", data, len(keys), utf8.RuneCount(data))
 		}
 	})
+}
+
+// Keys the TUI doesn't bind (Delete, Home, End, F-keys, PageUp) send
+// whole escape sequences: they must vanish, not land as esc + text.
+func TestKeyDecoderSwallowsUnboundEscapeSequences(t *testing.T) {
+	input := "a\x1b[3~b\x1b[Hc\x1bOPd\x1b[5~e\x1b[1;5Cf\x1bOA\x1b[Z\x1b"
+	want := []string{"a", "b", "c", "d", "e", "f", "up", "shift+tab", "esc"}
+	if got := decodeAll(t, strings.NewReader(input)); !slices.Equal(got, want) {
+		t.Fatalf("keys = %q, want %q", got, want)
+	}
 }

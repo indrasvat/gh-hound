@@ -1328,11 +1328,15 @@ func (d *keyDecoder) Next(reader io.Reader, scratch []byte) (string, error) {
 
 func (d *keyDecoder) pop() (string, bool) {
 	for len(d.pending) > 0 {
-		if len(d.pending) >= 3 && d.pending[0] == 0x1b && d.pending[1] == '[' {
-			if key := keyName(d.pending[:3]); key != "esc" {
-				d.pending = d.pending[3:]
+		if n := escapeSequence(d.pending); n < 0 {
+			return "", false
+		} else if n > 0 {
+			key := keyName(d.pending[:n])
+			d.pending = d.pending[n:]
+			if key != "" {
 				return key, true
 			}
+			continue
 		}
 		if !utf8.FullRune(d.pending) {
 			// The rest of the rune is still in flight.
@@ -1346,6 +1350,29 @@ func (d *keyDecoder) pop() (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// escapeSequence measures the CSI (ESC [) or SS3 (ESC O) sequence that
+// starts b: 0 when none does, -1 while its final byte is in flight.
+func escapeSequence(b []byte) int {
+	if len(b) < 2 || b[0] != 0x1b || (b[1] != '[' && b[1] != 'O') {
+		return 0
+	}
+	if b[1] == 'O' {
+		if len(b) < 3 {
+			return -1
+		}
+		return 3
+	}
+	for i := 2; i < len(b); i++ {
+		switch c := b[i]; {
+		case c >= 0x40 && c <= 0x7e:
+			return i + 1
+		case c < 0x20 || c > 0x3f:
+			return 0
+		}
+	}
+	return -1
 }
 
 func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildInfo, options cliOptions) (tui.App, error) {
@@ -2051,16 +2078,20 @@ func keyName(input []byte) string {
 		return ""
 	}
 	switch string(input) {
-	case "\x1b[A":
+	case "\x1b[A", "\x1bOA":
 		return "up"
-	case "\x1b[B":
+	case "\x1b[B", "\x1bOB":
 		return "down"
-	case "\x1b[C":
+	case "\x1b[C", "\x1bOC":
 		return "right"
-	case "\x1b[D":
+	case "\x1b[D", "\x1bOD":
 		return "left"
 	case "\x1b[Z":
 		return "shift+tab"
+	}
+	if len(input) > 1 && input[0] == 0x1b {
+		// An escape sequence for a key the TUI doesn't bind.
+		return ""
 	}
 	switch input[0] {
 	case 0x03:
