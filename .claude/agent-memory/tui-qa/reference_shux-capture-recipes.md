@@ -60,3 +60,14 @@ metadata:
 
 **How to apply:** reuse these in every gh-hound audit capture loop.
 Related: [[gh-hound-qa-ledger]].
+
+- Moving target: implementers commit mid-audit. Pin with
+  `SC=$(git stash create); git worktree add -f <scratch>/wt $SC` and copy
+  untracked files in by hand (stash create omits them); the binary's
+  `--version` then names the pinned commit. Re-check `git log` before the
+  verdict and re-gate the newest HEAD if code moved.
+- Live per-job surfaces: `gh run list -R openclaw/openclaw --status
+  in_progress --workflow CI` finds a 40-60 job matrix within ~2 min of
+  creation; `/<run#>` + ⏎ in the runs list (the list re-sorts, so k-walking
+  to a row is unreliable); keys typed during "picking up the scent" are
+  queued and applied after load.
