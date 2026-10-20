@@ -527,7 +527,7 @@ Per screen below: **purpose · when shown · layout/components · data · contex
 
 - **Purpose / when:** `⏎` on a run.
 - **Layout:** `lipgloss.JoinHorizontal` of two bordered panes. **Left:** jobs (`table`/`list`) — glyph · name · duration. **Right:** the selected job's step timeline in a `viewport` — glyph · # · step name · duration; the **failed step is highlighted** (red-tinted fill + bar) and pre-targeted by `n`. Right pane header: job name · status pill · runner chip · duration. Breadcrumb: `repo › CI #571 › branch · @sha`.
-- **Keys:** `Tab` cycles pane focus; `j/k` on focused pane; `J/K` sibling run; `n` jump to failure; `l` full log; `r` rerun job; `R` rerun failed; `x/X` cancel; `⎋` back. Footer: `⏎ expand · ↻ rerun job · R rerun failed · ✗ cancel · ⎋ back · ?`.
+- **Keys:** `Tab` cycles pane focus; `j/k` on focused pane; `J/K` sibling run; `n` jump to failure; `l` full log; `w` watch; `r` rerun job; `R` rerun failed; `x/X` cancel; `⎋` back. Footer: `⏎ expand · w watch · ↻ rerun job · R rerun failed · ✗ cancel · ⎋ back · ?`.
 - **States:** loading (jobs shimmer), partial (some jobs still queued), error (toast).
 - **DoD:** two panes align and share height; focus visibly moves with `Tab`; failed step highlighted and `n` lands on it; on narrow widths the right pane becomes a full-screen push (§10); matches §③. **VR + KB gates.**
 

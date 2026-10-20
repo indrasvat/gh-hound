@@ -486,3 +486,21 @@ func (g *watchGitHub) ListPendingDeployments(context.Context, string, int64) ([]
 func (g *watchGitHub) ReviewPendingDeployments(context.Context, string, int64, usecase.DeploymentReview) (usecase.ActionResult, error) {
 	return usecase.ActionResult{}, errors.New("not implemented")
 }
+
+// A tick carries the run's job listing, so a job still running (its
+// log not served yet) can show as step progress.
+func TestWatchTickCarriesTheJobListing(t *testing.T) {
+	running := watchJob(200, model.StatusInProgress, 3)
+	gh := &watchGitHub{
+		runs: []model.Run{{ID: 570, Status: model.StatusInProgress}},
+		jobs: []model.Job{running},
+	}
+	service := usecase.WatchService{GitHub: gh}
+	next, err := service.Tick(context.Background(), usecase.WatchState{Repo: "indrasvat/gh-hound", RunID: 570})
+	if err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+	if len(next.Jobs) != 1 || next.Jobs[0].ID != 200 || gh.fetches != 0 {
+		t.Fatalf("jobs = %#v, fetches = %d; want the running job listed and no log fetched", next.Jobs, gh.fetches)
+	}
+}

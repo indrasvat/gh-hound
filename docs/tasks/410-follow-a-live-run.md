@@ -1,0 +1,35 @@
+# Task 410 — Follow A Live Run
+
+## Status
+
+IMPLEMENTED — the live-run report: "Can it follow a live run? It shows the Run tests step as queued but it's running." Detail called a running step `queued`, did not refresh, and did not advertise `w`; the watch of a run whose one job was still going stayed on `waiting for completed job logs from GitHub Actions` until the job ended.
+
+## Ownership Boundary
+
+- **Primary area:** a run still going, on the detail and watch screens.
+- **Allowed files:** `internal/tui/screens/detail/`, `internal/tui/screens/watch/`, `internal/usecase/watch.go`, `cmd/gh-hound/main.go` (the watch resolver), `internal/tui/app.go` (detail poll, `l`/`⏎` on a running job), `internal/tui/keys/footers.go`, `internal/adapter/fake/` (the `live_run` scenario), tests, `.claude/automations/`, `docs/`, `README.md`.
+- **Avoid touching:** the log and failure screens, the pack board, the GitHub adapter.
+
+## Decisions
+
+- **GitHub has no API for a running job's log** (checked 2026-10-20). `GET /actions/jobs/{id}/logs` redirects to a blob that answers `404 BlobNotFound` until the job finishes; the per-step logs endpoint now in the REST docs answered 404 on running and finished jobs alike; webhooks carry status only. The web UI's live log rides an undocumented `alive.github.com` websocket that needs a browser session, not a token (cli/cli#3484, open and `blocked` since 2021; `gh` declined to scrape it). So hound follows a running job by its steps, which the jobs endpoint does report live, and shows each job's log as soon as that job finishes.
+- **The watch shows step progress.** `WatchState` carries the tick's job listing; while the run goes, each unfinished job reads as one line, its current step and that step's elapsed time (`⠹ bdd › 29 Run tests 12m40s`, `◌ report queued`), above one dim line saying why there is no log yet. Finished jobs' logs still follow below. A finished run shows no progress block.
+- **Detail reads time, not `queued`.** A running job or step reads its elapsed time, `queued`/`waiting` only before it starts, and a finished one GitHub never timed reads `—` (it read `queued`). The clock is `Model.Now`, the wall clock when zero, so tests pin it.
+- **Detail follows a live run.** While the run is not finished and a job is not finished (or none is listed yet), detail re-lists jobs on the poll tick (`tickPoll`, off the event loop, dropped if the user left). The cursor stays on the same job (by ID) and step; artifacts, downloads and focus are untouched; a failed poll keeps the jobs on screen. Once every job has finished it stops asking.
+- **`w` is on the detail footer** (`⏎ expand · w watch · ↻ rerun job …`); it was bound but unlisted, so the reporter never found it.
+- **`l` and `⏎` on a running job** toast `log not ready · GitHub serves bdd's log once it finishes · w follows it` instead of fetching into `GitHub has no log for job N` under the generic route-error title.
+
+## Task List
+
+- [x] T1 Detail: elapsed for running jobs and steps, `queued`/`waiting` before start, `—` for an untimed finished step; `WithJobs` keeps the cursor.
+- [x] T2 Detail poll on a live run; stops when every job has finished. Fails on `main` (the jobs never refresh).
+- [x] T3 Watch: `WatchState.Jobs`; the step-progress block and its note at 80 and 120 columns; no blank wait while a job runs. The end-to-end test through `defaultTUIApp` fails on `main`.
+- [x] T4 `l`/`⏎` on a running job: a toast, no fetch, still on detail. Fails on `main` (it opened the log screen).
+- [x] T5 `w watch` on the detail footer, help, visual contract, README.
+- [x] T6 Fake `live_run`: E2E #3902 with `lint` done, `bdd` on 3 Run tests, `report` queued; it moves on the clock (Upload artifacts at 45s, `bdd` done at 55s, the run done at 80s) and a running job's log answers 404, as GitHub's does. The `running` scenario's job is a finished failure, which hid this.
+- [x] T7 PTY scenarios `watch-live-run`, `detail-live-run`, `detail-log-not-ready`.
+- [x] T8 Verification: `make ci`, `make vqa`; shux demo on `live_run`; adversarial review and a cold `tui-qa` round.
+
+## Definition Of Done
+
+Every T item checked; each fix has a test that fails on `main`; `make ci` and `make vqa` pass; evidence lives on the PR only.

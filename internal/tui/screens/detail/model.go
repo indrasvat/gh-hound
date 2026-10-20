@@ -2,6 +2,7 @@ package detail
 
 import (
 	"maps"
+	"time"
 
 	"github.com/indrasvat/gh-hound/internal/model"
 )
@@ -99,6 +100,17 @@ type Model struct {
 	// extracting row annotations; the app advances it on poll ticks
 	// while a download is live (the shared-spinner contract).
 	SpinnerFrame int
+
+	// Now is the clock a running job or step's elapsed time reads
+	// against; zero means the wall clock.
+	Now time.Time
+}
+
+func (m Model) clock() time.Time {
+	if m.Now.IsZero() {
+		return time.Now()
+	}
+	return m.Now
 }
 
 func NewModel(run model.Run, jobs []model.Job) Model {
@@ -109,6 +121,32 @@ func NewModel(run model.Run, jobs []model.Job) Model {
 
 func (m Model) WithRepo(repo string) Model {
 	m.Repo = repo
+	return m
+}
+
+// WithJobs swaps in a fresher listing of the run's jobs, keeping the
+// cursor on the same job (by ID) and step where they still exist.
+func (m Model) WithJobs(jobs []model.Job) Model {
+	selected := m.selectedJob().ID
+	m.Jobs = append([]model.Job(nil), jobs...)
+	kept := false
+	for i, job := range m.Jobs {
+		if job.ID == selected {
+			m.SelectedJob, kept = i, true
+			break
+		}
+	}
+	if !kept {
+		// The selected job is gone: its step index means nothing for
+		// whichever job the cursor lands on.
+		m.SelectedJob = min(max(m.SelectedJob, 0), max(len(m.Jobs)-1, 0))
+		m.SelectedStep = 0
+	}
+	if len(m.Jobs) > 0 {
+		m.SelectedStep = min(max(m.SelectedStep, 0), max(len(m.Jobs[m.SelectedJob].Steps)-1, 0))
+	} else {
+		m.SelectedStep = 0
+	}
 	return m
 }
 

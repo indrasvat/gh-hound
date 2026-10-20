@@ -73,6 +73,7 @@ var footerByScreen = map[Screen][]Binding{
 	},
 	ScreenDetail: {
 		{Key: "enter", Display: "⏎", Action: "expand", Help: "expand", ShowInFooter: true},
+		{Key: "w", Action: "watch", Help: "watch", ShowInFooter: true},
 		{Key: "r", Display: "↻", Action: "rerun_job", Help: "rerun job", ShowInFooter: true},
 		{Key: "R", Action: "rerun_failed", Help: "rerun failed", ShowInFooter: true},
 		{Key: "x", Display: "✗", Action: "cancel", Help: "cancel", ShowInFooter: true},

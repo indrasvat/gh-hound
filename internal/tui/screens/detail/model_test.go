@@ -352,3 +352,85 @@ func TestArtifactsBlockLinesMatchesRenderedBlock(t *testing.T) {
 		}
 	}
 }
+
+// A running step reads its elapsed time, not "queued": "queued" is only
+// for a step that has not started (the live-run report).
+func TestViewReadsRunningStepsAsElapsed(t *testing.T) {
+	now := time.Date(2026, 10, 20, 11, 32, 0, 0, time.UTC)
+	job := model.Job{ID: 7, Name: "bdd", Status: model.StatusInProgress, StartedAt: now.Add(-20 * time.Minute), Steps: []model.Step{
+		{Number: 1, Name: "Set up job", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, StartedAt: now.Add(-20 * time.Minute), CompletedAt: now.Add(-20*time.Minute + 15*time.Second)},
+		{Number: 9, Name: "Cleanup", Status: model.StatusCompleted, Conclusion: model.ConclusionSkipped},
+		{Number: 29, Name: "Run tests", Status: model.StatusInProgress, StartedAt: now.Add(-12*time.Minute - 40*time.Second)},
+		{Number: 30, Name: "Upload artifacts", Status: model.StatusQueued},
+	}}
+	m := NewModel(model.Run{ID: 3902, Name: "Edge BDD", RunNumber: 3902, Status: model.StatusInProgress}, []model.Job{job})
+	m.Now = now
+	plain := ansi.Strip(View(m, 120))
+	for _, want := range []string{"Run tests", "12m40s", "20m00s", "15.0s", "—"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("view missing %q:\n%s", want, plain)
+		}
+	}
+	for line := range strings.SplitSeq(plain, "\n") {
+		if strings.Contains(line, "Run tests") && strings.Contains(line, "queued") {
+			t.Fatalf("running step reads queued: %q", line)
+		}
+		if strings.Contains(line, "Upload artifacts") && !strings.Contains(line, "queued") {
+			t.Fatalf("unstarted step does not read queued: %q", line)
+		}
+	}
+}
+
+// A fresher job listing keeps the cursor on the same job and step.
+func TestWithJobsKeepsTheCursor(t *testing.T) {
+	steps := []model.Step{{Number: 1}, {Number: 2}, {Number: 3}}
+	m := NewModel(model.Run{ID: 1}, []model.Job{{ID: 10, Steps: steps}, {ID: 20, Steps: steps}})
+	m.SelectedJob, m.SelectedStep = 1, 2
+	m = m.WithJobs([]model.Job{{ID: 5}, {ID: 10, Steps: steps}, {ID: 20, Steps: steps}})
+	if m.SelectedJob != 2 || m.SelectedStep != 2 {
+		t.Fatalf("cursor = job %d step %d, want job 2 step 2", m.SelectedJob, m.SelectedStep)
+	}
+	m = m.WithJobs([]model.Job{{ID: 10, Steps: steps[:1]}})
+	if m.SelectedJob != 0 || m.SelectedStep != 0 {
+		t.Fatalf("cursor = job %d step %d, want clamped to 0/0", m.SelectedJob, m.SelectedStep)
+	}
+	// The selected job gone: the cursor lands on another job at its
+	// first step, not the old step index.
+	m = m.WithJobs([]model.Job{{ID: 10, Steps: steps}, {ID: 20, Steps: steps}})
+	m.SelectedJob, m.SelectedStep = 1, 2
+	m = m.WithJobs([]model.Job{{ID: 10, Steps: steps}, {ID: 30, Steps: steps}})
+	if m.SelectedJob != 1 || m.SelectedStep != 0 {
+		t.Fatalf("cursor = job %d step %d, want job 1 step 0", m.SelectedJob, m.SelectedStep)
+	}
+	m.SelectedJob = -1
+	if m = m.WithJobs(m.Jobs); m.SelectedJob != 0 {
+		t.Fatalf("a negative cursor = %d, want 0", m.SelectedJob)
+	}
+}
+
+// The status decides, not the timestamp: GitHub stamps started_at on a
+// queued job too, and a job waiting for a runner is not running.
+func TestDurationReadsStatusFirst(t *testing.T) {
+	now := time.Date(2026, 10, 20, 11, 32, 0, 0, time.UTC)
+	start := now.Add(-3 * time.Minute)
+	for _, tc := range []struct {
+		status     model.Status
+		start, end time.Time
+		want       string
+	}{
+		{model.StatusQueued, start, time.Time{}, "queued"},
+		{model.StatusPending, start, time.Time{}, "queued"},
+		{model.StatusRequested, time.Time{}, time.Time{}, "queued"},
+		{model.StatusWaiting, start, time.Time{}, "waiting"},
+		{model.StatusInProgress, start, time.Time{}, "3m00s"},
+		{model.StatusInProgress, time.Time{}, time.Time{}, "running"},
+		{model.StatusInProgress, now.Add(time.Minute), time.Time{}, "0.0s"},
+		{model.StatusCompleted, start, now, "3m00s"},
+		{model.StatusCompleted, time.Time{}, time.Time{}, "—"},
+		{model.StatusCompleted, now, start, "—"},
+	} {
+		if got := duration(tc.status, tc.start, tc.end, now); got != tc.want {
+			t.Errorf("duration(%s, %v, %v) = %q, want %q", tc.status, tc.start, tc.end, got, tc.want)
+		}
+	}
+}

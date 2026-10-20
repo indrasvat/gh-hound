@@ -1,8 +1,10 @@
 package watch
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/logs"
@@ -172,4 +174,81 @@ func TestFinishedRunHasNoActiveCursor(t *testing.T) {
 	if plain := ansi.Strip(View(m, 80)); strings.Contains(plain, "no job logs to show") {
 		t.Fatalf("the note is repeated:\n%s", plain)
 	}
+}
+
+// GitHub serves a job's log only once it finishes: a run whose one job
+// is still running shows that job's current step and how long it has
+// run, not a blank "waiting" screen (the live-run report).
+func TestViewShowsRunningJobProgress(t *testing.T) {
+	now := time.Date(2026, 10, 20, 11, 38, 0, 0, time.UTC)
+	running := model.Job{ID: 1, Name: "bdd", Status: model.StatusInProgress, StartedAt: now.Add(-15 * time.Minute), Steps: []model.Step{
+		{Number: 28, Name: "Prune Docker images", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess},
+		{Number: 29, Name: "Run tests", Status: model.StatusInProgress, StartedAt: now.Add(-12*time.Minute - 40*time.Second)},
+		{Number: 30, Name: "Upload UI artifacts", Status: model.StatusQueued},
+	}}
+	queued := model.Job{ID: 2, Name: "report", Status: model.StatusQueued}
+	done := model.Job{ID: 3, Name: "lint", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess}
+	m := NewModel(State{
+		Branch: "pr-3899",
+		Run:    model.Run{ID: 3902, Name: "Edge BDD", RunNumber: 3902, Status: model.StatusInProgress},
+		Jobs:   []model.Job{done, running, queued},
+		Now:    now,
+	})
+	for _, width := range []int{80, 120} {
+		view := View(m, width)
+		plain := ansi.Strip(view)
+		for _, want := range []string{"bdd › 29 Run tests 12m40s", "report queued", "GitHub serves a job's log once it finishes"} {
+			if !strings.Contains(plain, want) {
+				t.Fatalf("view at %d missing %q:\n%s", width, want, plain)
+			}
+		}
+		if strings.Contains(plain, "lint") || strings.Contains(plain, "waiting for completed job logs") {
+			t.Fatalf("view at %d shows a finished job or the blank wait:\n%s", width, plain)
+		}
+		assertWidth(t, view, width)
+	}
+
+	// A finished run shows no progress block.
+	m.State.Run.Status, m.State.Run.Conclusion = model.StatusCompleted, model.ConclusionSuccess
+	if plain := ansi.Strip(View(m, 80)); strings.Contains(plain, "Run tests") {
+		t.Fatalf("finished run shows step progress:\n%s", plain)
+	}
+}
+
+// The progress block is bounded so the log tail keeps its rows: a wide
+// matrix reads as its running jobs first and a count, and a name with a
+// newline or tab stays on one measured line.
+func TestProgressBlockIsBounded(t *testing.T) {
+	now := time.Date(2026, 10, 20, 11, 38, 0, 0, time.UTC)
+	var jobs []model.Job
+	jobs = append(jobs, model.Job{ID: 1, Name: "report", Status: model.StatusQueued})
+	for i := range 50 {
+		jobs = append(jobs, model.Job{ID: int64(10 + i), Name: fmt.Sprintf("shard %d", i), Status: model.StatusInProgress, Steps: []model.Step{
+			{Number: 3, Name: "Run\ttests\nnow", Status: model.StatusInProgress, StartedAt: now.Add(-time.Minute)},
+		}})
+	}
+	var tail []string
+	for i := range 6 {
+		tail = append(tail, fmt.Sprintf("TAILMARK %d", i))
+	}
+	m := NewModel(State{
+		Run:   model.Run{ID: 1, Name: "E2E", RunNumber: 1, Status: model.StatusInProgress},
+		Jobs:  jobs,
+		Now:   now,
+		Lines: logs.Parse(strings.Join(tail, "\n")).Lines,
+	})
+	view := View(m, 80)
+	plain := ansi.Strip(view)
+	for _, want := range []string{"shard 0 › 3 Run tests now 1m00s", "shard 1 ›", "+49 more jobs not finished", "TAILMARK 5"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("view missing %q:\n%s", want, plain)
+		}
+	}
+	if strings.Contains(plain, "report") || strings.Contains(plain, "shard 2 ›") {
+		t.Fatalf("block not bounded, or a queued job before a running one:\n%s", plain)
+	}
+	if lines := strings.Count(view, "\n") + 1; lines > 13 {
+		t.Fatalf("view is %d lines, want at most 13:\n%s", lines, plain)
+	}
+	assertWidth(t, view, 80)
 }

@@ -220,10 +220,10 @@ Fixture scenarios are intentionally restricted to non-interactive/test paths. Th
 | Runs | `j/k` or arrows move, `g/G` top/bottom, `s` scope, `Enter` open, `f` status cycle, `/` filter, `l` logs, `w` watch, `A` approvals (waiting runs) |
 | Filter `/` | type a query, `Enter` apply, `Esc` cancel (restores the applied filter), `Ctrl+U` clear; `Esc` on the list clears the applied filter |
 | Actions | `r` rerun, `R` rerun failed, `x` cancel, `X` force cancel, `D` dispatch |
-| Detail | `Tab` focus, `n` next failure, `l` logs, `a` artifacts, `d` download (overwrite-guarded re-download), `o`/`y` open folder / copy path on a downloaded artifact (browser / run URL otherwise), `J/K` next/previous run |
+| Detail | `Tab` focus, `n` next failure, `l` logs, `w` watch (follows a running job step by step), `a` artifacts, `d` download (overwrite-guarded re-download), `o`/`y` open folder / copy path on a downloaded artifact (browser / run URL otherwise), `J/K` next/previous run |
 | Failure | `l` full log, `o` browser, `y` copy excerpt, `r` rerun job |
 | Log | `/` search, `t` time jump/range, `n/N` matches, `z/Z` fold, `c` compact/full, `]/[` next/previous repeat fold, `w` wrap, `g/G` top/bottom |
-| Watch | `f` follow, `d` debug, `x` cancel, `Esc` detach |
+| Watch | `f` follow, `d` debug, `x` cancel, `Esc` detach — a running job shows its current step and elapsed time; GitHub serves its log once the job finishes |
 | Hunt board | `j/k` move, `Enter` drill into one run, `f` follow worst, `x` cancel, `Esc` back |
 | Dispatch | `Tab` next, arrows/select controls, `Enter` run, `Esc` cancel |
 | Trail (diff) | `j/k` move suspects, `Enter` open first bad run, `o` compare in browser, `Esc` back |

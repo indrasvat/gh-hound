@@ -98,7 +98,7 @@ func renderJobsPane(m Model, width int) []string {
 		return append(lines, fitANSI(colorize(sgrDim, "No jobs returned by GitHub"), width))
 	}
 	for i, job := range m.Jobs {
-		lines = append(lines, jobRow(job, i == m.SelectedJob, width))
+		lines = append(lines, jobRow(job, i == m.SelectedJob, width, m.clock()))
 	}
 	return lines
 }
@@ -128,7 +128,7 @@ func renderStepsPane(m Model, width, stepsBudget int, standalone bool) []string 
 	}
 	header := stepHeader(job)
 	lines := []string{
-		paneHeader(header, duration(job.StartedAt, job.CompletedAt), width, m.Focus == FocusSteps),
+		paneHeader(header, duration(job.Status, job.StartedAt, job.CompletedAt, m.clock()), width, m.Focus == FocusSteps),
 		divider(width),
 	}
 	start, end := stepWindow(len(job.Steps), m.SelectedStep, stepsBudget)
@@ -136,7 +136,7 @@ func renderStepsPane(m Model, width, stepsBudget int, standalone bool) []string 
 		lines = append(lines, fitANSI("    "+colorize(sgrDim, fmt.Sprintf("+%d more above", start)), width))
 	}
 	for i := start; i < end; i++ {
-		lines = append(lines, stepRow(job.Steps[i], i == m.SelectedStep, width))
+		lines = append(lines, stepRow(job.Steps[i], i == m.SelectedStep, width, m.clock()))
 	}
 	if remaining := len(job.Steps) - end; remaining > 0 {
 		lines = append(lines, fitANSI("    "+colorize(sgrDim, fmt.Sprintf("+%d more", remaining)), width))
@@ -361,14 +361,14 @@ func chip(label string) string {
 	return colorize(sgrSubtle, "["+label+"]")
 }
 
-func jobRow(job model.Job, selected bool, width int) string {
+func jobRow(job model.Job, selected bool, width int, now time.Time) string {
 	bar := " "
 	if selected {
 		bar = colorize(sgrOK, icons.Cursor)
 	}
 	leftWidth := max(width-12, 1)
 	left := fitANSI(bar+" "+colorize(statusSGR(job.Status, job.Conclusion), jobGlyph(job))+" "+colorize(sgrFGSoft, jobTitle(job)), leftWidth)
-	right := colorize(sgrDim, duration(job.StartedAt, job.CompletedAt))
+	right := colorize(sgrDim, duration(job.Status, job.StartedAt, job.CompletedAt, now))
 	row := joinRightANSI(left, right, width)
 	if selected {
 		return backgroundSafe(row, width, sgrFG, sgrSurface2BG)
@@ -376,7 +376,7 @@ func jobRow(job model.Job, selected bool, width int) string {
 	return row
 }
 
-func stepRow(step model.Step, selected bool, width int) string {
+func stepRow(step model.Step, selected bool, width int, now time.Time) string {
 	bar := " "
 	isFailure := step.Conclusion == model.ConclusionFailure || step.Conclusion == model.ConclusionActionRequired || step.Conclusion == model.ConclusionTimedOut
 	if isFailure {
@@ -391,7 +391,7 @@ func stepRow(step model.Step, selected bool, width int) string {
 	}
 	leftWidth := max(width-12, 1)
 	left := fitANSI(bar+" "+colorize(statusSGR(step.Status, step.Conclusion), stepGlyph(step))+" "+padANSI(number, 2)+" "+colorize(nameColor, step.Name), leftWidth)
-	right := colorize(durationSGR(step), duration(step.StartedAt, step.CompletedAt))
+	right := colorize(durationSGR(step), duration(step.Status, step.StartedAt, step.CompletedAt, now))
 	row := joinRightANSI(left, right, width)
 	switch {
 	case isFailure:
@@ -538,11 +538,30 @@ func stepGlyph(step model.Step) string {
 	return icons.ForStatus(step.Status)
 }
 
-func duration(start, end time.Time) string {
-	if start.IsZero() || end.IsZero() || end.Before(start) {
+// duration reads a finished job or step's run time, a running one's
+// time so far, and "queued"/"waiting" for one not yet running — GitHub
+// stamps started_at on a queued job too, so the status decides, not
+// the timestamp. A finished one GitHub never timed (skipped) reads "—".
+func duration(status model.Status, start, end, now time.Time) string {
+	switch status {
+	case model.StatusCompleted:
+		if start.IsZero() || end.IsZero() || end.Before(start) {
+			return "—"
+		}
+		return formatDuration(end.Sub(start))
+	case model.StatusInProgress:
+		if start.IsZero() {
+			return "running"
+		}
+		return formatDuration(max(now.Sub(start), 0).Truncate(time.Second))
+	case model.StatusWaiting:
+		return "waiting"
+	default:
 		return "queued"
 	}
-	d := end.Sub(start)
+}
+
+func formatDuration(d time.Duration) string {
 	if d < time.Second {
 		return fmt.Sprintf("%.1fs", float64(d.Milliseconds())/1000)
 	}
