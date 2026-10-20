@@ -429,3 +429,29 @@ func TestDetailLogOnALiveRunWithoutJobsSaysNotReady(t *testing.T) {
 		t.Fatalf("fetches = %d; view:\n%s", logs.Load(), view)
 	}
 }
+
+// While the jobs are still loading, l claims nothing: "no job has
+// started yet" is only for a run GitHub answered with no jobs (seen
+// live on an 88-job rust-lang run whose listing took seconds).
+func TestDetailLogWhileJobsLoadClaimsNothing(t *testing.T) {
+	release := make(chan struct{})
+	var calls atomic.Int32
+	app := watchTwoRunsApp(Options{
+		DetailResolver: func(ctx context.Context, run model.Run) (detail.Model, error) {
+			if calls.Add(1) > 1 { // NewApp resolves once up front
+				select {
+				case <-release:
+				case <-ctx.Done():
+				}
+			}
+			return detail.NewModel(run, []model.Job{{ID: 1, Name: "bdd", Status: model.StatusInProgress}}), nil
+		},
+	})
+	defer app.Shutdown()
+	defer close(release)
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.Update(KeyMsg{Key: "l"})
+	if view := ansi.Strip(app.ViewSize(120, 30)); strings.Contains(view, "no job has started yet") {
+		t.Fatalf("claimed no job while the jobs load:\n%s", view)
+	}
+}

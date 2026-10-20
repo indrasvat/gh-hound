@@ -2157,10 +2157,11 @@ func (a App) updateDetail(msg KeyMsg) (App, bool) {
 func (a *App) detailLogNotReady() bool {
 	job := a.selectedDetailJob()
 	if job.ID == 0 {
-		if a.detail.Run.Status == model.StatusCompleted {
+		if a.detail.Run.Status == model.StatusCompleted || !a.detailLoaded {
+			// Finished, or the jobs are still loading: nothing to claim.
 			return false
 		}
-		// A live run with no job listed yet has no log to open either.
+		// A live run GitHub lists no job for has no log to open either.
 		a.pushToast("log-not-ready", usecase.Resilience{
 			Severity: usecase.SeverityInfo,
 			Title:    "log not ready",
