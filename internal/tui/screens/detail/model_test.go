@@ -424,7 +424,8 @@ func TestDurationReadsStatusFirst(t *testing.T) {
 		{model.StatusWaiting, start, time.Time{}, "waiting"},
 		{model.StatusInProgress, start, time.Time{}, "3m00s"},
 		{model.StatusInProgress, time.Time{}, time.Time{}, "running"},
-		{model.StatusInProgress, now.Add(time.Minute), time.Time{}, "0.0s"},
+		{model.StatusInProgress, now.Add(time.Minute), time.Time{}, "0s"},
+		{model.StatusInProgress, now.Add(-17 * time.Second), time.Time{}, "17s"},
 		{model.StatusCompleted, start, now, "3m00s"},
 		{model.StatusCompleted, time.Time{}, time.Time{}, "—"},
 		{model.StatusCompleted, now, start, "—"},
@@ -479,5 +480,14 @@ func TestRunningStepIsSelected(t *testing.T) {
 	m = m.Update(KeyMsg{Key: "j"})
 	if m.SelectedStep != 27 {
 		t.Fatalf("re-selecting the running job: step = %d, want 27", m.SelectedStep)
+	}
+}
+
+// A job GitHub has not handed a runner yet has no steps: the pane says
+// so instead of showing two bare dividers.
+func TestQueuedJobWithoutStepsSaysWhy(t *testing.T) {
+	m := NewModel(model.Run{ID: 1, Status: model.StatusInProgress}, []model.Job{{ID: 1, Name: "report", Status: model.StatusQueued}})
+	if plain := ansi.Strip(View(m, 120)); !strings.Contains(plain, "waiting for a runner · steps appear once it starts") {
+		t.Fatalf("no hint for a job without steps:\n%s", plain)
 	}
 }

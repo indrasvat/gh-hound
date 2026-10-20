@@ -141,6 +141,10 @@ func renderStepsPane(m Model, width, stepsBudget int, standalone bool) []string 
 	if remaining := len(job.Steps) - end; remaining > 0 {
 		lines = append(lines, fitANSI("    "+colorize(sgrDim, fmt.Sprintf("+%d more", remaining)), width))
 	}
+	if len(job.Steps) == 0 && job.Status != model.StatusCompleted {
+		// GitHub lists a job's steps once a runner picks it up.
+		lines = append(lines, fitANSI("  "+colorize(sgrDim, "waiting for a runner · steps appear once it starts"), width))
+	}
 	lines = append(lines, renderGateBlock(m, width)...)
 	lines = append(lines, renderArtifactsBlock(m, width)...)
 	lines = append(lines, divider(width))
@@ -553,12 +557,22 @@ func duration(status model.Status, start, end, now time.Time) string {
 		if start.IsZero() {
 			return "running"
 		}
-		return formatDuration(max(now.Sub(start), 0).Truncate(time.Second))
+		return elapsed(max(now.Sub(start), 0))
 	case model.StatusWaiting:
 		return "waiting"
 	default:
 		return "queued"
 	}
+}
+
+// elapsed reads a running clock in whole seconds (`41s`, `12m40s`),
+// as the watch does.
+func elapsed(d time.Duration) string {
+	d = d.Truncate(time.Second)
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	return formatDuration(d)
 }
 
 func formatDuration(d time.Duration) string {

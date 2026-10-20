@@ -1,1 +1,1 @@
-{"contains": ["log not ready", "bdd is still running · w follows its steps"], "forbid": ["Runs unavailable", "has no log"]}
+{"contains": ["log not ready", "w follows its steps · bdd is still running"], "forbid": ["Runs unavailable", "has no log"]}

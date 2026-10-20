@@ -360,7 +360,7 @@ func TestDetailLogOnARunningJobSaysNotReady(t *testing.T) {
 		t.Fatalf("a running job's log was fetched %d times", logs.Load())
 	}
 	view := ansi.Strip(app.ViewSize(120, 30))
-	if !strings.Contains(view, "log not ready") || !strings.Contains(view, "bdd is still running · w follows its steps") {
+	if !strings.Contains(view, "log not ready") || !strings.Contains(view, "w follows its steps · bdd is still running") {
 		t.Fatalf("no not-ready toast:\n%s", view)
 	}
 }

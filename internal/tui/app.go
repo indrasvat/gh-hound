@@ -2164,7 +2164,7 @@ func (a *App) detailLogNotReady() bool {
 		a.pushToast("log-not-ready", usecase.Resilience{
 			Severity: usecase.SeverityInfo,
 			Title:    "log not ready",
-			Message:  "no job has started yet · w follows the run",
+			Message:  "w follows the run · no job has started yet",
 		})
 		return true
 	}
@@ -2188,7 +2188,7 @@ func (a *App) detailLogNotReady() bool {
 	a.pushToast("log-not-ready", usecase.Resilience{
 		Severity: usecase.SeverityInfo,
 		Title:    "log not ready",
-		Message:  name + state + " · w follows its steps",
+		Message:  "w follows its steps · " + name + state,
 	})
 	return true
 }
@@ -4916,7 +4916,7 @@ func (a App) screenBody(width, height int) string {
 		if load := a.load; load != nil && load.kind == loadKindWatch {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())
 		}
-		return watch.View(a.watch, bodyWidth)
+		return watch.ViewSize(a.watch, bodyWidth, bodyHeight(height))
 	case RouteWatchBoard:
 		boardModel := a.board
 		if load := a.load; load != nil && load.kind == loadKindPack {

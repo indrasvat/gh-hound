@@ -13,6 +13,14 @@ import (
 )
 
 func View(m Model, width int) string {
+	return ViewSize(m, width, 0)
+}
+
+// ViewSize renders the watch within a height budget: the step-progress
+// block takes the rows the header, notes and log tail leave, so every
+// running job shows when there is room; height <= 0 means unbudgeted,
+// which bounds the block to three lines.
+func ViewSize(m Model, width, height int) string {
 	if width <= 0 {
 		width = 80
 	}
@@ -27,11 +35,21 @@ func View(m Model, width int) string {
 		if now.IsZero() {
 			now = time.Now()
 		}
+		room := maxProgressLines
+		if height > 0 {
+			// The header, the no-log notes, the note under the block, and
+			// the fold plus log tail keep their rows.
+			reserved := len(lines) + 1
+			if tail := len(m.State.Lines); tail > 0 {
+				reserved += 1 + min(tail, followTail)
+			}
+			room = max(height-reserved, 1)
+		}
 		shown := live
-		if len(live) > maxProgressLines {
-			// The block is bounded so the log tail below keeps its rows:
-			// a 50-shard matrix reads as two jobs and a count.
-			shown = live[:maxProgressLines-1]
+		if len(live) > room {
+			// Bounded so the log tail keeps its rows: a 50-shard matrix
+			// reads as the jobs that fit and a count.
+			shown = live[:max(room-1, 0)]
 		}
 		for _, job := range shown {
 			lines = append(lines, jobProgress(job, now, width))
@@ -53,8 +71,8 @@ func View(m Model, width int) string {
 	}
 	lines = append(lines, foldLine(width))
 	start := 0
-	if m.Follow && len(m.State.Lines) > 6 {
-		start = len(m.State.Lines) - 6
+	if m.Follow && len(m.State.Lines) > followTail {
+		start = len(m.State.Lines) - followTail
 	}
 	visible := m.State.Lines[start:]
 	for index, line := range visible {
@@ -91,8 +109,12 @@ func header(m Model) string {
 	)
 }
 
-// maxProgressLines bounds the step-progress block.
-const maxProgressLines = 3
+// maxProgressLines bounds the step-progress block when the view has no
+// height budget; followTail is how many log lines follow shows.
+const (
+	maxProgressLines = 3
+	followTail       = 6
+)
 
 // liveJobs are the jobs not yet finished, running ones first, each
 // group in job order.

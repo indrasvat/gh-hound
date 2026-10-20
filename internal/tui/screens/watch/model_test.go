@@ -290,3 +290,35 @@ func TestProgressClockOnlyForARunningStep(t *testing.T) {
 		t.Fatalf("a clock for a step not running:\n%s", plain)
 	}
 }
+
+// With a height budget the block takes the rows the header, note and
+// log tail leave: a tall screen shows every running job, a short one
+// the jobs that fit and a count, and the log tail keeps its rows.
+func TestProgressBlockFillsTheHeight(t *testing.T) {
+	now := time.Date(2026, 10, 20, 11, 38, 0, 0, time.UTC)
+	var jobs []model.Job
+	for i := range 8 {
+		jobs = append(jobs, model.Job{ID: int64(i + 1), Name: fmt.Sprintf("shard %d", i), Status: model.StatusInProgress, Steps: []model.Step{
+			{Number: 3, Name: "build", Status: model.StatusInProgress, StartedAt: now.Add(-17 * time.Second)},
+		}})
+	}
+	var tail []string
+	for i := range 6 {
+		tail = append(tail, fmt.Sprintf("TAILMARK %d", i))
+	}
+	m := NewModel(State{
+		Run:   model.Run{ID: 1, Name: "E2E", RunNumber: 1, Status: model.StatusInProgress},
+		Jobs:  jobs,
+		Now:   now,
+		Lines: logs.Parse(strings.Join(tail, "\n")).Lines,
+	})
+	tall := ansi.Strip(ViewSize(m, 120, 54))
+	if !strings.Contains(tall, "shard 7 › 3 build 17s") || strings.Contains(tall, "more jobs not finished") {
+		t.Fatalf("a tall screen does not show every running job:\n%s", tall)
+	}
+	short := ViewSize(m, 80, 14)
+	plain := ansi.Strip(short)
+	if lines := strings.Count(short, "\n") + 1; lines > 14 || !strings.Contains(plain, "TAILMARK 5") || !strings.Contains(plain, "+4 more jobs not finished") {
+		t.Fatalf("a short screen (%d lines) lost the tail or the count:\n%s", lines, plain)
+	}
+}
