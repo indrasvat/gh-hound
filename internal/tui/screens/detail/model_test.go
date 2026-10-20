@@ -491,3 +491,36 @@ func TestQueuedJobWithoutStepsSaysWhy(t *testing.T) {
 		t.Fatalf("no hint for a job without steps:\n%s", plain)
 	}
 }
+
+// Between steps GitHub reports a job running with no step in progress,
+// and a job's steps can first appear on a later poll: the cursor still
+// finds the running job and follows its step (bot review, PR #70).
+func TestRunningStepBetweenStepsAndWhenStepsAppear(t *testing.T) {
+	lint := model.Job{ID: 1, Name: "lint", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess}
+	between := model.Job{ID: 2, Name: "build", Status: model.StatusInProgress, Steps: []model.Step{
+		{Number: 1, Status: model.StatusCompleted}, {Number: 2, Status: model.StatusCompleted}, {Number: 3, Status: model.StatusQueued},
+	}}
+	m := NewModel(model.Run{ID: 1, Status: model.StatusInProgress}, []model.Job{lint, between})
+	if m.SelectedJob != 1 || m.SelectedStep != 2 {
+		t.Fatalf("between steps: job %d step %d, want job 1 step 2", m.SelectedJob, m.SelectedStep)
+	}
+	empty := model.Job{ID: 2, Name: "build", Status: model.StatusInProgress}
+	m = NewModel(model.Run{ID: 1, Status: model.StatusInProgress}, []model.Job{lint, empty})
+	if m.SelectedJob != 1 {
+		t.Fatalf("a running job with no steps yet: job %d, want 1", m.SelectedJob)
+	}
+	var steps []model.Step
+	for i := range 30 {
+		status := model.StatusCompleted
+		if i == 20 {
+			status = model.StatusInProgress
+		} else if i > 20 {
+			status = model.StatusQueued
+		}
+		steps = append(steps, model.Step{Number: i + 1, Status: status})
+	}
+	m = m.WithJobs([]model.Job{lint, {ID: 2, Name: "build", Status: model.StatusInProgress, Steps: steps}})
+	if m.SelectedStep != 20 {
+		t.Fatalf("steps appeared: step %d, want it to follow to 20", m.SelectedStep)
+	}
+}

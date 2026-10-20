@@ -322,3 +322,28 @@ func TestProgressBlockFillsTheHeight(t *testing.T) {
 		t.Fatalf("a short screen (%d lines) lost the tail or the count:\n%s", lines, plain)
 	}
 }
+
+// With follow paused every log line shows, so the progress block budgets
+// for all of them, not six (bot review, PR #70).
+func TestPausedFollowKeepsEveryLogLine(t *testing.T) {
+	now := time.Date(2026, 10, 20, 11, 38, 0, 0, time.UTC)
+	var jobs []model.Job
+	for i := range 12 {
+		jobs = append(jobs, model.Job{ID: int64(i + 1), Name: fmt.Sprintf("shard %d", i), Status: model.StatusInProgress})
+	}
+	var tail []string
+	for i := range 12 {
+		tail = append(tail, fmt.Sprintf("TAILMARK %d", i))
+	}
+	m := NewModel(State{
+		Run:   model.Run{ID: 1, Name: "E2E", RunNumber: 1, Status: model.StatusInProgress},
+		Jobs:  jobs,
+		Now:   now,
+		Lines: logs.Parse(strings.Join(tail, "\n")).Lines,
+	})
+	m.Follow = false
+	view := ViewSize(m, 80, 24)
+	if lines := strings.Count(view, "\n") + 1; lines > 24 || !strings.Contains(ansi.Strip(view), "TAILMARK 11") {
+		t.Fatalf("paused follow lost log lines (%d lines):\n%s", lines, ansi.Strip(view))
+	}
+}

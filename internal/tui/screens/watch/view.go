@@ -41,7 +41,11 @@ func ViewSize(m Model, width, height int) string {
 			// the fold plus log tail keep their rows.
 			reserved := len(lines) + 1
 			if tail := len(m.State.Lines); tail > 0 {
-				reserved += 1 + min(tail, followTail)
+				// Follow shows the last six lines; paused, it shows all.
+				if m.Follow {
+					tail = min(tail, followTail)
+				}
+				reserved += 1 + tail
 			}
 			room = max(height-reserved, 1)
 		}

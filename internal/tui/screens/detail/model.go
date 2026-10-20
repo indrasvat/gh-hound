@@ -131,7 +131,8 @@ func (m Model) WithJobs(jobs []model.Job) Model {
 	// A cursor resting on the running step follows it to the next one;
 	// a cursor the user moved elsewhere stays.
 	running, onRunning := runningStep(m.selectedJob())
-	onRunning = onRunning && running == m.SelectedStep
+	// A job that had no steps yet gave the user nothing to move.
+	onRunning = onRunning && running == m.SelectedStep || len(m.selectedJob().Steps) == 0
 	m.Jobs = append([]model.Job(nil), jobs...)
 	kept := false
 	for i, job := range m.Jobs {
@@ -352,7 +353,15 @@ func runningStep(job model.Job) (int, bool) {
 			return index, true
 		}
 	}
-	return 0, false
+	// Between steps GitHub reports the job running with none in
+	// progress: the next unfinished step is the one it is on. With no
+	// steps listed yet, the job is still the running one.
+	for index, step := range job.Steps {
+		if step.Status != model.StatusCompleted {
+			return index, true
+		}
+	}
+	return 0, len(job.Steps) == 0
 }
 
 func (m Model) selectedJob() model.Job {
