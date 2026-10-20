@@ -189,8 +189,8 @@ func TestViewShowsRunningJobProgress(t *testing.T) {
 	queued := model.Job{ID: 2, Name: "report", Status: model.StatusQueued}
 	done := model.Job{ID: 3, Name: "lint", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess}
 	m := NewModel(State{
-		Branch: "pr-3899",
-		Run:    model.Run{ID: 3902, Name: "Edge BDD", RunNumber: 3902, Status: model.StatusInProgress},
+		Branch: "main",
+		Run:    model.Run{ID: 3902, Name: "E2E", RunNumber: 3902, Status: model.StatusInProgress},
 		Jobs:   []model.Job{done, running, queued},
 		Now:    now,
 	})

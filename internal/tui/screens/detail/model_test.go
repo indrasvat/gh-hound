@@ -363,7 +363,7 @@ func TestViewReadsRunningStepsAsElapsed(t *testing.T) {
 		{Number: 29, Name: "Run tests", Status: model.StatusInProgress, StartedAt: now.Add(-12*time.Minute - 40*time.Second)},
 		{Number: 30, Name: "Upload artifacts", Status: model.StatusQueued},
 	}}
-	m := NewModel(model.Run{ID: 3902, Name: "Edge BDD", RunNumber: 3902, Status: model.StatusInProgress}, []model.Job{job})
+	m := NewModel(model.Run{ID: 3902, Name: "E2E", RunNumber: 3902, Status: model.StatusInProgress}, []model.Job{job})
 	m.Now = now
 	plain := ansi.Strip(View(m, 120))
 	for _, want := range []string{"Run tests", "12m40s", "20m00s", "15.0s", "—"} {
