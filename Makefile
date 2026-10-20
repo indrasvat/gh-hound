@@ -40,7 +40,7 @@ help: ## Show grouped help
 	@printf "\n$(COLOR_BOLD)Verification$(COLOR_RESET)\n"
 	@awk 'BEGIN {FS = ":.*##"} /^(e2e|vqa|vqa-screen|vqa-clean|demo|smoke-test):.*?##/ {printf "  $(COLOR_GREEN)%-18s$(COLOR_RESET) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf "\n$(COLOR_BOLD)Tooling & Release$(COLOR_RESET)\n"
-	@awk 'BEGIN {FS = ":.*##"} /^(tools|tools-ci|hooks|hooks-run|release-check|snapshot|release-prep):.*?##/ {printf "  $(COLOR_GREEN)%-18s$(COLOR_RESET) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"} /^(tools|tools-ci|tools-shux|hooks|hooks-run|release-check|snapshot|release-prep):.*?##/ {printf "  $(COLOR_GREEN)%-18s$(COLOR_RESET) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf "\n"
 
 .PHONY: build
@@ -174,7 +174,7 @@ smoke-test: build ## Smoke test local binary
 	@./scripts/smoke-test.sh
 
 .PHONY: tools
-tools: tools-ci ## Install all local development tools
+tools: tools-ci tools-shux ## Install all local development tools
 	@GOTOOLCHAIN=$(GO_VERSION) go install github.com/evilmartians/lefthook@latest
 	@GOTOOLCHAIN=$(GO_VERSION) go install golang.org/x/tools/cmd/goimports@latest
 
@@ -183,6 +183,14 @@ tools-ci: ## Install CI/dev tools required by gates
 	@GOTOOLCHAIN=$(GO_VERSION) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0
 	@GOTOOLCHAIN=$(GO_VERSION) go install gotest.tools/gotestsum@latest
 	@GOTOOLCHAIN=$(GO_VERSION) go install github.com/rhysd/actionlint/cmd/actionlint@latest
+
+.PHONY: tools-shux
+tools-shux: ## Install the latest shux release (VQA, interaction audit, PR evidence)
+	@# The installer resolves "latest" through the releases web redirect
+	@# (no GitHub API quota), verifies the tarball's sha256, and installs
+	@# to ~/.local/bin. Re-run to upgrade.
+	@curl -sSfL https://shux.pages.dev/install.sh | sh -s -- --no-skill
+	@command -v shux >/dev/null 2>&1 && shux --version || printf "$(COLOR_RED)shux installed to ~/.local/bin; add it to PATH$(COLOR_RESET)\n"
 
 .PHONY: hooks
 hooks: ## Install lefthook git hooks

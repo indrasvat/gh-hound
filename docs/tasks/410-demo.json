@@ -1,0 +1,36 @@
+{
+  "scenario": "live_run",
+  "ready": "E2E",
+  "size": "120x28",
+  "seconds": 92,
+  "fps": 5,
+  "panes": {"main": "main d3b625e + fixture", "pr": "this PR"},
+  "timeline": [
+    {"frame": 0, "caption": "runs list · E2E #3902 is running (bdd on step 3 Run tests)"},
+    {"frame": 10, "keys": {"both": "enter"}, "caption": "⏎ open the run"},
+    {"frame": 15, "keys": {"main": "j"}, "caption": "main needs j to reach bdd · the PR opens on it, at its running step"},
+    {"frame": 30, "caption": "bdd · main: Run tests reads queued · PR: its clock"},
+    {"frame": 60, "keys": {"both": "l"}, "caption": "l · full log of the running job"},
+    {"frame": 95, "keys": {"both": "esc"}, "caption": "⎋ back to the run"},
+    {"frame": 105, "keys": {"both": "w"}, "caption": "w · watch the run"},
+    {"frame": 130, "caption": "main: lint's log only · PR: bdd's current step and its clock"},
+    {"frame": 218, "caption": "~45s · bdd moves on to step 4 Upload artifacts"},
+    {"frame": 268, "caption": "~55s · bdd finishes: its log arrives · report starts"},
+    {"frame": 393, "caption": "~80s · the run finishes"}
+  ],
+  "rules": [
+    {"frames": [12, 59], "side": "main", "match": "bdd\\s+queued", "tone": "bad", "label": "running job reads queued"},
+    {"frames": [12, 59], "side": "main", "match": "Run tests\\s+queued", "tone": "bad", "label": "running step reads queued"},
+    {"frames": [12, 59], "side": "pr", "match": "bdd\\s+\\d+m\\d+s", "tone": "good", "label": "job clock"},
+    {"frames": [12, 59], "side": "pr", "match": "Run tests\\s+\\d+m\\d+s", "tone": "good", "label": "opens on the running step"},
+    {"frames": [12, 59], "side": "pr", "match": "w watch", "tone": "good", "label": "w listed"},
+    {"frames": [61, 94], "side": "main", "match": "Runs unavailable", "through": "log unavailable: GitHub has no log for job \\d+", "tone": "bad", "label": "l on a running job: error screen"},
+    {"frames": [61, 94], "side": "pr", "match": "◇ log not ready.*?running", "tone": "good", "label": "a toast; stays on the run"},
+    {"frames": [106, 267], "side": "main", "match": "▾ completed job logs", "to_row_end": true, "tone": "bad", "label": "nothing for the running bdd"},
+    {"frames": [106, 217], "side": "pr", "match": "⠹ bdd › 3 Run tests", "through": "step progress until then", "tone": "good", "label": "each unfinished job: its step and clock"},
+    {"frames": [218, 267], "side": "pr", "match": "⠹ bdd › 4 Upload artifacts", "through": "step progress until then", "tone": "good", "label": "bdd moved on to step 4"},
+    {"frames": [268, 392], "side": "pr", "match": "⠹ report › \\d+ [A-Za-z ]+ \\d+s", "tone": "good", "label": "the next job, live"},
+    {"frames": [268, 392], "side": "both", "match": "\\d+ \\S+ bdd finished", "tone": "same", "label": "bdd's log once it ends (both)"},
+    {"frames": [393, 1000000], "side": "both", "match": "✔ success", "tone": "same", "label": "run finished (both)"}
+  ]
+}
