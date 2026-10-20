@@ -185,11 +185,12 @@ tools-ci: ## Install CI/dev tools required by gates
 	@GOTOOLCHAIN=$(GO_VERSION) go install github.com/rhysd/actionlint/cmd/actionlint@latest
 
 .PHONY: tools-shux
-tools-shux: ## Install the latest shux release (VQA, interaction audit, PR evidence)
+tools-shux: ## Install the latest shux release and its agent skill (VQA, interaction audit, PR evidence)
 	@# The installer resolves "latest" through the releases web redirect
-	@# (no GitHub API quota), verifies the tarball's sha256, and installs
-	@# to ~/.local/bin. Re-run to upgrade.
-	@curl -sSfL https://shux.pages.dev/install.sh | sh -s -- --no-skill
+	@# (no GitHub API quota), verifies the tarball's sha256, installs to
+	@# ~/.local/bin, then adds the shux agent skill via npx (skipped with a
+	@# notice when npx is missing). Re-run to upgrade.
+	@curl -sSfL https://shux.pages.dev/install.sh | sh
 	@command -v shux >/dev/null 2>&1 && shux --version || printf "$(COLOR_RED)shux installed to ~/.local/bin; add it to PATH$(COLOR_RESET)\n"
 
 .PHONY: hooks

@@ -14,16 +14,16 @@ Required local tools for the full gate: Go from `go.mod`, `golangci-lint`, `gote
 cloud sandbox). It runs the official installer:
 
 ```bash
-curl -sSfL https://shux.pages.dev/install.sh | sh -s -- --no-skill
+curl -sSfL https://shux.pages.dev/install.sh | sh
 shux --version
 ```
 
 The installer always takes the latest release, resolved through GitHub's
 `releases/latest` web redirect rather than the rate-limited API (which
 it uses only as a fallback), verifies the tarball's sha256, and installs
-to `~/.local/bin` (`--dir` to change; put it on `PATH`). Re-run it to
-upgrade. Drop `--no-skill` to also install the shux agent skill through
-`npx`.
+to `~/.local/bin` (`--dir` to change; put it on `PATH`), then installs
+the shux agent skill through `npx skills add` (skipped with a notice
+when `npx` is missing). Re-run it to upgrade both.
 
 ## Workflow
 
