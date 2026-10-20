@@ -330,7 +330,7 @@ func TestRootViewRendersRunsRoutePlaceholderContract(t *testing.T) {
 
 func TestRootViewRendersDetailRouteContract(t *testing.T) {
 	view := ansi.Strip(RenderFixtureSize("detail", 80, 0))
-	for _, want := range []string{"CI #571", "build [failure]", "go test ./...", "⏎ expand · ↻ rerun job"} {
+	for _, want := range []string{"CI #571", "build [failure]", "go test ./...", "⏎ expand · w watch · ↻ rerun job"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("detail route view missing %q\n%s", want, view)
 		}
@@ -592,7 +592,7 @@ func clampPrefix(length, maxLength int) int {
 
 func TestScreenBodiesDoNotRenderFrameFooters(t *testing.T) {
 	tests := map[string]string{
-		"detail":   "⏎ expand · ↻ rerun job",
+		"detail":   "⏎ expand · w watch · ↻ rerun job",
 		"failure":  "↻ rerun failed · r rerun job",
 		"watch":    "✗ cancel · f follow",
 		"log":      "j/k scroll · g/G ends",

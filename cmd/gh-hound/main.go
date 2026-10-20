@@ -1538,6 +1538,15 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			return diagnostics.LastLogRefetch(jobID)
 		},
 		DetailResolver: func(loadCtx context.Context, run model.Run) (detail.Model, error) {
+			if run.Status != model.StatusCompleted {
+				// A live run moves on: its status (and whether it still
+				// waits at a gate) is re-read, so the detail poll knows
+				// when it ends. The jobs are the screen; a failed re-read
+				// keeps the snapshot and the next poll tries again.
+				if fresh, err := githubClient.GetRun(loadCtx, launch.Repo, run.ID); err == nil && fresh.ID == run.ID {
+					run = fresh
+				}
+			}
 			jobs, err := githubClient.ListJobs(loadCtx, launch.Repo, run.ID)
 			if err != nil {
 				return detail.Model{}, err
@@ -1599,6 +1608,7 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 				Repo:    launch.Repo,
 				Branch:  firstNonEmptyString(launch.Branch, run.HeadBranch),
 				Run:     state.Run,
+				Jobs:    state.Jobs,
 				Lines:   state.Lines,
 				NoLog:   noLog,
 				Elapsed: elapsedRun(state.Run),

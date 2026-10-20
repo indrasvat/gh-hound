@@ -1,8 +1,10 @@
 package watch
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/logs"
@@ -171,5 +173,177 @@ func TestFinishedRunHasNoActiveCursor(t *testing.T) {
 	m = NewModel(State{Branch: "main", Run: done, NoLog: []NoLog{{Job: "build", Expired: true}}})
 	if plain := ansi.Strip(View(m, 80)); strings.Contains(plain, "no job logs to show") {
 		t.Fatalf("the note is repeated:\n%s", plain)
+	}
+}
+
+// GitHub serves a job's log only once it finishes: a run whose one job
+// is still running shows that job's current step and how long it has
+// run, not a blank "waiting" screen (the live-run report).
+func TestViewShowsRunningJobProgress(t *testing.T) {
+	now := time.Date(2026, 10, 20, 11, 38, 0, 0, time.UTC)
+	running := model.Job{ID: 1, Name: "bdd", Status: model.StatusInProgress, StartedAt: now.Add(-15 * time.Minute), Steps: []model.Step{
+		{Number: 28, Name: "Prune Docker images", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess},
+		{Number: 29, Name: "Run tests", Status: model.StatusInProgress, StartedAt: now.Add(-12*time.Minute - 40*time.Second)},
+		{Number: 30, Name: "Upload UI artifacts", Status: model.StatusQueued},
+	}}
+	queued := model.Job{ID: 2, Name: "report", Status: model.StatusQueued}
+	done := model.Job{ID: 3, Name: "lint", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess}
+	m := NewModel(State{
+		Branch: "main",
+		Run:    model.Run{ID: 3902, Name: "E2E", RunNumber: 3902, Status: model.StatusInProgress},
+		Jobs:   []model.Job{done, running, queued},
+		Now:    now,
+	})
+	for _, width := range []int{80, 120} {
+		view := View(m, width)
+		plain := ansi.Strip(view)
+		for _, want := range []string{"bdd › 29 Run tests 12m40s", "report queued", "GitHub serves a job's log once it finishes"} {
+			if !strings.Contains(plain, want) {
+				t.Fatalf("view at %d missing %q:\n%s", width, want, plain)
+			}
+		}
+		if strings.Contains(plain, "lint") || strings.Contains(plain, "waiting for completed job logs") {
+			t.Fatalf("view at %d shows a finished job or the blank wait:\n%s", width, plain)
+		}
+		assertWidth(t, view, width)
+	}
+
+	// A finished run shows no progress block.
+	m.State.Run.Status, m.State.Run.Conclusion = model.StatusCompleted, model.ConclusionSuccess
+	if plain := ansi.Strip(View(m, 80)); strings.Contains(plain, "Run tests") {
+		t.Fatalf("finished run shows step progress:\n%s", plain)
+	}
+}
+
+// The progress block is bounded so the log tail keeps its rows: a wide
+// matrix reads as its running jobs first and a count, and a name with a
+// newline or tab stays on one measured line.
+func TestProgressBlockIsBounded(t *testing.T) {
+	now := time.Date(2026, 10, 20, 11, 38, 0, 0, time.UTC)
+	var jobs []model.Job
+	jobs = append(jobs, model.Job{ID: 1, Name: "report", Status: model.StatusQueued})
+	for i := range 50 {
+		jobs = append(jobs, model.Job{ID: int64(10 + i), Name: fmt.Sprintf("shard %d", i), Status: model.StatusInProgress, Steps: []model.Step{
+			{Number: 3, Name: "Run\ttests\nnow", Status: model.StatusInProgress, StartedAt: now.Add(-time.Minute)},
+		}})
+	}
+	var tail []string
+	for i := range 6 {
+		tail = append(tail, fmt.Sprintf("TAILMARK %d", i))
+	}
+	m := NewModel(State{
+		Run:   model.Run{ID: 1, Name: "E2E", RunNumber: 1, Status: model.StatusInProgress},
+		Jobs:  jobs,
+		Now:   now,
+		Lines: logs.Parse(strings.Join(tail, "\n")).Lines,
+	})
+	view := View(m, 80)
+	plain := ansi.Strip(view)
+	for _, want := range []string{"shard 0 › 3 Run tests now 1m00s", "shard 1 ›", "+49 more jobs not finished", "TAILMARK 5"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("view missing %q:\n%s", want, plain)
+		}
+	}
+	if strings.Contains(plain, "report") || strings.Contains(plain, "shard 2 ›") {
+		t.Fatalf("block not bounded, or a queued job before a running one:\n%s", plain)
+	}
+	if lines := strings.Count(view, "\n") + 1; lines > 13 {
+		t.Fatalf("view is %d lines, want at most 13:\n%s", lines, plain)
+	}
+	assertWidth(t, view, 80)
+}
+
+// A name that reached the screen unmapped (another adapter) still
+// carries no control rune to the terminal.
+func TestProgressDropsControlRunes(t *testing.T) {
+	m := NewModel(State{
+		Run:  model.Run{ID: 1, Name: "E2E", RunNumber: 1, Status: model.StatusInProgress},
+		Jobs: []model.Job{{ID: 1, Name: "bdd\x1b]52;c;eA==\x07", Status: model.StatusInProgress, Steps: []model.Step{{Number: 1, Name: "go\x1b[2J", Status: model.StatusInProgress}}}},
+	})
+	if view := View(m, 80); strings.ContainsAny(ansi.Strip(view), "\x1b\x07") {
+		t.Fatalf("control rune reached the view: %q", ansi.Strip(view))
+	}
+}
+
+// A step clock shows only for a running step of a running job: a
+// queued job's stale in-progress step, or a finished step, reads none.
+func TestProgressClockOnlyForARunningStep(t *testing.T) {
+	now := time.Date(2026, 10, 20, 11, 38, 0, 0, time.UTC)
+	m := NewModel(State{
+		Run: model.Run{ID: 1, Name: "E2E", RunNumber: 1, Status: model.StatusInProgress},
+		Jobs: []model.Job{
+			{ID: 1, Name: "queued-job", Status: model.StatusQueued, Steps: []model.Step{{Number: 1, Name: "stale", Status: model.StatusInProgress, StartedAt: now.Add(-time.Hour)}}},
+			{ID: 2, Name: "between", Status: model.StatusInProgress, StartedAt: now.Add(-2 * time.Minute), Steps: []model.Step{
+				{Number: 1, Name: "done", Status: model.StatusCompleted, StartedAt: now.Add(-2 * time.Minute)},
+				{Number: 2, Name: "next", Status: model.StatusQueued, StartedAt: now.Add(-time.Minute)},
+			}},
+		},
+		Now: now,
+	})
+	plain := ansi.Strip(View(m, 100))
+	for _, want := range []string{"queued-job queued", "between › 2 next"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("view missing %q:\n%s", want, plain)
+		}
+	}
+	if strings.Contains(plain, "stale") || strings.Contains(plain, "1h") || strings.Contains(plain, "next 1m00s") {
+		t.Fatalf("a clock for a step not running:\n%s", plain)
+	}
+}
+
+// With a height budget the block takes the rows the header, note and
+// log tail leave: a tall screen shows every running job, a short one
+// the jobs that fit and a count, and the log tail keeps its rows.
+func TestProgressBlockFillsTheHeight(t *testing.T) {
+	now := time.Date(2026, 10, 20, 11, 38, 0, 0, time.UTC)
+	var jobs []model.Job
+	for i := range 8 {
+		jobs = append(jobs, model.Job{ID: int64(i + 1), Name: fmt.Sprintf("shard %d", i), Status: model.StatusInProgress, Steps: []model.Step{
+			{Number: 3, Name: "build", Status: model.StatusInProgress, StartedAt: now.Add(-17 * time.Second)},
+		}})
+	}
+	var tail []string
+	for i := range 6 {
+		tail = append(tail, fmt.Sprintf("TAILMARK %d", i))
+	}
+	m := NewModel(State{
+		Run:   model.Run{ID: 1, Name: "E2E", RunNumber: 1, Status: model.StatusInProgress},
+		Jobs:  jobs,
+		Now:   now,
+		Lines: logs.Parse(strings.Join(tail, "\n")).Lines,
+	})
+	tall := ansi.Strip(ViewSize(m, 120, 54))
+	if !strings.Contains(tall, "shard 7 › 3 build 17s") || strings.Contains(tall, "more jobs not finished") {
+		t.Fatalf("a tall screen does not show every running job:\n%s", tall)
+	}
+	short := ViewSize(m, 80, 14)
+	plain := ansi.Strip(short)
+	if lines := strings.Count(short, "\n") + 1; lines > 14 || !strings.Contains(plain, "TAILMARK 5") || !strings.Contains(plain, "+4 more jobs not finished") {
+		t.Fatalf("a short screen (%d lines) lost the tail or the count:\n%s", lines, plain)
+	}
+}
+
+// With follow paused every log line shows, so the progress block budgets
+// for all of them, not six (bot review, PR #70).
+func TestPausedFollowKeepsEveryLogLine(t *testing.T) {
+	now := time.Date(2026, 10, 20, 11, 38, 0, 0, time.UTC)
+	var jobs []model.Job
+	for i := range 12 {
+		jobs = append(jobs, model.Job{ID: int64(i + 1), Name: fmt.Sprintf("shard %d", i), Status: model.StatusInProgress})
+	}
+	var tail []string
+	for i := range 12 {
+		tail = append(tail, fmt.Sprintf("TAILMARK %d", i))
+	}
+	m := NewModel(State{
+		Run:   model.Run{ID: 1, Name: "E2E", RunNumber: 1, Status: model.StatusInProgress},
+		Jobs:  jobs,
+		Now:   now,
+		Lines: logs.Parse(strings.Join(tail, "\n")).Lines,
+	})
+	m.Follow = false
+	view := ViewSize(m, 80, 24)
+	if lines := strings.Count(view, "\n") + 1; lines > 24 || !strings.Contains(ansi.Strip(view), "TAILMARK 11") {
+		t.Fatalf("paused follow lost log lines (%d lines):\n%s", lines, ansi.Strip(view))
 	}
 }

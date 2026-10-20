@@ -11,7 +11,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/config"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/dispatch"
+	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/watch"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
@@ -233,5 +235,223 @@ func TestFinishedRunWatchOffersNoCancel(t *testing.T) {
 	}
 	if app, _ = app.Update(KeyMsg{Key: "x"}); app.TopOverlay() != OverlayNone {
 		t.Fatalf("x on a finished run opened %s", app.TopOverlay())
+	}
+}
+
+// The detail screen follows a live run: the run and its jobs refresh
+// on poll ticks while the run goes — a job listed late (a dynamic
+// matrix) shows up even after every earlier job has finished — and
+// once the run has finished it stops asking.
+func TestDetailPollFollowsALiveRun(t *testing.T) {
+	var polls atomic.Int32
+	app := watchTwoRunsApp(Options{
+		DetailResolver: func(_ context.Context, run model.Run) (detail.Model, error) {
+			n := polls.Add(1)
+			lint := model.Job{ID: 1, Name: "lint", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess}
+			jobs := []model.Job{lint}
+			switch {
+			case n >= 6:
+				run.Status, run.Conclusion = model.StatusCompleted, model.ConclusionSuccess
+				jobs = append(jobs, model.Job{ID: 2, Name: "shard", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess})
+			case n >= 4:
+				jobs = append(jobs, model.Job{ID: 2, Name: "shard", Status: model.StatusInProgress})
+			}
+			return detail.NewModel(run, jobs), nil
+		},
+	})
+	defer app.Shutdown()
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.SettleLoads(time.Second)
+	if app.Route() != RouteDetail {
+		t.Fatalf("route = %s, want detail", app.Route())
+	}
+	for deadline := time.Now().Add(3 * time.Second); app.detail.Run.Status != model.StatusCompleted && time.Now().Before(deadline); {
+		app, _ = app.Refresh()
+		time.Sleep(time.Millisecond)
+	}
+	if app.detail.Run.Status != model.StatusCompleted || len(app.detail.Jobs) != 2 || app.detail.Jobs[1].Status != model.StatusCompleted {
+		t.Fatalf("after %d polls run = %s, jobs = %#v; want the finished run with the late job", polls.Load(), app.detail.Run.Status, app.detail.Jobs)
+	}
+	settled := polls.Load()
+	for range 50 {
+		app, _ = app.Refresh()
+		time.Sleep(time.Millisecond)
+	}
+	if polls.Load() != settled {
+		t.Fatalf("detail kept polling a finished run: %d → %d", settled, polls.Load())
+	}
+}
+
+// A gate approved elsewhere clears: once the run is past waiting, the
+// pending-environments panel goes, even though the poll lists none.
+func TestDetailPollClearsAPassedGate(t *testing.T) {
+	var polls atomic.Int32
+	app := watchTwoRunsApp(Options{
+		DetailResolver: func(_ context.Context, run model.Run) (detail.Model, error) {
+			m := detail.NewModel(run, []model.Job{{ID: 1, Name: "deploy", Status: model.StatusWaiting}})
+			if polls.Add(1) <= 2 {
+				m.Run.Status = model.StatusWaiting
+				return m.WithPendingDeployments([]model.PendingDeployment{{EnvironmentID: 1, EnvironmentName: "production"}}), nil
+			}
+			m.Run.Status = model.StatusInProgress
+			return m, nil
+		},
+	})
+	defer app.Shutdown()
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.SettleLoads(time.Second)
+	for deadline := time.Now().Add(3 * time.Second); len(app.detail.PendingDeployments) > 0 && time.Now().Before(deadline); {
+		app, _ = app.Refresh()
+		time.Sleep(time.Millisecond)
+	}
+	if len(app.detail.PendingDeployments) != 0 || app.detail.Run.Status != model.StatusInProgress {
+		t.Fatalf("after %d polls gates = %d, run = %s; want the gate gone", polls.Load(), len(app.detail.PendingDeployments), app.detail.Run.Status)
+	}
+}
+
+// A poll begun for an earlier opening of the run never lands on a later
+// one: esc and enter again before it returns, and its answer is dropped.
+func TestDetailPollFromAnEarlierOpeningIsDropped(t *testing.T) {
+	app := watchTwoRunsApp(Options{
+		DetailResolver: func(_ context.Context, run model.Run) (detail.Model, error) {
+			return detail.NewModel(run, []model.Job{{ID: 1, Name: "fresh", Status: model.StatusInProgress}}), nil
+		},
+	})
+	defer app.Shutdown()
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.SettleLoads(time.Second)
+	run, gen := app.detail.Run, app.detailGen
+	app, _ = app.Update(KeyMsg{Key: "esc"})
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.SettleLoads(time.Second)
+	stale := detail.NewModel(run, []model.Job{{ID: 1, Name: "STALE", Status: model.StatusInProgress}})
+	app = app.applyDetailRefresh(run, gen, stale, nil)
+	if got := app.detail.Jobs[0].Name; got != "fresh" {
+		t.Fatalf("a poll from the earlier opening landed: job %q", got)
+	}
+}
+
+// n and l on a job still running say its log is not ready and point at
+// w, instead of fetching into a "no log" error screen.
+func TestDetailLogOnARunningJobSaysNotReady(t *testing.T) {
+	var logs atomic.Int32
+	app := watchTwoRunsApp(Options{
+		DetailResolver: func(_ context.Context, run model.Run) (detail.Model, error) {
+			return detail.NewModel(run, []model.Job{{ID: 7, Name: "bdd", Status: model.StatusInProgress, Steps: []model.Step{
+				{Number: 29, Name: "Run tests", Status: model.StatusInProgress},
+			}}}), nil
+		},
+		LogResolver: func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error) {
+			logs.Add(1)
+			return logscreen.Model{}, nil
+		},
+	})
+	defer app.Shutdown()
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.SettleLoads(time.Second)
+	for _, key := range []string{"l", "n"} {
+		app, _ = app.Update(KeyMsg{Key: key})
+		app, _ = app.SettleLoads(time.Second)
+		if app.Route() != RouteDetail {
+			t.Fatalf("%s on a running job left detail for %s", key, app.Route())
+		}
+	}
+	if logs.Load() != 0 {
+		t.Fatalf("a running job's log was fetched %d times", logs.Load())
+	}
+	view := ansi.Strip(app.ViewSize(120, 30))
+	if !strings.Contains(view, "log not ready") || !strings.Contains(view, "w follows its steps · bdd is still running") {
+		t.Fatalf("no not-ready toast:\n%s", view)
+	}
+}
+
+// A first load that failed heals on the next successful poll — for a
+// finished run too — and its error goes; once answered, a finished run
+// with no jobs stops asking.
+func TestDetailPollRecoversAFailedLoad(t *testing.T) {
+	var calls atomic.Int32
+	app := watchTwoRunsApp(Options{
+		DetailResolver: func(_ context.Context, run model.Run) (detail.Model, error) {
+			if calls.Add(1) <= 2 {
+				return detail.Model{}, errors.New("boom")
+			}
+			run.Status, run.Conclusion = model.StatusCompleted, model.ConclusionSuccess
+			return detail.NewModel(run, nil), nil
+		},
+	})
+	defer app.Shutdown()
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.SettleLoads(time.Second)
+	if !strings.Contains(ansi.Strip(app.ViewSize(100, 24)), "detail unavailable") {
+		t.Fatalf("first load did not fail:\n%s", ansi.Strip(app.ViewSize(100, 24)))
+	}
+	for deadline := time.Now().Add(3 * time.Second); !app.detailLoaded && time.Now().Before(deadline); {
+		app, _ = app.Refresh()
+		time.Sleep(time.Millisecond)
+	}
+	app, _ = app.Refresh()
+	if view := ansi.Strip(app.ViewSize(100, 24)); strings.Contains(view, "detail unavailable") || app.detail.Run.Status != model.StatusCompleted {
+		t.Fatalf("after %d calls the error still shows or the answer was dropped:\n%s", calls.Load(), view)
+	}
+	settled := calls.Load()
+	for range 50 {
+		app, _ = app.Refresh()
+		time.Sleep(time.Millisecond)
+	}
+	if calls.Load() != settled {
+		t.Fatalf("a finished run with no jobs kept polling: %d → %d", settled, calls.Load())
+	}
+}
+
+// l and ⏎ on a live run with no job listed yet say so; nothing fetched.
+func TestDetailLogOnALiveRunWithoutJobsSaysNotReady(t *testing.T) {
+	var logs atomic.Int32
+	app := watchTwoRunsApp(Options{
+		DetailResolver: func(_ context.Context, run model.Run) (detail.Model, error) {
+			return detail.NewModel(run, nil), nil
+		},
+		LogResolver: func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error) {
+			logs.Add(1)
+			return logscreen.Model{}, nil
+		},
+	})
+	defer app.Shutdown()
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.SettleLoads(time.Second)
+	for _, key := range []string{"l", "enter"} {
+		app, _ = app.Update(KeyMsg{Key: key})
+		app, _ = app.SettleLoads(time.Second)
+		if app.Route() != RouteDetail {
+			t.Fatalf("%s on a run with no jobs left detail for %s", key, app.Route())
+		}
+	}
+	if view := ansi.Strip(app.ViewSize(120, 30)); logs.Load() != 0 || !strings.Contains(view, "no job has started yet") {
+		t.Fatalf("fetches = %d; view:\n%s", logs.Load(), view)
+	}
+}
+
+// While the jobs are still loading, l claims nothing: "no job has
+// started yet" is only for a run GitHub answered with no jobs (seen
+// live on an 88-job rust-lang run whose listing took seconds).
+func TestDetailLogWhileJobsLoadClaimsNothing(t *testing.T) {
+	release := make(chan struct{})
+	var calls atomic.Int32
+	app := watchTwoRunsApp(Options{
+		DetailResolver: func(ctx context.Context, run model.Run) (detail.Model, error) {
+			if calls.Add(1) > 1 { // NewApp resolves once up front
+				select {
+				case <-release:
+				case <-ctx.Done():
+				}
+			}
+			return detail.NewModel(run, []model.Job{{ID: 1, Name: "bdd", Status: model.StatusInProgress}}), nil
+		},
+	})
+	defer app.Shutdown()
+	defer close(release)
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.Update(KeyMsg{Key: "l"})
+	if view := ansi.Strip(app.ViewSize(120, 30)); strings.Contains(view, "no job has started yet") {
+		t.Fatalf("claimed no job while the jobs load:\n%s", view)
 	}
 }

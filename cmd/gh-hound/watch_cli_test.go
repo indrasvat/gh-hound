@@ -119,3 +119,54 @@ func TestTUIWatchShowsAnExpiredLog(t *testing.T) {
 		t.Fatalf("job logs fetched %d times over %d ticks, want 2 (each job once)", fetches, github.jobListings())
 	}
 }
+
+// The live-run report, end to end: a run whose one job is still going
+// (GitHub serves no log for it yet) watches as that job's current step
+// and elapsed time, not a blank "waiting" screen; its log is never
+// asked for while it runs.
+func TestTUIWatchShowsARunningJobsStep(t *testing.T) {
+	run := cliRun(9300, "E2E", model.StatusInProgress, model.ConclusionNone)
+	started := time.Now().Add(-12*time.Minute - 40*time.Second)
+	github := &cliGitHub{
+		runs:    []model.Run{run},
+		runByID: map[int64]model.Run{run.ID: run},
+		jobs: []model.Job{{ID: 1, Name: "bdd", Status: model.StatusInProgress, StartedAt: started, Steps: []model.Step{
+			{Number: 28, Name: "Prune Docker images", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess},
+			{Number: 29, Name: "Run tests", Status: model.StatusInProgress, StartedAt: started},
+			{Number: 30, Name: "Upload UI artifacts", Status: model.StatusQueued},
+		}}},
+	}
+	app, err := defaultTUIApp(context.Background(), commandRuntime{
+		Env:    mapEnv(map[string]string{"HOUND_WELCOME": "false", "HOUND_POLL_MIN_MS": "1", "HOUND_POLL_MAX_MS": "1"}),
+		GitHub: github,
+		Repo: &cliRepo{context: usecase.RepositoryContext{
+			Repo: "indrasvat/gh-hound", Branch: "feature/real", Actor: "indrasvat",
+		}},
+	}, tui.BuildInfo{Version: "v0.1.0"}, cliOptions{})
+	if err != nil {
+		t.Fatalf("defaultTUIApp: %v", err)
+	}
+	defer app.Shutdown()
+
+	app, _ = app.Update(tui.KeyMsg{Key: "w"})
+	app, settled := app.SettleLoads(2 * time.Second)
+	if !settled || app.Route() != tui.RouteWatch {
+		t.Fatalf("watch did not open: settled=%v route=%s", settled, app.Route())
+	}
+	for deadline := time.Now().Add(2 * time.Second); github.jobListings() < 3 && time.Now().Before(deadline); {
+		app, _ = app.Refresh()
+		time.Sleep(time.Millisecond)
+	}
+	view := ansi.Strip(app.ViewSize(120, 32))
+	for _, want := range []string{"bdd › 29 Run tests 12m4", "GitHub serves a job's log once it finishes"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("watch view missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "waiting for completed job logs") {
+		t.Fatalf("watch view still reads blank-waiting:\n%s", view)
+	}
+	if fetches := github.jobLogFetches(); fetches != 0 {
+		t.Fatalf("a running job's log was fetched %d times", fetches)
+	}
+}

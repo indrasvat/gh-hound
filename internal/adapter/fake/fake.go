@@ -61,10 +61,12 @@ type Adapter struct {
 	// advances the staggered-completion clock deterministically.
 	packMu    sync.Mutex
 	packTicks int
+	// started is the live-run scenario's clock origin.
+	started time.Time
 }
 
 func New(scenario Scenario) *Adapter {
-	return &Adapter{scenario: scenario}
+	return &Adapter{scenario: scenario, started: time.Now()}
 }
 
 func (a *Adapter) ListRuns(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
@@ -135,6 +137,8 @@ func (a *Adapter) listScenarioRuns() ([]model.Run, error) {
 		return flakyHistory(), nil
 	case ScenarioActors, ScenarioActorsAnon:
 		return actorRuns(), nil
+	case ScenarioLiveRun:
+		return []model.Run{a.liveRun(), greenRun(571)}, nil
 	case ScenarioSkippedJob:
 		run, expired, broken := greenRun(571), greenRun(570), greenRun(569)
 		run.Conclusion, expired.Conclusion, broken.Conclusion = model.ConclusionFailure, model.ConclusionFailure, model.ConclusionFailure
@@ -180,6 +184,9 @@ func (a *Adapter) GetRun(ctx context.Context, repo string, runID int64) (model.R
 }
 
 func (a *Adapter) ListJobs(_ context.Context, _ string, runID int64) ([]model.Job, error) {
+	if a.scenario == ScenarioLiveRun && runID == greenRun(liveRunNumber).ID {
+		return a.liveJobs(), nil
+	}
 	if a.scenario != ScenarioSkippedJob {
 		return []model.Job{job()}, nil
 	}
@@ -412,6 +419,9 @@ func (a *Adapter) ReviewPendingDeployments(_ context.Context, repo string, runID
 }
 
 func (a *Adapter) FetchJobLog(_ context.Context, _ string, jobID int64) (string, error) {
+	if a.scenario == ScenarioLiveRun && jobID >= liveLintJobID && jobID <= liveReportJobID {
+		return a.liveJobLog(jobID)
+	}
 	if a.scenario == ScenarioSkippedJob {
 		switch jobID {
 		case skippedJobID:

@@ -2,6 +2,7 @@ package detail
 
 import (
 	"maps"
+	"time"
 
 	"github.com/indrasvat/gh-hound/internal/model"
 )
@@ -99,6 +100,17 @@ type Model struct {
 	// extracting row annotations; the app advances it on poll ticks
 	// while a download is live (the shared-spinner contract).
 	SpinnerFrame int
+
+	// Now is the clock a running job or step's elapsed time reads
+	// against; zero means the wall clock.
+	Now time.Time
+}
+
+func (m Model) clock() time.Time {
+	if m.Now.IsZero() {
+		return time.Now()
+	}
+	return m.Now
 }
 
 func NewModel(run model.Run, jobs []model.Job) Model {
@@ -109,6 +121,40 @@ func NewModel(run model.Run, jobs []model.Job) Model {
 
 func (m Model) WithRepo(repo string) Model {
 	m.Repo = repo
+	return m
+}
+
+// WithJobs swaps in a fresher listing of the run's jobs, keeping the
+// cursor on the same job (by ID) and step where they still exist.
+func (m Model) WithJobs(jobs []model.Job) Model {
+	selected := m.selectedJob().ID
+	// A cursor resting on the running step follows it to the next one;
+	// a cursor the user moved elsewhere stays.
+	running, onRunning := runningStep(m.selectedJob())
+	// A job that had no steps yet gave the user nothing to move.
+	onRunning = onRunning && running == m.SelectedStep || len(m.selectedJob().Steps) == 0
+	m.Jobs = append([]model.Job(nil), jobs...)
+	kept := false
+	for i, job := range m.Jobs {
+		if job.ID == selected {
+			m.SelectedJob, kept = i, true
+			break
+		}
+	}
+	if !kept {
+		// The selected job is gone: its step index means nothing for
+		// whichever job the cursor lands on.
+		m.SelectedJob = min(max(m.SelectedJob, 0), max(len(m.Jobs)-1, 0))
+		m.SelectedStep = 0
+	}
+	if len(m.Jobs) > 0 {
+		m.SelectedStep = min(max(m.SelectedStep, 0), max(len(m.Jobs[m.SelectedJob].Steps)-1, 0))
+		if step, ok := runningStep(m.Jobs[m.SelectedJob]); ok && kept && onRunning {
+			m.SelectedStep = step
+		}
+	} else {
+		m.SelectedStep = 0
+	}
 	return m
 }
 
@@ -249,6 +295,11 @@ func (m *Model) move(delta int) {
 	case FocusJobs:
 		m.SelectedJob = clamp(m.SelectedJob+delta, len(m.Jobs))
 		m.SelectedStep = clamp(m.SelectedStep, len(m.selectedJob().Steps))
+		if step, ok := runningStep(m.selectedJob()); ok {
+			// A running job opens on the step it is on: in a long list
+			// it would otherwise sit below the window.
+			m.SelectedStep = step
+		}
 	case FocusArtifacts:
 		m.SelectedArtifact = clamp(m.SelectedArtifact+delta, len(m.Artifacts))
 	default:
@@ -282,6 +333,35 @@ func (m *Model) jumpFailure() {
 			return
 		}
 	}
+	// Nothing failed: a live run opens on its first running job, at the
+	// step it is on.
+	for jobIndex, job := range m.Jobs {
+		if step, ok := runningStep(job); ok {
+			m.SelectedJob, m.SelectedStep = jobIndex, step
+			return
+		}
+	}
+}
+
+// runningStep is the index of the step a running job is on.
+func runningStep(job model.Job) (int, bool) {
+	if job.Status != model.StatusInProgress {
+		return 0, false
+	}
+	for index, step := range job.Steps {
+		if step.Status == model.StatusInProgress {
+			return index, true
+		}
+	}
+	// Between steps GitHub reports the job running with none in
+	// progress: the next unfinished step is the one it is on. With no
+	// steps listed yet, the job is still the running one.
+	for index, step := range job.Steps {
+		if step.Status != model.StatusCompleted {
+			return index, true
+		}
+	}
+	return 0, len(job.Steps) == 0
 }
 
 func (m Model) selectedJob() model.Job {

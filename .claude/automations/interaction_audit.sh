@@ -75,6 +75,9 @@ scenarios=(
   watch-skipped-job
   watch-expired-log
   watch-failed-open
+  watch-live-run
+  detail-live-run
+  detail-log-not-ready
 )
 
 adapter_for() {
@@ -88,6 +91,7 @@ adapter_for() {
     log-compact-* | log-range-search | log-match-grouped | log-fold-count | timejump-small | timejump-tiny) printf 'noisy' ;;
     failure-cut-scroll | failure-scroll-grow) printf 'failing' ;;
     watch-skipped-job | watch-expired-log | watch-failed-open) printf 'skipped_job' ;;
+    watch-live-run | detail-live-run | detail-log-not-ready) printf 'live_run' ;;
     *) printf 'failing' ;;
   esac
 }
@@ -144,6 +148,9 @@ keys_for() {
     watch-skipped-job) printf 'w' ;;
     watch-expired-log) printf 'w esc j w' ;;
     watch-failed-open) printf 'w esc j j w' ;;
+    watch-live-run) printf 'w' ;;
+    detail-live-run) printf 'enter' ;;
+    detail-log-not-ready) printf 'enter l' ;;
     log-range-search) printf 'enter l t 1 6 : 1 2 : 0 2 - 1 6 : 1 2 : 1 2 enter / r e q u e s t - i d enter' ;;
     log-match-grouped) printf 'enter l / 2 0 2 6 enter' ;;
     log-fold-count) printf 'enter l t 1 6 : 1 2 : 2 1 enter G' ;;

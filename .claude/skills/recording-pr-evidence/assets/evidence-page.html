@@ -1,0 +1,198 @@
+<title>Live Run Evidence</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one reading column of evidence blocks; each main/PR pair sits side by side and stacks on phones (same system as the task 400 page). */
+:root {
+  --bg: #f6f6f3;
+  --panel: #ffffff;
+  --fg: #1d2024;
+  --muted: #5d636b;
+  --line: #dcdcd5;
+  --accent: #a86a12;
+  --bad: #b3261e;
+  --good: #1f7a45;
+  --code-bg: #eeeee8;
+  --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111317; --panel: #181b20; --fg: #e3e5e8; --muted: #9aa1ab; --line: #2b3038;
+    --accent: #e0a84a; --bad: #f2867d; --good: #6fd09a; --code-bg: #1f232a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111317; --panel: #181b20; --fg: #e3e5e8; --muted: #9aa1ab; --line: #2b3038;
+  --accent: #e0a84a; --bad: #f2867d; --good: #6fd09a; --code-bg: #1f232a; color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.55; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-block: 32px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 40px; }
+header { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
+h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.15; margin: 0; font-weight: 600; text-wrap: balance; }
+h2 { font-size: 20px; margin: 0; font-weight: 600; text-wrap: balance; }
+p { margin: 0; max-width: 72ch; }
+.meta { font-family: var(--mono); font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 18px; }
+section { display: grid; gap: 14px; min-width: 0; }
+code { font-family: var(--mono); font-size: .92em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+video { width: 100%; max-width: 100%; border-radius: 8px; border: 1px solid var(--line); background: #0f1115; display: block; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 500; }
+td.num { font-family: var(--mono); font-size: 13px; }
+.bad { color: var(--bad); font-weight: 600; }
+.good { color: var(--good); font-weight: 600; }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 760px) { .pair { grid-template-columns: 1fr; } }
+figure { margin: 0; display: grid; gap: 6px; min-width: 0; align-content: start; }
+figure img { width: 100%; border-radius: 6px; border: 1px solid var(--line); display: block; }
+figcaption { font-size: 13px; color: var(--muted); }
+figcaption b { font-family: var(--mono); font-weight: 600; color: var(--fg); }
+.tag { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; margin-right: 6px; }
+.tag.main { color: var(--bad); }
+.tag.pr { color: var(--good); }
+pre { margin: 0; background: var(--code-bg); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 13px; line-height: 1.5; }
+ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; max-width: 80ch; }
+a { color: var(--accent); }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">gh-hound · task 410 · evidence</div>
+    <h1>Follow a live run by its steps</h1>
+    <p>From a user report: “Can it follow a live run? It shows Run tests as queued but it's running.” GitHub serves a job's log only once the job finishes, and has no API for a running one. So hound now follows a running job by its steps. Same keys, same fixture, same moment on both builds. Top or left is <b>main d3b625e</b> with the new <code>live_run</code> fixture copied in; bottom or right is this PR.</p>
+    <div class="meta"><span>branch fix/live-run-watch</span><span>base main d3b625e</span><span>shux 0.51 · 120x28</span></div>
+  </header>
+
+  <section>
+    <h2>Demo · 46 s (2× speed)</h2>
+    <p>Marks follow the content frame by frame: <span class="bad">red</span> is what main gets wrong, <span class="good">green</span> what this PR shows instead, amber what both do. Each numbered badge matches the legend on its pane's title bar.</p>
+    <video src="demo-410.mp4" controls muted playsinline preload="metadata"></video>
+    <p>One run of the <code>live_run</code> fixture: <code>⏎</code> opens E2E #3902 (main needs a <code>j</code> to reach <code>bdd</code>; the PR opens on it, at its running step), <code>l</code> asks for its log, <code>⎋</code>, then <code>w</code> watches. At about 45 s bdd moves to step 4, at 55 s it finishes and <code>report</code> starts, and at 80 s the run finishes.</p>
+  </section>
+
+  <section>
+    <h2>Result</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Behavior</th><th>main</th><th>this PR</th></tr></thead>
+        <tbody>
+          <tr><td>A running step or job on detail</td><td class="num bad">queued</td><td class="num good">12m48s, counting; opens on that step</td></tr>
+          <tr><td>A queued job GitHub already stamped <code>started_at</code> on</td><td class="num">queued</td><td class="num good">queued (status decides)</td></tr>
+          <tr><td>Detail while the run goes</td><td class="num bad">snapshot, never refreshes</td><td class="num good">re-reads the run and jobs each poll; stops when finished</td></tr>
+          <tr><td><code>w</code> on detail</td><td class="num bad">bound, not in footer or help</td><td class="num good">⏎ expand · w watch · …</td></tr>
+          <tr><td><code>l</code> on a running job</td><td class="num bad">Runs unavailable · GitHub has no log for job N</td><td class="num good">toast: w follows its steps · bdd is still running</td></tr>
+          <tr><td>Watch of a run whose job still runs</td><td class="num bad">blank until the job ends</td><td class="num good">⠹ bdd › 3 Run tests 13m11s</td></tr>
+          <tr><td>88 unfinished jobs on watch (live)</td><td class="num">—</td><td class="num good">as many as fit (45 at 200x60), then “+N more”; log tail kept</td></tr>
+          <tr><td>An ESC in a job name (fork PR title)</td><td class="num bad">reaches the terminal</td><td class="num good">dropped where the adapter decodes it</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Detail: a running step reads its time</h2>
+    <p>On main, <code>duration()</code> returned <code>queued</code> whenever a step had no end time, which is every running step. The job list and pane header used it too.</p>
+    <div class="pair">
+      <figure><img src="img/detail-main.png" alt="main: bdd and step 3 Run tests read queued"><figcaption><span class="tag main">main</span><b>bdd queued · 3 Run tests queued</b></figcaption></figure>
+      <figure><img src="img/detail-pr.png" alt="this PR: opens on bdd at step 3 Run tests 12m48s, footer shows w watch"><figcaption><span class="tag pr">this PR</span><b>opens on bdd · 3 Run tests 12m48s · w watch</b></figcaption></figure>
+    </div>
+  </section>
+
+  <section>
+    <h2>Detail: <code>l</code> on a running job</h2>
+    <div class="pair">
+      <figure><img src="img/log-main.png" alt="main: full log screen titled Runs unavailable, GitHub has no log for job"><figcaption><span class="tag main">main</span><b>Runs unavailable · GitHub has no log for job 399444511</b></figcaption></figure>
+      <figure><img src="img/log-pr.png" alt="this PR: stays on detail with toast log not ready, w follows its steps, bdd is still running"><figcaption><span class="tag pr">this PR</span><b>log not ready · w follows its steps · bdd is still running</b></figcaption></figure>
+    </div>
+  </section>
+
+  <section>
+    <h2>Watch: step progress until the log exists</h2>
+    <p>Each unfinished job reads as its current step and how long that step has run, running jobs first, as many as the screen holds above the log tail. Each finished job's log still follows below, fetched once.</p>
+    <div class="pair">
+      <figure><img src="img/watch-main.png" alt="main: watch shows only lint's finished log"><figcaption><span class="tag main">main</span><b>lint's log only; bdd is invisible</b></figcaption></figure>
+      <figure><img src="img/watch-pr.png" alt="this PR: bdd step 3 Run tests 13m11s, report queued, note, then lint's log"><figcaption><span class="tag pr">this PR</span><b>⠹ bdd › 3 Run tests 13m11s · ◌ report queued</b></figcaption></figure>
+    </div>
+    <div class="pair">
+      <figure><img src="img/handoff-main.png" alt="main at 55s: bdd's log appears"><figcaption><span class="tag main">main</span><b>~55 s: bdd's log appears, report unseen</b></figcaption></figure>
+      <figure><img src="img/handoff-pr.png" alt="this PR at 55s: report on step 2 Publish report, bdd's log below"><figcaption><span class="tag pr">this PR</span><b>~55 s: bdd's log lands, report › 2 Publish report</b></figcaption></figure>
+    </div>
+  </section>
+
+  <section>
+    <h2>Live on rust-lang/rust (read-only)</h2>
+    <p>Two runs in progress on 2026-10-20. CI #235463 had two jobs on <code>30 run the build</code> of a 37-step job; CI #235461 had 88 unfinished jobs.</p>
+    <div class="pair">
+      <figure><img src="img/live-detail.png" alt="CI 235463 detail: cursor on step 30 run the build 4m43s, toast log not ready"><figcaption><span class="tag pr">this PR</span><b>#235463: opens on 30 run the build · l → toast</b></figcaption></figure>
+      <figure><img src="img/live-watch.png" alt="CI 235463 watch: two jobs on step 30 run the build with clocks, finished job log below"><figcaption><span class="tag pr">this PR</span><b>#235463 watch: both builds, live clocks</b></figcaption></figure>
+    </div>
+    <figure><img src="img/live-cap.png" alt="CI 235461 at 200x60: 45 running jobs, plus 43 more jobs not finished, note, log tail"><figcaption><span class="tag pr">this PR</span><b>#235461 at 200x60: 45 jobs, +43 more, log tail kept</b></figcaption></figure>
+  </section>
+
+  <section>
+    <h2>Fixtures · PTY scenarios at 80x24</h2>
+    <div class="pair">
+      <figure><img src="img/fx-watch-live-run.png" alt="watch-live-run scenario"><figcaption><span class="tag pr">this PR</span><b>watch-live-run</b></figcaption></figure>
+      <figure><img src="img/fx-detail-live-run.png" alt="detail-live-run scenario"><figcaption><span class="tag pr">this PR</span><b>detail-live-run</b></figcaption></figure>
+    </div>
+    <div class="pair">
+      <figure><img src="img/fx-detail-log-not-ready.png" alt="detail-log-not-ready scenario"><figcaption><span class="tag pr">this PR</span><b>detail-log-not-ready</b></figcaption></figure>
+      <figure><figcaption>The <code>running</code> fake listed an in-progress run whose only job was a finished failure, so no fixture ever showed a running step. <code>live_run</code> moves on the clock the way GitHub reports a run, and a running job's log answers 404.</figcaption></figure>
+    </div>
+  </section>
+
+  <section>
+    <h2>Is there a streaming log API?</h2>
+    <ul>
+      <li><code>GET /actions/jobs/{id}/logs</code> on a running job redirects to a blob that answers <code>404 BlobNotFound</code> until the job finishes. No partial or growing file.</li>
+      <li>The per-step logs endpoint now in the REST docs answered 404 on running and finished jobs alike (tested 2026-10-20).</li>
+      <li>The web UI's live log uses an undocumented <code>alive.github.com</code> websocket that needs a browser session, not a token. <a href="https://github.com/cli/cli/issues/3484">cli/cli#3484</a> has been open and <code>blocked</code> since 2021, and <code>gh</code> declined to scrape it.</li>
+      <li>Steps' status and timestamps are live on the jobs endpoint. That is what hound follows.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Tests · red first, then green</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Test</th><th>On main</th><th>This PR</th></tr></thead>
+        <tbody>
+          <tr><td><code>TestTUIWatchShowsARunningJobsStep</code> (through <code>defaultTUIApp</code>): step and clock, no blank wait, no log fetch</td><td class="num bad">fail</td><td class="num good">pass</td></tr>
+          <tr><td><code>TestDetailPollFollowsALiveRun</code>: run and jobs refresh, a late matrix job appears, polling stops when finished</td><td class="num bad">fail</td><td class="num good">pass</td></tr>
+          <tr><td><code>TestDetailLogOnARunningJobSaysNotReady</code> · <code>…WithoutJobs…</code> · <code>…WhileJobsLoadClaimsNothing</code></td><td class="num bad">fail</td><td class="num good">pass</td></tr>
+          <tr><td><code>TestDetailPollClearsAPassedGate</code> · <code>…FromAnEarlierOpeningIsDropped</code> · <code>…RecoversAFailedLoad</code></td><td class="num">mutation-checked</td><td class="num good">pass, -race</td></tr>
+          <tr><td>Screen: <code>TestDurationReadsStatusFirst</code>, <code>TestRunningStepIsSelected</code>, <code>TestProgressBlockFillsTheHeight</code>, <code>TestProgressClockOnlyForARunningStep</code></td><td class="num">mutation-checked</td><td class="num good">pass</td></tr>
+          <tr><td><code>TestMapJobKeepsControlRunesOffTheScreen</code>: OSC 52, CSI and U+202E in names</td><td class="num bad">raw</td><td class="num good">pass</td></tr>
+          <tr><td><code>make ci</code> · <code>make vqa</code> (80x24 / 120x40 / 200x60, 3 new PTY scenarios, render hygiene 0 erases)</td><td class="num">—</td><td class="num good">pass</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="review">
+    <h2>Review</h2>
+    <ul>
+      <li><b>Two adversarial agents</b> drove the real app and binary. Detail: the poll never refreshed the run (polling stopped early, a late job never showed, an approved gate never cleared), a queued job with <code>started_at</code> showed a clock, a stale poll could land after reopening. Watch: no height bound, multiline step names. All fixed.</li>
+      <li><b>Security review:</b> GitHub names reached the terminal raw; a job name can carry a fork PR's title. The adapter now drops control and bidi-override runes. Pre-existing, fixed here.</li>
+      <li><b>dootsabha council</b> (codex, agy; grok could not start its sandbox): five findings, all fixed. A failed first load now heals on the poll, the poll identity carries the opening, a finished run with no jobs stops polling, <code>l</code> on a jobless live run toasts, and the step clock only runs for a running step.</li>
+      <li><b>Cold <code>tui-qa</code></b>, round 1: FAIL. The watch block was a fixed three lines at any height, a long name cut the toast hint, clocks read <code>17.0s</code> vs <code>17s</code>, and a queued job's steps pane was empty. Round 2: <b>PASS</b>, including live 9- and 86-job runs at every size and a failed load healed through a failing proxy.</li>
+      <li><b>Live check (rust-lang/rust)</b> found two more, both fixed: the running step sat under <code>+18 more</code>, and <code>l</code> during a slow job listing claimed “no job has started yet”.</li>
+      <li><b>Recorded, not changed</b> (also on main): the detail jobs list never scrolls, so on an 88-job run the selection walks off the frame (needs its own task). A detail load failure is titled <code>Runs unavailable</code>. The watch follow tail is six lines.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Reproduce</h2>
+<pre>make build
+HOUND_WELCOME=false ./bin/gh-hound __vqa-tui --scenario live_run   # ⏎ j l ⎋ w, watch past 80 s
+go test ./internal/tui -run 'DetailPoll|NotReady'
+go test ./cmd/gh-hound -run TestTUIWatchShowsARunningJobsStep</pre>
+  </section>
+</div>

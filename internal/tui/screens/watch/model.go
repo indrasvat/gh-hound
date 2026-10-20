@@ -1,6 +1,8 @@
 package watch
 
 import (
+	"time"
+
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/model"
 )
@@ -9,10 +11,16 @@ type State struct {
 	Repo   string
 	Branch string
 	Run    model.Run
-	Lines  []logs.Line
+	// Jobs are the run's jobs; one still running reads as its current
+	// step, since GitHub serves its log only once it finishes.
+	Jobs  []model.Job
+	Lines []logs.Line
 	// NoLog names the finished jobs shown without their log.
 	NoLog   []NoLog
 	Elapsed string
+	// Now is the clock a running step's elapsed time reads against;
+	// zero means the wall clock.
+	Now time.Time
 }
 
 type NoLog struct {

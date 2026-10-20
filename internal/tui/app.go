@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/indrasvat/gh-hound/internal/config"
 	"github.com/indrasvat/gh-hound/internal/logs"
@@ -170,8 +171,14 @@ type App struct {
 	pendingAction     *pendingAction
 	routeErrors       map[Route]string
 	detailResolver    func(context.Context, model.Run) (detail.Model, error)
-	runsResolver      func(context.Context, usecase.RunFilter) ([]model.Run, error)
-	viewer            *viewerCache
+	// detailGen counts detail opens: a poll for an earlier opening of
+	// the same run never lands on a later one.
+	detailGen int
+	// detailLoaded is set once this opening has had a successful
+	// answer: until then a poll retries even a finished run.
+	detailLoaded bool
+	runsResolver func(context.Context, usecase.RunFilter) ([]model.Run, error)
+	viewer       *viewerCache
 	// runsGen increments on every applied runs query; a load result
 	// for an older generation is dropped, never shown.
 	runsGen int
@@ -356,6 +363,8 @@ func (a App) pollIdentity(route Route) string {
 	switch route {
 	case RouteRuns:
 		return fmt.Sprintf("runs|%s|%s", a.runs.Context.Scope, a.runs.Filter)
+	case RouteDetail:
+		return fmt.Sprintf("detail|%d|%d", a.detail.Run.ID, a.detailGen)
 	case RouteWatch:
 		return fmt.Sprintf("watch|%d", a.watch.State.Run.ID)
 	case RouteWatchBoard:
@@ -443,7 +452,7 @@ func (a App) drainTickPoll() (App, bool) {
 	poll.mu.Unlock()
 	if !surfaceMatches {
 		// The poll's surface is gone — the user toggled scope/filter,
-		// switched boards, or took a non-polling detour (detail/log).
+		// switched boards, or took a detour to another surface.
 		// Free the slot (cancelling a still-running fetch so a stuck
 		// one can't wedge it) and clear the due-gate so the surface
 		// they land on polls promptly instead of waiting out the
@@ -1239,6 +1248,8 @@ func (a App) Refresh() (App, bool) {
 	switch a.Route() {
 	case RouteRuns:
 		return a.startRunsPoll(), changed
+	case RouteDetail:
+		return a.startDetailPoll(), changed
 	case RouteWatch:
 		return a.startWatchPoll(), changed
 	case RouteWatchBoard:
@@ -2091,12 +2102,18 @@ func (a App) updateDetail(msg KeyMsg) (App, bool) {
 	a.detail = a.detail.Update(detail.KeyMsg{Key: msg.Key})
 	switch a.detail.Intent.Kind {
 	case detail.IntentFailure:
+		if a.detailLogNotReady() {
+			break
+		}
 		if a.loadBlocked(loadKindFailure) {
 			break
 		}
 		a = a.loadFailure(a.detail.Run, a.selectedDetailJob())
 		a.PushRoute(RouteFailure)
 	case detail.IntentLog:
+		if a.detailLogNotReady() {
+			break
+		}
 		if a.loadBlocked(loadKindLog) {
 			break
 		}
@@ -2132,6 +2149,49 @@ func (a App) updateDetail(msg KeyMsg) (App, bool) {
 		a.PopRoute()
 	}
 	return a, detailHandled(msg.Key) || beforeFocus != a.detail.Focus || beforeJob != a.detail.SelectedJob || beforeStep != a.detail.SelectedStep || beforeArtifact != a.detail.SelectedArtifact || a.detail.Intent.Kind != detail.IntentNone
+}
+
+// detailLogNotReady answers l/⏎ on a job not finished: GitHub serves a
+// job's log only once it finishes, so a fetch would only read "no log".
+// It says so in a toast and points at w, which follows the steps.
+func (a *App) detailLogNotReady() bool {
+	job := a.selectedDetailJob()
+	if job.ID == 0 {
+		if a.detail.Run.Status == model.StatusCompleted || !a.detailLoaded {
+			// Finished, or the jobs are still loading: nothing to claim.
+			return false
+		}
+		// A live run GitHub lists no job for has no log to open either.
+		a.pushToast("log-not-ready", usecase.Resilience{
+			Severity: usecase.SeverityInfo,
+			Title:    "log not ready",
+			Message:  "w follows the run · no job has started yet",
+		})
+		return true
+	}
+	if job.Status == model.StatusCompleted {
+		return false
+	}
+	// The name is GitHub's: control runes never reach the terminal.
+	name := strings.Join(strings.Fields(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && !unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, job.Name)), " ")
+	if name == "" {
+		name = "this job"
+	}
+	state := " has not started"
+	if job.Status == model.StatusInProgress {
+		state = " is still running"
+	}
+	a.pushToast("log-not-ready", usecase.Resilience{
+		Severity: usecase.SeverityInfo,
+		Title:    "log not ready",
+		Message:  "w follows its steps · " + name + state,
+	})
+	return true
 }
 
 func (a App) requestArtifactDownload(artifactID int64) App {
@@ -2807,6 +2867,8 @@ func (a App) loadDetail(run model.Run) App {
 	// globally-unique artifact IDs, so carrying the map across run
 	// navigation keeps ✓ rows truthful when the user returns.
 	downloads := a.detail.Downloads
+	a.detailGen++
+	a.detailLoaded = false
 	a.detail = DetailModelForRun(run).WithRepo(a.runs.Context.Repo)
 	a.detail.Downloads = downloads
 	if a.detailResolver == nil {
@@ -2834,6 +2896,7 @@ func (a App) loadDetail(run model.Run) App {
 			// ID: a fresh detail model must not erase ✓/✗ verdicts.
 			resolved.Downloads = app.detail.Downloads
 			app.detail = resolved
+			app.detailLoaded = true
 			return app
 		}
 	})
@@ -3178,6 +3241,82 @@ func (a App) startWatchPoll() App {
 			return app.applyWatchRefresh(run, resolved, err)
 		}
 	})
+}
+
+// startDetailPoll refreshes a run still in flight, so the detail
+// screen follows its status and steps; once the run and every job have
+// finished it stops asking.
+func (a App) startDetailPoll() App {
+	if a.detailResolver == nil || a.detail.Run.ID == 0 || (a.detailLoaded && !detailLive(a.detail)) {
+		return a
+	}
+	if load := a.load; load != nil && load.kind == loadKindDetail {
+		return a // the first fetch is still landing
+	}
+	resolver, run, gen := a.detailResolver, a.detail.Run, a.detailGen
+	return a.startTickPoll(RouteDetail, a.pollIdentity(RouteDetail), func(ctx context.Context) func(App) App {
+		resolved, err := resolver(ctx, run)
+		return func(app App) App {
+			return app.applyDetailRefresh(run, gen, resolved, err)
+		}
+	})
+}
+
+// detailLive reports a run whose detail can still change: not finished,
+// or with a job not yet finished.
+func detailLive(m detail.Model) bool {
+	if m.Run.Status != model.StatusCompleted {
+		return true
+	}
+	for _, job := range m.Jobs {
+		if job.Status != model.StatusCompleted {
+			return true
+		}
+	}
+	return false
+}
+
+// applyDetailRefresh folds a detail poll in: the fresh run, its jobs
+// and its gates, with the user's cursor, focus, artifacts and downloads
+// left as they are. A poll started before the run was (re)opened is
+// dropped; a failed one keeps the screen as it is and the next retries.
+func (a App) applyDetailRefresh(run model.Run, gen int, resolved detail.Model, err error) App {
+	if a.detail.Run.ID != run.ID || a.detailGen != gen {
+		return a
+	}
+	a.refreshCount++
+	if err != nil {
+		return a
+	}
+	if !a.detailLoaded {
+		// The first load failed and this poll is the first answer: its
+		// error goes, and the answer is taken whole, as the load would
+		// have (failure preselected), with the session's artifacts and
+		// downloads carried over.
+		a.clearRouteError(RouteDetail)
+		if len(a.detail.Artifacts) > 0 && len(resolved.Artifacts) == 0 {
+			resolved = resolved.WithArtifacts(a.detail.Artifacts)
+		}
+		resolved.Downloads = a.detail.Downloads
+		a.detail, a.detailLoaded = resolved, true
+		a.pollInterval = nextPollIntervalForRuns([]model.Run{a.detail.Run}, a.pollInterval, a.config)
+		return a
+	}
+	if resolved.Run.ID == run.ID {
+		a.detail.Run = resolved.Run
+	}
+	a.detail = a.detail.WithJobs(resolved.Jobs)
+	switch {
+	case a.detail.Run.Status != model.StatusWaiting:
+		// Past the gate (approved or rejected elsewhere): no panel.
+		a.detail = a.detail.WithPendingDeployments(nil)
+	case len(resolved.PendingDeployments) > 0:
+		// Still gated: an empty list here is a failed side fetch the
+		// resolver swallowed, so the panel on screen stays.
+		a.detail = a.detail.WithPendingDeployments(resolved.PendingDeployments)
+	}
+	a.pollInterval = nextPollIntervalForRuns([]model.Run{a.detail.Run}, a.pollInterval, a.config)
+	return a
 }
 
 // applyWatchRefresh folds a completed watch poll in. A result for a run
@@ -4778,7 +4917,7 @@ func (a App) screenBody(width, height int) string {
 		if load := a.load; load != nil && load.kind == loadKindWatch {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())
 		}
-		return watch.View(a.watch, bodyWidth)
+		return watch.ViewSize(a.watch, bodyWidth, bodyHeight(height))
 	case RouteWatchBoard:
 		boardModel := a.board
 		if load := a.load; load != nil && load.kind == loadKindPack {

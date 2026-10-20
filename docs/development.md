@@ -10,6 +10,21 @@ make build
 
 Required local tools for the full gate: Go from `go.mod`, `golangci-lint`, `gotestsum`, `lefthook`, `jq`, and `shux`. `vhs` is needed only for demo recording.
 
+`make tools` installs shux too (`make tools-shux` alone, e.g. in a fresh
+cloud sandbox). It runs the official installer:
+
+```bash
+curl -sSfL https://shux.pages.dev/install.sh | sh
+shux --version
+```
+
+The installer always takes the latest release, resolved through GitHub's
+`releases/latest` web redirect rather than the rate-limited API (which
+it uses only as a fallback), verifies the tarball's sha256, and installs
+to `~/.local/bin` (`--dir` to change; put it on `PATH`), then installs
+the shux agent skill through `npx skills add` (skipped with a notice
+when `npx` is missing). Re-run it to upgrade both.
+
 ## Workflow
 
 Use red/green/refactor for every task:
@@ -59,6 +74,16 @@ Pre-commit runs formatting, `go fix` verification, lint, and short tests. Pre-pu
 - Interaction frames for global overlays and screen-specific key paths.
 
 Generated artifacts are under `.claude/automations/screenshots/` and are ignored except for the directory policy files.
+
+## PR Evidence
+
+A PR that changes what the TUI shows carries an evidence page: main and
+the branch recorded side by side on the same fake fixture, each change
+marked in the video, plus stills, tests and the review record, linked
+from the PR body. The `recording-pr-evidence` project skill
+(`.claude/skills/recording-pr-evidence/`) holds the workflow, the
+marking style and the tools; each task keeps its spec in
+`docs/tasks/<task>-demo.json`. Requires `uv`, `ffmpeg` and `shux`.
 
 ## Async Loading Pattern
 

@@ -726,6 +726,46 @@ wiggle the size after first paint; `__vqa-tui --latency` delays first paint;
 no fake takes a custom log — prove log-ANSI handling live (CI #149) or with a
 throwaway probe build; OSC 10/11 in the pane emulates a light terminal.
 
+Round 28 (task 410 follow a live run, branch fix/live-run-watch, 2026-10-20): FAIL (P2).
+Implementer committed 3 times DURING the audit (d976951 pinned → 78ffd4b →
+eb58b41 → ff2c95c). Gated eb58b41, smoke on ff2c95c. Live openclaw/openclaw
+CI found what the `live_run` fake could not: GitHub stamps started_at on
+QUEUED jobs (detail showed a ticking clock beside ◌; fixed in eb58b41), and a
+40+ job matrix pushed the watch log tail off screen (now capped at 3 rows).
+OPEN P2: the cap is a constant 3 at every height (200x60: 2 of 8 running
+shown, 42 empty rows) and visual-contract ⑤ still says every unfinished job
+gets a row. P3: 80-col toast drops "w follows its steps" on long real job
+names; detail "17.0s" vs watch "17s" for the same step; queued job with no
+steps = blank steps pane. PRE-EXISTING (main has it): selected job row's
+surface fill bleeds into the right pane's same row (skipped_job deploy →
+"Artifacts (2)" filled); ⏎ on a SUCCESS job opens "failed step ✗ Set up job";
+watch follow tail is 6 lines at any height; "now ago"; 194494m50s elapsed.
+LESSON: pin the tree with `git stash create` + `git worktree add`, re-check
+`git log` before the verdict, and always run a live big-matrix CI run for
+anything that renders per-job rows — fakes model 3 jobs and zero started_at.
+
+Round 29 (task 410 round 2, 1411398 + smoke on 98f0298, 2026-10-20): PASS (scoped).
+VERIFIED FIXED live on rust-lang/rust: watch progress block fills free rows
+(9/9 running at 200x60/120x40/80x24 on CI #235462; 44+42 / 24+62 / 8+78 on
+the 86-job #235461; +N count exact); toast leads with "w follows its steps"
+at 80 cols on a 46-char job name; whole-second running clocks; queued no-step
+job reads "waiting for a runner"; no-job queued run (#221202, 0 jobs) toasts
+"w follows the run · no job has started yet"; detail opens on first running
+job at its running step; poll moves cursor with the step unless user moved it
+(live_run fake 45s boundary); failed first load heals on the poll (flaky
+CONNECT proxy, HTTPS_PROXY) with error cleared and cursor on running step.
+P3 (new surface): below ~16 rows the watch tail is frame-clipped with "…" —
+newest lines (follow cursor) cut, not oldest.
+PRE-EXISTING (main d3b625e same): detail jobs list never scrolls — 88 jobs
+clip with a frame "…" and j past row ~48 moves the cursor off screen;
+detail error title "Runs unavailable" over a detail failure; green/running
+fakes open a failed build job; watch tail 6 lines at any height.
+GOTCHA: to force a transient API failure live, run the binary with
+HTTPS_PROXY=http://127.0.0.1:PORT through a python CONNECT proxy that drops
+tunnels and 502s while a block file exists (go reuses one tunnel, so
+dropping existing tunnels is required). Implementer committed 98f0298
+mid-audit again; source reads via grep showed the uncommitted edit.
+
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.
 **How to apply:** read before every gh-hound audit; update entries when a

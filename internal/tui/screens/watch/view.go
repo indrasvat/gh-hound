@@ -3,13 +3,24 @@ package watch
 import (
 	"fmt"
 	"strings"
+	"time"
+	"unicode"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/logs"
+	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 )
 
 func View(m Model, width int) string {
+	return ViewSize(m, width, 0)
+}
+
+// ViewSize renders the watch within a height budget: the step-progress
+// block takes the rows the header, notes and log tail leave, so every
+// running job shows when there is room; height <= 0 means unbudgeted,
+// which bounds the block to three lines.
+func ViewSize(m Model, width, height int) string {
 	if width <= 0 {
 		width = 80
 	}
@@ -18,8 +29,43 @@ func View(m Model, width int) string {
 	for _, note := range notes {
 		lines = append(lines, fitANSI(colorize(sgrDim, note), width))
 	}
+	live := liveJobs(m.State.Jobs)
+	if !m.Finished() && len(live) > 0 {
+		now := m.State.Now
+		if now.IsZero() {
+			now = time.Now()
+		}
+		room := maxProgressLines
+		if height > 0 {
+			// The header, the no-log notes, the note under the block, and
+			// the fold plus log tail keep their rows.
+			reserved := len(lines) + 1
+			if tail := len(m.State.Lines); tail > 0 {
+				// Follow shows the last six lines; paused, it shows all.
+				if m.Follow {
+					tail = min(tail, followTail)
+				}
+				reserved += 1 + tail
+			}
+			room = max(height-reserved, 1)
+		}
+		shown := live
+		if len(live) > room {
+			// Bounded so the log tail keeps its rows: a 50-shard matrix
+			// reads as the jobs that fit and a count.
+			shown = live[:max(room-1, 0)]
+		}
+		for _, job := range shown {
+			lines = append(lines, jobProgress(job, now, width))
+		}
+		if more := len(live) - len(shown); more > 0 {
+			lines = append(lines, fitANSI(colorize(sgrDim, fmt.Sprintf("+%d more jobs not finished", more)), width))
+		}
+		lines = append(lines, fitANSI(colorize(sgrDim, "GitHub serves a job's log once it finishes · step progress until then"), width))
+	}
 	if len(m.State.Lines) == 0 {
 		switch {
+		case !m.Finished() && len(live) > 0:
 		case !m.Finished():
 			lines = append(lines, fitANSI(colorize(sgrDim, "waiting for completed job logs from GitHub Actions"), width))
 		case len(notes) == 0:
@@ -29,8 +75,8 @@ func View(m Model, width int) string {
 	}
 	lines = append(lines, foldLine(width))
 	start := 0
-	if m.Follow && len(m.State.Lines) > 6 {
-		start = len(m.State.Lines) - 6
+	if m.Follow && len(m.State.Lines) > followTail {
+		start = len(m.State.Lines) - followTail
 	}
 	visible := m.State.Lines[start:]
 	for index, line := range visible {
@@ -65,6 +111,99 @@ func header(m Model) string {
 		follow,
 		debug,
 	)
+}
+
+// maxProgressLines bounds the step-progress block when the view has no
+// height budget; followTail is how many log lines follow shows.
+const (
+	maxProgressLines = 3
+	followTail       = 6
+)
+
+// liveJobs are the jobs not yet finished, running ones first, each
+// group in job order.
+func liveJobs(jobs []model.Job) []model.Job {
+	var running, waiting []model.Job
+	for _, job := range jobs {
+		switch job.Status {
+		case model.StatusCompleted:
+		case model.StatusInProgress:
+			running = append(running, job)
+		default:
+			waiting = append(waiting, job)
+		}
+	}
+	return append(running, waiting...)
+}
+
+// jobProgress reads "⠿ bdd › 29 Run tests 12m40s": the job, the step it
+// is on, and how long that step has run. A job not yet started reads
+// "○ deploy queued".
+func jobProgress(job model.Job, now time.Time, width int) string {
+	name := oneLine(job.Name)
+	if name == "" {
+		name = "job"
+	}
+	glyph, color := icons.ForStatus(job.Status), sgrDim
+	if job.Status == model.StatusInProgress {
+		color = sgrRun
+	}
+	value := colorize(color, glyph) + " " + colorize(sgrFGSoft, name)
+	step, ok := currentStep(job)
+	switch {
+	case ok:
+		value += colorize(sgrDim, " › ") + colorize(sgrDim, fmt.Sprintf("%d", step.Number)) + " " + colorize(sgrFG, oneLine(step.Name))
+		if step.Status == model.StatusInProgress && !step.StartedAt.IsZero() {
+			value += " " + colorize(sgrInfo, elapsedSince(step.StartedAt, now))
+		}
+	case job.Status == model.StatusInProgress:
+		if !job.StartedAt.IsZero() {
+			value += " " + colorize(sgrInfo, elapsedSince(job.StartedAt, now))
+		}
+	default:
+		value += " " + colorize(sgrDim, string(job.Status))
+	}
+	return fitANSI(value, width)
+}
+
+// currentStep is the step a running job is on: the one in progress,
+// or failing that the next one not yet finished.
+func currentStep(job model.Job) (model.Step, bool) {
+	if job.Status != model.StatusInProgress {
+		return model.Step{}, false
+	}
+	for _, step := range job.Steps {
+		if step.Status == model.StatusInProgress {
+			return step, true
+		}
+	}
+	for _, step := range job.Steps {
+		if step.Status != model.StatusCompleted {
+			return step, true
+		}
+	}
+	return model.Step{}, false
+}
+
+// oneLine folds a GitHub name onto one line: newlines and tabs would
+// break the row or its measured width, and any other control rune is
+// dropped so it never reaches the terminal.
+func oneLine(name string) string {
+	name = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && !unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, name)
+	return strings.Join(strings.Fields(name), " ")
+}
+
+func elapsedSince(start, now time.Time) string {
+	d := max(now.Sub(start), 0).Truncate(time.Second)
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
 }
 
 // noLogNotes reads "log expired · build, test" and "log not available

@@ -15,6 +15,10 @@ type WatchState struct {
 	Repo  string
 	RunID int64
 	Run   model.Run
+	// Jobs is the run's job listing as of this tick: GitHub serves a
+	// job's log only once it finishes, so a running job shows as its
+	// step progress.
+	Jobs []model.Job
 	// Lines holds the completed jobs' log lines, in job order.
 	Lines []logs.Line
 	// JobLogs maps each listed completed job with a log to its parsed
@@ -68,7 +72,7 @@ func (s WatchService) Tick(ctx context.Context, state WatchState) (WatchState, e
 	if err != nil {
 		return WatchState{}, err
 	}
-	state.Run = run
+	state.Run, state.Jobs = run, jobs
 	state.Lines, state.NoLog = nil, nil
 	jobLogs := make(map[int64]JobLog, len(jobs))
 	for _, job := range jobs {

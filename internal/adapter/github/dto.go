@@ -2,6 +2,8 @@ package github
 
 import (
 	"fmt"
+	"strings"
+	"unicode"
 
 	"github.com/indrasvat/gh-hound/internal/model"
 )
@@ -120,8 +122,8 @@ func mapRun(dto runDTO) (model.Run, error) {
 	}
 	return model.Run{
 		ID:              dto.ID,
-		Name:            dto.Name,
-		DisplayTitle:    dto.DisplayTitle,
+		Name:            displayText(dto.Name),
+		DisplayTitle:    displayText(dto.DisplayTitle),
 		Status:          dto.Status,
 		Conclusion:      dto.Conclusion,
 		Event:           dto.Event,
@@ -171,7 +173,7 @@ func mapJob(dto jobDTO) (model.Job, error) {
 			return model.Job{}, fmt.Errorf("invalid step conclusion %q", step.Conclusion)
 		}
 		steps = append(steps, model.Step{
-			Name:        step.Name,
+			Name:        displayText(step.Name),
 			Status:      step.Status,
 			Conclusion:  step.Conclusion,
 			Number:      step.Number,
@@ -186,14 +188,50 @@ func mapJob(dto jobDTO) (model.Job, error) {
 		Conclusion:      dto.Conclusion,
 		StartedAt:       dto.StartedAt.Time,
 		CompletedAt:     dto.CompletedAt.Time,
-		Name:            dto.Name,
+		Name:            displayText(dto.Name),
 		Steps:           steps,
-		Labels:          append([]string(nil), dto.Labels...),
-		RunnerName:      dto.RunnerName,
-		RunnerGroupName: dto.RunnerGroupName,
-		WorkflowName:    dto.WorkflowName,
+		Labels:          displayTexts(dto.Labels),
+		RunnerName:      displayText(dto.RunnerName),
+		RunnerGroupName: displayText(dto.RunnerGroupName),
+		WorkflowName:    displayText(dto.WorkflowName),
 		HeadBranch:      dto.HeadBranch,
 		HTMLURL:         dto.HTMLURL,
 		CheckRunURL:     dto.CheckRunURL,
 	}, nil
+}
+
+// displayText makes a GitHub-supplied name safe to print: a job name can
+// carry attacker text (`name: ${{ github.event.pull_request.title }}` on
+// a fork's PR), and an ESC in it would reach the terminal as a control
+// sequence. Line breaks and tabs become a space; other control and
+// bidi-override runes are dropped.
+func displayText(value string) string {
+	if strings.IndexFunc(value, unsafeRune) < 0 {
+		return value
+	}
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\r' || r == '\t':
+			return ' '
+		case unsafeRune(r):
+			return -1
+		default:
+			return r
+		}
+	}, value)
+}
+
+func displayTexts(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	out := make([]string, len(values))
+	for i, value := range values {
+		out[i] = displayText(value)
+	}
+	return out
+}
+
+func unsafeRune(r rune) bool {
+	return unicode.IsControl(r) || unicode.Is(unicode.Bidi_Control, r)
 }
