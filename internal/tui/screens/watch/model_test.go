@@ -264,3 +264,29 @@ func TestProgressDropsControlRunes(t *testing.T) {
 		t.Fatalf("control rune reached the view: %q", ansi.Strip(view))
 	}
 }
+
+// A step clock shows only for a running step of a running job: a
+// queued job's stale in-progress step, or a finished step, reads none.
+func TestProgressClockOnlyForARunningStep(t *testing.T) {
+	now := time.Date(2026, 10, 20, 11, 38, 0, 0, time.UTC)
+	m := NewModel(State{
+		Run: model.Run{ID: 1, Name: "E2E", RunNumber: 1, Status: model.StatusInProgress},
+		Jobs: []model.Job{
+			{ID: 1, Name: "queued-job", Status: model.StatusQueued, Steps: []model.Step{{Number: 1, Name: "stale", Status: model.StatusInProgress, StartedAt: now.Add(-time.Hour)}}},
+			{ID: 2, Name: "between", Status: model.StatusInProgress, StartedAt: now.Add(-2 * time.Minute), Steps: []model.Step{
+				{Number: 1, Name: "done", Status: model.StatusCompleted, StartedAt: now.Add(-2 * time.Minute)},
+				{Number: 2, Name: "next", Status: model.StatusQueued, StartedAt: now.Add(-time.Minute)},
+			}},
+		},
+		Now: now,
+	})
+	plain := ansi.Strip(View(m, 100))
+	for _, want := range []string{"queued-job queued", "between › 2 next"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("view missing %q:\n%s", want, plain)
+		}
+	}
+	if strings.Contains(plain, "stale") || strings.Contains(plain, "1h") || strings.Contains(plain, "next 1m00s") {
+		t.Fatalf("a clock for a step not running:\n%s", plain)
+	}
+}

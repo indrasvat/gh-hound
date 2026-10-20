@@ -173,7 +173,10 @@ type App struct {
 	detailResolver    func(context.Context, model.Run) (detail.Model, error)
 	// detailGen counts detail opens: a poll for an earlier opening of
 	// the same run never lands on a later one.
-	detailGen    int
+	detailGen int
+	// detailLoaded is set once this opening has had a successful
+	// answer: until then a poll retries even a finished run.
+	detailLoaded bool
 	runsResolver func(context.Context, usecase.RunFilter) ([]model.Run, error)
 	viewer       *viewerCache
 	// runsGen increments on every applied runs query; a load result
@@ -361,7 +364,7 @@ func (a App) pollIdentity(route Route) string {
 	case RouteRuns:
 		return fmt.Sprintf("runs|%s|%s", a.runs.Context.Scope, a.runs.Filter)
 	case RouteDetail:
-		return fmt.Sprintf("detail|%d", a.detail.Run.ID)
+		return fmt.Sprintf("detail|%d|%d", a.detail.Run.ID, a.detailGen)
 	case RouteWatch:
 		return fmt.Sprintf("watch|%d", a.watch.State.Run.ID)
 	case RouteWatchBoard:
@@ -2153,7 +2156,19 @@ func (a App) updateDetail(msg KeyMsg) (App, bool) {
 // It says so in a toast and points at w, which follows the steps.
 func (a *App) detailLogNotReady() bool {
 	job := a.selectedDetailJob()
-	if job.ID == 0 || job.Status == model.StatusCompleted {
+	if job.ID == 0 {
+		if a.detail.Run.Status == model.StatusCompleted {
+			return false
+		}
+		// A live run with no job listed yet has no log to open either.
+		a.pushToast("log-not-ready", usecase.Resilience{
+			Severity: usecase.SeverityInfo,
+			Title:    "log not ready",
+			Message:  "no job has started yet · w follows the run",
+		})
+		return true
+	}
+	if job.Status == model.StatusCompleted {
 		return false
 	}
 	// The name is GitHub's: control runes never reach the terminal.
@@ -2852,6 +2867,7 @@ func (a App) loadDetail(run model.Run) App {
 	// navigation keeps ✓ rows truthful when the user returns.
 	downloads := a.detail.Downloads
 	a.detailGen++
+	a.detailLoaded = false
 	a.detail = DetailModelForRun(run).WithRepo(a.runs.Context.Repo)
 	a.detail.Downloads = downloads
 	if a.detailResolver == nil {
@@ -2879,6 +2895,7 @@ func (a App) loadDetail(run model.Run) App {
 			// ID: a fresh detail model must not erase ✓/✗ verdicts.
 			resolved.Downloads = app.detail.Downloads
 			app.detail = resolved
+			app.detailLoaded = true
 			return app
 		}
 	})
@@ -3229,7 +3246,7 @@ func (a App) startWatchPoll() App {
 // screen follows its status and steps; once the run and every job have
 // finished it stops asking.
 func (a App) startDetailPoll() App {
-	if a.detailResolver == nil || a.detail.Run.ID == 0 || !detailLive(a.detail) {
+	if a.detailResolver == nil || a.detail.Run.ID == 0 || (a.detailLoaded && !detailLive(a.detail)) {
 		return a
 	}
 	if load := a.load; load != nil && load.kind == loadKindDetail {
@@ -3245,9 +3262,9 @@ func (a App) startDetailPoll() App {
 }
 
 // detailLive reports a run whose detail can still change: not finished,
-// or with a job not yet finished (or none listed yet).
+// or with a job not yet finished.
 func detailLive(m detail.Model) bool {
-	if m.Run.Status != model.StatusCompleted || len(m.Jobs) == 0 {
+	if m.Run.Status != model.StatusCompleted {
 		return true
 	}
 	for _, job := range m.Jobs {
@@ -3268,6 +3285,20 @@ func (a App) applyDetailRefresh(run model.Run, gen int, resolved detail.Model, e
 	}
 	a.refreshCount++
 	if err != nil {
+		return a
+	}
+	if !a.detailLoaded {
+		// The first load failed and this poll is the first answer: its
+		// error goes, and the answer is taken whole, as the load would
+		// have (failure preselected), with the session's artifacts and
+		// downloads carried over.
+		a.clearRouteError(RouteDetail)
+		if len(a.detail.Artifacts) > 0 && len(resolved.Artifacts) == 0 {
+			resolved = resolved.WithArtifacts(a.detail.Artifacts)
+		}
+		resolved.Downloads = a.detail.Downloads
+		a.detail, a.detailLoaded = resolved, true
+		a.pollInterval = nextPollIntervalForRuns([]model.Run{a.detail.Run}, a.pollInterval, a.config)
 		return a
 	}
 	if resolved.Run.ID == run.ID {

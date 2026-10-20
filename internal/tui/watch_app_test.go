@@ -364,3 +364,68 @@ func TestDetailLogOnARunningJobSaysNotReady(t *testing.T) {
 		t.Fatalf("no not-ready toast:\n%s", view)
 	}
 }
+
+// A first load that failed heals on the next successful poll — for a
+// finished run too — and its error goes; once answered, a finished run
+// with no jobs stops asking.
+func TestDetailPollRecoversAFailedLoad(t *testing.T) {
+	var calls atomic.Int32
+	app := watchTwoRunsApp(Options{
+		DetailResolver: func(_ context.Context, run model.Run) (detail.Model, error) {
+			if calls.Add(1) <= 2 {
+				return detail.Model{}, errors.New("boom")
+			}
+			run.Status, run.Conclusion = model.StatusCompleted, model.ConclusionSuccess
+			return detail.NewModel(run, nil), nil
+		},
+	})
+	defer app.Shutdown()
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.SettleLoads(time.Second)
+	if !strings.Contains(ansi.Strip(app.ViewSize(100, 24)), "detail unavailable") {
+		t.Fatalf("first load did not fail:\n%s", ansi.Strip(app.ViewSize(100, 24)))
+	}
+	for deadline := time.Now().Add(3 * time.Second); !app.detailLoaded && time.Now().Before(deadline); {
+		app, _ = app.Refresh()
+		time.Sleep(time.Millisecond)
+	}
+	app, _ = app.Refresh()
+	if view := ansi.Strip(app.ViewSize(100, 24)); strings.Contains(view, "detail unavailable") || app.detail.Run.Status != model.StatusCompleted {
+		t.Fatalf("after %d calls the error still shows or the answer was dropped:\n%s", calls.Load(), view)
+	}
+	settled := calls.Load()
+	for range 50 {
+		app, _ = app.Refresh()
+		time.Sleep(time.Millisecond)
+	}
+	if calls.Load() != settled {
+		t.Fatalf("a finished run with no jobs kept polling: %d → %d", settled, calls.Load())
+	}
+}
+
+// l and ⏎ on a live run with no job listed yet say so; nothing fetched.
+func TestDetailLogOnALiveRunWithoutJobsSaysNotReady(t *testing.T) {
+	var logs atomic.Int32
+	app := watchTwoRunsApp(Options{
+		DetailResolver: func(_ context.Context, run model.Run) (detail.Model, error) {
+			return detail.NewModel(run, nil), nil
+		},
+		LogResolver: func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error) {
+			logs.Add(1)
+			return logscreen.Model{}, nil
+		},
+	})
+	defer app.Shutdown()
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.SettleLoads(time.Second)
+	for _, key := range []string{"l", "enter"} {
+		app, _ = app.Update(KeyMsg{Key: key})
+		app, _ = app.SettleLoads(time.Second)
+		if app.Route() != RouteDetail {
+			t.Fatalf("%s on a run with no jobs left detail for %s", key, app.Route())
+		}
+	}
+	if view := ansi.Strip(app.ViewSize(120, 30)); logs.Load() != 0 || !strings.Contains(view, "no job has started yet") {
+		t.Fatalf("fetches = %d; view:\n%s", logs.Load(), view)
+	}
+}

@@ -127,7 +127,7 @@ func jobProgress(job model.Job, now time.Time, width int) string {
 	switch {
 	case ok:
 		value += colorize(sgrDim, " › ") + colorize(sgrDim, fmt.Sprintf("%d", step.Number)) + " " + colorize(sgrFG, oneLine(step.Name))
-		if !step.StartedAt.IsZero() {
+		if step.Status == model.StatusInProgress && !step.StartedAt.IsZero() {
 			value += " " + colorize(sgrInfo, elapsedSince(step.StartedAt, now))
 		}
 	case job.Status == model.StatusInProgress:
@@ -143,13 +143,13 @@ func jobProgress(job model.Job, now time.Time, width int) string {
 // currentStep is the step a running job is on: the one in progress,
 // or failing that the next one not yet finished.
 func currentStep(job model.Job) (model.Step, bool) {
+	if job.Status != model.StatusInProgress {
+		return model.Step{}, false
+	}
 	for _, step := range job.Steps {
 		if step.Status == model.StatusInProgress {
 			return step, true
 		}
-	}
-	if job.Status != model.StatusInProgress {
-		return model.Step{}, false
 	}
 	for _, step := range job.Steps {
 		if step.Status != model.StatusCompleted {

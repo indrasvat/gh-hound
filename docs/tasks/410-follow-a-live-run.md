@@ -30,6 +30,14 @@ IMPLEMENTED — the live-run report: "Can it follow a live run? It shows the Run
 - [x] T7 PTY scenarios `watch-live-run`, `detail-live-run`, `detail-log-not-ready`.
 - [x] T8 Verification: `make ci`, `make vqa`; shux demo on `live_run`; adversarial review and a cold `tui-qa` round.
 
+## Found Along The Way
+
+- The `running` fake scenario lists an in-progress run whose only job is a finished failure, which is why no fixture ever showed a running step; `live_run` is the honest one.
+- Adversarial review (detail): the poll kept the run snapshot it opened with, so polling stopped once the listed jobs had finished even though the run went on (a job listed late never appeared) and a gate approved elsewhere never cleared. The resolver now re-reads a live run (a failed re-read keeps the snapshot) and the poll applies it; past `waiting`, the gate panel goes. A queued job GitHub had stamped `started_at` on showed a running clock: the status decides now. A poll begun before esc and re-opening the same run landed on the new opening; a per-opening generation drops it. A removed selected job kept its old step index.
+- Adversarial review (watch): the progress block had no height bound, so a wide matrix pushed the log tail off the screen; it is bounded to three lines (running jobs first, then `+N more jobs not finished`). A step name with a newline or tab broke the row. The fake's report step read as started in the future.
+- Security review: every screen printed GitHub's run, job, step, label and runner names raw, and a job name can carry a fork PR's title (`name: ${{ github.event.pull_request.title }}`), so an ESC in one reached the terminal (OSC 52, screen clears). The GitHub adapter now drops control and bidi-override runes where it decodes them. Pre-existing; fixed here because this PR adds two more places that print a job name.
+- Not changed (also on main): the runs summary reads `last finished now ago` for a run under a minute old; J/K (next/previous run) on detail have no handler; a run GitHub reports finished while a job still reads in progress (its lag) shows that job nowhere until the next poll; the follow view shows six lines at any height.
+
 ## Definition Of Done
 
 Every T item checked; each fix has a test that fails on `main`; `make ci` and `make vqa` pass; evidence lives on the PR only.
