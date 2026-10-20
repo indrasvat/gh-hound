@@ -252,3 +252,15 @@ func TestProgressBlockIsBounded(t *testing.T) {
 	}
 	assertWidth(t, view, 80)
 }
+
+// A name that reached the screen unmapped (another adapter) still
+// carries no control rune to the terminal.
+func TestProgressDropsControlRunes(t *testing.T) {
+	m := NewModel(State{
+		Run:  model.Run{ID: 1, Name: "E2E", RunNumber: 1, Status: model.StatusInProgress},
+		Jobs: []model.Job{{ID: 1, Name: "bdd\x1b]52;c;eA==\x07", Status: model.StatusInProgress, Steps: []model.Step{{Number: 1, Name: "go\x1b[2J", Status: model.StatusInProgress}}}},
+	})
+	if view := View(m, 80); strings.ContainsAny(ansi.Strip(view), "\x1b\x07") {
+		t.Fatalf("control rune reached the view: %q", ansi.Strip(view))
+	}
+}

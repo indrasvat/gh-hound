@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/logs"
@@ -159,8 +160,15 @@ func currentStep(job model.Job) (model.Step, bool) {
 }
 
 // oneLine folds a GitHub name onto one line: newlines and tabs would
-// break the row or its measured width.
+// break the row or its measured width, and any other control rune is
+// dropped so it never reaches the terminal.
 func oneLine(name string) string {
+	name = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && !unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, name)
 	return strings.Join(strings.Fields(name), " ")
 }
 

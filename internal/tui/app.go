@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/indrasvat/gh-hound/internal/config"
 	"github.com/indrasvat/gh-hound/internal/logs"
@@ -2155,7 +2156,13 @@ func (a *App) detailLogNotReady() bool {
 	if job.ID == 0 || job.Status == model.StatusCompleted {
 		return false
 	}
-	name := strings.Join(strings.Fields(job.Name), " ")
+	// The name is GitHub's: control runes never reach the terminal.
+	name := strings.Join(strings.Fields(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && !unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, job.Name)), " ")
 	if name == "" {
 		name = "this job"
 	}
