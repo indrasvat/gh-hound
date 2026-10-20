@@ -128,6 +128,10 @@ func (m Model) WithRepo(repo string) Model {
 // cursor on the same job (by ID) and step where they still exist.
 func (m Model) WithJobs(jobs []model.Job) Model {
 	selected := m.selectedJob().ID
+	// A cursor resting on the running step follows it to the next one;
+	// a cursor the user moved elsewhere stays.
+	running, onRunning := runningStep(m.selectedJob())
+	onRunning = onRunning && running == m.SelectedStep
 	m.Jobs = append([]model.Job(nil), jobs...)
 	kept := false
 	for i, job := range m.Jobs {
@@ -144,6 +148,9 @@ func (m Model) WithJobs(jobs []model.Job) Model {
 	}
 	if len(m.Jobs) > 0 {
 		m.SelectedStep = min(max(m.SelectedStep, 0), max(len(m.Jobs[m.SelectedJob].Steps)-1, 0))
+		if step, ok := runningStep(m.Jobs[m.SelectedJob]); ok && kept && onRunning {
+			m.SelectedStep = step
+		}
 	} else {
 		m.SelectedStep = 0
 	}
@@ -287,6 +294,11 @@ func (m *Model) move(delta int) {
 	case FocusJobs:
 		m.SelectedJob = clamp(m.SelectedJob+delta, len(m.Jobs))
 		m.SelectedStep = clamp(m.SelectedStep, len(m.selectedJob().Steps))
+		if step, ok := runningStep(m.selectedJob()); ok {
+			// A running job opens on the step it is on: in a long list
+			// it would otherwise sit below the window.
+			m.SelectedStep = step
+		}
 	case FocusArtifacts:
 		m.SelectedArtifact = clamp(m.SelectedArtifact+delta, len(m.Artifacts))
 	default:
@@ -320,6 +332,27 @@ func (m *Model) jumpFailure() {
 			return
 		}
 	}
+	// Nothing failed: a live run opens on its first running job, at the
+	// step it is on.
+	for jobIndex, job := range m.Jobs {
+		if step, ok := runningStep(job); ok {
+			m.SelectedJob, m.SelectedStep = jobIndex, step
+			return
+		}
+	}
+}
+
+// runningStep is the index of the step a running job is on.
+func runningStep(job model.Job) (int, bool) {
+	if job.Status != model.StatusInProgress {
+		return 0, false
+	}
+	for index, step := range job.Steps {
+		if step.Status == model.StatusInProgress {
+			return index, true
+		}
+	}
+	return 0, false
 }
 
 func (m Model) selectedJob() model.Job {

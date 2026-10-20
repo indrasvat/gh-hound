@@ -434,3 +434,50 @@ func TestDurationReadsStatusFirst(t *testing.T) {
 		}
 	}
 }
+
+// A running job's steps open on the step it is on, which in a long
+// list would otherwise sit below the window; a poll moves the cursor
+// on with it unless the user moved it.
+func TestRunningStepIsSelected(t *testing.T) {
+	steps := func(running int) []model.Step {
+		var out []model.Step
+		for i := range 40 {
+			status := model.StatusCompleted
+			switch {
+			case i == running:
+				status = model.StatusInProgress
+			case i > running:
+				status = model.StatusQueued
+			}
+			out = append(out, model.Step{Number: i + 1, Name: fmt.Sprintf("step %d", i+1), Status: status})
+		}
+		return out
+	}
+	lint := model.Job{ID: 1, Name: "lint", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess}
+	build := func(running int) model.Job {
+		return model.Job{ID: 2, Name: "build", Status: model.StatusInProgress, Steps: steps(running)}
+	}
+	m := NewModel(model.Run{ID: 1, Status: model.StatusInProgress}, []model.Job{lint, build(25)})
+	if m.SelectedJob != 1 || m.SelectedStep != 25 {
+		t.Fatalf("opened on job %d step %d, want the running job at step 25", m.SelectedJob, m.SelectedStep)
+	}
+	if plain := ansi.Strip(ViewSize(m, 120, 24)); !strings.Contains(plain, "step 26") {
+		t.Fatalf("the running step is off the window:\n%s", plain)
+	}
+	m = m.WithJobs([]model.Job{lint, build(26)})
+	if m.SelectedStep != 26 {
+		t.Fatalf("after a poll step = %d, want it to follow to 26", m.SelectedStep)
+	}
+	m.Focus = FocusSteps
+	m = m.Update(KeyMsg{Key: "k"})
+	m = m.WithJobs([]model.Job{lint, build(27)})
+	if m.SelectedStep != 25 {
+		t.Fatalf("a moved cursor = %d, want it left at 25", m.SelectedStep)
+	}
+	m.Focus = FocusJobs
+	m = m.Update(KeyMsg{Key: "k"})
+	m = m.Update(KeyMsg{Key: "j"})
+	if m.SelectedStep != 27 {
+		t.Fatalf("re-selecting the running job: step = %d, want 27", m.SelectedStep)
+	}
+}

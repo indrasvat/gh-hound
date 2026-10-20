@@ -149,8 +149,8 @@ keys_for() {
     watch-expired-log) printf 'w esc j w' ;;
     watch-failed-open) printf 'w esc j j w' ;;
     watch-live-run) printf 'w' ;;
-    detail-live-run) printf 'enter j' ;;
-    detail-log-not-ready) printf 'enter j l' ;;
+    detail-live-run) printf 'enter' ;;
+    detail-log-not-ready) printf 'enter l' ;;
     log-range-search) printf 'enter l t 1 6 : 1 2 : 0 2 - 1 6 : 1 2 : 1 2 enter / r e q u e s t - i d enter' ;;
     log-match-grouped) printf 'enter l / 2 0 2 6 enter' ;;
     log-fold-count) printf 'enter l t 1 6 : 1 2 : 2 1 enter G' ;;
