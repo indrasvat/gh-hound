@@ -687,9 +687,9 @@ theme         = "bramble"  # bramble | bone
 poll_min_ms   = 2000
 poll_max_ms   = 30000
 
-[keybindings]              # override any binding; merged over defaults (vivecaka pattern)
-rerun_failed  = "r"
-rerun_run     = "R"
+[keybindings]              # move an action's key; merged over defaults (vivecaka pattern)
+rerun_failed  = "R"        # catalog and rules: docs/configuration.md#keybindings
+rerun         = "r"
 cancel        = "x"
 force_cancel  = "X"
 ```

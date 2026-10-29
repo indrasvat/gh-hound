@@ -43,7 +43,7 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "j/k", Action: "move", Help: "move", ShowInFooter: true},
 		{Key: "s", Action: "scope", Help: "scope", ShowInFooter: true},
 		{Key: "enter", Display: "⏎", Action: "open", Help: "open", ShowInFooter: true},
-		{Key: "w", Action: "watch_next_push", Help: "watch", ShowInFooter: true},
+		{Key: "w", Action: "watch", Help: "watch", ShowInFooter: true},
 		{Key: "D", Action: "dispatch", Help: "dispatch", ShowInFooter: true},
 		{Key: "/", Action: "filter", Help: "filter", ShowInFooter: true},
 		{Key: "?", Action: "help", Help: "help", ShowInFooter: true},
@@ -54,6 +54,8 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "enter", Display: "⏎", Action: "open", Help: "open", ShowInFooter: true},
 		{Key: "r", Display: "↻", Action: "rerun", Help: "rerun", ShowInFooter: true},
 		{Key: "x", Display: "✗", Action: "cancel", Help: "cancel", ShowInFooter: true},
+		{Key: "R", Action: "rerun_failed", Help: "rerun failed", ShowInFooter: false},
+		{Key: "X", Action: "force_cancel", Help: "force cancel", ShowInFooter: false},
 		{Key: "l", Action: "logs", Help: "log", ShowInFooter: true},
 		{Key: "w", Action: "watch", Help: "watch", ShowInFooter: true},
 		{Key: "f", Action: "status_cycle", Help: "status", ShowInFooter: true},
@@ -77,6 +79,7 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "r", Display: "↻", Action: "rerun_job", Help: "rerun job", ShowInFooter: true},
 		{Key: "R", Action: "rerun_failed", Help: "rerun failed", ShowInFooter: true},
 		{Key: "x", Display: "✗", Action: "cancel", Help: "cancel", ShowInFooter: true},
+		{Key: "X", Action: "force_cancel", Help: "force cancel", ShowInFooter: false},
 		// In-pane hint line advertises these contextually; the static
 		// footer stays truthful for runs without artifacts.
 		{Key: "a", Action: "artifacts", Help: "artifacts (when present)", ShowInFooter: false},
@@ -190,7 +193,7 @@ var footerByScreen = map[Screen][]Binding{
 	},
 	ScreenHelp: {
 		{Key: ":", Action: "palette", Help: "palette", ShowInFooter: true},
-		{Key: "?", Action: "close", Help: "close", ShowInFooter: true},
+		{Key: "?", Action: "help", Help: "close", ShowInFooter: true},
 		{Key: "esc", Display: "⎋", Action: "close", Help: "close", ShowInFooter: true},
 	},
 	ScreenToasts: {
@@ -207,22 +210,28 @@ var footerByScreen = map[Screen][]Binding{
 // RunsFilterSyntax is the / grammar the runs help teaches; the in-list
 // hint row shows concrete examples. Kept to three lines at 80x24 so
 // the help overlay still fits with its legend.
-var RunsFilterSyntax = []string{
-	"actor:@me", "actor:<login>", "status:", "branch:", "event:", "sha:",
-	"other text searches loaded rows",
-	"f · s keep the rest",
-	": My runs / All actors",
+func (k Keymap) RunsFilterSyntax() []string {
+	return []string{
+		"actor:@me", "actor:<login>", "status:", "branch:", "event:", "sha:",
+		"other text searches loaded rows",
+		k.KeyFor("status_cycle") + " · s keep the rest",
+		": My runs / All actors",
+	}
 }
 
 func FooterForScreen(screen Screen) string {
-	return footerString(footerByScreen[screen])
+	return Keymap{}.Footer(screen)
+}
+
+func (k Keymap) Footer(screen Screen) string {
+	return footerString(k.apply(footerByScreen[screen]))
 }
 
 // ToastFooter is the toast layer's footer; retry shows only when a toast
 // offers one.
-func ToastFooter(retry bool) string {
+func (k Keymap) ToastFooter(retry bool) string {
 	var shown []Binding
-	for _, b := range footerByScreen[ScreenToasts] {
+	for _, b := range k.apply(footerByScreen[ScreenToasts]) {
 		if b.ShowInFooter && (retry || b.Action != "retry") {
 			shown = append(shown, b)
 		}
@@ -230,12 +239,16 @@ func ToastFooter(retry bool) string {
 	return footerString(shown)
 }
 
-// FooterForScreenWidth drops the lowest-Keep hints (rightmost first) until
-// the footer fits width; screens without Keep values are returned whole.
 func FooterForScreenWidth(screen Screen, width int) string {
+	return Keymap{}.FooterWidth(screen, width)
+}
+
+// FooterWidth drops the lowest-Keep hints (rightmost first) until the
+// footer fits width; screens without Keep values are returned whole.
+func (k Keymap) FooterWidth(screen Screen, width int) string {
 	var shown []Binding
 	prioritized := false
-	for _, b := range footerByScreen[screen] {
+	for _, b := range k.apply(footerByScreen[screen]) {
 		if b.ShowInFooter {
 			shown = append(shown, b)
 			prioritized = prioritized || b.Keep > 0
@@ -259,10 +272,11 @@ func FooterForScreenWidth(screen Screen, width int) string {
 }
 
 func FooterLayer(screen Screen) Layer {
-	return Layer{
-		Name:     string(screen),
-		Bindings: append([]Binding(nil), footerByScreen[screen]...),
-	}
+	return Keymap{}.Layer(screen)
+}
+
+func (k Keymap) Layer(screen Screen) Layer {
+	return Layer{Name: string(screen), Bindings: k.apply(footerByScreen[screen])}
 }
 
 func footerString(bindings []Binding) string {

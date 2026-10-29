@@ -80,7 +80,9 @@ type KeyMsg struct {
 }
 
 type Options struct {
-	Config         config.Config
+	Config config.Config
+	// Keymap is Config.Keybindings, validated (keys.NewKeymap).
+	Keymap         keys.Keymap
 	Build          BuildInfo
 	Launch         usecase.LaunchContext
 	DetailResolver func(context.Context, model.Run) (detail.Model, error)
@@ -138,6 +140,7 @@ type ActionRequest struct {
 
 type App struct {
 	config            config.Config
+	keymap            keys.Keymap
 	build             BuildInfo
 	theme             theme.Theme
 	routes            []Route
@@ -552,6 +555,7 @@ func NewApp(options Options) App {
 	}
 	app := App{
 		config:                    cfg,
+		keymap:                    options.Keymap,
 		build:                     options.Build,
 		theme:                     theme.ForMode(theme.Mode(cfg.Theme)),
 		routes:                    []Route{route},
@@ -658,7 +662,21 @@ func NewScenarioApp(scenario string, build BuildInfo) App {
 	return app
 }
 
-func (a App) Update(msg KeyMsg) (out App, handled bool) {
+func (a App) Update(msg KeyMsg) (App, bool) {
+	// Overrides move keys outside typing: translate the press once, into
+	// the default key the handlers below compare.
+	if !a.routeInputMode() {
+		switch a.TopOverlay() {
+		case OverlayNone:
+			msg.Key = a.keymap.Key(a.footerScreen(), msg.Key)
+		case OverlayHelp:
+			msg.Key = a.keymap.Key(keys.ScreenHelp, msg.Key)
+		}
+	}
+	return a.update(msg)
+}
+
+func (a App) update(msg KeyMsg) (out App, handled bool) {
 	// Background results apply on the keypress path too, not only on
 	// poll ticks, so a ready section/poll lands as soon as the next key
 	// arrives. Any such application must repaint even if the key itself
@@ -720,7 +738,7 @@ func (a App) Update(msg KeyMsg) (out App, handled bool) {
 				}
 				// The same Esc still closes the overlay or screen on top.
 			}
-			next, _ := a.Update(msg)
+			next, _ := a.update(msg)
 			return next, true
 		}
 	}
@@ -811,7 +829,7 @@ func (a App) ViewSized(width int) string {
 func (a App) ViewSize(width, height int) string {
 	title, context, right := a.chromeParts()
 	body := a.screenBody(width, height)
-	footer := keys.FooterForScreenWidth(a.footerScreen(), max(width, minFrameWidth)-2)
+	footer := a.keymap.FooterWidth(a.footerScreen(), max(width, minFrameWidth)-2)
 	if a.TopOverlay() != OverlayNone {
 		inner := contentWidth(width)
 		room := 0 // other overlays keep their box and the frame cuts it
@@ -823,9 +841,9 @@ func (a App) ViewSize(width, height int) string {
 			}
 		}
 		body = layerOver(a.theme, colorizeBody(a.theme, body, inner), overlayBox(a.theme, a.overlayTitle(), a.overlayView(width, height), width, room), inner)
-		footer = keys.FooterForScreen(keys.ScreenHelp)
+		footer = a.keymap.Footer(keys.ScreenHelp)
 		if a.TopOverlay() == OverlayPalette {
-			footer = keys.FooterForScreen(keys.ScreenPalette)
+			footer = a.keymap.Footer(keys.ScreenPalette)
 		}
 		if a.TopOverlay() == OverlayConfirm {
 			footer = "y confirm · enter/n/esc cancel"
@@ -852,7 +870,7 @@ func (a App) ViewSize(width, height int) string {
 		for _, t := range a.toasts.Toasts {
 			retry = retry || t.RetryAction != ""
 		}
-		footer = keys.ToastFooter(retry)
+		footer = a.keymap.ToastFooter(retry)
 	}
 	return frameViewSize(a.theme, title, context, right, body, footer, width, height, true)
 }
@@ -2165,7 +2183,7 @@ func (a *App) detailLogNotReady() bool {
 		a.pushToast("log-not-ready", usecase.Resilience{
 			Severity: usecase.SeverityInfo,
 			Title:    "log not ready",
-			Message:  "w follows the run · no job has started yet",
+			Message:  a.keymap.KeyFor("watch") + " follows the run · no job has started yet",
 		})
 		return true
 	}
@@ -2189,7 +2207,7 @@ func (a *App) detailLogNotReady() bool {
 	a.pushToast("log-not-ready", usecase.Resilience{
 		Severity: usecase.SeverityInfo,
 		Title:    "log not ready",
-		Message:  "w follows its steps · " + name + state,
+		Message:  a.keymap.KeyFor("watch") + " follows its steps · " + name + state,
 	})
 	return true
 }
@@ -4469,7 +4487,7 @@ func (a App) overlayView(width, height int) string {
 	case OverlayHelp:
 		// Help wraps long sections; it must wrap to the width the
 		// overlay box actually renders, not get truncated by it.
-		return help.View(a.footerScreen(), overlayInnerWidth(width))
+		return help.View(a.keymap, a.footerScreen(), overlayInnerWidth(width))
 	case OverlayPalette:
 		// Box chrome (4 rows) plus the palette's prompt and footer (3)
 		// leave the rest of the body for items.

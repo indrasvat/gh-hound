@@ -7,8 +7,8 @@ import (
 	"github.com/indrasvat/gh-hound/internal/tui/keys"
 )
 
-func View(screen keys.Screen, width int) string {
-	layer := keys.FooterLayer(screen)
+func View(km keys.Keymap, screen keys.Screen, width int) string {
+	layer := km.Layer(screen)
 	var nav, actions, views []string
 	for _, binding := range layer.Bindings {
 		key := binding.Key
@@ -24,7 +24,7 @@ func View(screen keys.Screen, width int) string {
 		switch binding.Action {
 		case "open", "expand", "back", "scroll", "top_bottom", "continue", "move":
 			nav = append(nav, text)
-		case "rerun", "rerun_job", "rerun_failed", "cancel", "dispatch", "run":
+		case "rerun", "rerun_job", "rerun_failed", "cancel", "force_cancel", "dispatch", "run":
 			actions = append(actions, text)
 		default:
 			views = append(views, text)
@@ -35,7 +35,7 @@ func View(screen keys.Screen, width int) string {
 	lines = append(lines, section("Actions", actions, width)...)
 	lines = append(lines, section("View", views, width)...)
 	if screen == keys.ScreenRunsList || screen == keys.ScreenAllGreen {
-		lines = append(lines, section("Filter /", keys.RunsFilterSyntax, width)...)
+		lines = append(lines, section("Filter /", km.RunsFilterSyntax(), width)...)
 	}
 	lines = append(lines, "Legend", icons.Success+" success · "+icons.Failure+" failure · "+icons.InProgress+" running")
 	return fitLines(lines, width)

@@ -159,15 +159,12 @@ func (c Config) Validate() error {
 	if c.PollMin <= 0 || c.PollMax <= 0 || c.PollMin > c.PollMax {
 		return fmt.Errorf("poll interval must be positive and min <= max, got min=%s max=%s", c.PollMin, c.PollMax)
 	}
-	seen := map[string]string{}
+	// Which actions exist and which keys collide is per screen: the
+	// TUI's keymap (keys.NewKeymap) checks that.
 	for action, key := range c.Keybindings {
 		if key == "" {
 			return fmt.Errorf("keybinding %q cannot be empty", action)
 		}
-		if previous, ok := seen[key]; ok {
-			return fmt.Errorf("keybinding conflict: %q and %q both use %q", previous, action, key)
-		}
-		seen[key] = action
 	}
 	return nil
 }

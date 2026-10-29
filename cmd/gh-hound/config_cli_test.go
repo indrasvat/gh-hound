@@ -185,3 +185,48 @@ func TestExplicitFormatBeatsHoundFormatEndToEnd(t *testing.T) {
 		t.Fatalf("--format json printed non-JSON under HOUND_FORMAT=md:\n%s", out.String())
 	}
 }
+
+func launchWithConfig(t *testing.T, body, stdin string) (string, error) {
+	t.Helper()
+	xdg := t.TempDir()
+	writeConfig(t, xdg, body)
+	var out bytes.Buffer
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: &bytes.Buffer{},
+		Stdin:  strings.NewReader(stdin),
+		Env:    mapEnv(map[string]string{"XDG_CONFIG_HOME": xdg}),
+		IsTTY:  true,
+		GitHub: &cliGitHub{runs: []model.Run{cliRun(901, "Release", model.StatusCompleted, model.ConclusionSuccess)}},
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{})
+	_, err := executeCommand(cmd)
+	return out.String(), err
+}
+
+// [keybindings] reaches the running TUI through the real key decoder.
+func TestConfigKeybindingsMoveKeysInTheTUI(t *testing.T) {
+	const cfg = "welcome = false\n[keybindings]\nhelp = \"h\"\n"
+	out, err := launchWithConfig(t, cfg, "h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "help · gh hound") || !strings.Contains(out, "h close") {
+		t.Fatal("h did not open help with help = \"h\"")
+	}
+	out, err = launchWithConfig(t, cfg, "?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "help · gh hound") {
+		t.Fatal("? still opens help with help = \"h\"")
+	}
+}
+
+func TestConfigKeybindingConflictStopsTheLaunch(t *testing.T) {
+	_, err := launchWithConfig(t, "[keybindings]\ncancel = \"j\"\n", "q")
+	if err == nil || !strings.Contains(err.Error(), "config.toml") || !strings.Contains(err.Error(), `"j" is both a fixed key and cancel`) {
+		t.Fatalf("conflicting keybinding error = %v", err)
+	}
+}

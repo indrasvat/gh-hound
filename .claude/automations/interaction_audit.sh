@@ -78,6 +78,8 @@ scenarios=(
   watch-live-run
   detail-live-run
   detail-log-not-ready
+  keymap-help
+  keymap-watch
 )
 
 adapter_for() {
@@ -85,7 +87,7 @@ adapter_for() {
     runs-select) printf 'green' ;;
     runs-actor-me | runs-actor-palette) printf 'actors' ;;
     runs-actor-anon) printf 'actors_anon' ;;
-    watch-toggle) printf 'running' ;;
+    watch-toggle | keymap-watch) printf 'running' ;;
     pack-board) printf 'pack' ;;
     failure-log-refetch) printf 'log_refetch' ;;
     log-compact-* | log-range-search | log-match-grouped | log-fold-count | timejump-small | timejump-tiny) printf 'noisy' ;;
@@ -143,6 +145,8 @@ keys_for() {
     input-wide) printf '/ %s末' "$(printf '世%.0s' $(seq 40))" ;;
     palette-utf8-backspace) printf ': c é backspace ä' ;;
     help-toggle) printf '? : ? ?' ;;
+    keymap-help) printf '? h' ;;
+    keymap-watch) printf 'w f e' ;;
     failure-cut-scroll) printf 'enter enter j j j j j' ;;
     failure-scroll-grow) printf 'enter enter j j j j j resize:120x40' ;;
     watch-skipped-job) printf 'w' ;;
@@ -165,6 +169,15 @@ keys_for() {
 args_for() {
   case "$1" in
     startup-frame) printf -- '--latency 5s' ;;
+    *) printf '' ;;
+  esac
+}
+
+# config.toml for the scenarios that rehearse [keybindings].
+config_for() {
+  case "$1" in
+    keymap-help) printf '[keybindings]\nhelp = "h"\n' ;;
+    keymap-watch) printf '[keybindings]\ncancel = "c"\nfollow = "e"\n' ;;
     *) printf '' ;;
   esac
 }
@@ -207,6 +220,7 @@ mkdir -p "$out_dir"
 # deterministic (mktemp -d paths overflow the row at 80 cols).
 rm -rf /tmp/hound-ia-dl
 mkdir -p /tmp/hound-ia-dl
+config_root="$(mktemp -d "${TMPDIR:-/tmp}/hound-ia-cfg.XXXXXX")"
 
 for scenario in "${scenarios[@]}"; do
   assertion=".claude/automations/interactions/${scenario}.json"
@@ -219,6 +233,12 @@ for scenario in "${scenarios[@]}"; do
   adapter="$(adapter_for "$scenario")"
   welcome="$(welcome_for "$scenario")"
   args="$(args_for "$scenario")"
+  config="$(config_for "$scenario")"
+  if [ -n "$config" ]; then
+    mkdir -p "$config_root/$scenario/gh-hound"
+    printf '%s' "$config" >"$config_root/$scenario/gh-hound/config.toml"
+    args="$args --config-home $config_root/$scenario"
+  fi
   size="$(size_for "$scenario")"
   cols="${size%x*}"
   rows="${size#*x}"
@@ -261,5 +281,5 @@ RUNNER
   printf "audited real-pty interaction %s -> %s\n" "$scenario" "$png"
 done
 
-rm -rf /tmp/hound-ia-dl
+rm -rf /tmp/hound-ia-dl "$config_root"
 echo "interaction audit passed"

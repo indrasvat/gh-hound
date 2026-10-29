@@ -30,6 +30,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/render"
 	"github.com/indrasvat/gh-hound/internal/tui"
 	tuibanner "github.com/indrasvat/gh-hound/internal/tui/banner"
+	"github.com/indrasvat/gh-hound/internal/tui/keys"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/caches"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/detail"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/dispatch"
@@ -1137,7 +1138,7 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 	defer func() {
 		_ = closeTrace()
 	}()
-	cfg, err := defaultConfig(runtime.Env)
+	cfg, keymap, err := tuiConfig(runtime.Env)
 	if err != nil {
 		return err
 	}
@@ -1241,7 +1242,7 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 				}
 				// The keys before EOF still apply once the app exists.
 				inputEnded, events = true, nil
-			} else if event.key == "ctrl+c" || (event.key == "q" && len(typed) == 0) {
+			} else if event.key == "ctrl+c" || (event.key == keymap.KeyFor("quit") && len(typed) == 0) {
 				// A first q would quit on any launch route once replayed.
 				return nil
 			} else {
@@ -1487,7 +1488,7 @@ func escapeSequence(b []byte) int {
 }
 
 func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildInfo, options cliOptions) (tui.App, error) {
-	cfg, err := defaultConfig(runtime.Env)
+	cfg, keymap, err := tuiConfig(runtime.Env)
 	if err != nil {
 		return tui.App{}, err
 	}
@@ -1530,6 +1531,7 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 	})
 	return tui.NewApp(tui.Options{
 		Config: cfg,
+		Keymap: keymap,
 		Build:  build,
 		Launch: launch,
 		RunsResolver: func(loadCtx context.Context, filter usecase.RunFilter) ([]model.Run, error) {
@@ -2254,6 +2256,23 @@ func defaultConfig(lookup ...func(string) (string, bool)) (config.Config, error)
 		env = lookup[0]
 	}
 	return config.Load(config.LoadOptions{Path: configPath(env), LookupEnv: env})
+}
+
+// tuiConfig is defaultConfig plus its [keybindings], which only the TUI
+// reads: a bad override stops the launch like any bad config value.
+func tuiConfig(env func(string) (string, bool)) (config.Config, keys.Keymap, error) {
+	cfg, err := defaultConfig(env)
+	if err != nil {
+		return config.Config{}, keys.Keymap{}, err
+	}
+	keymap, err := keys.NewKeymap(cfg.Keybindings)
+	if err != nil {
+		if path := configPath(env); path != "" {
+			return config.Config{}, keys.Keymap{}, fmt.Errorf("config %s: %w", path, err)
+		}
+		return config.Config{}, keys.Keymap{}, err
+	}
+	return cfg, keymap, nil
 }
 
 // configPath is $XDG_CONFIG_HOME/gh-hound/config.toml, else

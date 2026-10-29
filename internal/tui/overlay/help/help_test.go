@@ -8,7 +8,7 @@ import (
 )
 
 func TestHelpUsesActiveKeymapAndLegend(t *testing.T) {
-	view := View(keys.ScreenRunsList, 80)
+	view := View(keys.Keymap{}, keys.ScreenRunsList, 80)
 	for _, want := range []string{"help · gh hound", "Navigate", "Actions", "View", "⏎ open", "↻ rerun", "Legend", "✔ success", "✗ failure"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("help view missing %q\n%s", want, view)
@@ -19,7 +19,7 @@ func TestHelpUsesActiveKeymapAndLegend(t *testing.T) {
 func TestHelpWrapsLongSectionsInsteadOfTruncating(t *testing.T) {
 	// The detail screen's View section overflows 60 cols; every entry
 	// must survive on some line, none truncated into an ellipsis.
-	view := View(keys.ScreenDetail, 60)
+	view := View(keys.Keymap{}, keys.ScreenDetail, 60)
 	for _, want := range []string{"a artifacts", "d download artifact", "o open artifact folder / browser", "y copy artifact path / run URL"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("help view lost %q after wrapping\n%s", want, view)
@@ -35,7 +35,7 @@ func TestHelpWrapsLongSectionsInsteadOfTruncating(t *testing.T) {
 func TestHelpOmitsEmptyActionsSection(t *testing.T) {
 	// The scent check binds no rerun/cancel/dispatch keys: the help
 	// overlay must not render an "Actions" heading over a blank line.
-	view := View(keys.ScreenFlakes, 80)
+	view := View(keys.Keymap{}, keys.ScreenFlakes, 80)
 	if strings.Contains(view, "Actions") {
 		t.Fatalf("action-less screen rendered an empty Actions section:\n%s", view)
 	}
@@ -57,8 +57,18 @@ func TestHelpOmitsEmptyActionsSection(t *testing.T) {
 // Footers drop some labels for room (runs: "j/k", "?"); help has the
 // room and must never show a bare key.
 func TestHelpLabelsEveryKey(t *testing.T) {
-	view := View(keys.ScreenRunsList, 100)
+	view := View(keys.Keymap{}, keys.ScreenRunsList, 100)
 	if strings.Contains(view, "j/k  ·") || !strings.Contains(view, "j/k move") || !strings.Contains(view, "? help") {
 		t.Fatalf("help shows a bare key:\n%s", view)
+	}
+}
+
+func TestHelpGroupsForceCancelWithTheActions(t *testing.T) {
+	view := View(keys.Keymap{}, keys.ScreenRunsList, 200)
+	actions := strings.Index(view, "Actions")
+	viewHeading := strings.Index(view, "\nView")
+	force := strings.Index(view, "X force cancel")
+	if actions < 0 || force < actions || force > viewHeading {
+		t.Fatalf("X force cancel is not under Actions:\n%s", view)
 	}
 }

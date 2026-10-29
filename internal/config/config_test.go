@@ -106,18 +106,6 @@ func TestLoadInvalidTOMLReturnsClearError(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsKeybindingConflicts(t *testing.T) {
-	cfg := Default()
-	cfg.Keybindings = map[string]string{
-		"rerun_failed": "r",
-		"rerun_run":    "r",
-	}
-
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("Validate accepted duplicate keybindings")
-	}
-}
-
 func emptyEnv(string) (string, bool) {
 	return "", false
 }
