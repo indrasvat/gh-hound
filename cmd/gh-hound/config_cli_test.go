@@ -311,3 +311,14 @@ func TestEveryCommandRefusesABadConfigFileInItsEnvelope(t *testing.T) {
 		}
 	}
 }
+
+func TestFixtureConfigHomeAcceptsARelativeDir(t *testing.T) {
+	dir := t.TempDir()
+	writeConfig(t, dir, "[keybindings]\ncancel = \"j\"\n")
+	t.Chdir(filepath.Dir(dir))
+	cmd := newRootCommandWithRuntime(commandRuntime{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}, Stdin: strings.NewReader("q"), Env: emptyEnv, IsTTY: true}, testBuildInfo())
+	cmd.SetArgs([]string{"__vqa-tui", "--config-home", filepath.Base(dir)})
+	if _, err := executeCommand(cmd); err == nil || !strings.Contains(err.Error(), "cancel") {
+		t.Fatalf("relative --config-home read no config: err = %v", err)
+	}
+}

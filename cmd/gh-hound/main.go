@@ -404,7 +404,15 @@ func newVQATUICommand(runtime commandRuntime, info buildInfo) *cobra.Command {
 				runtime.Stdin = os.Stdin
 			}
 			// A fixture ignores the user's config.toml; --config-home
-			// hands it one on purpose.
+			// hands it one on purpose. Resolved here: configPath ignores a
+			// relative XDG_CONFIG_HOME, which would test nothing.
+			if configHome != "" {
+				abs, err := filepath.Abs(configHome)
+				if err != nil {
+					return err
+				}
+				configHome = abs
+			}
 			runtime.Env = fixtureConfigEnv(runtime.Env, configHome)
 			adapter := fake.New(fake.Scenario(scenario))
 			runtime.GitHub = adapter
