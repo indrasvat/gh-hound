@@ -8,10 +8,8 @@ import (
 	"unicode/utf8"
 )
 
-// Keymap applies config [keybindings] overrides (action → key). Handlers
-// keep comparing default keys: Key translates a press before they see
-// it, and the footers and help show the moved keys. The zero value is
-// the default keymap.
+// Keymap applies config [keybindings] overrides (action → key). The zero
+// value is the default keymap.
 type Keymap struct {
 	moved map[string]string
 }
@@ -60,7 +58,7 @@ var globalBindings = []Binding{
 var fixedKeys = map[Screen]string{
 	ScreenWelcome:    "",
 	ScreenRunsList:   "jkgGs/DoyA",
-	ScreenDetail:     "adjknloyYJK",
+	ScreenDetail:     "AadjknloyYJK", // A: the gate pane names it
 	ScreenFailure:    "jk",
 	ScreenWatch:      "",
 	ScreenWatchBoard: "jk",
@@ -71,6 +69,7 @@ var fixedKeys = map[Screen]string{
 	ScreenQueue:      "jkgG",
 	ScreenWorkflows:  "jkgGe",
 	ScreenHelp:       "",
+	ScreenApprovals:  "jkcyn",
 }
 
 const fixedEverywhere = ":g"
@@ -98,10 +97,7 @@ func NewKeymap(overrides map[string]string) (Keymap, error) {
 		if !ok {
 			return Keymap{}, fmt.Errorf("keybinding %q cannot be remapped; remappable: %s", action, strings.Join(sortedKeys(remappable), ", "))
 		}
-		if utf8.RuneCountInString(key) != 1 {
-			return Keymap{}, fmt.Errorf("keybinding %s = %q: use one printable character", action, key)
-		}
-		if r, _ := utf8.DecodeRuneInString(key); !unicode.IsPrint(r) || unicode.IsSpace(r) {
+		if r, _ := utf8.DecodeRuneInString(key); utf8.RuneCountInString(key) != 1 || !unicode.IsPrint(r) || unicode.IsSpace(r) {
 			return Keymap{}, fmt.Errorf("keybinding %s = %q: use one printable character", action, key)
 		}
 		if key != def {

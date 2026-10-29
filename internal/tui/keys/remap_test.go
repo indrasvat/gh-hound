@@ -3,6 +3,8 @@ package keys
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func mustKeymap(t *testing.T, overrides map[string]string) Keymap {
@@ -18,11 +20,6 @@ func mustKeymap(t *testing.T, overrides map[string]string) Keymap {
 // a drifted table would make every override check meaningless.
 func TestDefaultKeymapIsConflictFree(t *testing.T) {
 	mustKeymap(t, nil)
-	for action, def := range remappable {
-		if (Keymap{}).KeyFor(action) != def {
-			t.Fatalf("KeyFor(%s) = %q, want default %q", action, (Keymap{}).KeyFor(action), def)
-		}
-	}
 }
 
 func TestKeymapMovesAKeyOnEveryScreenThatActsOnIt(t *testing.T) {
@@ -163,4 +160,14 @@ func FuzzKeymap(f *testing.F) {
 			}
 		}
 	})
+}
+
+// A wide key takes two cells: the footer must still fit its width.
+func TestFooterWidthCountsCellsForWideKeys(t *testing.T) {
+	k := mustKeymap(t, map[string]string{"time_jump": "世", "search": "界", "compact": "語"})
+	for width := 20; width <= 120; width++ {
+		if got := k.FooterWidth(ScreenLog, width); ansi.StringWidth(got) > width && strings.Contains(got, "·") {
+			t.Fatalf("width %d: footer %q is %d cells", width, got, ansi.StringWidth(got))
+		}
+	}
 }

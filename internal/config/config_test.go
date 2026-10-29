@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -121,5 +123,73 @@ func assertCoreDefaults(t *testing.T, got Config) {
 		got.PollMin != want.PollMin ||
 		got.PollMax != want.PollMax {
 		t.Fatalf("config = %#v, want core defaults %#v", got, want)
+	}
+}
+
+func loadBody(t *testing.T, body string, env map[string]string) (string, error) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(LoadOptions{Path: path, LookupEnv: func(k string) (string, bool) { v, ok := env[k]; return v, ok }})
+	return path, err
+}
+
+func TestLoadRejectsValuesTheFileCannotMean(t *testing.T) {
+	tests := []struct{ body, want string }{
+		{"poll_min_ms = 18446744073710\npoll_max_ms = 18446744073710\n", "poll_min_ms must be between 1 and 3600000"},
+		{"poll_max_ms = 0\n", "poll_max_ms must be between 1 and 3600000"},
+		{"theme = \"\"\n", `theme must be "bramble" or "bone", got ""`},
+		{"default_scope = \"\"\n", `default_scope must be "branch" or "repo", got ""`},
+		{"keybindings = \"x\"\n", "keybindings must be a table"},
+	}
+	for _, tt := range tests {
+		path, err := loadBody(t, tt.body, nil)
+		if err == nil || !strings.Contains(err.Error(), tt.want) || !strings.Contains(err.Error(), path) {
+			t.Errorf("%q: err = %v, want %q naming the file", tt.body, err, tt.want)
+		}
+	}
+	if _, err := Load(LoadOptions{LookupEnv: func(k string) (string, bool) { return "18446744073710", k == "HOUND_POLL_MIN_MS" }}); err == nil {
+		t.Error("HOUND_POLL_MIN_MS overflow was accepted")
+	}
+}
+
+// Later layers win, so the file may be repaired by the environment.
+func TestLoadValidatesTheMergedLayers(t *testing.T) {
+	if _, err := loadBody(t, "poll_min_ms = 40000\n", map[string]string{"HOUND_POLL_MAX_MS": "60000"}); err != nil {
+		t.Fatalf("file min 40s + env max 60s rejected: %v", err)
+	}
+	path, err := loadBody(t, "", map[string]string{"HOUND_PER_PAGE": "500"})
+	if err == nil || strings.Contains(err.Error(), path) {
+		t.Fatalf("a bad env value is blamed on the file: %v", err)
+	}
+}
+
+func TestLoadRefusesPathsThatAreNotAConfigFile(t *testing.T) {
+	dir := t.TempDir()
+	fifo := filepath.Join(dir, "fifo.toml")
+	if err := syscall.Mkfifo(fifo, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dangling := filepath.Join(dir, "dangling.toml")
+	if err := os.Symlink(filepath.Join(dir, "gone.toml"), dangling); err != nil {
+		t.Fatal(err)
+	}
+	big := filepath.Join(dir, "big.toml")
+	if err := os.WriteFile(big, []byte("# "+strings.Repeat("x", 2<<20)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]string{fifo: "not a regular file", dangling: "broken symlink", big: "larger than"} {
+		done := make(chan error, 1)
+		go func() { _, err := Load(LoadOptions{Path: path, LookupEnv: emptyEnv}); done <- err }()
+		select {
+		case err := <-done:
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("%s: err = %v, want %q", filepath.Base(path), err, want)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("%s: Load hung", filepath.Base(path))
+		}
 	}
 }

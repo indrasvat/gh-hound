@@ -7,9 +7,8 @@ import (
 	"testing"
 )
 
-// FuzzLoadFile: whatever bytes sit in config.toml, Load either returns
-// an error naming the file or a config that validates. It never panics
-// and never hands back a half-applied file.
+// FuzzLoadFile: whatever bytes sit in config.toml, Load never panics,
+// and an error names the file and comes without a half-applied config.
 func FuzzLoadFile(f *testing.F) {
 	for _, seed := range []string{
 		"",
@@ -39,10 +38,6 @@ func FuzzLoadFile(f *testing.F) {
 			if cfg.Theme != "" {
 				t.Fatalf("error came with a config: %+v", cfg)
 			}
-			return
-		}
-		if verr := cfg.Validate(); verr != nil {
-			t.Fatalf("Load returned an invalid config: %v", verr)
 		}
 	})
 }

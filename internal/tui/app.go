@@ -671,6 +671,10 @@ func (a App) Update(msg KeyMsg) (App, bool) {
 			msg.Key = a.keymap.Key(a.footerScreen(), msg.Key)
 		case OverlayHelp:
 			msg.Key = a.keymap.Key(keys.ScreenHelp, msg.Key)
+		case OverlayApprovals:
+			if !a.approvals.CommentMode {
+				msg.Key = a.keymap.Key(keys.ScreenApprovals, msg.Key)
+			}
 		}
 	}
 	return a.update(msg)
@@ -2624,12 +2628,15 @@ func (a App) timeJumpBreadcrumb() string {
 }
 
 func (a App) updatePalette(msg KeyMsg) (App, bool) {
+	// The palette types every key, except ? for help while help is on
+	// its default key; a moved help key leaves ? to be typed.
+	if msg.Key == "?" && a.keymap.KeyFor("help") == "?" {
+		a.pushOverlay(OverlayHelp)
+		return a, true
+	}
 	switch msg.Key {
 	case "esc":
 		a.PopOverlay()
-		return a, true
-	case "?":
-		a.pushOverlay(OverlayHelp)
 		return a, true
 	case "ctrl+c":
 		a.quit = true

@@ -120,6 +120,8 @@ type cliOptions struct {
 	Envs          []string
 	Comment       string
 	WatchTimeout  time.Duration
+	// perPage is config's per_page, set where a listing is built.
+	perPage int
 }
 
 func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Command {
@@ -2265,12 +2267,10 @@ func tuiConfig(env func(string) (string, bool)) (config.Config, keys.Keymap, err
 	if err != nil {
 		return config.Config{}, keys.Keymap{}, err
 	}
+	// Keybindings only ever come from the file.
 	keymap, err := keys.NewKeymap(cfg.Keybindings)
 	if err != nil {
-		if path := configPath(env); path != "" {
-			return config.Config{}, keys.Keymap{}, fmt.Errorf("config %s: %w", path, err)
-		}
-		return config.Config{}, keys.Keymap{}, err
+		return config.Config{}, keys.Keymap{}, fmt.Errorf("config %s: %w", configPath(env), err)
 	}
 	return cfg, keymap, nil
 }
@@ -2279,7 +2279,8 @@ func tuiConfig(env func(string) (string, bool)) (config.Config, keys.Keymap, err
 // ~/.config/gh-hound/config.toml (the documented path on every OS, not
 // os.UserConfigDir's). Empty when neither variable is set.
 func configPath(lookup func(string) (string, bool)) string {
-	if dir, ok := lookup("XDG_CONFIG_HOME"); ok && dir != "" {
+	// The XDG spec ignores a relative XDG_CONFIG_HOME.
+	if dir, ok := lookup("XDG_CONFIG_HOME"); ok && filepath.IsAbs(dir) {
 		return filepath.Join(dir, "gh-hound", "config.toml")
 	}
 	if home, ok := lookup("HOME"); ok && home != "" {
@@ -2343,6 +2344,11 @@ func resultForOptions(ctx context.Context, options cliOptions, runtime commandRu
 		}
 		options.Actor = actor
 	}
+	cfg, err := defaultConfig(runtime.Env)
+	if err != nil {
+		return render.Result{}, err
+	}
+	options.perPage = cfg.PerPage
 	if options.Fake == "" {
 		return liveResult(ctx, options, runtime)
 	}
@@ -2438,7 +2444,7 @@ func liveResult(ctx context.Context, options cliOptions, runtime commandRuntime)
 		return render.Result{Repo: repo, Branch: branch, Runs: renderSingle}, nil
 	}
 
-	filter := usecase.RunFilter{Repo: repo, Branch: branch, PerPage: 30}
+	filter := usecase.RunFilter{Repo: repo, Branch: branch, PerPage: options.perPage}
 	if options.Actor != "" {
 		login, err := usecase.ResolveActor(ctx, githubClient, options.Actor)
 		if err != nil {
@@ -3006,10 +3012,14 @@ func applyEnv(options *cliOptions, lookup func(string) (string, bool), changed f
 	if value, ok := lookup("HOUND_NO_TUI"); ok && !changed("no-tui") {
 		options.NoTUI = parseBool(value)
 	}
-	// An explicit --format names the output, so HOUND_JSON yields to it
-	// as well as to --json.
-	if value, ok := lookup("HOUND_JSON"); ok && !changed("json") && !changed("format") {
-		options.JSON = parseBool(value)
+	// An explicit --format names the output, so HOUND_JSON yields its
+	// format to it (and everything to --json), but still means no TUI.
+	if value, ok := lookup("HOUND_JSON"); ok && !changed("json") {
+		if !changed("format") {
+			options.JSON = parseBool(value)
+		} else if parseBool(value) && !changed("no-tui") {
+			options.NoTUI = true
+		}
 	}
 	if value, ok := lookup("HOUND_LOG_LEVEL"); ok && !changed("log-level") {
 		options.LogLevel = value

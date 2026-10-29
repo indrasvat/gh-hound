@@ -7,7 +7,7 @@
 3. Environment variables.
 4. CLI flags.
 
-Later layers win: a flag you pass beats its variable, and a variable beats the file. A missing file means defaults. A file that does not parse, has a key gh-hound does not know, or holds an out-of-range value stops the launch with an error naming the file.
+Later layers win: a flag you pass beats its variable, and a variable beats the file. A missing file means defaults. A file that does not parse, has a key gh-hound does not know, or holds an out-of-range value stops the launch, TUI or `--no-tui`, with an error naming the file; so does a path that is not a regular file (a broken symlink, a FIFO) or is over 1 MiB. A relative `XDG_CONFIG_HOME` is ignored, as the XDG spec says.
 
 ## Config File
 
@@ -22,8 +22,8 @@ flake_badges = true     # mark known flakers on the runs list; off = zero flake 
 log_compact = true      # open full logs with repeating lines folded; c toggles
 theme = "bramble"       # bramble | bone
 welcome = true          # show the welcome banner on launch
-poll_min_ms = 2000      # fastest live poll
-poll_max_ms = 30000     # slowest live poll
+poll_min_ms = 2000      # fastest live poll (1-3600000)
+poll_max_ms = 30000     # slowest live poll (1-3600000)
 ```
 
 `diff_max_pages` bounds the regression scan behind `gh hound diff` and the TUI trail screen: at most `diff_max_pages` pages of 100 runs are read before the hound declares the trail cold (an `inconclusive` verdict, never a hang). Accepted range 1-100.
@@ -35,7 +35,7 @@ poll_max_ms = 30000     # slowest live poll
 
 ## Keybindings
 
-A `[keybindings]` table moves an action to another key. The new key acts wherever the action does, footers and help show it, and the old key stops acting there. Text inputs (filters, search, dispatch fields, the palette) always type the key you press.
+A `[keybindings]` table moves an action to another key. The new key acts wherever the action does, footers and help show it, and the old key stops acting there. Text inputs (filters, search, dispatch fields, the palette) always type the key you press; once `help` moves, `?` in the palette is typed too.
 
 ```toml
 [keybindings]
@@ -46,7 +46,7 @@ rerun_failed = "F"  # runs, detail, failure (default R)
 
 | Action | Default | Acts on |
 | --- | --- | --- |
-| `help` · `quit` · `theme` | `?` · `q` · `T` | every screen |
+| `help` · `quit` · `theme` | `?` · `q` · `T` | every screen; `help` and `quit` also in help and approvals |
 | `rerun` · `logs` · `status_cycle` | `r` · `l` · `f` | runs |
 | `watch` | `w` | runs, detail |
 | `cancel` · `force_cancel` | `x` · `X` | runs, detail; `cancel` also watch and the hunt board |
@@ -103,4 +103,4 @@ gh hound runs --no-tui --format md
 gh hound runs --no-tui --format xml
 ```
 
-`--json` always wins over `--format` and disables the TUI. `HOUND_JSON` yields to an explicit `--json` or `--format`.
+`--json` always wins over `--format` and disables the TUI. `HOUND_JSON` yields to an explicit `--json`, and its format to an explicit `--format` (the TUI stays off).

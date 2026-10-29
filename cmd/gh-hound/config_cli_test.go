@@ -83,24 +83,12 @@ func TestDefaultConfigRejectsABadFileByPath(t *testing.T) {
 // The launch reads the file: a bone theme in config.toml paints the
 // Bone palette, which nothing else in this launch would select.
 func TestTUILaunchAppliesTheConfigFileTheme(t *testing.T) {
-	xdg := t.TempDir()
-	writeConfig(t, xdg, "theme = \"bone\"\nwelcome = false\n")
-	var out bytes.Buffer
-	cmd := newRootCommandWithRuntime(commandRuntime{
-		Stdout: &out,
-		Stderr: &bytes.Buffer{},
-		Stdin:  strings.NewReader("q"),
-		Env:    mapEnv(map[string]string{"XDG_CONFIG_HOME": xdg}),
-		IsTTY:  true,
-		GitHub: &cliGitHub{runs: []model.Run{cliRun(901, "Release", model.StatusCompleted, model.ConclusionSuccess)}},
-		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
-	}, testBuildInfo())
-	cmd.SetArgs([]string{})
-	if code, err := executeCommand(cmd); err != nil || code != 0 {
-		t.Fatalf("tty root code=%d err=%v", code, err)
+	out, err := launchWithConfig(t, "theme = \"bone\"\nwelcome = false\n", "q")
+	if err != nil {
+		t.Fatal(err)
 	}
 	// Bone's OK green; Bramble draws the frame in 79;211;122.
-	if bone := "38;2;31;158;85"; !strings.Contains(out.String(), bone) {
+	if bone := "38;2;31;158;85"; !strings.Contains(out, bone) {
 		t.Fatalf("config theme=bone did not paint the Bone frame (%s)", bone)
 	}
 }
@@ -132,7 +120,7 @@ func TestExplicitFlagsBeatEveryHoundVariable(t *testing.T) {
 		env   string
 		value string
 		flag  string            // the explicit flag
-		set   func(*cliOptions) // what parsing that flag stored
+		set   func(*cliOptions) // what parsing that flag stored; "" for strings, which only the flag check can keep
 		check func(cliOptions) bool
 	}{
 		{"HOUND_FORMAT", "md", "format", func(o *cliOptions) { o.Format = render.FormatXML }, func(o cliOptions) bool { return o.Format == render.FormatXML }},
@@ -142,12 +130,12 @@ func TestExplicitFlagsBeatEveryHoundVariable(t *testing.T) {
 		{"HOUND_LOG_LEVEL", "debug", "log-level", func(o *cliOptions) { o.LogLevel = "warn" }, func(o cliOptions) bool { return o.LogLevel == "warn" }},
 		{"HOUND_TRACE_HTTP", "true", "trace-http", func(o *cliOptions) { o.TraceHTTP = false }, func(o cliOptions) bool { return !o.TraceHTTP }},
 		{"HOUND_ALL", "true", "all", func(o *cliOptions) { o.All = false }, func(o cliOptions) bool { return !o.All }},
-		{"HOUND_REPO", "a/env", "repo", func(o *cliOptions) { o.Repo = "b/flag" }, func(o cliOptions) bool { return o.Repo == "b/flag" }},
-		{"GH_REPO", "a/env", "repo", func(o *cliOptions) { o.Repo = "b/flag" }, func(o cliOptions) bool { return o.Repo == "b/flag" }},
-		{"HOUND_BRANCH", "env", "branch", func(o *cliOptions) { o.Branch = "flag" }, func(o cliOptions) bool { return o.Branch == "flag" }},
-		{"HOUND_STATUS", "failure", "status", func(o *cliOptions) { o.Status = "success" }, func(o cliOptions) bool { return o.Status == "success" }},
-		{"HOUND_ACTOR", "env", "actor", func(o *cliOptions) { o.Actor = "flag" }, func(o cliOptions) bool { return o.Actor == "flag" && !o.ActorFromEnv }},
-		{"HOUND_FAKE_SCENARIO", "failure", "fake-scenario", func(o *cliOptions) { o.Fake = "green" }, func(o cliOptions) bool { return o.Fake == "green" }},
+		{"HOUND_REPO", "a/env", "repo", func(o *cliOptions) { o.Repo = "" }, func(o cliOptions) bool { return o.Repo == "" }},
+		{"GH_REPO", "a/env", "repo", func(o *cliOptions) { o.Repo = "" }, func(o cliOptions) bool { return o.Repo == "" }},
+		{"HOUND_BRANCH", "env", "branch", func(o *cliOptions) { o.Branch = "" }, func(o cliOptions) bool { return o.Branch == "" }},
+		{"HOUND_STATUS", "failure", "status", func(o *cliOptions) { o.Status = "" }, func(o cliOptions) bool { return o.Status == "" }},
+		{"HOUND_ACTOR", "env", "actor", func(o *cliOptions) { o.Actor = "" }, func(o cliOptions) bool { return o.Actor == "" && !o.ActorFromEnv }},
+		{"HOUND_FAKE_SCENARIO", "failure", "fake-scenario", func(o *cliOptions) { o.Fake = "" }, func(o cliOptions) bool { return o.Fake == "" }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.env+" vs --"+tt.flag, func(t *testing.T) {
@@ -228,5 +216,61 @@ func TestConfigKeybindingConflictStopsTheLaunch(t *testing.T) {
 	_, err := launchWithConfig(t, "[keybindings]\ncancel = \"j\"\n", "q")
 	if err == nil || !strings.Contains(err.Error(), "config.toml") || !strings.Contains(err.Error(), `"j" is both a fixed key and cancel`) {
 		t.Fatalf("conflicting keybinding error = %v", err)
+	}
+}
+
+func TestKeybindingsThatIsNotATableIsRejected(t *testing.T) {
+	for _, body := range []string{`keybindings = "x"`, `keybindings = 5`, `keybindings = ["a"]`} {
+		xdg := t.TempDir()
+		path := writeConfig(t, xdg, body+"\n")
+		if _, _, err := tuiConfig(mapEnv(map[string]string{"XDG_CONFIG_HOME": xdg})); err == nil || !strings.Contains(err.Error(), path) {
+			t.Errorf("%s: err = %v, want an error naming %s", body, err, path)
+		}
+	}
+}
+
+func TestHoundJSONStillDisablesTheTUIUnderAnExplicitFormat(t *testing.T) {
+	opts := defaultCLIOptions()
+	opts.Format = render.FormatMarkdown
+	applyEnv(&opts, mapEnv(map[string]string{"HOUND_JSON": "1"}), func(name string) bool { return name == "format" })
+	if !opts.NoTUI || opts.Format != render.FormatMarkdown {
+		t.Fatalf("HOUND_JSON=1 --format md: NoTUI=%v Format=%s, want no TUI and md", opts.NoTUI, opts.Format)
+	}
+}
+
+func TestRunsPipeReadsTheConfigFile(t *testing.T) {
+	xdg := t.TempDir()
+	writeConfig(t, xdg, "per_page = 0\n")
+	cmd := newRootCommandWithRuntime(commandRuntime{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}, Env: mapEnv(map[string]string{"XDG_CONFIG_HOME": xdg})}, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--fake-scenario", "green", "--no-tui"})
+	if _, err := executeCommand(cmd); err == nil || !strings.Contains(err.Error(), "per_page") {
+		t.Fatalf("runs --no-tui with per_page = 0: err = %v", err)
+	}
+}
+
+func TestRunsPipeListsConfigPerPage(t *testing.T) {
+	xdg := t.TempDir()
+	writeConfig(t, xdg, "per_page = 7\n")
+	gh := &cliGitHub{runs: []model.Run{cliRun(901, "CI", model.StatusCompleted, model.ConclusionSuccess)}}
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{},
+		Env:    mapEnv(map[string]string{"XDG_CONFIG_HOME": xdg}),
+		GitHub: gh,
+		Repo:   &cliRepo{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", Branch: "main"}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--no-tui"})
+	if _, err := executeCommand(cmd); err != nil {
+		t.Fatal(err)
+	}
+	if len(gh.filters) == 0 || gh.filters[0].PerPage != 7 {
+		t.Fatalf("runs filters %+v, want config per_page 7", gh.filters)
+	}
+}
+
+func TestRelativeXDGConfigHomeIsIgnored(t *testing.T) {
+	home := t.TempDir()
+	want := filepath.Join(home, ".config", "gh-hound", "config.toml")
+	if got := configPath(mapEnv(map[string]string{"XDG_CONFIG_HOME": "cfgrel", "HOME": home})); got != want {
+		t.Fatalf("configPath = %q, want %q", got, want)
 	}
 }

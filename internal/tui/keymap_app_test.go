@@ -84,3 +84,66 @@ func TestRunsFooterAndHelpShowMovedKeys(t *testing.T) {
 		t.Fatalf("help does not show the moved keys:\n%s", help)
 	}
 }
+
+func waitingKeymapApp(t *testing.T, overrides map[string]string) App {
+	t.Helper()
+	km, err := keys.NewKeymap(overrides)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, _ := waitingTestApp(t)
+	app.keymap = km
+	app = settleApp(t, pressKeys(app, "A"))
+	if app.TopOverlay() != OverlayApprovals {
+		t.Fatalf("overlay = %q, want approvals", app.TopOverlay())
+	}
+	return app
+}
+
+// Approvals is an overlay with keys of its own: moved help and quit act
+// there too, and their old keys do not.
+func TestApprovalsHonoursMovedQuitAndHelp(t *testing.T) {
+	app := waitingKeymapApp(t, map[string]string{"help": "h", "quit": "Q"})
+	if got := pressKeys(app, "q"); got.quit {
+		t.Error("q quit from approvals after quit = \"Q\"")
+	}
+	if got := pressKeys(app, "?"); got.TopOverlay() == OverlayHelp {
+		t.Error("? opened help from approvals after help = \"h\"")
+	}
+	if got := pressKeys(app, "h"); got.TopOverlay() != OverlayHelp {
+		t.Error("h did not open help from approvals")
+	}
+	if got := pressKeys(app, "Q"); !got.quit {
+		t.Error("Q did not quit from approvals")
+	}
+	// Swapped, the help key must never quit.
+	if got := pressKeys(waitingKeymapApp(t, map[string]string{"help": "q", "quit": "?"}), "q"); got.quit || got.TopOverlay() != OverlayHelp {
+		t.Errorf("help = \"q\" in approvals: quit=%v overlay=%q, want help", got.quit, got.TopOverlay())
+	}
+}
+
+func TestApprovalsKeysCannotBeTaken(t *testing.T) {
+	for _, key := range []string{"c", "y", "n", "j", "k"} {
+		if _, err := keys.NewKeymap(map[string]string{"help": key}); err == nil || !strings.Contains(err.Error(), "approvals") {
+			t.Errorf("help = %q: err = %v, want an approvals conflict", key, err)
+		}
+	}
+}
+
+// The detail gate pane names A, so no override may take it there.
+func TestKeymapRejectsAKeyTheDetailGatePaneNames(t *testing.T) {
+	if _, err := keys.NewKeymap(map[string]string{"rerun_job": "A"}); err == nil || !strings.Contains(err.Error(), "detail") {
+		t.Fatalf("rerun_job = \"A\": err = %v, want a detail conflict", err)
+	}
+}
+
+// The palette types what is pressed: once help moves, ? is just text.
+func TestPaletteTypesTheOldHelpKeyAfterHelpMoves(t *testing.T) {
+	app := pressKeys(keymapTestApp(t, map[string]string{"help": "h"}), ":", "?", "h")
+	if app.TopOverlay() != OverlayPalette || app.palette.Query != "?h" {
+		t.Fatalf("palette after : ? h: overlay %q, query %q; want the palette with ?h", app.TopOverlay(), app.palette.Query)
+	}
+	if got := pressKeys(keymapTestApp(t, nil), ":", "?"); got.TopOverlay() != OverlayHelp {
+		t.Fatalf("default ? in the palette opened %q, want help", got.TopOverlay())
+	}
+}

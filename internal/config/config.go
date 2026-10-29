@@ -74,13 +74,13 @@ type Overrides struct {
 }
 
 type fileConfig struct {
-	DefaultScope  string            `toml:"default_scope"`
+	DefaultScope  *string           `toml:"default_scope"`
 	AutoWatch     *bool             `toml:"auto_watch"`
 	Welcome       *bool             `toml:"welcome"`
 	PerPage       *int              `toml:"per_page"`
 	DiffMaxPages  *int              `toml:"diff_max_pages"`
 	WatchGroupMax *int              `toml:"watch_group_max"`
-	Theme         string            `toml:"theme"`
+	Theme         *string           `toml:"theme"`
 	PollMinMS     *int              `toml:"poll_min_ms"`
 	PollMaxMS     *int              `toml:"poll_max_ms"`
 	Keybindings   map[string]string `toml:"keybindings"`
@@ -118,20 +118,23 @@ func Load(opts LoadOptions) (Config, error) {
 		opts.LookupEnv = os.LookupEnv
 	}
 
+	fileOnly := cfg
 	if opts.Path != "" {
 		if err := loadFile(opts.Path, &cfg); err != nil {
 			return Config{}, err
 		}
-		// Checked on its own so a bad value is blamed on the file.
-		if err := cfg.Validate(); err != nil {
-			return Config{}, fmt.Errorf("config %s: %w", opts.Path, err)
-		}
+		fileOnly = cfg
 	}
 	if err := applyEnv(opts.LookupEnv, &cfg); err != nil {
 		return Config{}, err
 	}
 	applyOverrides(opts.Overrides, &cfg)
 	if err := cfg.Validate(); err != nil {
+		// Later layers may repair the file (its poll min against an env
+		// max), so the file is blamed only when it is wrong by itself.
+		if opts.Path != "" && fileOnly.Validate() != nil {
+			return Config{}, fmt.Errorf("config %s: %w", opts.Path, err)
+		}
 		return Config{}, err
 	}
 	return cfg, nil
@@ -159,30 +162,68 @@ func (c Config) Validate() error {
 	if c.PollMin <= 0 || c.PollMax <= 0 || c.PollMin > c.PollMax {
 		return fmt.Errorf("poll interval must be positive and min <= max, got min=%s max=%s", c.PollMin, c.PollMax)
 	}
-	// Which actions exist and which keys collide is per screen: the
-	// TUI's keymap (keys.NewKeymap) checks that.
-	for action, key := range c.Keybindings {
-		if key == "" {
-			return fmt.Errorf("keybinding %q cannot be empty", action)
-		}
-	}
+	// Keybindings are checked per screen by the TUI's keymap
+	// (keys.NewKeymap), the only reader.
 	return nil
 }
 
-func loadFile(path string, cfg *Config) error {
-	var fc fileConfig
-	meta, err := toml.DecodeFile(path, &fc)
+// maxFileSize bounds the read: a config is a few hundred bytes, and a
+// path pointing at /dev/zero must not eat memory.
+const maxFileSize = 1 << 20
+
+func readFile(path string) ([]byte, error) {
+	info, err := os.Stat(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil
+			if _, lerr := os.Lstat(path); lerr == nil {
+				return nil, fmt.Errorf("load config %s: broken symlink", path)
+			}
+			return nil, nil
 		}
+		return nil, fmt.Errorf("load config %s: %w", path, err)
+	}
+	// A FIFO or device would block or never end.
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("load config %s: not a regular file", path)
+	}
+	if info.Size() > maxFileSize {
+		return nil, fmt.Errorf("load config %s: larger than %d bytes", path, maxFileSize)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("load config %s: %w", path, err)
+	}
+	return data, nil
+}
+
+// pollMS bounds a millisecond value before it becomes a Duration, so a
+// huge one cannot wrap around into a fast poll.
+func pollMS(name string, ms int) (time.Duration, error) {
+	if ms < 1 || ms > 3_600_000 {
+		return 0, fmt.Errorf("%s must be between 1 and 3600000, got %d", name, ms)
+	}
+	return time.Duration(ms) * time.Millisecond, nil
+}
+
+func loadFile(path string, cfg *Config) error {
+	data, err := readFile(path)
+	if err != nil || data == nil {
+		return err
+	}
+	var fc fileConfig
+	meta, err := toml.Decode(string(data), &fc)
+	if err != nil {
 		return fmt.Errorf("load config %s: %w", path, err)
 	}
 	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
 		return fmt.Errorf("load config %s: unknown key %q", path, undecoded[0].String())
 	}
-	if fc.DefaultScope != "" {
-		cfg.DefaultScope = Scope(fc.DefaultScope)
+	// The decoder drops a non-table [keybindings] without a word.
+	if meta.IsDefined("keybindings") && meta.Type("keybindings") != "Hash" {
+		return fmt.Errorf("load config %s: keybindings must be a table", path)
+	}
+	if fc.DefaultScope != nil {
+		cfg.DefaultScope = Scope(*fc.DefaultScope)
 	}
 	if fc.AutoWatch != nil {
 		cfg.AutoWatch = *fc.AutoWatch
@@ -208,14 +249,18 @@ func loadFile(path string, cfg *Config) error {
 	if fc.LogCompact != nil {
 		cfg.LogCompact = *fc.LogCompact
 	}
-	if fc.Theme != "" {
-		cfg.Theme = Theme(fc.Theme)
+	if fc.Theme != nil {
+		cfg.Theme = Theme(*fc.Theme)
 	}
 	if fc.PollMinMS != nil {
-		cfg.PollMin = time.Duration(*fc.PollMinMS) * time.Millisecond
+		if cfg.PollMin, err = pollMS("poll_min_ms", *fc.PollMinMS); err != nil {
+			return fmt.Errorf("config %s: %w", path, err)
+		}
 	}
 	if fc.PollMaxMS != nil {
-		cfg.PollMax = time.Duration(*fc.PollMaxMS) * time.Millisecond
+		if cfg.PollMax, err = pollMS("poll_max_ms", *fc.PollMaxMS); err != nil {
+			return fmt.Errorf("config %s: %w", path, err)
+		}
 	}
 	if fc.Keybindings != nil {
 		cfg.Keybindings = cloneMap(fc.Keybindings)
@@ -291,14 +336,18 @@ func applyEnv(lookup func(string) (string, bool), cfg *Config) error {
 		if err != nil {
 			return fmt.Errorf("parse HOUND_POLL_MIN_MS: %w", err)
 		}
-		cfg.PollMin = time.Duration(parsed) * time.Millisecond
+		if cfg.PollMin, err = pollMS("HOUND_POLL_MIN_MS", parsed); err != nil {
+			return err
+		}
 	}
 	if value, ok := lookup("HOUND_POLL_MAX_MS"); ok {
 		parsed, err := strconv.Atoi(value)
 		if err != nil {
 			return fmt.Errorf("parse HOUND_POLL_MAX_MS: %w", err)
 		}
-		cfg.PollMax = time.Duration(parsed) * time.Millisecond
+		if cfg.PollMax, err = pollMS("HOUND_POLL_MAX_MS", parsed); err != nil {
+			return err
+		}
 	}
 	return nil
 }

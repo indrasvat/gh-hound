@@ -2,7 +2,8 @@ package keys
 
 import (
 	"strings"
-	"unicode/utf8"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 type Screen string
@@ -31,6 +32,9 @@ const (
 	ScreenHelp         Screen = "help"
 	ScreenToasts       Screen = "toasts"
 	ScreenStartup      Screen = "startup"
+	// ScreenApprovals has no footer table: it is the approvals overlay's
+	// key context, for keybinding checks.
+	ScreenApprovals Screen = "approvals"
 )
 
 var footerByScreen = map[Screen][]Binding{
@@ -255,7 +259,7 @@ func (k Keymap) FooterWidth(screen Screen, width int) string {
 		}
 	}
 	footer := footerString(shown)
-	for prioritized && utf8.RuneCountInString(footer) > width {
+	for prioritized && ansi.StringWidth(footer) > width {
 		drop := -1
 		for i, b := range shown {
 			if b.Keep < KeepAlways && (drop < 0 || b.Keep <= shown[drop].Keep) {
@@ -269,10 +273,6 @@ func (k Keymap) FooterWidth(screen Screen, width int) string {
 		footer = footerString(shown)
 	}
 	return footer
-}
-
-func FooterLayer(screen Screen) Layer {
-	return Keymap{}.Layer(screen)
 }
 
 func (k Keymap) Layer(screen Screen) Layer {
