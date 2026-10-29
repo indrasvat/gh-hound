@@ -27,7 +27,6 @@ var remappable = map[string]string{
 	"cancel":       "x",
 	"force_cancel": "X",
 	"logs":         "l",
-	"full_log":     "l",
 	"watch":        "w",
 	"status_cycle": "f",
 	"follow":       "f",
@@ -59,7 +58,7 @@ var fixedKeys = map[Screen]string{
 	ScreenWelcome:    "",
 	ScreenRunsList:   "jkgGs/DoyA",
 	ScreenDetail:     "AadjknloyYJK", // A: the gate pane names it
-	ScreenFailure:    "jk",
+	ScreenFailure:    "jkl",          // l: "expand full log (l)"
 	ScreenWatch:      "",
 	ScreenWatchBoard: "jk",
 	ScreenLog:        "jkgGnNzZ][",

@@ -52,7 +52,7 @@ rerun_failed = "F"  # runs, detail, failure (default R)
 | `cancel` · `force_cancel` | `x` · `X` | runs, detail; `cancel` also watch and the hunt board |
 | `rerun_failed` | `R` | runs, detail, failure |
 | `rerun_job` | `r` | detail, failure |
-| `full_log` · `copy_excerpt` | `l` · `y` | failure |
+| `copy_excerpt` | `y` | failure |
 | `browser` | `o` | failure, workflows |
 | `follow` · `debug` | `f` · `d` | watch |
 | `follow_worst` | `f` | hunt board |

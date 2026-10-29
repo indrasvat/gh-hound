@@ -184,35 +184,35 @@ func readFile(path string) ([]byte, error) {
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			if _, lerr := os.Lstat(path); lerr == nil {
-				return nil, fmt.Errorf("load config %s: broken symlink", path)
+				return nil, fmt.Errorf("config %s: broken symlink", path)
 			}
 			return nil, nil
 		}
-		return nil, fmt.Errorf("load config %s: %w", path, err)
+		return nil, fmt.Errorf("config %s: %w", path, err)
 	}
 	// A FIFO or device would block or never end.
 	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("load config %s: not a regular file", path)
+		return nil, fmt.Errorf("config %s: not a regular file", path)
 	}
 	if info.Size() > maxFileSize {
-		return nil, fmt.Errorf("load config %s: larger than %d bytes", path, maxFileSize)
+		return nil, fmt.Errorf("config %s: larger than %d bytes", path, maxFileSize)
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("load config %s: %w", path, err)
+		return nil, fmt.Errorf("config %s: %w", path, err)
 	}
 	defer func() { _ = f.Close() }()
 	// Checked again on what was opened, and the read is capped: the
 	// path may have been replaced since the Stat above.
 	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("load config %s: not a regular file", path)
+		return nil, fmt.Errorf("config %s: not a regular file", path)
 	}
 	data, err := io.ReadAll(io.LimitReader(f, maxFileSize+1))
 	if err != nil {
-		return nil, fmt.Errorf("load config %s: %w", path, err)
+		return nil, fmt.Errorf("config %s: %w", path, err)
 	}
 	if len(data) > maxFileSize {
-		return nil, fmt.Errorf("load config %s: larger than %d bytes", path, maxFileSize)
+		return nil, fmt.Errorf("config %s: larger than %d bytes", path, maxFileSize)
 	}
 	return data, nil
 }
@@ -237,14 +237,14 @@ func loadFile(path string, cfg *Config) error {
 	var fc fileConfig
 	meta, err := toml.Decode(string(data), &fc)
 	if err != nil {
-		return fmt.Errorf("load config %s: %w", path, err)
+		return fmt.Errorf("config %s: %w", path, err)
 	}
 	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
-		return fmt.Errorf("load config %s: unknown key %q", path, undecoded[0].String())
+		return fmt.Errorf("config %s: unknown key %q", path, undecoded[0].String())
 	}
 	// The decoder drops a non-table [keybindings] without a word.
 	if meta.IsDefined("keybindings") && meta.Type("keybindings") != "Hash" {
-		return fmt.Errorf("load config %s: keybindings must be a table", path)
+		return fmt.Errorf("config %s: keybindings must be a table", path)
 	}
 	if fc.DefaultScope != nil {
 		cfg.DefaultScope = Scope(*fc.DefaultScope)

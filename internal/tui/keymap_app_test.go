@@ -198,3 +198,14 @@ func TestOverlayKeysFollowTheKeymapOverATypingRoute(t *testing.T) {
 		t.Fatal("Q did not quit from help over the dispatch form")
 	}
 }
+
+// In-screen text that names a key follows the keymap or keeps it fixed.
+func TestHintsNeverNameADeadKey(t *testing.T) {
+	if _, err := keys.NewKeymap(map[string]string{"full_log": "U"}); err == nil {
+		t.Error("full_log moved, though the failure screen says \"expand full log (l)\"")
+	}
+	app := pressKeys(keymapTestApp(t, map[string]string{"theme": "M"}), ":", "t", "h", "e", "m", "e")
+	if view := app.ViewSize(120, 40); !strings.Contains(view, "switch Bramble / Bone (M)") {
+		t.Fatalf("palette theme entry does not name M:\n%s", view)
+	}
+}

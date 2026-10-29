@@ -565,7 +565,7 @@ func NewApp(options Options) App {
 		detail:                    initialDetail,
 		routeErrors:               routeErrors,
 		watch:                     watchModel,
-		palette:                   palette.New(paletteItems(nil)),
+		palette:                   palette.New(paletteItems(options.Keymap, nil)),
 		toasts:                    toast.New(),
 		runsMeta:                  runsMeta,
 		detailResolver:            options.DetailResolver,
@@ -2746,7 +2746,7 @@ func (a App) openPalette() App {
 	// invariant forbids a network fetch on the ':' keystroke. The
 	// generic dispatch item stays available and openDispatch resolves
 	// (async) when the user actually selects it.
-	a.palette = palette.New(paletteItems(a.dispatchWorkflows))
+	a.palette = palette.New(paletteItems(a.keymap, a.dispatchWorkflows))
 	a.pushOverlay(OverlayPalette)
 	return a
 }
@@ -4835,7 +4835,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func paletteItems(workflows []dispatch.Workflow) []palette.Item {
+func paletteItems(km keys.Keymap, workflows []dispatch.Workflow) []palette.Item {
 	items := []palette.Item{
 		{Name: "runs", Description: "workflow runs · this branch", Tag: "default", Route: "runs"},
 		{Name: "runs --all", Description: "runs across all branches", Route: "runs --all"},
@@ -4850,7 +4850,7 @@ func paletteItems(workflows []dispatch.Workflow) []palette.Item {
 		{Name: "queue", Description: "GitHub queue · concurrency blockers", Route: string(RouteQueue)},
 		{Name: "caches", Description: "the kennel · cache usage & eviction", Route: string(RouteCaches)},
 		{Name: "workflows", Description: "the pack · states, wake & muzzle", Route: string(RouteWorkflows)},
-		{Name: "theme", Description: "switch Bramble / Bone (T)", Route: "theme"},
+		{Name: "theme", Description: "switch Bramble / Bone (" + km.KeyFor("theme") + ")", Route: "theme"},
 	}
 	if len(workflows) == 0 {
 		items = append(items, palette.Item{Name: "dispatch", Description: "trigger workflow_dispatch", Route: string(RouteDispatch)})
