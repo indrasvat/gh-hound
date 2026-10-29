@@ -175,3 +175,26 @@ func TestKeyIsReadWhereADrainedFetchLandsIt(t *testing.T) {
 		t.Fatalf("route %v, version field %q: want dispatch with h typed", app.Route(), app.dispatch.Fields[0].Value)
 	}
 }
+
+// Help opened while a fetch is out stays on top when the fetch lands a
+// typing screen under it: help's keys follow the keymap, not the input.
+func TestOverlayKeysFollowTheKeymapOverATypingRoute(t *testing.T) {
+	app := keymapTestApp(t, map[string]string{"help": "h", "quit": "Q"})
+	release := make(chan struct{})
+	app.dispatchWorkflowsResolver = func(context.Context) ([]dispatch.Workflow, error) {
+		<-release
+		return []dispatch.Workflow{sampleDispatchModel().Workflow}, nil
+	}
+	app = pressKeys(app, "D", "h")
+	close(release)
+	app = settleApp(t, app)
+	if app.Route() != RouteDispatch || app.TopOverlay() != OverlayHelp {
+		t.Fatalf("route %v overlay %q, want help over dispatch", app.Route(), app.TopOverlay())
+	}
+	if got := pressKeys(app, "q"); got.quit {
+		t.Fatal("old q quit from help over the dispatch form")
+	}
+	if got := pressKeys(app, "Q"); !got.quit {
+		t.Fatal("Q did not quit from help over the dispatch form")
+	}
+}

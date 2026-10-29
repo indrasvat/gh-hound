@@ -665,11 +665,12 @@ func NewScenarioApp(scenario string, build BuildInfo) App {
 // translateKey moves an overridden key to the default key the handlers
 // compare. Outside typing only: inputs get the key as pressed.
 func (a App) translateKey(key string) string {
-	if a.routeInputMode() {
-		return key
-	}
+	// The top layer decides: an overlay over a typing route still acts.
 	switch a.TopOverlay() {
 	case OverlayNone:
+		if a.routeInputMode() {
+			return key
+		}
 		return a.keymap.Key(a.footerScreen(), key)
 	case OverlayHelp:
 		return a.keymap.Key(keys.ScreenHelp, key)

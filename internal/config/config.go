@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"strconv"
@@ -118,21 +119,22 @@ func Load(opts LoadOptions) (Config, error) {
 		opts.LookupEnv = os.LookupEnv
 	}
 
-	fileOnly := cfg
 	if opts.Path != "" {
 		if err := loadFile(opts.Path, &cfg); err != nil {
 			return Config{}, err
 		}
-		fileOnly = cfg
 	}
 	if err := applyEnv(opts.LookupEnv, &cfg); err != nil {
 		return Config{}, err
 	}
 	applyOverrides(opts.Overrides, &cfg)
 	if err := cfg.Validate(); err != nil {
-		// Later layers may repair the file (its poll min against an env
-		// max), so the file is blamed only for its own error.
-		if fileErr := fileOnly.Validate(); opts.Path != "" && fileErr != nil && fileErr.Error() == err.Error() {
+		// Validated merged, so later layers can repair the file. The file
+		// is named unless the environment alone fails the same way.
+		withoutFile := Default()
+		_ = applyEnv(opts.LookupEnv, &withoutFile) // its errors returned above
+		applyOverrides(opts.Overrides, &withoutFile)
+		if envErr := withoutFile.Validate(); opts.Path != "" && (envErr == nil || envErr.Error() != err.Error()) {
 			return Config{}, fmt.Errorf("config %s: %w", opts.Path, err)
 		}
 		return Config{}, err
@@ -195,9 +197,22 @@ func readFile(path string) ([]byte, error) {
 	if info.Size() > maxFileSize {
 		return nil, fmt.Errorf("load config %s: larger than %d bytes", path, maxFileSize)
 	}
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("load config %s: %w", path, err)
+	}
+	defer func() { _ = f.Close() }()
+	// Checked again on what was opened, and the read is capped: the
+	// path may have been replaced since the Stat above.
+	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("load config %s: not a regular file", path)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxFileSize+1))
+	if err != nil {
+		return nil, fmt.Errorf("load config %s: %w", path, err)
+	}
+	if len(data) > maxFileSize {
+		return nil, fmt.Errorf("load config %s: larger than %d bytes", path, maxFileSize)
 	}
 	return data, nil
 }

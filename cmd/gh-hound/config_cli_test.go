@@ -275,20 +275,32 @@ func TestRelativeXDGConfigHomeIsIgnored(t *testing.T) {
 	}
 }
 
-func TestEveryPublicCommandRejectsABadConfigFile(t *testing.T) {
+// Commands that use no config value still refuse a broken file, in their
+// own JSON envelope so agents branch on error.kind as for any refusal.
+func TestEveryCommandRefusesABadConfigFileInItsEnvelope(t *testing.T) {
 	xdg := t.TempDir()
 	path := writeConfig(t, xdg, "per_page = = 1\n")
 	for _, args := range [][]string{
 		{"cancel", "--run", "123", "--fake-scenario", "green"},
 		{"rerun", "--run", "123", "--fake-scenario", "green"},
+		{"approvals", "--run", "123", "--no-tui", "--fake-scenario", "waiting"},
 		{"workflows", "--no-tui", "--fake-scenario", "green"},
 		{"caches", "--no-tui", "--fake-scenario", "green"},
-		{"queue", "--no-tui", "--fake-scenario", "green"},
+		{"queue", "--run", "123", "--no-tui", "--fake-scenario", "queue"},
+		{"diff", "--workflow", "ci.yml", "--no-tui", "--fake-scenario", "regression"},
+		{"flakes", "--workflow", "ci.yml", "--no-tui", "--fake-scenario", "flaky"},
 	} {
-		cmd := newRootCommandWithRuntime(commandRuntime{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}, Env: mapEnv(map[string]string{"XDG_CONFIG_HOME": xdg})}, testBuildInfo())
+		var out bytes.Buffer
+		cmd := newRootCommandWithRuntime(commandRuntime{Stdout: &out, Stderr: &bytes.Buffer{}, Env: mapEnv(map[string]string{"XDG_CONFIG_HOME": xdg})}, testBuildInfo())
 		cmd.SetArgs(args)
-		if _, err := executeCommand(cmd); err == nil || !strings.Contains(err.Error(), path) {
-			t.Errorf("%v: err = %v, want the bad file named", args, err)
+		if code, _ := executeCommand(cmd); code != render.ExitError {
+			t.Errorf("%v: exit %d, want %d", args, code, render.ExitError)
+		}
+		var envelope struct {
+			Error struct{ Kind, Message string } `json:"error"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &envelope); err != nil || envelope.Error.Kind != "validation" || !strings.Contains(envelope.Error.Message, path) {
+			t.Errorf("%v: stdout %q, want a validation envelope naming the file", args, out.String())
 		}
 	}
 	for _, args := range [][]string{{"version"}, {"-v"}, {"__screen", "--screen", "runs"}} {

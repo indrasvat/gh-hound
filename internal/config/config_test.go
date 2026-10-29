@@ -171,11 +171,21 @@ func TestLoadValidatesTheMergedLayers(t *testing.T) {
 		{"", map[string]string{"HOUND_PER_PAGE": "500"}},
 		// The file's own error is repaired; the theme error is the env's.
 		{"per_page = 500\n", map[string]string{"HOUND_PER_PAGE": "30", "HOUND_THEME": "plaid"}},
+		// Both layers say the same thing, but the env's value won.
+		{"poll_min_ms = 0\n", map[string]string{"HOUND_POLL_MIN_MS": "3600001"}},
 	} {
 		path, err := loadBody(t, tt.body, tt.env)
 		if err == nil || strings.Contains(err.Error(), path) {
 			t.Errorf("%q + %v: an env error is blamed on the file: %v", tt.body, tt.env, err)
 		}
+	}
+}
+
+// The env repairs one file value; the file's other bad value is named.
+func TestLoadNamesTheFileForItsRemainingError(t *testing.T) {
+	path, err := loadBody(t, "theme = \"plaid\"\nper_page = 500\n", map[string]string{"HOUND_THEME": "bone"})
+	if err == nil || !strings.Contains(err.Error(), "per_page") || !strings.Contains(err.Error(), path) {
+		t.Fatalf("err = %v, want per_page blamed on %s", err, path)
 	}
 }
 

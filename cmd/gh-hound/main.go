@@ -175,13 +175,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.PersistentFlags().StringVar(&options.Fake, "fake-scenario", "", "deterministic fake scenario: green, failure, pending, empty, api_error, conflict, permission, waiting, regression, pack, flaky, queue, noisy (env HOUND_FAKE_SCENARIO)")
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		applyEnv(&options, runtime.Env, cmd.Flags().Changed)
-		// Every public command fails on a bad config.toml, also those
-		// that read none of it (rerun, cancel); fixtures stay hermetic.
-		if cmd.Hidden || cmd.Name() == "version" || cmd.Flags().Changed("version") {
-			return nil
-		}
-		_, err := defaultConfig(runtime.Env)
-		return err
+		return nil
 	}
 
 	cmd.AddCommand(newVersionCommand(runtime.Stdout, info))
@@ -300,6 +294,9 @@ func writeMutationResult(ctx context.Context, w io.Writer, options cliOptions, r
 			return writeErr
 		}
 		return outcomeError{code: render.ExitError}
+	}
+	if err := configError(runtime.Env); err != nil {
+		return refuse(err)
 	}
 	if request.runID <= 0 {
 		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Field: "run", Message: "--run <run-id> (a positive ID) is required"})
@@ -568,6 +565,9 @@ func writeApprovalsResult(ctx context.Context, w io.Writer, options cliOptions, 
 		}
 		return outcomeError{code: render.ExitError}
 	}
+	if err := configError(runtime.Env); err != nil {
+		return refuse(err)
+	}
 	if options.RunID <= 0 {
 		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Message: "--run <run-id> (a positive ID) is required"})
 	}
@@ -744,6 +744,9 @@ func writeCachesResult(ctx context.Context, w io.Writer, options cliOptions, run
 			return writeErr
 		}
 		return outcomeError{code: render.ExitError}
+	}
+	if err := configError(runtime.Env); err != nil {
+		return refuse(nil, err)
 	}
 
 	deletion := requestedCacheDeletion(request)
@@ -2266,6 +2269,16 @@ func defaultConfig(lookup ...func(string) (string, bool)) (config.Config, error)
 	return config.Load(config.LoadOptions{Path: configPath(env), LookupEnv: env})
 }
 
+// configError is a bad config.toml as a validation refusal, for the
+// commands that read none of it: they still fail on a broken file, in
+// their own error envelope.
+func configError(env func(string) (string, bool)) error {
+	if _, err := defaultConfig(env); err != nil {
+		return usecase.ActionError{Kind: usecase.ActionErrorValidation, Field: "config", Message: err.Error()}
+	}
+	return nil
+}
+
 // tuiConfig is defaultConfig plus its [keybindings], which only the TUI
 // reads: a bad override stops the launch like any bad config value.
 func tuiConfig(env func(string) (string, bool)) (config.Config, keys.Keymap, error) {
@@ -2582,6 +2595,9 @@ func mapRenderArtifacts(artifacts []model.Artifact) []render.Artifact {
 }
 
 func writeArtifactsResult(ctx context.Context, w io.Writer, options cliOptions, runtime commandRuntime) error {
+	if err := configError(runtime.Env); err != nil {
+		return err
+	}
 	var githubClient usecase.GitHub
 	var repo, branch string
 	if options.Fake != "" {

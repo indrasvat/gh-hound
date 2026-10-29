@@ -7,7 +7,7 @@
 3. Environment variables.
 4. CLI flags.
 
-Later layers win: a flag you pass beats its variable, and a variable beats the file. A missing file means defaults. A file that does not parse, has a key gh-hound does not know, or holds an out-of-range value stops every command (TUI or `--no-tui`, except `version`) with an error naming the file; so does a path that is not a regular file (a broken symlink, a FIFO) or is over 1 MiB. A relative `XDG_CONFIG_HOME` is ignored, as the XDG spec says.
+Later layers win: a flag you pass beats its variable, and a variable beats the file. A missing file means defaults. A file that does not parse, has a key gh-hound does not know, or holds an out-of-range value stops every command but `version` with an error naming the file (pipe commands report it as `error.kind: validation`, `field: config`); so does a path that is not a regular file (a broken symlink, a FIFO) or is over 1 MiB. A relative `XDG_CONFIG_HOME` is ignored, as the XDG spec says.
 
 ## Config File
 

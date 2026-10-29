@@ -59,6 +59,9 @@ func writeWorkflowsResult(ctx context.Context, w io.Writer, options cliOptions, 
 		}
 		return outcomeError{code: render.ExitError}
 	}
+	if err := configError(runtime.Env); err != nil {
+		return refuse(err)
+	}
 	if enable != "" && disable != "" {
 		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Field: "workflow", Message: "--enable and --disable are mutually exclusive — one leash at a time"})
 	}

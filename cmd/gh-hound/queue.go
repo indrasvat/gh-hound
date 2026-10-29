@@ -63,6 +63,9 @@ func writeQueueResult(ctx context.Context, w io.Writer, options cliOptions, runt
 	if err := validateQueueRequest(request); err != nil {
 		return refuse("validation", "target", err.Error())
 	}
+	if _, err := defaultConfig(runtime.Env); err != nil {
+		return refuse("validation", "config", err.Error())
+	}
 
 	var githubClient any
 	var repo string
