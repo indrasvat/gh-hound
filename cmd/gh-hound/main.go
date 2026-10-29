@@ -175,7 +175,13 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.PersistentFlags().StringVar(&options.Fake, "fake-scenario", "", "deterministic fake scenario: green, failure, pending, empty, api_error, conflict, permission, waiting, regression, pack, flaky, queue, noisy (env HOUND_FAKE_SCENARIO)")
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		applyEnv(&options, runtime.Env, cmd.Flags().Changed)
-		return nil
+		// Every public command fails on a bad config.toml, also those
+		// that read none of it (rerun, cancel); fixtures stay hermetic.
+		if cmd.Hidden || cmd.Name() == "version" || cmd.Flags().Changed("version") {
+			return nil
+		}
+		_, err := defaultConfig(runtime.Env)
+		return err
 	}
 
 	cmd.AddCommand(newVersionCommand(runtime.Stdout, info))

@@ -140,6 +140,7 @@ func TestLoadRejectsValuesTheFileCannotMean(t *testing.T) {
 	tests := []struct{ body, want string }{
 		{"poll_min_ms = 18446744073710\npoll_max_ms = 18446744073710\n", "poll_min_ms must be between 1 and 3600000"},
 		{"poll_max_ms = 0\n", "poll_max_ms must be between 1 and 3600000"},
+		{"poll_min_ms = -5\n", "poll_min_ms must be between 1 and 3600000"},
 		{"theme = \"\"\n", `theme must be "bramble" or "bone", got ""`},
 		{"default_scope = \"\"\n", `default_scope must be "branch" or "repo", got ""`},
 		{"keybindings = \"x\"\n", "keybindings must be a table"},
@@ -160,9 +161,21 @@ func TestLoadValidatesTheMergedLayers(t *testing.T) {
 	if _, err := loadBody(t, "poll_min_ms = 40000\n", map[string]string{"HOUND_POLL_MAX_MS": "60000"}); err != nil {
 		t.Fatalf("file min 40s + env max 60s rejected: %v", err)
 	}
-	path, err := loadBody(t, "", map[string]string{"HOUND_PER_PAGE": "500"})
-	if err == nil || strings.Contains(err.Error(), path) {
-		t.Fatalf("a bad env value is blamed on the file: %v", err)
+	if _, err := loadBody(t, "poll_min_ms = 0\n", map[string]string{"HOUND_POLL_MIN_MS": "2000"}); err != nil {
+		t.Fatalf("file poll_min_ms = 0 repaired by the env rejected: %v", err)
+	}
+	for _, tt := range []struct {
+		body string
+		env  map[string]string
+	}{
+		{"", map[string]string{"HOUND_PER_PAGE": "500"}},
+		// The file's own error is repaired; the theme error is the env's.
+		{"per_page = 500\n", map[string]string{"HOUND_PER_PAGE": "30", "HOUND_THEME": "plaid"}},
+	} {
+		path, err := loadBody(t, tt.body, tt.env)
+		if err == nil || strings.Contains(err.Error(), path) {
+			t.Errorf("%q + %v: an env error is blamed on the file: %v", tt.body, tt.env, err)
+		}
 	}
 }
 

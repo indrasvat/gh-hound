@@ -131,8 +131,8 @@ func Load(opts LoadOptions) (Config, error) {
 	applyOverrides(opts.Overrides, &cfg)
 	if err := cfg.Validate(); err != nil {
 		// Later layers may repair the file (its poll min against an env
-		// max), so the file is blamed only when it is wrong by itself.
-		if opts.Path != "" && fileOnly.Validate() != nil {
+		// max), so the file is blamed only for its own error.
+		if fileErr := fileOnly.Validate(); opts.Path != "" && fileErr != nil && fileErr.Error() == err.Error() {
 			return Config{}, fmt.Errorf("config %s: %w", opts.Path, err)
 		}
 		return Config{}, err
@@ -159,7 +159,13 @@ func (c Config) Validate() error {
 	if c.FlakeWindow < 1 || c.FlakeWindow > 500 {
 		return fmt.Errorf("flake_window must be between 1 and 500, got %d", c.FlakeWindow)
 	}
-	if c.PollMin <= 0 || c.PollMax <= 0 || c.PollMin > c.PollMax {
+	if c.PollMin < time.Millisecond || c.PollMin > maxPoll {
+		return fmt.Errorf("poll_min_ms must be between 1 and %d", maxPoll.Milliseconds())
+	}
+	if c.PollMax < time.Millisecond || c.PollMax > maxPoll {
+		return fmt.Errorf("poll_max_ms must be between 1 and %d", maxPoll.Milliseconds())
+	}
+	if c.PollMin > c.PollMax {
 		return fmt.Errorf("poll interval must be positive and min <= max, got min=%s max=%s", c.PollMin, c.PollMax)
 	}
 	// Keybindings are checked per screen by the TUI's keymap
@@ -196,13 +202,16 @@ func readFile(path string) ([]byte, error) {
 	return data, nil
 }
 
-// pollMS bounds a millisecond value before it becomes a Duration, so a
-// huge one cannot wrap around into a fast poll.
-func pollMS(name string, ms int) (time.Duration, error) {
-	if ms < 1 || ms > 3_600_000 {
-		return 0, fmt.Errorf("%s must be between 1 and 3600000, got %d", name, ms)
+const maxPoll = time.Hour
+
+// pollMS converts milliseconds without letting a huge value wrap around
+// into a fast poll: out of range is -1, which Validate rejects unless a
+// later layer replaces it.
+func pollMS(ms int) time.Duration {
+	if ms < 1 || ms > int(maxPoll.Milliseconds()) {
+		return -1
 	}
-	return time.Duration(ms) * time.Millisecond, nil
+	return time.Duration(ms) * time.Millisecond
 }
 
 func loadFile(path string, cfg *Config) error {
@@ -253,14 +262,10 @@ func loadFile(path string, cfg *Config) error {
 		cfg.Theme = Theme(*fc.Theme)
 	}
 	if fc.PollMinMS != nil {
-		if cfg.PollMin, err = pollMS("poll_min_ms", *fc.PollMinMS); err != nil {
-			return fmt.Errorf("config %s: %w", path, err)
-		}
+		cfg.PollMin = pollMS(*fc.PollMinMS)
 	}
 	if fc.PollMaxMS != nil {
-		if cfg.PollMax, err = pollMS("poll_max_ms", *fc.PollMaxMS); err != nil {
-			return fmt.Errorf("config %s: %w", path, err)
-		}
+		cfg.PollMax = pollMS(*fc.PollMaxMS)
 	}
 	if fc.Keybindings != nil {
 		cfg.Keybindings = cloneMap(fc.Keybindings)
@@ -336,18 +341,14 @@ func applyEnv(lookup func(string) (string, bool), cfg *Config) error {
 		if err != nil {
 			return fmt.Errorf("parse HOUND_POLL_MIN_MS: %w", err)
 		}
-		if cfg.PollMin, err = pollMS("HOUND_POLL_MIN_MS", parsed); err != nil {
-			return err
-		}
+		cfg.PollMin = pollMS(parsed)
 	}
 	if value, ok := lookup("HOUND_POLL_MAX_MS"); ok {
 		parsed, err := strconv.Atoi(value)
 		if err != nil {
 			return fmt.Errorf("parse HOUND_POLL_MAX_MS: %w", err)
 		}
-		if cfg.PollMax, err = pollMS("HOUND_POLL_MAX_MS", parsed); err != nil {
-			return err
-		}
+		cfg.PollMax = pollMS(parsed)
 	}
 	return nil
 }

@@ -274,3 +274,28 @@ func TestRelativeXDGConfigHomeIsIgnored(t *testing.T) {
 		t.Fatalf("configPath = %q, want %q", got, want)
 	}
 }
+
+func TestEveryPublicCommandRejectsABadConfigFile(t *testing.T) {
+	xdg := t.TempDir()
+	path := writeConfig(t, xdg, "per_page = = 1\n")
+	for _, args := range [][]string{
+		{"cancel", "--run", "123", "--fake-scenario", "green"},
+		{"rerun", "--run", "123", "--fake-scenario", "green"},
+		{"workflows", "--no-tui", "--fake-scenario", "green"},
+		{"caches", "--no-tui", "--fake-scenario", "green"},
+		{"queue", "--no-tui", "--fake-scenario", "green"},
+	} {
+		cmd := newRootCommandWithRuntime(commandRuntime{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}, Env: mapEnv(map[string]string{"XDG_CONFIG_HOME": xdg})}, testBuildInfo())
+		cmd.SetArgs(args)
+		if _, err := executeCommand(cmd); err == nil || !strings.Contains(err.Error(), path) {
+			t.Errorf("%v: err = %v, want the bad file named", args, err)
+		}
+	}
+	for _, args := range [][]string{{"version"}, {"-v"}, {"__screen", "--screen", "runs"}} {
+		cmd := newRootCommandWithRuntime(commandRuntime{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}, Env: mapEnv(map[string]string{"XDG_CONFIG_HOME": xdg})}, testBuildInfo())
+		cmd.SetArgs(args)
+		if _, err := executeCommand(cmd); err != nil {
+			t.Errorf("%v read the config: %v", args, err)
+		}
+	}
+}

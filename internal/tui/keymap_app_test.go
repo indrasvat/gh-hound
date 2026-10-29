@@ -1,13 +1,16 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/indrasvat/gh-hound/internal/config"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/keys"
+	"github.com/indrasvat/gh-hound/internal/tui/screens/dispatch"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -145,5 +148,30 @@ func TestPaletteTypesTheOldHelpKeyAfterHelpMoves(t *testing.T) {
 	}
 	if got := pressKeys(keymapTestApp(t, nil), ":", "?"); got.TopOverlay() != OverlayHelp {
 		t.Fatalf("default ? in the palette opened %q, want help", got.TopOverlay())
+	}
+}
+
+// A fetch that finished but has not been applied when the next key
+// arrives: the key belongs to the screen the fetch opens (here a typing
+// form), so it must be read there, not translated for the runs list.
+func TestKeyIsReadWhereADrainedFetchLandsIt(t *testing.T) {
+	app := keymapTestApp(t, map[string]string{"help": "h"})
+	app.dispatchWorkflowsResolver = func(context.Context) ([]dispatch.Workflow, error) {
+		return []dispatch.Workflow{sampleDispatchModel().Workflow}, nil
+	}
+	app = pressKeys(app, "D")
+	deadline := time.Now().Add(2 * time.Second)
+	for app.load != nil {
+		if done, _, _, _ := app.load.snapshot(); done {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("workflows fetch did not finish")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	app = pressKeys(app, "h")
+	if app.Route() != RouteDispatch || app.dispatch.Fields[0].Value != "h" {
+		t.Fatalf("route %v, version field %q: want dispatch with h typed", app.Route(), app.dispatch.Fields[0].Value)
 	}
 }

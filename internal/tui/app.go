@@ -662,25 +662,26 @@ func NewScenarioApp(scenario string, build BuildInfo) App {
 	return app
 }
 
-func (a App) Update(msg KeyMsg) (App, bool) {
-	// Overrides move keys outside typing: translate the press once, into
-	// the default key the handlers below compare.
-	if !a.routeInputMode() {
-		switch a.TopOverlay() {
-		case OverlayNone:
-			msg.Key = a.keymap.Key(a.footerScreen(), msg.Key)
-		case OverlayHelp:
-			msg.Key = a.keymap.Key(keys.ScreenHelp, msg.Key)
-		case OverlayApprovals:
-			if !a.approvals.CommentMode {
-				msg.Key = a.keymap.Key(keys.ScreenApprovals, msg.Key)
-			}
+// translateKey moves an overridden key to the default key the handlers
+// compare. Outside typing only: inputs get the key as pressed.
+func (a App) translateKey(key string) string {
+	if a.routeInputMode() {
+		return key
+	}
+	switch a.TopOverlay() {
+	case OverlayNone:
+		return a.keymap.Key(a.footerScreen(), key)
+	case OverlayHelp:
+		return a.keymap.Key(keys.ScreenHelp, key)
+	case OverlayApprovals:
+		if !a.approvals.CommentMode {
+			return a.keymap.Key(keys.ScreenApprovals, key)
 		}
 	}
-	return a.update(msg)
+	return key
 }
 
-func (a App) update(msg KeyMsg) (out App, handled bool) {
+func (a App) Update(msg KeyMsg) (out App, handled bool) {
 	// Background results apply on the keypress path too, not only on
 	// poll ticks, so a ready section/poll lands as soon as the next key
 	// arrives. Any such application must repaint even if the key itself
@@ -742,10 +743,14 @@ func (a App) update(msg KeyMsg) (out App, handled bool) {
 				}
 				// The same Esc still closes the overlay or screen on top.
 			}
-			next, _ := a.update(msg)
+			next, _ := a.Update(msg)
 			return next, true
 		}
 	}
+	// After the drains, so the key is read in the context it lands in (a
+	// drained fetch may have just opened an input). The one re-entry
+	// above returns before this, so a key is translated once.
+	msg.Key = a.translateKey(msg.Key)
 	if a.inputMode {
 		if msg.Key == "esc" {
 			a.inputMode = false
