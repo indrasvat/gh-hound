@@ -20,7 +20,7 @@ func newWorkflowsCommand(runtime commandRuntime, options *cliOptions) *cobra.Com
 		Use:   "workflows",
 		Short: "List the pack's workflows with their state — and wake or muzzle one",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			applyEnv(options, runtime.Env)
+			applyEnv(options, runtime.Env, cmd.Flags().Changed)
 			options.NoTUI = true
 			return writeWorkflowsResult(cmd.Context(), runtime.Stdout, *options, runtime, enable, disable)
 		},

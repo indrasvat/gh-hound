@@ -20,7 +20,7 @@ func newDiffCommand(runtime commandRuntime, options *cliOptions) *cobra.Command 
 		Use:   "diff",
 		Short: "Pick up the scent: last green vs first bad, with the suspect commits",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			applyEnv(options, runtime.Env)
+			applyEnv(options, runtime.Env, cmd.Flags().Changed)
 			options.NoTUI = true
 			return writeDiffResult(cmd.Context(), runtime.Stdout, *options, runtime)
 		},

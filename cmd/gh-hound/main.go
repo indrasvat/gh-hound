@@ -135,7 +135,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 		runtime.Env = os.LookupEnv
 	}
 
-	options := cliOptions{Format: render.FormatJSON, LogLevel: "info"}
+	options := defaultCLIOptions()
 	cmd := &cobra.Command{
 		Use:           "gh-hound",
 		Short:         "Hunt down your GitHub Actions CI",
@@ -149,7 +149,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 			if showVersion {
 				return printVersion(runtime.Stdout, info)
 			}
-			applyEnv(&options, runtime.Env)
+			applyEnv(&options, runtime.Env, cmd.Flags().Changed)
 			if structuredOutput(options, runtime) {
 				return writeResult(cmd.Context(), runtime.Stdout, options, runtime)
 			}
@@ -171,7 +171,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.PersistentFlags().BoolVar(&options.TraceHTTP, "trace-http", false, "trace GitHub API calls to the JSON log (env HOUND_TRACE_HTTP)")
 	cmd.PersistentFlags().StringVar(&options.Fake, "fake-scenario", "", "deterministic fake scenario: green, failure, pending, empty, api_error, conflict, permission, waiting, regression, pack, flaky, queue, noisy (env HOUND_FAKE_SCENARIO)")
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
-		applyEnv(&options, runtime.Env)
+		applyEnv(&options, runtime.Env, cmd.Flags().Changed)
 		return nil
 	}
 
@@ -201,7 +201,7 @@ func newRerunCommand(runtime commandRuntime, options *cliOptions) *cobra.Command
 		Use:   "rerun",
 		Short: "Send a run (or job) back out, optionally with debug logging",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			applyEnv(options, runtime.Env)
+			applyEnv(options, runtime.Env, cmd.Flags().Changed)
 			options.NoTUI = true
 			return writeMutationResult(cmd.Context(), runtime.Stdout, *options, runtime, mutationRequest{
 				runID:      options.RunID,
@@ -224,7 +224,7 @@ func newCancelCommand(runtime commandRuntime, options *cliOptions) *cobra.Comman
 		Use:   "cancel",
 		Short: "Call a run off",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			applyEnv(options, runtime.Env)
+			applyEnv(options, runtime.Env, cmd.Flags().Changed)
 			options.NoTUI = true
 			return writeMutationResult(cmd.Context(), runtime.Stdout, *options, runtime, mutationRequest{
 				runID:  options.RunID,
@@ -388,7 +388,7 @@ func newInteractCommand(stdout io.Writer) *cobra.Command {
 }
 
 func newVQATUICommand(runtime commandRuntime, info buildInfo) *cobra.Command {
-	var scenario, actor string
+	var scenario, actor, configHome string
 	var latency time.Duration
 	cmd := &cobra.Command{
 		Use:    "__vqa-tui",
@@ -397,6 +397,9 @@ func newVQATUICommand(runtime commandRuntime, info buildInfo) *cobra.Command {
 			if runtime.Stdin == nil {
 				runtime.Stdin = os.Stdin
 			}
+			// A fixture ignores the user's config.toml; --config-home
+			// hands it one on purpose.
+			runtime.Env = fixtureConfigEnv(runtime.Env, configHome)
 			adapter := fake.New(fake.Scenario(scenario))
 			runtime.GitHub = adapter
 			if latency > 0 {
@@ -415,7 +418,20 @@ func newVQATUICommand(runtime commandRuntime, info buildInfo) *cobra.Command {
 	cmd.Flags().StringVar(&scenario, "scenario", string(fake.ScenarioFailing), "fake adapter scenario for PTY VQA")
 	cmd.Flags().StringVar(&actor, "actor", "", "launch actor filter (login or @me)")
 	cmd.Flags().DurationVar(&latency, "latency", 0, "delay every runs listing and identity lookup, to rehearse loading and stale results")
+	cmd.Flags().StringVar(&configHome, "config-home", "", "read <dir>/gh-hound/config.toml instead of no config file")
 	return cmd
+}
+
+func fixtureConfigEnv(env func(string) (string, bool), configHome string) func(string) (string, bool) {
+	return func(key string) (string, bool) {
+		switch key {
+		case "XDG_CONFIG_HOME":
+			return configHome, configHome != ""
+		case "HOME":
+			return "", false
+		}
+		return env(key)
+	}
 }
 
 // slowGitHub delays the calls a filter edit makes so PTY rehearsals can
@@ -471,7 +487,7 @@ func newRunsCommand(runtime commandRuntime, options *cliOptions) *cobra.Command 
 		Use:   "runs",
 		Short: "List GitHub Actions runs",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			applyEnv(options, runtime.Env)
+			applyEnv(options, runtime.Env, cmd.Flags().Changed)
 			return writeResult(cmd.Context(), runtime.Stdout, *options, runtime)
 		},
 	}
@@ -491,7 +507,7 @@ func newArtifactsCommand(runtime commandRuntime, options *cliOptions) *cobra.Com
 		Use:   "artifacts",
 		Short: "List or download a run's artifacts",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			applyEnv(options, runtime.Env)
+			applyEnv(options, runtime.Env, cmd.Flags().Changed)
 			options.NoTUI = true
 			return writeArtifactsResult(cmd.Context(), runtime.Stdout, *options, runtime)
 		},
@@ -508,7 +524,7 @@ func newApprovalsCommand(runtime commandRuntime, options *cliOptions) *cobra.Com
 		Use:   "approvals",
 		Short: "List or review a waiting run's deployment gates",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			applyEnv(options, runtime.Env)
+			applyEnv(options, runtime.Env, cmd.Flags().Changed)
 			options.NoTUI = true
 			return writeApprovalsResult(cmd.Context(), runtime.Stdout, *options, runtime)
 		},
@@ -682,7 +698,7 @@ func newCachesCommand(runtime commandRuntime, options *cliOptions) *cobra.Comman
 		Use:   "caches",
 		Short: "List the Actions cache kennel or dig up stale entries",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			applyEnv(options, runtime.Env)
+			applyEnv(options, runtime.Env, cmd.Flags().Changed)
 			options.NoTUI = true
 			return writeCachesResult(cmd.Context(), runtime.Stdout, *options, runtime, request)
 		},
@@ -840,7 +856,7 @@ func newWatchCommand(runtime commandRuntime, options *cliOptions) *cobra.Command
 			"(worst-outcome, same as a clean settle). The deadline bounds an " +
 			"in-flight poll too, so a hung GitHub call can't outlast it.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			applyEnv(options, runtime.Env)
+			applyEnv(options, runtime.Env, cmd.Flags().Changed)
 			// watch follows the active run whoever started it; an actor
 			// from HOUND_ACTOR is for runs listings only.
 			options.Actor, options.ActorFromEnv = "", false
@@ -1083,7 +1099,7 @@ func newDispatchCommand(runtime commandRuntime, info buildInfo, options *cliOpti
 		Use:   "dispatch",
 		Short: "Trigger a workflow_dispatch workflow",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			applyEnv(options, runtime.Env)
+			applyEnv(options, runtime.Env, cmd.Flags().Changed)
 			if options.NoTUI || options.JSON || !runtime.IsTTY {
 				// The dispatch form is interactive; a flag-driven pipe
 				// dispatch verb is planned (spec 240 conventions) but
@@ -2233,11 +2249,24 @@ func keyName(input []byte) string {
 }
 
 func defaultConfig(lookup ...func(string) (string, bool)) (config.Config, error) {
-	var env func(string) (string, bool)
-	if len(lookup) > 0 {
+	env := os.LookupEnv
+	if len(lookup) > 0 && lookup[0] != nil {
 		env = lookup[0]
 	}
-	return config.Load(config.LoadOptions{LookupEnv: env})
+	return config.Load(config.LoadOptions{Path: configPath(env), LookupEnv: env})
+}
+
+// configPath is $XDG_CONFIG_HOME/gh-hound/config.toml, else
+// ~/.config/gh-hound/config.toml (the documented path on every OS, not
+// os.UserConfigDir's). Empty when neither variable is set.
+func configPath(lookup func(string) (string, bool)) string {
+	if dir, ok := lookup("XDG_CONFIG_HOME"); ok && dir != "" {
+		return filepath.Join(dir, "gh-hound", "config.toml")
+	}
+	if home, ok := lookup("HOME"); ok && home != "" {
+		return filepath.Join(home, ".config", "gh-hound", "config.toml")
+	}
+	return ""
 }
 
 func executeCommand(cmd *cobra.Command) (int, error) {
@@ -2921,8 +2950,14 @@ func normalizedScenario(options cliOptions) string {
 	}
 }
 
-func applyEnv(options *cliOptions, lookup func(string) (string, bool)) {
-	if options.Repo == "" {
+func defaultCLIOptions() cliOptions {
+	return cliOptions{Format: render.FormatJSON, LogLevel: "info"}
+}
+
+// applyEnv layers HOUND_* variables under the flags: a variable applies
+// only when its flag was not given (changed reports an explicit flag).
+func applyEnv(options *cliOptions, lookup func(string) (string, bool), changed func(string) bool) {
+	if !changed("repo") && options.Repo == "" {
 		if value, ok := lookup("GH_REPO"); ok {
 			options.Repo = value
 		}
@@ -2930,41 +2965,43 @@ func applyEnv(options *cliOptions, lookup func(string) (string, bool)) {
 			options.Repo = value
 		}
 	}
-	if options.Branch == "" {
+	if !changed("branch") && options.Branch == "" {
 		if value, ok := lookup("HOUND_BRANCH"); ok {
 			options.Branch = value
 		}
 	}
-	if options.Status == "" {
+	if !changed("status") && options.Status == "" {
 		if value, ok := lookup("HOUND_STATUS"); ok {
 			options.Status = value
 		}
 	}
-	if options.Actor == "" {
+	if !changed("actor") && options.Actor == "" {
 		if value, ok := lookup("HOUND_ACTOR"); ok && strings.TrimSpace(value) != "" {
 			options.Actor = value
 			options.ActorFromEnv = true
 		}
 	}
-	if value, ok := lookup("HOUND_FORMAT"); ok {
+	if value, ok := lookup("HOUND_FORMAT"); ok && !changed("format") {
 		options.Format = render.Format(value)
 	}
-	if value, ok := lookup("HOUND_NO_TUI"); ok {
+	if value, ok := lookup("HOUND_NO_TUI"); ok && !changed("no-tui") {
 		options.NoTUI = parseBool(value)
 	}
-	if value, ok := lookup("HOUND_JSON"); ok {
+	// An explicit --format names the output, so HOUND_JSON yields to it
+	// as well as to --json.
+	if value, ok := lookup("HOUND_JSON"); ok && !changed("json") && !changed("format") {
 		options.JSON = parseBool(value)
 	}
-	if value, ok := lookup("HOUND_LOG_LEVEL"); ok {
+	if value, ok := lookup("HOUND_LOG_LEVEL"); ok && !changed("log-level") {
 		options.LogLevel = value
 	}
-	if value, ok := lookup("HOUND_TRACE_HTTP"); ok {
+	if value, ok := lookup("HOUND_TRACE_HTTP"); ok && !changed("trace-http") {
 		options.TraceHTTP = parseBool(value)
 	}
-	if value, ok := lookup("HOUND_ALL"); ok {
+	if value, ok := lookup("HOUND_ALL"); ok && !changed("all") {
 		options.All = parseBool(value)
 	}
-	if options.Fake == "" {
+	if !changed("fake-scenario") && options.Fake == "" {
 		if value, ok := lookup("HOUND_FAKE_SCENARIO"); ok {
 			options.Fake = value
 		}

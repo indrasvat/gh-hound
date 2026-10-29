@@ -122,6 +122,10 @@ func Load(opts LoadOptions) (Config, error) {
 		if err := loadFile(opts.Path, &cfg); err != nil {
 			return Config{}, err
 		}
+		// Checked on its own so a bad value is blamed on the file.
+		if err := cfg.Validate(); err != nil {
+			return Config{}, fmt.Errorf("config %s: %w", opts.Path, err)
+		}
 	}
 	if err := applyEnv(opts.LookupEnv, &cfg); err != nil {
 		return Config{}, err
@@ -170,11 +174,15 @@ func (c Config) Validate() error {
 
 func loadFile(path string, cfg *Config) error {
 	var fc fileConfig
-	if _, err := toml.DecodeFile(path, &fc); err != nil {
+	meta, err := toml.DecodeFile(path, &fc)
+	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
 		return fmt.Errorf("load config %s: %w", path, err)
+	}
+	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
+		return fmt.Errorf("load config %s: unknown key %q", path, undecoded[0].String())
 	}
 	if fc.DefaultScope != "" {
 		cfg.DefaultScope = Scope(fc.DefaultScope)

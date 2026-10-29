@@ -16,7 +16,7 @@ func newFlakesCommand(runtime commandRuntime, options *cliOptions) *cobra.Comman
 		Use:   "flakes",
 		Short: "Real failure or flake? Score the wobble across recent runs",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			applyEnv(options, runtime.Env)
+			applyEnv(options, runtime.Env, cmd.Flags().Changed)
 			options.NoTUI = true
 			return writeFlakesResult(cmd.Context(), runtime.Stdout, *options, runtime)
 		},
