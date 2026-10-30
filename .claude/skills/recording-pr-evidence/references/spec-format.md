@@ -10,6 +10,7 @@ example.
 | Field | Meaning |
 | --- | --- |
 | `scenario` | The `__vqa-tui --scenario` fake both builds run. |
+| `args` · `cwd` | Optional: launch the binary with these arguments in this directory instead of the fake, for what no fixture can reach (a live, read-only repo, a branch of its own). Use a fake whenever one can show the change. |
 | `ready` | Text both panes must show before the first key; it also anchors the fixture clocks. |
 | `size` | Pane size, `COLSxROWS`. `120x28` reads well stacked; use `80x24` when the change is about narrow layouts. |
 | `seconds` | Recording length in wall-clock seconds. Cover every fixture transition, plus a few seconds after the last. |

@@ -11,7 +11,7 @@ IN PROGRESS — issue #56, third of three PRs; closes it. #71 read config.toml, 
 
 ## Decisions
 
-- **The runs footer keeps filter and help at 80 columns.** It is 86 cells; an 80-column frame has 78, so it ended `/ …`. It now drops by priority like the log footer: `s scope` first (the notices that need it say `s scope` themselves), then `l log`, `w watch`, `f status`; `/ filter` and `?` never drop.
+- **The runs footer keeps filter and help at 80 columns.** It is 86 cells; an 80-column frame has 78, so it ended `/ …`. It now drops by priority like the log footer: `s scope` first (the notices that need it say `s scope` themselves), then `f status`, `w watch`, `l log`; `/ filter` and `?` never drop.
 - **A long branch no longer pushes the header's right side off.** When the context overflows, the part before its last ` · ` (the branch) is cut with `…`; the identity after it and the right side (run count, `live`) stay. A header that fits is unchanged.
 - **A notice shows in the scope it describes.** The branch-miss fallback ("… Showing all branches now.") and the detached-HEAD notice are set when the launch falls back to repo scope, but the view showed notices only in branch scope, so the fallback appeared only after `s` returned to the branch, where it was false. The launch now records each notice's scope (`NoticeScope`) and the view shows it only there: the fallback explains the all-branches list at launch and leaves with `s`; the "repo activity · s scope" hint stays a branch-scope notice.
 
@@ -21,3 +21,8 @@ IN PROGRESS — issue #56, third of three PRs; closes it. #71 read config.toml, 
 - [x] T2 Header, `TestHeaderKeepsItsRightSideBesideALongBranch` (fails on main).
 - [x] T3 Notice scope, `TestScopedNoticeShowsOnlyInItsScope` (fails with the old rule), the launch's `NoticeScope` asserted.
 - [ ] T4 Verification: `make ci`, `make vqa`, shux live at 80 columns, takshaka, Codex, cold `tui-qa`, evidence.
+
+## Found Along The Way
+
+- Codex (1 major, 5 minor, fixed with a test): the header cut kept any context's last ` · ` segment, so a scent-check header lost its workflow name; it now keeps only an identity (` · @login`), and reserves it before a long branch when a long login meets a wide right side. A `branch:` query in repo scope still showed "Showing all branches now"; a branch query hides it. From a detached local checkout, `-R` another repo carried the detached-HEAD notice; it needs the same repo. The footer's documented drop order was the reverse of the code's (equal priorities drop rightmost first): `f status`, `w watch`, `l log`. The evidence recorder's `cwd` now stops the run when the directory is gone instead of recording whatever checkout it ran in.
+- The live evidence uses a temporary worktree on a long local-only branch, read-only (`--actor @me`): no fixture can give a branch with no runs plus the fallback.

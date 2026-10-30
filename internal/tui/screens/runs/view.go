@@ -656,7 +656,8 @@ func visibleNotice(m Model) string {
 	if scope == "" {
 		scope = usecase.LaunchScopeBranch
 	}
-	if m.Context.Scope != scope {
+	// A branch: query narrows the list the notice explains.
+	if m.Context.Scope != scope || m.query().Branch != "" {
 		return ""
 	}
 	return m.Context.Notice

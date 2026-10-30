@@ -135,7 +135,7 @@ Footer text must be generated from keymap data, not copied into renderers.
 | startup | ctrl+c quit |
 | approvals overlay | j/k move · space pick · y open gate · n keep shut · c comment · ⎋ close |
 
-The toasts footer drops `r retry` when no visible toast can retry. At 80 columns the runs footer drops `s scope` first, then `l log`, `w watch` and `f status`; `/ filter` and `?` never drop.
+The toasts footer drops `r retry` when no visible toast can retry. At 80 columns the runs footer drops `s scope` first, then `f status`, `w watch` and `l log`; `/ filter` and `?` never drop.
 
 ## Breakpoints
 

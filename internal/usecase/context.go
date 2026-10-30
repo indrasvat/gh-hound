@@ -159,7 +159,7 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 	if request.All || cfg.DefaultScope == config.ScopeRepo || result.Branch == "" {
 		result.Scope = LaunchScopeRepo
 	}
-	if repoCtx.Detached && result.Branch == "" {
+	if sameRepo && repoCtx.Detached && result.Branch == "" {
 		result.Scope = LaunchScopeRepo
 		result.Notice = "detached HEAD — showing all branches"
 		result.NoticeScope = LaunchScopeRepo
@@ -341,8 +341,7 @@ func (s LaunchService) currentRepository(ctx context.Context) (RepositoryContext
 	}
 	repoCtx, err := s.Repository.Current(ctx)
 	if err != nil {
-		var repoErr ErrRepositoryContext
-		if errors.As(err, &repoErr) {
+		if repoErr, ok := errors.AsType[ErrRepositoryContext](err); ok {
 			return RepositoryContext{}, repoErr
 		}
 		return RepositoryContext{}, ErrRepositoryContext{Reason: err.Error()}

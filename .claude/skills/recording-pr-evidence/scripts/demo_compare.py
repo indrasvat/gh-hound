@@ -117,7 +117,15 @@ def record(spec, main_bin, pr_bin, out):
                 # The TUI reads its size once at start: the pane is
                 # sized while the runner sleeps, before the first paint.
                 f"unset NO_COLOR\n{background}sleep 1\n"
-                f"exec {pathlib.Path(binary).resolve()} __vqa-tui --scenario {spec['scenario']}\n"
+                # A fixture by default; "args" (and "cwd") launch the real
+                # binary instead, for what no fixture can reach (a live,
+                # read-only repo on a branch of its own).
+                # A cwd that is gone must stop the run, not record the
+                # checkout the recorder happens to run in.
+                + (f"cd {shlex.quote(spec['cwd'])} || exit 1\n" if spec.get("cwd") else "")
+                + f"exec {pathlib.Path(binary).resolve()} "
+                + (" ".join(shlex.quote(a) for a in spec["args"]) if "args" in spec else f"__vqa-tui --scenario {spec['scenario']}")
+                + "\n"
             )
             runner.chmod(0o755)
             name = f"demo-{side}-{os.getpid()}"

@@ -72,16 +72,18 @@ func renderHeader(th theme.Theme, title, context, right string, width int) strin
 }
 
 // fitContext shortens the header's context to room, so the right side
-// (counts, live) always shows: the part before the last " · " (a long
-// branch name) gives way, and what follows (the identity) stays.
+// (counts, live) shows: the context's end gives way, except an identity
+// (" · @login"), which the branch before it gives way to instead.
 func fitContext(context string, room int) string {
 	if visibleLen(context) <= room {
 		return context
 	}
-	if cut := strings.LastIndex(context, " · "); cut > 0 {
-		if tail := context[cut:]; room-visibleLen(tail) >= 4 {
-			return ansi.Truncate(context[:cut], room-visibleLen(tail), "…") + tail
+	if cut := strings.LastIndex(context, " · @"); cut > 0 {
+		head, tail := context[:cut], context[cut:]
+		if avail := room - visibleLen(tail); avail >= 2 {
+			return ansi.Truncate(head, avail, "…") + tail
 		}
+		return ansi.Truncate(strings.TrimPrefix(tail, " · "), max(room, 1), "…")
 	}
 	return ansi.Truncate(context, max(room, 1), "…")
 }

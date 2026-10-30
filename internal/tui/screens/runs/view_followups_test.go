@@ -177,3 +177,15 @@ func TestScopedNoticeShowsOnlyInItsScope(t *testing.T) {
 		t.Fatal("a branch-scope notice is missing in branch scope")
 	}
 }
+
+// A branch: query narrows the list, so "showing all branches" is no
+// longer what the screen shows.
+func TestScopedNoticeHidesUnderABranchQuery(t *testing.T) {
+	m := actorModel()
+	m.Context.Notice = "None of your runs matched branch \"fix/parser\". Showing all branches now."
+	m.Context.NoticeScope, m.Context.Scope = usecase.LaunchScopeRepo, usecase.LaunchScopeRepo
+	m.Filter = "branch:main"
+	if strings.Contains(View(m, 120, time.Now()), "Showing all branches now") {
+		t.Fatal("the fallback notice stays under a branch: query")
+	}
+}
