@@ -72,7 +72,7 @@ Source of truth: `docs/gh-hound-design.html`. Re-read the matching mock before e
 | bramble | info-tint | #141C21 |
 | bone | info-tint | #DADED7 |
 
-Bone is the light theme: it assumes a light terminal background, so Bone visual QA sets one (OSC 11) before capturing. `ok-tint` is the all-green band fill; `run-tint` a log or excerpt search hit, `run-tint-strong` the current hit, `fail-tint` a failed step's row, `info-tint` a folded repeat.
+Bone is the light theme: it assumes a light terminal background, so Bone visual QA sets one before capturing, foreground and background both (OSC 10 and 11) as a light terminal does. Without truecolor the fills come from the terminal's palette: xterm-256 indices at 256 colours, none at 16, where the cursor bar marks the selection. `ok-tint` is the all-green band fill; `run-tint` a log or excerpt search hit, `run-tint-strong` the current hit, `fail-tint` a failed step's row, `info-tint` a folded repeat.
 
 Semantic mapping: success uses `ok`; failure uses `fail`; in-progress uses `run`; queued/pending/waiting uses `info`; action-required/timed-out uses `warn`; cancelled/skipped/stale/neutral uses `neutral`.
 

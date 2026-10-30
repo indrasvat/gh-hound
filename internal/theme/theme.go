@@ -176,17 +176,51 @@ func sgr(code int, color string) string {
 	return fmt.Sprintf("\x1b[%d;2;%d;%d;%dm", code, value>>16&0xff, value>>8&0xff, value&0xff)
 }
 
-// Limited is the theme for a terminal without truecolor. Downsampled to
-// 256 colours, every dark grey below #303030 lands on the background's
-// index (232) and the Bone fills share 253, so selection, input shading
-// and bands vanish. Its fills are xterm-256 indices, sent as they are.
-func (t Theme) Limited() Theme {
+// Palette is what a terminal can show: truecolor, the xterm 256-colour
+// palette, or the 16 basic colours.
+type Palette int
+
+const (
+	PaletteTrue Palette = iota
+	Palette256
+	Palette16
+)
+
+// For is the theme to draw with on palette.
+func (t Theme) For(palette Palette) Theme {
+	switch palette {
+	case Palette256:
+		return t.limited()
+	case Palette16:
+		return t.basic()
+	}
+	return t
+}
+
+// limited is the 256-colour theme. Downsampled, every dark grey below
+// #303030 lands on the background's index (232) and the Bone fills
+// share 253, so selection, shading and bands vanish. Its fills are
+// xterm-256 indices sent as they are: Bramble's on the dark grey ramp,
+// as the cube's darkest hues (#5F) are as bright as dim text, with dim
+// and subtle text a step lighter so line numbers and timestamps stay
+// readable on every fill.
+func (t Theme) limited() Theme {
 	if t.Mode == ModeBone {
 		t.BGElev, t.Surface, t.Surface2 = "254", "253", "251"
 		t.OKTint, t.RunTint, t.RunTintStrong, t.FailTint, t.InfoTint = "194", "230", "223", "224", "195"
 		return t
 	}
-	t.BGElev, t.Surface, t.Surface2 = "234", "236", "238"
-	t.OKTint, t.RunTint, t.RunTintStrong, t.FailTint, t.InfoTint = "22", "58", "94", "52", "23"
+	t.BGElev, t.Surface, t.InfoTint, t.RunTint, t.Surface2, t.RunTintStrong = "233", "235", "234", "236", "238", "239"
+	t.OKTint, t.FailTint = "22", "52"
+	t.Dim, t.Subtle = "245", "248"
+	return t
+}
+
+// basic is the 16-colour theme: a fill would share a colour with the
+// text on it (red on red, cyan on cyan), so it draws none; the cursor
+// bar marks the selection.
+func (t Theme) basic() Theme {
+	t.BGElev, t.Surface, t.Surface2 = "", "", ""
+	t.OKTint, t.RunTint, t.RunTintStrong, t.FailTint, t.InfoTint = "", "", "", "", ""
 	return t
 }

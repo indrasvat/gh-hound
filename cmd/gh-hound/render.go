@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/colorprofile"
+	"github.com/indrasvat/gh-hound/internal/theme"
 )
 
 // Terminal control sequences the renderer speaks. The contract (pinned
@@ -124,4 +125,14 @@ func colorProfile(w io.Writer, lookup func(string) (string, bool)) colorprofile.
 
 func limitedProfile(profile colorprofile.Profile) bool {
 	return profile == colorprofile.ANSI256 || profile == colorprofile.ANSI
+}
+
+func themePalette(profile colorprofile.Profile) theme.Palette {
+	switch profile {
+	case colorprofile.ANSI256:
+		return theme.Palette256
+	case colorprofile.ANSI:
+		return theme.Palette16
+	}
+	return theme.PaletteTrue
 }

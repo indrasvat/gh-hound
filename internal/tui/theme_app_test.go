@@ -102,17 +102,19 @@ func TestThemeToggleRecoloursEveryScreen(t *testing.T) {
 	}
 }
 
-// Without truecolor the fills come from the 256 palette, and T keeps them.
-func TestLimitedColorKeepsPaletteFillsAcrossT(t *testing.T) {
+// The palette's fills follow the terminal across T.
+func TestPaletteFillsSurviveT(t *testing.T) {
 	cfg := config.Default()
 	cfg.Welcome = false
-	app := NewApp(Options{Config: cfg, LimitedColor: true})
-	if app.Theme().Surface2 != theme.ForMode(theme.ModeBramble).Limited().Surface2 {
-		t.Fatalf("limited app theme = %+v", app.Theme())
-	}
-	app, _ = app.Update(KeyMsg{Key: "T"})
-	if app.Theme().Mode != theme.ModeBone || app.Theme().Surface2 != theme.ForMode(theme.ModeBone).Limited().Surface2 {
-		t.Fatalf("T lost the limited fills: %+v", app.Theme())
+	for _, p := range []theme.Palette{theme.Palette256, theme.Palette16} {
+		app := NewApp(Options{Config: cfg, Palette: p})
+		if app.Theme() != theme.ForMode(theme.ModeBramble).For(p) {
+			t.Fatalf("palette %d: app theme = %+v", p, app.Theme())
+		}
+		app, _ = app.Update(KeyMsg{Key: "T"})
+		if app.Theme() != theme.ForMode(theme.ModeBone).For(p) {
+			t.Fatalf("palette %d: T lost the palette's fills: %+v", p, app.Theme())
+		}
 	}
 }
 

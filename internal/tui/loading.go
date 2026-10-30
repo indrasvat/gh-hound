@@ -169,9 +169,9 @@ type Startup struct {
 }
 
 // NewStartup takes the repo the launch named (-R), if any.
-func NewStartup(cfg config.Config, repo string, limitedColor bool) Startup {
+func NewStartup(cfg config.Config, repo string, palette theme.Palette) Startup {
 	return Startup{
-		theme: themeFor(theme.Mode(cfg.Theme), limitedColor),
+		theme: theme.ForMode(theme.Mode(cfg.Theme)).For(palette),
 		repo:  repo,
 		load:  &pendingLoad{label: "picking up the scent", started: time.Now()},
 	}

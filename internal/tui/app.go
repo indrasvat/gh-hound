@@ -83,9 +83,9 @@ type Options struct {
 	Config config.Config
 	// Keymap is Config.Keybindings, validated (keys.NewKeymap).
 	Keymap keys.Keymap
-	// LimitedColor is a terminal without truecolor: fills come from
-	// the xterm-256 palette (theme.Limited) so they stay visible.
-	LimitedColor   bool
+	// Palette is what the terminal can show; the theme picks its fills
+	// for it (theme.Theme.For).
+	Palette        theme.Palette
 	Build          BuildInfo
 	Launch         usecase.LaunchContext
 	DetailResolver func(context.Context, model.Run) (detail.Model, error)
@@ -144,7 +144,7 @@ type ActionRequest struct {
 type App struct {
 	config            config.Config
 	keymap            keys.Keymap
-	limitedColor      bool
+	colors            theme.Palette
 	build             BuildInfo
 	theme             theme.Theme
 	routes            []Route
@@ -560,9 +560,9 @@ func NewApp(options Options) App {
 	app := App{
 		config:                    cfg,
 		keymap:                    options.Keymap,
-		limitedColor:              options.LimitedColor,
+		colors:                    options.Palette,
 		build:                     options.Build,
-		theme:                     themeFor(theme.Mode(cfg.Theme), options.LimitedColor),
+		theme:                     theme.ForMode(theme.Mode(cfg.Theme)).For(options.Palette),
 		routes:                    []Route{route},
 		pollInterval:              initialPollInterval(cfg),
 		launchRoute:               launchRoute,
@@ -1556,18 +1556,11 @@ func (a *App) PopRoute() {
 func (a *App) toggleTheme() {
 	if a.theme.Mode == theme.ModeBramble {
 		a.config.Theme = config.ThemeBone
-		a.theme = themeFor(theme.ModeBone, a.limitedColor)
+		a.theme = theme.ForMode(theme.ModeBone).For(a.colors)
 		return
 	}
 	a.config.Theme = config.ThemeBramble
-	a.theme = themeFor(theme.ModeBramble, a.limitedColor)
-}
-
-func themeFor(mode theme.Mode, limited bool) theme.Theme {
-	if limited {
-		return theme.ForMode(mode).Limited()
-	}
-	return theme.ForMode(mode)
+	a.theme = theme.ForMode(theme.ModeBramble).For(a.colors)
 }
 
 func (a App) routeInputMode() bool {
