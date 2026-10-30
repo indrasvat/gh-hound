@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 )
 
@@ -17,31 +18,32 @@ func ViewSize(m Model, width, height int) string {
 	if width <= 0 {
 		width = 80
 	}
+	st := stylesFor(m.Theme.OrBramble())
 	lines := []string{
-		fitANSI(headline(m.Report, width), width),
-		fitANSI(summaryLine(m.Report), width),
+		fitANSI(headline(st, m.Report, width), width),
+		fitANSI(summaryLine(st, m.Report), width),
 	}
 	if len(m.Report.Groups) == 0 {
-		lines = append(lines, fitANSI(colorize(sgrDim, "  no GitHub queue evidence for this target."), width))
+		lines = append(lines, fitANSI(colorize(st.dim, "  no GitHub queue evidence for this target."), width))
 		return strings.Join(lines, "\n")
 	}
 	lines = append(lines, "")
-	lines = append(lines, fitANSI(groupsLine(m.Report.Groups), width))
+	lines = append(lines, fitANSI(groupsLine(st, m.Report.Groups), width))
 
 	rows := m.Rows()
 	if len(rows) == 0 {
-		lines = append(lines, fitANSI(colorize(sgrDim, "  group is configured, but no active members are exposed."), width))
+		lines = append(lines, fitANSI(colorize(st.dim, "  group is configured, but no active members are exposed."), width))
 		return strings.Join(lines, "\n")
 	}
 	selected := max(min(m.Selected, len(rows)-1), 0)
-	header := memberHeader(width)
+	header := memberHeader(st, width)
 	if header != "" {
 		lines = append(lines, header)
 	}
 	var details []string
 	if width >= 110 {
 		if row, ok := m.SelectedRow(); ok {
-			details = detailBlock(m.Report, row, width)
+			details = detailBlock(st, m.Report, row, width)
 		}
 	}
 	if len(details) > 0 && height > 0 {
@@ -57,10 +59,10 @@ func ViewSize(m Model, width, height int) string {
 	capacity := rowCapacity(height, fixedRows, len(rows))
 	start, end := viewport(selected, len(rows), capacity)
 	for index, row := range rows[start:end] {
-		lines = append(lines, memberRow(row, start+index == selected, width))
+		lines = append(lines, memberRow(st, row, start+index == selected, width))
 	}
 	if len(rows) > end-start {
-		lines = append(lines, fitANSI(colorize(sgrDim, fmt.Sprintf("  rows %d-%d/%d", start+1, end, len(rows))), width))
+		lines = append(lines, fitANSI(colorize(st.dim, fmt.Sprintf("  rows %d-%d/%d", start+1, end, len(rows))), width))
 	}
 	if len(details) > 0 {
 		lines = append(lines, "")
@@ -69,14 +71,14 @@ func ViewSize(m Model, width, height int) string {
 	return strings.Join(lines, "\n")
 }
 
-func headline(report model.ConcurrencyReport, width int) string {
-	glyph, color := statusGlyph(report.Status)
-	left := colorize(color, glyph+" GitHub queue") + colorize(sgrDim, " · "+string(report.Status))
-	right := colorize(sgrSubtle, targetLabel(report.Target))
+func headline(st styles, report model.ConcurrencyReport, width int) string {
+	glyph, color := statusGlyph(st, report.Status)
+	left := colorize(color, glyph+" GitHub queue") + colorize(st.dim, " · "+string(report.Status))
+	right := colorize(st.subtle, targetLabel(report.Target))
 	return joinRightANSI(left, right, width)
 }
 
-func summaryLine(report model.ConcurrencyReport) string {
+func summaryLine(st styles, report model.ConcurrencyReport) string {
 	text := strings.TrimSpace(report.Summary)
 	if text == "" {
 		text = strings.TrimSpace(report.Decision.Reason)
@@ -85,12 +87,12 @@ func summaryLine(report model.ConcurrencyReport) string {
 		text = "queue state unknown"
 	}
 	if report.Decision.Action != "" {
-		return "  " + colorize(sgrFGSoft, text) + colorize(sgrDim, " · "+string(report.Decision.Action))
+		return "  " + colorize(st.fgSoft, text) + colorize(st.dim, " · "+string(report.Decision.Action))
 	}
-	return "  " + colorize(sgrFGSoft, text)
+	return "  " + colorize(st.fgSoft, text)
 }
 
-func groupsLine(groups []model.ConcurrencyGroup) string {
+func groupsLine(st styles, groups []model.ConcurrencyGroup) string {
 	active, blockers := 0, 0
 	scopes := map[model.ConcurrencyScope]struct{}{}
 	for _, group := range groups {
@@ -108,11 +110,11 @@ func groupsLine(groups []model.ConcurrencyGroup) string {
 			scope = string(value)
 		}
 	}
-	return "  " + colorize(sgrInfo, fmt.Sprintf("%d group(s)", len(groups))) +
-		colorize(sgrDim, fmt.Sprintf(" · %s · %d active · %d blocker(s)", scope, active, blockers))
+	return "  " + colorize(st.info, fmt.Sprintf("%d group(s)", len(groups))) +
+		colorize(st.dim, fmt.Sprintf(" · %s · %d active · %d blocker(s)", scope, active, blockers))
 }
 
-func memberHeader(width int) string {
+func memberHeader(st styles, width int) string {
 	if width < 92 {
 		return ""
 	}
@@ -124,16 +126,16 @@ func memberHeader(width int) string {
 		line += padANSI("Group", 22)
 	}
 	line += "Verdict"
-	return fitANSI(colorize(sgrDim, line), width)
+	return fitANSI(colorize(st.dim, line), width)
 }
 
-func memberRow(row Row, selected bool, width int) string {
+func memberRow(st styles, row Row, selected bool, width int) string {
 	member := row.Member
 	prefix := "  "
 	if selected {
-		prefix = colorize(sgrOK, icons.Cursor) + " "
+		prefix = colorize(st.ok, icons.Cursor) + " "
 	}
-	glyph, color := memberGlyph(member)
+	glyph, color := memberGlyph(st, member)
 	run := fmt.Sprintf("#%d", member.RunID)
 	position := "-"
 	if member.Position != nil {
@@ -148,40 +150,40 @@ func memberRow(row Row, selected bool, width int) string {
 	}
 	verdict := verdictText(member)
 	if width < 92 {
-		line := prefix + colorize(color, glyph) + " " + colorize(sgrFGSoft, run) + colorize(sgrDim, " pos "+position+" · ") + colorize(sgrFG, name) + colorize(sgrDim, " · "+row.GroupName+" · "+verdict)
+		line := prefix + colorize(color, glyph) + " " + colorize(st.fgSoft, run) + colorize(st.dim, " pos "+position+" · ") + colorize(st.fg, name) + colorize(st.dim, " · "+row.GroupName+" · "+verdict)
 		return fitANSI(line, width)
 	}
 	line := prefix + colorize(color, glyph) + "  " +
-		padANSI(colorize(sgrFGSoft, run), 10) +
-		padANSI(colorize(sgrSubtle, position), 5) +
-		padANSI(colorize(sgrFG, truncate(name, 28)), 30)
+		padANSI(colorize(st.fgSoft, run), 10) +
+		padANSI(colorize(st.subtle, position), 5) +
+		padANSI(colorize(st.fg, truncate(name, 28)), 30)
 	if width >= 110 {
-		line += padANSI(colorize(sgrSubtle, truncate(row.GroupName, 20)), 22)
+		line += padANSI(colorize(st.subtle, truncate(row.GroupName, 20)), 22)
 	}
-	line += colorize(sgrDim, verdict)
+	line += colorize(st.dim, verdict)
 	return fitANSI(line, width)
 }
 
-func detailBlock(report model.ConcurrencyReport, row Row, width int) []string {
+func detailBlock(st styles, report model.ConcurrencyReport, row Row, width int) []string {
 	member := row.Member
 	lines := []string{
-		fitANSI(colorize(sgrDim, "selected"), width),
-		fitANSI("  "+colorize(sgrFGSoft, fmt.Sprintf("run %d", member.RunID))+colorize(sgrDim, " · "+string(member.Status)), width),
+		fitANSI(colorize(st.dim, "selected"), width),
+		fitANSI("  "+colorize(st.fgSoft, fmt.Sprintf("run %d", member.RunID))+colorize(st.dim, " · "+string(member.Status)), width),
 	}
 	if row.GroupName != "" {
-		lines = append(lines, fitANSI("  "+colorize(sgrFGSoft, row.GroupName)+colorize(sgrDim, " · concurrency group"), width))
+		lines = append(lines, fitANSI("  "+colorize(st.fgSoft, row.GroupName)+colorize(st.dim, " · concurrency group"), width))
 	}
 	if member.JobID != nil {
-		lines = append(lines, fitANSI("  "+colorize(sgrFGSoft, fmt.Sprintf("job %d", *member.JobID))+colorize(sgrDim, " · "+member.JobName), width))
+		lines = append(lines, fitANSI("  "+colorize(st.fgSoft, fmt.Sprintf("job %d", *member.JobID))+colorize(st.dim, " · "+member.JobName), width))
 	}
 	if member.BlocksTarget {
-		lines = append(lines, fitANSI("  "+colorize(sgrRun, "blocks target"), width))
+		lines = append(lines, fitANSI("  "+colorize(st.run, "blocks target"), width))
 	}
 	if member.Target {
-		lines = append(lines, fitANSI("  "+colorize(sgrInfo, "target item"), width))
+		lines = append(lines, fitANSI("  "+colorize(st.info, "target item"), width))
 	}
 	if len(report.Blockers) > 0 {
-		lines = append(lines, fitANSI("  "+colorize(sgrDim, fmt.Sprintf("%d item(s) ahead", len(report.Blockers))), width))
+		lines = append(lines, fitANSI("  "+colorize(st.dim, fmt.Sprintf("%d item(s) ahead", len(report.Blockers))), width))
 	}
 	return lines
 }
@@ -201,33 +203,33 @@ func targetLabel(target model.ConcurrencyTarget) string {
 	}
 }
 
-func statusGlyph(status model.ConcurrencyStatus) (string, string) {
+func statusGlyph(st styles, status model.ConcurrencyStatus) (string, string) {
 	switch status {
 	case model.ConcurrencyStatusBlocked:
-		return "◌", sgrInfo
+		return "◌", st.info
 	case model.ConcurrencyStatusNotConcurrency:
-		return icons.Success, sgrOK
+		return icons.Success, st.ok
 	case model.ConcurrencyStatusInactive, model.ConcurrencyStatusUnsupported:
-		return "◇", sgrDim
+		return "◇", st.dim
 	case model.ConcurrencyStatusError:
-		return icons.Failure, sgrFail
+		return icons.Failure, st.fail
 	default:
-		return "◇", sgrDim
+		return "◇", st.dim
 	}
 }
 
-func memberGlyph(member model.ConcurrencyMember) (string, string) {
+func memberGlyph(st styles, member model.ConcurrencyMember) (string, string) {
 	switch {
 	case member.Target && member.Status == model.StatusPending:
-		return "◌", sgrInfo
+		return "◌", st.info
 	case member.Target:
-		return "◌", sgrInfo
+		return "◌", st.info
 	case member.Status == model.StatusInProgress:
-		return icons.InProgress, sgrRun
+		return icons.InProgress, st.run
 	case member.BlocksTarget:
-		return icons.InProgress, sgrRun
+		return icons.InProgress, st.run
 	default:
-		return "◇", sgrDim
+		return "◇", st.dim
 	}
 }
 
@@ -318,14 +320,17 @@ func colorize(sgr, value string) string {
 	return sgr + value + sgrReset
 }
 
-const (
-	sgrReset  = "\x1b[0m"
-	sgrOK     = "\x1b[38;2;79;211;122m"
-	sgrFail   = "\x1b[38;2;226;86;75m"
-	sgrRun    = "\x1b[38;2;224;163;62m"
-	sgrInfo   = "\x1b[38;2;110;156;181m"
-	sgrDim    = "\x1b[38;2;107;112;96m"
-	sgrSubtle = "\x1b[38;2;150;145;128m"
-	sgrFG     = "\x1b[38;2;234;232;217m"
-	sgrFGSoft = "\x1b[38;2;207;205;187m"
-)
+// styles are the theme's tokens as SGR sequences, resolved once per
+// frame so T recolours the queue screen.
+type styles struct {
+	ok, fail, run, info, dim, subtle, fg, fgSoft string
+}
+
+func stylesFor(th theme.Theme) styles {
+	return styles{
+		ok: theme.Fg(th.OK), fail: theme.Fg(th.Fail), run: theme.Fg(th.Run), info: theme.Fg(th.Info),
+		dim: theme.Fg(th.Dim), subtle: theme.Fg(th.Subtle), fg: theme.Fg(th.FG), fgSoft: theme.Fg(th.FGSoft),
+	}
+}
+
+const sgrReset = "\x1b[0m"

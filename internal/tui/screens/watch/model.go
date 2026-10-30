@@ -5,6 +5,7 @@ import (
 
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 )
 
 type State struct {
@@ -50,6 +51,7 @@ type Model struct {
 	Follow bool
 	Debug  bool
 	Intent Intent
+	Theme  theme.Theme
 }
 
 func NewModel(state State) Model {

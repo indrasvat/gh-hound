@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/banner"
 )
 
@@ -18,12 +19,16 @@ func View(model Model, widths ...int) string {
 		height = widths[1]
 	}
 	var out strings.Builder
-	title := lipgloss.NewStyle().Foreground(lipgloss.Color("#4FD37A")).Bold(true)
-	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#CFCDBB"))
-	accent := lipgloss.NewStyle().Foreground(lipgloss.Color("#66BE8A")).Bold(true)
-	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#8C9179"))
+	th := model.Theme
+	if th.Mode == "" {
+		th = theme.ForMode(theme.ModeBramble)
+	}
+	title := lipgloss.NewStyle().Foreground(lipgloss.Color(th.OK)).Bold(true)
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color(th.FGSoft))
+	accent := lipgloss.NewStyle().Foreground(lipgloss.Color(th.Mark[1])).Bold(true)
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color(th.Subtle))
 
-	for line := range strings.SplitSeq(strings.TrimRight(banner.RenderMark(), "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimRight(banner.RenderMarkTheme(th), "\n"), "\n") {
 		out.WriteString(center(line, width))
 		out.WriteString("\n")
 	}

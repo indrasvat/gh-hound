@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 )
 
 func TestQueueViewRendersRequiredBlockedSignals(t *testing.T) {
@@ -69,7 +70,7 @@ func TestQueueViewSuppressesDetailBlockWhenWideHeightIsTight(t *testing.T) {
 }
 
 func TestQueueViewHeaderColumnsAlignWithRows(t *testing.T) {
-	header := ansi.Strip(memberHeader(120))
+	header := ansi.Strip(memberHeader(styles{}, 120))
 	for label, want := range map[string]int{
 		"Run":     5,
 		"Pos":     15,
@@ -99,6 +100,25 @@ func TestQueueViewShowsEachMemberGroup(t *testing.T) {
 	for _, want := range []string{"deploy-prod", "ci-build", "2 group(s)"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+	}
+}
+
+// TestQueueViewRecoloursFromTheme pins #56: every colour on the queue
+// screen comes from the model's theme, so Bone leaves no Bramble behind.
+func TestQueueViewRecoloursFromTheme(t *testing.T) {
+	m := NewModel(testReport(3))
+	m.Theme = theme.ForMode(theme.ModeBone)
+	bone := ViewSize(m, 120, 40)
+	bramt, bonet := theme.ForMode(theme.ModeBramble), m.Theme
+	for _, token := range []string{bonet.OK, bonet.Run, bonet.Info, bonet.Dim, bonet.Subtle, bonet.FG, bonet.FGSoft} {
+		if !strings.Contains(bone, theme.Fg(token)) {
+			t.Errorf("Bone view missing token %s", token)
+		}
+	}
+	for _, token := range []string{bramt.OK, bramt.Run, bramt.Info, bramt.Dim, bramt.Subtle, bramt.FG, bramt.FGSoft} {
+		if strings.Contains(bone, theme.Fg(token)) {
+			t.Errorf("Bone view still carries Bramble token %s", token)
 		}
 	}
 }

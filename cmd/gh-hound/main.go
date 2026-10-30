@@ -28,6 +28,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/render"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui"
 	tuibanner "github.com/indrasvat/gh-hound/internal/tui/banner"
 	"github.com/indrasvat/gh-hound/internal/tui/keys"
@@ -122,6 +123,9 @@ type cliOptions struct {
 	WatchTimeout  time.Duration
 	// perPage is config's per_page, set where a listing is built.
 	perPage int
+	// palette is the TTY's colours, read once by runTUI: the writer
+	// downsamples to it and the theme picks its fills for it.
+	palette theme.Palette
 }
 
 func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Command {
@@ -1191,6 +1195,7 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 	out := runtime.Stdout
 	if runtime.IsTTY {
 		out = tuiOutput(runtime.Stdout, runtime.Env)
+		options.palette = themePalette(colorProfile(runtime.Stdout, runtime.Env))
 		// Alt screen + hidden cursor for the app's lifetime: scrollback
 		// stays clean and the cursor never strobes during repaints.
 		if _, err := io.WriteString(out, enterAlt+hideCursor); err != nil {
@@ -1203,7 +1208,7 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 
 	renderer := newFrameRenderer(out)
 	renderer.SetSize(width, height)
-	startup := tui.NewStartup(cfg, options.Repo)
+	startup := tui.NewStartup(cfg, options.Repo, options.palette)
 	var screen interface {
 		ViewSize(width, height int) string
 	} = startup
@@ -1549,10 +1554,11 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 		Actor:   actor,
 	})
 	return tui.NewApp(tui.Options{
-		Config: cfg,
-		Keymap: keymap,
-		Build:  build,
-		Launch: launch,
+		Config:  cfg,
+		Keymap:  keymap,
+		Palette: options.palette,
+		Build:   build,
+		Launch:  launch,
 		RunsResolver: func(loadCtx context.Context, filter usecase.RunFilter) ([]model.Run, error) {
 			if filter.PerPage == 0 {
 				filter.PerPage = cfg.PerPage

@@ -2,7 +2,6 @@ package runs
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -34,7 +33,7 @@ func ViewSize(m Model, width, height int, now time.Time) string {
 }
 
 func renderRuns(m Model, width, height int, now time.Time) string {
-	st := stylesFor(m.theme())
+	st := stylesFor(m.Theme.OrBramble())
 	cols := columnsFor(width)
 	runs := m.filteredRuns()
 	selected := clampSelection(m.Selected, len(runs))
@@ -76,7 +75,7 @@ func renderRuns(m Model, width, height int, now time.Time) string {
 }
 
 func renderAllGreen(m Model, width, height int, now time.Time) string {
-	st := stylesFor(m.theme())
+	st := stylesFor(m.Theme.OrBramble())
 	summary := m.Summary()
 	runs := m.filteredRuns()
 	selected := clampSelection(m.Selected, len(runs))
@@ -743,37 +742,12 @@ type styles struct {
 
 func stylesFor(th theme.Theme) styles {
 	return styles{
-		ok: sgrHex(th.OK, false), fail: sgrHex(th.Fail, false), run: sgrHex(th.Run, false),
-		info: sgrHex(th.Info, false), warn: sgrHex(th.Warn, false), neutral: sgrHex(th.Neutral, false),
-		dim: sgrHex(th.Dim, false), subtle: sgrHex(th.Subtle, false), muted: sgrHex(th.Muted, false),
-		fgSoft: sgrHex(th.FGSoft, false), fg: sgrHex(th.FG, false),
-		surfaceBG: sgrHex(th.Surface, true), okBG: sgrHex(th.OK, true), bandBG: sgrHex(th.OKTint, true),
+		ok: theme.Fg(th.OK), fail: theme.Fg(th.Fail), run: theme.Fg(th.Run),
+		info: theme.Fg(th.Info), warn: theme.Fg(th.Warn), neutral: theme.Fg(th.Neutral),
+		dim: theme.Fg(th.Dim), subtle: theme.Fg(th.Subtle), muted: theme.Fg(th.Muted),
+		fgSoft: theme.Fg(th.FGSoft), fg: theme.Fg(th.FG),
+		surfaceBG: theme.Bg(th.Surface), okBG: theme.Bg(th.OK), bandBG: theme.Bg(th.OKTint),
 	}
-}
-
-func (m Model) theme() theme.Theme {
-	if m.Theme.Mode == "" {
-		return theme.ForMode(theme.ModeBramble)
-	}
-	return m.Theme
-}
-
-// sgrHex turns a #RRGGBB token into a truecolor SGR; the TTY writer
-// downsamples it on terminals without truecolor.
-func sgrHex(color string, background bool) string {
-	color = strings.TrimPrefix(color, "#")
-	if len(color) != 6 {
-		return ""
-	}
-	value, err := strconv.ParseUint(color, 16, 32)
-	if err != nil {
-		return ""
-	}
-	code := 38
-	if background {
-		code = 48
-	}
-	return fmt.Sprintf("\x1b[%d;2;%d;%d;%dm", code, value>>16&0xff, value>>8&0xff, value&0xff)
 }
 
 const (

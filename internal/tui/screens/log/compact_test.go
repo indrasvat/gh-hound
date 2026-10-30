@@ -187,12 +187,12 @@ func TestRepeatRowKeepsCountWhenNarrow(t *testing.T) {
 
 func TestRepeatRowKeepsWarningAndCountFirst(t *testing.T) {
 	title := "×1,234 2-line block · 10:00 → 11:59 · region us-east-1a → us-west-2b (40 values) · 12 changing ids · ⚠ 18 error-like inside"
-	row := plain(renderRepeat(42, 3, title, 1234, true, 80))
+	row := plain(renderRepeat(bramble, 42, 3, title, 1234, true, 80))
 	if !strings.Contains(row, "⚠ 18 error-like") || !strings.HasSuffix(strings.TrimRight(row, " "), "1,234 lines hidden") {
 		t.Fatalf("80 cols must keep the warning and count: %q", row)
 	}
 	for _, width := range []int{40, 30, 24} {
-		row := plain(renderRepeat(42, 3, title, 1234, true, width))
+		row := plain(renderRepeat(bramble, 42, 3, title, 1234, true, width))
 		if w := ansi.StringWidth(row); w > width {
 			t.Fatalf("width %d: row is %d wide: %q", width, w, row)
 		}
@@ -593,7 +593,7 @@ func TestWrappedContinuationKeepsFailColour(t *testing.T) {
 	doc := logs.Parse("--- FAIL: " + strings.Repeat("TestVeryLongName ", 10))
 	m := NewModel(doc, 1, 6).Update(KeyMsg{Key: "w"})
 	lines := strings.Split(View(m, 40), "\n")
-	if len(lines) < 3 || !strings.Contains(lines[2], sgrFail) {
+	if len(lines) < 3 || !strings.Contains(lines[2], bramble.fail) {
 		t.Fatalf("continuation row lost the fail colour: %q", lines)
 	}
 }

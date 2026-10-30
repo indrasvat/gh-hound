@@ -3,6 +3,7 @@ package failure
 import (
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -58,6 +59,7 @@ type Model struct {
 	// Height is the body height the view draws into (0: unbounded), so
 	// keys only reach what is drawn.
 	Height int
+	Theme  theme.Theme
 }
 
 func NewModel(repo string, runID int64, report usecase.FailureReport) Model {

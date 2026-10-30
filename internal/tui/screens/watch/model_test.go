@@ -9,7 +9,69 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 )
+
+// Bone recolours the streaming watch and the pack board, the fold band
+// included, and leaves no Bramble colour behind; switching Theme back
+// recolours again.
+func TestBoneRecoloursTheWatchAndBoard(t *testing.T) {
+	bone := theme.ForMode(theme.ModeBone)
+	now := time.Date(2026, 6, 11, 10, 5, 0, 0, time.UTC)
+	m := NewModel(State{
+		Branch: "main",
+		Run:    model.Run{ID: 570, Name: "CI", RunNumber: 570, Status: model.StatusInProgress},
+		Jobs: []model.Job{{Name: "build", Status: model.StatusInProgress, Steps: []model.Step{
+			{Number: 2, Name: "Run tests", Status: model.StatusInProgress, StartedAt: now.Add(-time.Minute)},
+		}}},
+		Lines: logs.Parse("17:43:02Z go test ./...\nok internal/api 0.2s\n--- PASS: TestX (0.00s)").Lines,
+		Now:   now,
+	})
+	m.Theme = bone
+	started := now.Add(-2 * time.Minute)
+	runs := []model.Run{
+		{ID: 1, Name: "CI", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, RunStartedAt: started},
+		{ID: 2, Name: "Docs", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure, RunStartedAt: started},
+		{ID: 3, Name: "Release", Status: model.StatusInProgress, RunStartedAt: started},
+	}
+	b := NewBoard("indrasvat/gh-hound", "main", runs[2], runs)
+	b.Theme = bone
+	view := ViewSize(m, 100, 0) + "\n" + BoardViewSize(b, 100, 0, now)
+	for _, want := range []string{
+		theme.Fg(bone.OK), theme.Fg(bone.Fail), theme.Fg(bone.Run), theme.Fg(bone.Info), theme.Fg(bone.Dim),
+		theme.Fg(bone.FG), theme.Fg(bone.FGSoft), theme.Fg(bone.Line2), theme.Bg(bone.Surface),
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("bone watch is missing %q", want)
+		}
+	}
+	for _, c := range []string{"\x1b[38;2;", "\x1b[48;2;"} {
+		for _, seq := range strings.Split(view, c)[1:] {
+			if sgr := c + seq[:strings.IndexByte(seq, 'm')+1]; isBrambleOnly(sgr) {
+				t.Fatalf("bone watch still carries Bramble colour %q", sgr)
+			}
+		}
+	}
+	m.Theme, b.Theme = theme.ForMode(theme.ModeBramble), theme.ForMode(theme.ModeBramble)
+	again := ViewSize(m, 100, 0) + "\n" + BoardViewSize(b, 100, 0, now)
+	if again == view || !strings.Contains(again, "\x1b[48;2;27;29;23m") || !strings.Contains(again, "\x1b[38;2;226;86;75m") {
+		t.Fatalf("switching Theme back to Bramble did not recolour the watch")
+	}
+}
+
+// isBrambleOnly reports an SGR that is a Bramble token and no Bone one.
+func isBrambleOnly(sgr string) bool {
+	has := func(th theme.Theme) bool {
+		for _, c := range []string{th.BG, th.Surface, th.Surface2, th.Line, th.Line2, th.Dim, th.Subtle, th.Muted, th.FGSoft, th.FG,
+			th.OK, th.Fail, th.Run, th.Info, th.Warn, th.RunTint, th.RunTintStrong, th.FailTint, th.InfoTint} {
+			if sgr == theme.Fg(c) || sgr == theme.Bg(c) {
+				return true
+			}
+		}
+		return false
+	}
+	return has(theme.ForMode(theme.ModeBramble)) && !has(theme.ForMode(theme.ModeBone))
+}
 
 func TestModelFollowCancelDebugAndDetach(t *testing.T) {
 	m := NewModel(State{

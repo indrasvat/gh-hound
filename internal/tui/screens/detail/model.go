@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 )
 
 type Focus string
@@ -104,6 +105,9 @@ type Model struct {
 	// Now is the clock a running job or step's elapsed time reads
 	// against; zero means the wall clock.
 	Now time.Time
+
+	// Theme colours the screen; the zero value renders Bramble.
+	Theme theme.Theme
 }
 
 func (m Model) clock() time.Time {

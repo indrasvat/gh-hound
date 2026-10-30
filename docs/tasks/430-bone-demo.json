@@ -1,0 +1,205 @@
+{
+  "scenario": "failing",
+  "ready": "CI",
+  "size": "120x28",
+  "seconds": 44,
+  "fps": 5,
+  "playback_fps": 7.5,
+  "env": {
+    "HOUND_THEME": "bone"
+  },
+  "background": "#EFEDE1",
+  "panes": {
+    "main": "main 9084805 · Bone, light terminal",
+    "pr": "this PR · Bone, light terminal"
+  },
+  "timeline": [
+    {
+      "frame": 0,
+      "caption": "HOUND_THEME=bone on a light terminal · the runs list"
+    },
+    {
+      "frame": 15,
+      "keys": {
+        "both": ":"
+      },
+      "caption": ": · the palette"
+    },
+    {
+      "frame": 30,
+      "keys": {
+        "both": "esc"
+      },
+      "caption": "⎋"
+    },
+    {
+      "frame": 38,
+      "keys": {
+        "both": "enter"
+      },
+      "caption": "⏎ · detail: main keeps Bramble's dark rows"
+    },
+    {
+      "frame": 60,
+      "keys": {
+        "both": "enter"
+      },
+      "caption": "⏎ · the failure excerpt"
+    },
+    {
+      "frame": 85,
+      "keys": {
+        "both": "l"
+      },
+      "caption": "l · the full log: folds and search tints"
+    },
+    {
+      "frame": 100,
+      "keys": {
+        "both": "/"
+      }
+    },
+    {
+      "frame": 104,
+      "keys": {
+        "both": "t"
+      }
+    },
+    {
+      "frame": 108,
+      "keys": {
+        "both": "r"
+      }
+    },
+    {
+      "frame": 112,
+      "keys": {
+        "both": "a"
+      }
+    },
+    {
+      "frame": 116,
+      "keys": {
+        "both": "i"
+      }
+    },
+    {
+      "frame": 120,
+      "keys": {
+        "both": "l"
+      }
+    },
+    {
+      "frame": 126,
+      "keys": {
+        "both": "enter"
+      },
+      "caption": "/trail · Bone's tints on the PR, Bramble's on main"
+    },
+    {
+      "frame": 175,
+      "keys": {
+        "both": "T"
+      },
+      "caption": "T · back to Bramble"
+    },
+    {
+      "frame": 200,
+      "keys": {
+        "both": "T"
+      },
+      "caption": "T · Bone again"
+    }
+  ],
+  "rules": [
+    {
+      "frames": [
+        17,
+        29
+      ],
+      "side": "main",
+      "match": "▌runs · workflow runs",
+      "to_row_end": true,
+      "tone": "bad",
+      "label": "no selection fill"
+    },
+    {
+      "frames": [
+        17,
+        29
+      ],
+      "side": "pr",
+      "match": "▌runs · workflow runs",
+      "to_row_end": true,
+      "tone": "good",
+      "label": "selection fill"
+    },
+    {
+      "frames": [
+        42,
+        59
+      ],
+      "side": "main",
+      "match": "6  go test",
+      "to_row_end": true,
+      "tone": "bad",
+      "label": "Bramble's dark failed row"
+    },
+    {
+      "frames": [
+        42,
+        59
+      ],
+      "side": "pr",
+      "match": "6  go test",
+      "to_row_end": true,
+      "tone": "good",
+      "label": "Bone's failed-step tint"
+    },
+    {
+      "frames": [
+        130,
+        174
+      ],
+      "side": "main",
+      "match": "^│?005 ",
+      "to_row_end": true,
+      "tone": "bad",
+      "label": "Bramble hit tint"
+    },
+    {
+      "frames": [
+        130,
+        174
+      ],
+      "side": "pr",
+      "match": "^│?005 ",
+      "to_row_end": true,
+      "tone": "good",
+      "label": "Bone hit tint"
+    },
+    {
+      "frames": [
+        90,
+        174
+      ],
+      "side": "main",
+      "match": "^│?002 ",
+      "to_row_end": true,
+      "tone": "bad",
+      "label": "Bramble fold band"
+    },
+    {
+      "frames": [
+        90,
+        174
+      ],
+      "side": "pr",
+      "match": "^│?002 ",
+      "to_row_end": true,
+      "tone": "good",
+      "label": "Bone fold band"
+    }
+  ],
+  "foreground": "#23241C"
+}

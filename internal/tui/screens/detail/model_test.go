@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 )
 
 func TestModelPreselectsFailureFocusAndIntents(t *testing.T) {
@@ -343,7 +344,7 @@ func TestArtifactsBlockLinesMatchesRenderedBlock(t *testing.T) {
 				if downloaded {
 					probe = m.WithDownload(artifacts[selected].ID, DownloadStatus{State: DownloadStateDone, Path: "/tmp/x"})
 				}
-				rendered := len(renderArtifactsBlock(probe, 80))
+				rendered := len(renderArtifactsBlock(probe, stylesFor(probe.Theme.OrBramble()), 80))
 				budget := artifactsBlockLines(probe)
 				if rendered != budget {
 					t.Fatalf("count=%d selected=%d downloaded=%v: rendered %d lines, budget %d", count, selected, downloaded, rendered, budget)
@@ -522,5 +523,34 @@ func TestRunningStepBetweenStepsAndWhenStepsAppear(t *testing.T) {
 	m = m.WithJobs([]model.Job{lint, {ID: 2, Name: "build", Status: model.StatusInProgress, Steps: steps}})
 	if m.SelectedStep != 20 {
 		t.Fatalf("steps appeared: step %d, want it to follow to 20", m.SelectedStep)
+	}
+}
+
+// T must recolour every detail surface — panes, rows, tints, the gate
+// and artifacts blocks — with no Bramble colour left behind.
+func TestThemeRecoloursDetailSurfaces(t *testing.T) {
+	waiting := run()
+	waiting.Status = model.StatusWaiting
+	m := NewModel(waiting, jobs()).WithRepo("indrasvat/gh-hound").WithArtifacts(artifactFixtures())
+	m.PendingDeployments = []model.PendingDeployment{
+		{EnvironmentName: "production", CurrentUserCanApprove: true},
+		{EnvironmentName: "staging", Reviewers: []model.DeploymentReviewer{{Name: "ops"}}},
+	}
+	bramble, bone := theme.ForMode(theme.ModeBramble), theme.ForMode(theme.ModeBone)
+	m.Theme = bone
+	view := View(m, 120)
+	for _, sgr := range []string{
+		theme.Fg(bone.OK), theme.Fg(bone.Fail), theme.Fg(bone.Info), theme.Fg(bone.Warn),
+		theme.Fg(bone.Dim), theme.Fg(bone.Subtle), theme.Fg(bone.FG), theme.Fg(bone.FGSoft),
+		theme.Fg(bone.Line), theme.Bg(bone.Surface2), theme.Bg(bone.FailTint),
+	} {
+		if !strings.Contains(view, sgr) {
+			t.Fatalf("Bone token %q missing from the detail view:\n%s", sgr, view)
+		}
+	}
+	for _, token := range []string{bramble.OK, bramble.Fail, bramble.Run, bramble.Info, bramble.Warn, bramble.Dim, bramble.Subtle, bramble.FG, bramble.FGSoft, bramble.Line, bramble.Surface2, bramble.FailTint} {
+		if strings.Contains(view, theme.Fg(token)) || strings.Contains(view, theme.Bg(token)) {
+			t.Fatalf("Bramble colour %s leaked into the Bone detail view:\n%s", token, view)
+		}
 	}
 }

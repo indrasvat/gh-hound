@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 )
 
 func fixtureWorkflows() []model.Workflow {
@@ -157,6 +158,26 @@ func TestViewFitsNarrowWidths(t *testing.T) {
 			if got := ansi.StringWidth(line); got > width {
 				t.Fatalf("width %d: line overflows (%d): %q", width, got, ansi.Strip(line))
 			}
+		}
+	}
+}
+
+// TestViewRecoloursFromTheme pins #56: every colour on the workflows
+// screen, the lipgloss dim lines included, comes from the model's theme.
+func TestViewRecoloursFromTheme(t *testing.T) {
+	m := NewModel("indrasvat/gh-hound", fixtureWorkflows())
+	m.Selected = 1
+	m.Theme = theme.ForMode(theme.ModeBone)
+	bone := View(m, 100)
+	bramt, bonet := theme.ForMode(theme.ModeBramble), m.Theme
+	for _, token := range []string{bonet.OK, bonet.Fail, bonet.Run, bonet.Warn, bonet.Neutral, bonet.Subtle, bonet.FGSoft} {
+		if !strings.Contains(bone, theme.Fg(token)) {
+			t.Errorf("Bone view missing token %s", token)
+		}
+	}
+	for _, token := range []string{bramt.OK, bramt.Fail, bramt.Run, bramt.Warn, bramt.Neutral, bramt.Subtle, bramt.FGSoft} {
+		if strings.Contains(bone, theme.Fg(token)) {
+			t.Errorf("Bone view still carries Bramble token %s", token)
 		}
 	}
 }

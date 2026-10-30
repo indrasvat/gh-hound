@@ -785,6 +785,35 @@ palette); every config error starts "config <path>:". Sweep 80x24+120x40:
 82/82 non-help PNGs identical to main. P3: `__vqa-tui --config-home` with a
 RELATIVE dir silently reads no config (absolute only) — use absolute paths.
 
+Round 32 (task 430 theme tokens, 05f0ea6, 2026-10-29): FAIL.
+Bramble truecolor: 29/29 static cases x 3 sizes PNG-identical to main
+except palette (new surface-2 fill, green bar) and queue (grey); welcome
+identical. Bone (tc+256): every screen recolours on T, welcome follows
+config theme and T; T T round-trips byte-identical (tc and 256). OPEN P2:
+256-colour Bramble tints (58 hit, 94 current, 23 fold) are mid-luminance:
+dim timestamps/line numbers on them are illegible (a /2026 search hit is
+unreadable, it sits in the dim timestamp). OPEN P2: 16 colours (TERM=xterm)
+the Limited fills collapse onto text colours: selected run row loses
+"· fix parser"/age (dim->8 on 8), failed step row red-on-red, fold label
+cyan-on-cyan; main showed all three. NOT A DEFECT: T ignored while
+help/approvals overlay is open (same on main). PRE-EXISTING: Bone faint
+"rows 1-1/1" and footer "·" near-invisible; Bone 256 text downsamples olive.
+
+Round 33 (task 430 round 2, 0be06b7, 2026-10-29): FAIL. VERIFIED FIXED:
+256 Bramble tints on grey ramp, dim/subtle 245/248 -> timestamps, "lines
+hidden", failure 006 readable; 16-colour fills dropped -> selected row text,
+failed step, fold label all visible, cursor bar marks selection. Bramble
+truecolor still identical to main (29 cases x 3 sizes). OPEN P2 (new): at 16
+colours the runs `/` filter cursor `okBG+" "+surfaceBG` (runs/view.go
+inputLine) leaks green to row end because Surface is "" -> no bg reset; both
+themes, every width, empty draft too. P3: 256 hit (236) vs group header
+(235) one step apart; Bone Fail #C24033 downsamples to grey at 16 colours.
+
+Round 34 (task 430 round 3, a0ed3a3, 2026-10-29): PASS. theme.Bg("")
+now emits ESC[49m: 16-colour runs filter cursor is one cell (both themes,
+80x24/120x40, empty and typed draft). Everything else PNG-identical to round
+2 bar timers and a 21-px antialias delta on the 16-colour current-hit row.
+
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.
 **How to apply:** read before every gh-hound audit; update entries when a

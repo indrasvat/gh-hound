@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 )
 
@@ -29,11 +30,12 @@ func ViewSize(m Model, width, height int) string {
 		fixed := len(head) + 4 + artifactsBlockLines(m) + gateBlockLines(m)
 		stepsBudget = max(height-fixed, 3)
 	}
+	st := stylesFor(m.Theme.OrBramble())
 	lines := head
 	if width < 100 {
-		lines = append(lines, renderStepsPane(m, width, stepsBudget, true)...)
+		lines = append(lines, renderStepsPane(m, st, width, stepsBudget, true)...)
 	} else {
-		lines = append(lines, renderWide(m, width, stepsBudget)...)
+		lines = append(lines, renderWide(m, st, width, stepsBudget)...)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -61,11 +63,11 @@ func artifactsBlockLines(m Model) int {
 	return lines
 }
 
-func renderWide(m Model, width, stepsBudget int) []string {
+func renderWide(m Model, st styles, width, stepsBudget int) []string {
 	leftWidth := clampInt(width/3, 30, 38)
 	rightWidth := width - leftWidth - 1
-	jobs := renderJobsPane(m, leftWidth)
-	steps := renderStepsPane(m, rightWidth, stepsBudget, false)
+	jobs := renderJobsPane(m, st, leftWidth)
+	steps := renderStepsPane(m, st, rightWidth, stepsBudget, false)
 	height := max(len(jobs), len(steps))
 	lines := make([]string, 0, height)
 	for i := range height {
@@ -76,34 +78,34 @@ func renderWide(m Model, width, stepsBudget int) []string {
 		if i < len(steps) {
 			right = steps[i]
 		}
-		sep := colorize(sgrLine, "│")
+		sep := colorize(st.line, "│")
 		lines = append(lines, fitANSI(padANSI(left, leftWidth)+sep+right, width))
 	}
 	return lines
 }
 
-func renderJobsPane(m Model, width int) []string {
+func renderJobsPane(m Model, st styles, width int) []string {
 	lines := []string{
-		paneHeader("Jobs", "", width, m.Focus == FocusJobs),
-		divider(width),
+		paneHeader(st, "Jobs", "", width, m.Focus == FocusJobs),
+		divider(st, width),
 	}
 	if len(m.Jobs) == 0 {
 		if m.Loading {
 			line := m.LoadingLine
 			if line == "" {
-				line = colorize(sgrDim, "  fetching jobs…")
+				line = colorize(st.dim, "  fetching jobs…")
 			}
 			return append(lines, fitANSI(line, width))
 		}
-		return append(lines, fitANSI(colorize(sgrDim, "No jobs returned by GitHub"), width))
+		return append(lines, fitANSI(colorize(st.dim, "No jobs returned by GitHub"), width))
 	}
 	for i, job := range m.Jobs {
-		lines = append(lines, jobRow(job, i == m.SelectedJob, width, m.clock()))
+		lines = append(lines, jobRow(st, job, i == m.SelectedJob, width, m.clock()))
 	}
 	return lines
 }
 
-func renderStepsPane(m Model, width, stepsBudget int, standalone bool) []string {
+func renderStepsPane(m Model, st styles, width, stepsBudget int, standalone bool) []string {
 	job := m.selectedJob()
 	if len(m.Jobs) == 0 {
 		hint := "Select a job after GitHub returns job data"
@@ -113,42 +115,42 @@ func renderStepsPane(m Model, width, stepsBudget int, standalone bool) []string 
 			// the jobs pane that normally hosts it is not rendered.
 			if standalone && m.LoadingLine != "" {
 				return []string{
-					paneHeader("Steps", "", width, m.Focus == FocusSteps),
-					divider(width),
+					paneHeader(st, "Steps", "", width, m.Focus == FocusSteps),
+					divider(st, width),
 					fitANSI(m.LoadingLine, width),
 				}
 			}
 			hint = "the hound is on its way back…"
 		}
 		return append([]string{
-			paneHeader("Steps", "", width, m.Focus == FocusSteps),
-			divider(width),
-			fitANSI(colorize(sgrDim, hint), width),
-		}, renderGateBlock(m, width)...)
+			paneHeader(st, "Steps", "", width, m.Focus == FocusSteps),
+			divider(st, width),
+			fitANSI(colorize(st.dim, hint), width),
+		}, renderGateBlock(m, st, width)...)
 	}
-	header := stepHeader(job)
+	header := stepHeader(st, job)
 	lines := []string{
-		paneHeader(header, duration(job.Status, job.StartedAt, job.CompletedAt, m.clock()), width, m.Focus == FocusSteps),
-		divider(width),
+		paneHeader(st, header, duration(job.Status, job.StartedAt, job.CompletedAt, m.clock()), width, m.Focus == FocusSteps),
+		divider(st, width),
 	}
 	start, end := stepWindow(len(job.Steps), m.SelectedStep, stepsBudget)
 	if start > 0 {
-		lines = append(lines, fitANSI("    "+colorize(sgrDim, fmt.Sprintf("+%d more above", start)), width))
+		lines = append(lines, fitANSI("    "+colorize(st.dim, fmt.Sprintf("+%d more above", start)), width))
 	}
 	for i := start; i < end; i++ {
-		lines = append(lines, stepRow(job.Steps[i], i == m.SelectedStep, width, m.clock()))
+		lines = append(lines, stepRow(st, job.Steps[i], i == m.SelectedStep, width, m.clock()))
 	}
 	if remaining := len(job.Steps) - end; remaining > 0 {
-		lines = append(lines, fitANSI("    "+colorize(sgrDim, fmt.Sprintf("+%d more", remaining)), width))
+		lines = append(lines, fitANSI("    "+colorize(st.dim, fmt.Sprintf("+%d more", remaining)), width))
 	}
 	if len(job.Steps) == 0 && job.Status != model.StatusCompleted {
 		// GitHub lists a job's steps once a runner picks it up.
-		lines = append(lines, fitANSI("  "+colorize(sgrDim, "waiting for a runner · steps appear once it starts"), width))
+		lines = append(lines, fitANSI("  "+colorize(st.dim, "waiting for a runner · steps appear once it starts"), width))
 	}
-	lines = append(lines, renderGateBlock(m, width)...)
-	lines = append(lines, renderArtifactsBlock(m, width)...)
-	lines = append(lines, divider(width))
-	lines = append(lines, hintLine(m, width))
+	lines = append(lines, renderGateBlock(m, st, width)...)
+	lines = append(lines, renderArtifactsBlock(m, st, width)...)
+	lines = append(lines, divider(st, width))
+	lines = append(lines, hintLine(m, st, width))
 	return lines
 }
 
@@ -166,36 +168,36 @@ func showGateBlock(m Model) bool {
 // renderGateBlock is the pending-environments panel for a waiting run:
 // each gate, its reviewers, the wait timer, and whether this user can
 // open it.
-func renderGateBlock(m Model, width int) []string {
+func renderGateBlock(m Model, st styles, width int) []string {
 	if !showGateBlock(m) {
 		return nil
 	}
 	lines := []string{
-		divider(width),
-		paneHeader(fmt.Sprintf("Deploy gate (%d)", len(m.PendingDeployments)), "A review", width, false),
+		divider(st, width),
+		paneHeader(st, fmt.Sprintf("Deploy gate (%d)", len(m.PendingDeployments)), "A review", width, false),
 	}
 	for _, gate := range m.PendingDeployments {
-		lines = append(lines, gateRow(gate, width))
+		lines = append(lines, gateRow(st, gate, width))
 	}
 	return lines
 }
 
-func gateRow(gate model.PendingDeployment, width int) string {
-	state := colorize(sgrOK, "you can open this gate")
-	iconColor := sgrInfo
+func gateRow(st styles, gate model.PendingDeployment, width int) string {
+	state := colorize(st.ok, "you can open this gate")
+	iconColor := st.info
 	if !gate.CurrentUserCanApprove {
-		state = colorize(sgrWarn, "not yours to open")
-		iconColor = sgrDim
+		state = colorize(st.warn, "not yours to open")
+		iconColor = st.dim
 	}
-	left := "  " + colorize(iconColor, icons.Gate) + " " + colorize(sgrFGSoft, gate.EnvironmentName) + " " + state
+	left := "  " + colorize(iconColor, icons.Gate) + " " + colorize(st.fgSoft, gate.EnvironmentName) + " " + state
 	if gate.WaitTimer > 0 {
-		left += colorize(sgrDim, fmt.Sprintf(" · wait %dm", gate.WaitTimer/60))
+		left += colorize(st.dim, fmt.Sprintf(" · wait %dm", gate.WaitTimer/60))
 	}
 	reviewers := make([]string, 0, len(gate.Reviewers))
 	for _, reviewer := range gate.Reviewers {
 		reviewers = append(reviewers, reviewer.Name)
 	}
-	right := colorize(sgrDim, strings.Join(reviewers, ", "))
+	right := colorize(st.dim, strings.Join(reviewers, ", "))
 	return joinRightANSI(left, right, width)
 }
 
@@ -215,7 +217,7 @@ func stepWindow(total, selected, budget int) (int, int) {
 
 const artifactsWindow = 5
 
-func renderArtifactsBlock(m Model, width int) []string {
+func renderArtifactsBlock(m Model, st styles, width int) []string {
 	if len(m.Artifacts) == 0 {
 		return nil
 	}
@@ -224,8 +226,8 @@ func renderArtifactsBlock(m Model, width int) []string {
 		header = fmt.Sprintf("Artifacts (%d · %d %s)", len(m.Artifacts), done, icons.Success)
 	}
 	lines := []string{
-		divider(width),
-		paneHeader(header, "", width, m.Focus == FocusArtifacts),
+		divider(st, width),
+		paneHeader(st, header, "", width, m.Focus == FocusArtifacts),
 	}
 	start := 0
 	if m.SelectedArtifact >= artifactsWindow {
@@ -235,15 +237,15 @@ func renderArtifactsBlock(m Model, width int) []string {
 	for i := start; i < end; i++ {
 		artifact := m.Artifacts[i]
 		selected := i == m.SelectedArtifact && m.Focus == FocusArtifacts
-		lines = append(lines, artifactRow(artifact, m.Download(artifact.ID), selected, m.SpinnerFrame, width))
+		lines = append(lines, artifactRow(st, artifact, m.Download(artifact.ID), selected, m.SpinnerFrame, width))
 		if selected {
-			if subline, ok := artifactPathSubline(m.Download(artifact.ID), width); ok {
+			if subline, ok := artifactPathSubline(st, m.Download(artifact.ID), width); ok {
 				lines = append(lines, subline)
 			}
 		}
 	}
 	if remaining := len(m.Artifacts) - end; remaining > 0 {
-		lines = append(lines, fitANSI("    "+colorize(sgrDim, fmt.Sprintf("+%d more", remaining)), width))
+		lines = append(lines, fitANSI("    "+colorize(st.dim, fmt.Sprintf("+%d more", remaining)), width))
 	}
 	return lines
 }
@@ -251,55 +253,55 @@ func renderArtifactsBlock(m Model, width int) []string {
 // artifactRow annotates the right edge with the download lifecycle:
 // live byte count while transferring, extraction marker, done/failed
 // verdicts — and the plain size when nothing ever started.
-func artifactRow(artifact model.Artifact, status DownloadStatus, selected bool, frame int, width int) string {
+func artifactRow(st styles, artifact model.Artifact, status DownloadStatus, selected bool, frame int, width int) string {
 	bar := " "
 	if selected {
-		bar = colorize(sgrOK, icons.Cursor)
+		bar = colorize(st.ok, icons.Cursor)
 	}
-	nameColor := sgrFGSoft
-	iconColor := sgrInfo
+	nameColor := st.fgSoft
+	iconColor := st.info
 	if artifact.Expired {
-		nameColor = sgrDim
-		iconColor = sgrDim
+		nameColor = st.dim
+		iconColor = st.dim
 	}
 	leftWidth := max(width-22, 1)
 	left := fitANSI(bar+" "+colorize(iconColor, icons.Artifact)+" "+colorize(nameColor, artifact.Name), leftWidth)
 	var right string
 	switch status.State {
 	case DownloadStateDownloading:
-		right = colorize(sgrInfo, spinnerGlyph(frame)+" ↓ "+humanSize(status.Bytes)+"…")
+		right = colorize(st.info, spinnerGlyph(frame)+" ↓ "+humanSize(status.Bytes)+"…")
 	case DownloadStateExtracting:
-		right = colorize(sgrInfo, spinnerGlyph(frame)+" extracting…")
+		right = colorize(st.info, spinnerGlyph(frame)+" extracting…")
 	case DownloadStateDone:
 		files := "files"
 		if status.FileCount == 1 {
 			files = "file"
 		}
-		right = colorize(sgrOK, icons.Success) + " " + colorize(sgrDim, fmt.Sprintf("%d %s", status.FileCount, files))
+		right = colorize(st.ok, icons.Success) + " " + colorize(st.dim, fmt.Sprintf("%d %s", status.FileCount, files))
 	case DownloadStateFailed:
-		right = colorize(sgrFail, icons.Failure+" failed")
+		right = colorize(st.fail, icons.Failure+" failed")
 	default:
-		right = colorize(sgrDim, humanSize(artifact.SizeInBytes))
+		right = colorize(st.dim, humanSize(artifact.SizeInBytes))
 	}
 	if artifact.Expired {
-		right = colorize(sgrWarn, "[expired]") + " " + colorize(sgrDim, humanSize(artifact.SizeInBytes))
+		right = colorize(st.warn, "[expired]") + " " + colorize(st.dim, humanSize(artifact.SizeInBytes))
 	}
 	row := joinRightANSI(left, right, width)
 	if selected {
-		return backgroundSafe(row, width, sgrFG, sgrSurface2BG)
+		return backgroundSafe(row, width, st.fg, st.surface2BG)
 	}
 	return row
 }
 
 // artifactPathSubline shows where the selected artifact landed and the
 // keys that act on it — the discoverability anchor for o/y.
-func artifactPathSubline(status DownloadStatus, width int) (string, bool) {
+func artifactPathSubline(st styles, status DownloadStatus, width int) (string, bool) {
 	if status.State != DownloadStateDone || status.Path == "" {
 		return "", false
 	}
-	line := "    " + colorize(sgrDim, "↳ "+status.Path) + "  " +
-		colorize(sgrInfo, "o") + colorize(sgrDim, " open · ") +
-		colorize(sgrInfo, "y") + colorize(sgrDim, " copy path")
+	line := "    " + colorize(st.dim, "↳ "+status.Path) + "  " +
+		colorize(st.info, "o") + colorize(st.dim, " open · ") +
+		colorize(st.info, "y") + colorize(st.dim, " copy path")
 	return fitANSI(line, width), true
 }
 
@@ -325,108 +327,108 @@ func humanSize(bytes int64) string {
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
-func paneHeader(left, right string, width int, focused bool) string {
+func paneHeader(st styles, left, right string, width int, focused bool) string {
 	prefix := ""
 	if focused {
-		prefix = colorize(sgrOK, "●") + " "
+		prefix = colorize(st.ok, "●") + " "
 	}
 	if !strings.Contains(left, "\x1b[") {
-		left = colorize(sgrDim, left)
+		left = colorize(st.dim, left)
 	}
 	left = prefix + left
 	if right == "" {
 		return fitANSI(left, width)
 	}
-	return joinRightANSI(left, colorize(sgrSubtle, right), width)
+	return joinRightANSI(left, colorize(st.subtle, right), width)
 }
 
-func stepHeader(job model.Job) string {
+func stepHeader(st styles, job model.Job) string {
 	name := jobTitle(job)
 	status := first(string(job.Conclusion), string(job.Status))
 	parts := []string{}
 	if name != "" {
-		parts = append(parts, colorize(sgrFGSoft, name))
+		parts = append(parts, colorize(st.fgSoft, name))
 	}
 	if status != "" {
-		parts = append(parts, pill(status, job.Conclusion))
+		parts = append(parts, pill(st, status, job.Conclusion))
 	}
 	if label := firstLabel(job); label != "" {
-		parts = append(parts, chip(label))
+		parts = append(parts, chip(st, label))
 	}
 	return strings.Join(parts, " ")
 }
 
-func pill(label string, conclusion model.Conclusion) string {
-	color := statusSGR(model.StatusCompleted, conclusion)
+func pill(st styles, label string, conclusion model.Conclusion) string {
+	color := statusSGR(st, model.StatusCompleted, conclusion)
 	return colorize(color, "["+label+"]")
 }
 
-func chip(label string) string {
-	return colorize(sgrSubtle, "["+label+"]")
+func chip(st styles, label string) string {
+	return colorize(st.subtle, "["+label+"]")
 }
 
-func jobRow(job model.Job, selected bool, width int, now time.Time) string {
+func jobRow(st styles, job model.Job, selected bool, width int, now time.Time) string {
 	bar := " "
 	if selected {
-		bar = colorize(sgrOK, icons.Cursor)
+		bar = colorize(st.ok, icons.Cursor)
 	}
 	leftWidth := max(width-12, 1)
-	left := fitANSI(bar+" "+colorize(statusSGR(job.Status, job.Conclusion), jobGlyph(job))+" "+colorize(sgrFGSoft, jobTitle(job)), leftWidth)
-	right := colorize(sgrDim, duration(job.Status, job.StartedAt, job.CompletedAt, now))
+	left := fitANSI(bar+" "+colorize(statusSGR(st, job.Status, job.Conclusion), jobGlyph(job))+" "+colorize(st.fgSoft, jobTitle(job)), leftWidth)
+	right := colorize(st.dim, duration(job.Status, job.StartedAt, job.CompletedAt, now))
 	row := joinRightANSI(left, right, width)
 	if selected {
-		return backgroundSafe(row, width, sgrFG, sgrSurface2BG)
+		return backgroundSafe(row, width, st.fg, st.surface2BG)
 	}
 	return row
 }
 
-func stepRow(step model.Step, selected bool, width int, now time.Time) string {
+func stepRow(st styles, step model.Step, selected bool, width int, now time.Time) string {
 	bar := " "
 	isFailure := step.Conclusion == model.ConclusionFailure || step.Conclusion == model.ConclusionActionRequired || step.Conclusion == model.ConclusionTimedOut
 	if isFailure {
-		bar = colorize(sgrFail, icons.Cursor)
+		bar = colorize(st.fail, icons.Cursor)
 	} else if selected {
-		bar = colorize(sgrOK, icons.Cursor)
+		bar = colorize(st.ok, icons.Cursor)
 	}
-	number := colorize(sgrDim, fmt.Sprintf("%d", step.Number))
-	nameColor := sgrFGSoft
+	number := colorize(st.dim, fmt.Sprintf("%d", step.Number))
+	nameColor := st.fgSoft
 	if isFailure {
-		nameColor = sgrFail
+		nameColor = st.fail
 	}
 	leftWidth := max(width-12, 1)
-	left := fitANSI(bar+" "+colorize(statusSGR(step.Status, step.Conclusion), stepGlyph(step))+" "+padANSI(number, 2)+" "+colorize(nameColor, step.Name), leftWidth)
-	right := colorize(durationSGR(step), duration(step.Status, step.StartedAt, step.CompletedAt, now))
+	left := fitANSI(bar+" "+colorize(statusSGR(st, step.Status, step.Conclusion), stepGlyph(step))+" "+padANSI(number, 2)+" "+colorize(nameColor, step.Name), leftWidth)
+	right := colorize(durationSGR(st, step), duration(step.Status, step.StartedAt, step.CompletedAt, now))
 	row := joinRightANSI(left, right, width)
 	switch {
 	case isFailure:
-		return backgroundSafe(row, width, sgrFG, sgrFailTintBG)
+		return backgroundSafe(row, width, st.fg, st.failTintBG)
 	case selected:
-		return backgroundSafe(row, width, sgrFG, sgrSurface2BG)
+		return backgroundSafe(row, width, st.fg, st.surface2BG)
 	default:
 		return row
 	}
 }
 
-func hintLine(m Model, width int) string {
+func hintLine(m Model, st styles, width int) string {
 	// A downloaded selection owns the hint line: o/y change meaning
 	// there and the footer must teach it.
 	if _, ok := m.selectedDownloadedPath(); ok {
-		hint := "  " + colorize(sgrInfo, "o") + " open folder · " +
-			colorize(sgrInfo, "y") + " copy path · " +
-			colorize(sgrInfo, "d") + " re-download"
+		hint := "  " + colorize(st.info, "o") + " open folder · " +
+			colorize(st.info, "y") + " copy path · " +
+			colorize(st.info, "d") + " re-download"
 		return fitANSI(hint, width)
 	}
-	hint := "  " + colorize(sgrInfo, "n") + " jump to failure · " + colorize(sgrInfo, "l") + " full log"
+	hint := "  " + colorize(st.info, "n") + " jump to failure · " + colorize(st.info, "l") + " full log"
 	if len(m.Artifacts) > 0 {
-		hint += " · " + colorize(sgrInfo, "a") + " artifacts · " + colorize(sgrInfo, "d") + " download"
+		hint += " · " + colorize(st.info, "a") + " artifacts · " + colorize(st.info, "d") + " download"
 	} else {
-		hint += " · " + colorize(sgrInfo, "y") + " copy"
+		hint += " · " + colorize(st.info, "y") + " copy"
 	}
 	return fitANSI(hint, width)
 }
 
-func divider(width int) string {
-	return colorize(sgrLine, strings.Repeat("─", max(width, 1)))
+func divider(st styles, width int) string {
+	return colorize(st.line, strings.Repeat("─", max(width, 1)))
 }
 
 // headLines is the breadcrumb with the run's attribution right-aligned,
@@ -585,42 +587,42 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
 }
 
-func statusSGR(status model.Status, conclusion model.Conclusion) string {
+func statusSGR(st styles, status model.Status, conclusion model.Conclusion) string {
 	if status == model.StatusCompleted {
 		switch conclusion {
 		case model.ConclusionSuccess:
-			return sgrOK
+			return st.ok
 		case model.ConclusionFailure:
-			return sgrFail
+			return st.fail
 		case model.ConclusionActionRequired, model.ConclusionTimedOut:
-			return sgrWarn
+			return st.warn
 		case model.ConclusionCancelled, model.ConclusionSkipped, model.ConclusionNeutral, model.ConclusionNone:
-			return sgrNeutral
+			return st.neutral
 		default:
-			return sgrNeutral
+			return st.neutral
 		}
 	}
 	switch status {
 	case model.StatusInProgress:
-		return sgrRun
+		return st.run
 	case model.StatusQueued, model.StatusPending, model.StatusRequested, model.StatusWaiting:
-		return sgrInfo
+		return st.info
 	default:
-		return sgrNeutral
+		return st.neutral
 	}
 }
 
-func durationSGR(step model.Step) string {
+func durationSGR(st styles, step model.Step) string {
 	if step.Status != model.StatusCompleted {
-		return sgrInfo
+		return st.info
 	}
 	switch step.Conclusion {
 	case model.ConclusionSuccess:
-		return sgrOK
+		return st.ok
 	case model.ConclusionFailure:
-		return sgrFail
+		return st.fail
 	default:
-		return sgrSubtle
+		return st.subtle
 	}
 }
 
@@ -693,19 +695,22 @@ func clampInt(value, low, high int) int {
 	return value
 }
 
-const (
-	sgrReset      = "\x1b[0m"
-	sgrOK         = "\x1b[38;2;79;211;122m"
-	sgrFail       = "\x1b[38;2;226;86;75m"
-	sgrRun        = "\x1b[38;2;224;163;62m"
-	sgrInfo       = "\x1b[38;2;110;156;181m"
-	sgrWarn       = "\x1b[38;2;232;137;90m"
-	sgrNeutral    = "\x1b[38;2;107;112;96m"
-	sgrDim        = "\x1b[38;2;107;112;96m"
-	sgrSubtle     = "\x1b[38;2;140;145;121m"
-	sgrFG         = "\x1b[38;2;234;232;217m"
-	sgrFGSoft     = "\x1b[38;2;207;205;187m"
-	sgrLine       = "\x1b[38;2;46;50;39m"
-	sgrSurface2BG = "\x1b[48;2;36;39;30m"
-	sgrFailTintBG = "\x1b[48;2;40;19;18m"
-)
+// styles are the theme's tokens as SGR sequences, resolved once per
+// frame so T recolours the detail screen.
+type styles struct {
+	ok, fail, run, info, warn, neutral string
+	dim, subtle, fg, fgSoft, line      string
+	surface2BG, failTintBG             string
+}
+
+func stylesFor(th theme.Theme) styles {
+	return styles{
+		ok: theme.Fg(th.OK), fail: theme.Fg(th.Fail), run: theme.Fg(th.Run),
+		info: theme.Fg(th.Info), warn: theme.Fg(th.Warn), neutral: theme.Fg(th.Neutral),
+		dim: theme.Fg(th.Dim), subtle: theme.Fg(th.Subtle), fg: theme.Fg(th.FG),
+		fgSoft: theme.Fg(th.FGSoft), line: theme.Fg(th.Line),
+		surface2BG: theme.Bg(th.Surface2), failTintBG: theme.Bg(th.FailTint),
+	}
+}
+
+const sgrReset = "\x1b[0m"

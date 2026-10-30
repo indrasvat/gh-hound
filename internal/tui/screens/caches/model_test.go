@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -262,5 +263,26 @@ func TestOneFilterMatchIsSingular(t *testing.T) {
 	}
 	if view := ansi.Strip(ViewSize(m, 100, 20, time.Now())); !strings.Contains(view, "/setup  1 match · ⎋ clear") {
 		t.Fatalf("filter line:\n%s", view)
+	}
+}
+
+// TestViewRecoloursFromTheme pins #56: every colour on the kennel comes
+// from the model's theme, so Bone leaves no Bramble behind.
+func TestViewRecoloursFromTheme(t *testing.T) {
+	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
+	m := NewModel("indrasvat/gh-hound", testData())
+	m.Usage.ActiveSizeInBytes = 9*(1<<30) + 700*(1<<20)
+	m.Theme = theme.ForMode(theme.ModeBone)
+	bone := View(m, 100, now)
+	bramt, bonet := theme.ForMode(theme.ModeBramble), m.Theme
+	for _, token := range []string{bonet.OK, bonet.Fail, bonet.Warn, bonet.Muted, bonet.Subtle, bonet.FGSoft, bonet.Line2} {
+		if !strings.Contains(bone, theme.Fg(token)) {
+			t.Errorf("Bone view missing token %s", token)
+		}
+	}
+	for _, token := range []string{bramt.OK, bramt.Fail, bramt.Warn, bramt.Muted, bramt.Subtle, bramt.FGSoft, bramt.Line2} {
+		if strings.Contains(bone, theme.Fg(token)) {
+			t.Errorf("Bone view still carries Bramble token %s", token)
+		}
 	}
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
@@ -23,21 +24,22 @@ func ViewSize(m Model, width, height int) string {
 	if width <= 0 {
 		width = 80
 	}
-	lines := []string{fitANSI(headerLine(m), width)}
+	st := stylesFor(m.Theme.OrBramble())
+	lines := []string{fitANSI(headerLine(m, st), width)}
 	switch m.Verdict.Status {
 	case usecase.RegressionLocated:
 		lines = append(lines,
-			fitANSI(boundaryGood(m.Verdict.LastGood), width),
-			fitANSI(boundaryBad(m.Verdict.FirstBad), width),
-			fitANSI(suspectHeader(m.Verdict), width),
+			fitANSI(boundaryGood(st, m.Verdict.LastGood), width),
+			fitANSI(boundaryBad(st, m.Verdict.FirstBad), width),
+			fitANSI(suspectHeader(st, m.Verdict), width),
 		)
-		lines = append(lines, suspectRows(m, width, height-len(lines)-1)...)
+		lines = append(lines, suspectRows(m, st, width, height-len(lines)-1)...)
 	case usecase.RegressionGreen:
-		lines = append(lines, fitANSI(colorize(sgrDim, "the yard is quiet — nothing upwind of this run."), width))
+		lines = append(lines, fitANSI(colorize(st.dim, "the yard is quiet — nothing upwind of this run."), width))
 	default:
 		lines = append(lines,
-			fitANSI(colorize(sgrDim, fmt.Sprintf("%d runs sniffed, no clean/dirty boundary in reach.", m.Verdict.RunsScanned)), width),
-			fitANSI(colorize(sgrDim, "raise diff_max_pages in config to follow the trail deeper."), width),
+			fitANSI(colorize(st.dim, fmt.Sprintf("%d runs sniffed, no clean/dirty boundary in reach.", m.Verdict.RunsScanned)), width),
+			fitANSI(colorize(st.dim, "raise diff_max_pages in config to follow the trail deeper."), width),
 		)
 	}
 	return strings.Join(lines, "\n")
@@ -45,27 +47,27 @@ func ViewSize(m Model, width, height int) string {
 
 // headerLine carries the hound verdict: the one line both surfaces
 // share.
-func headerLine(m Model) string {
+func headerLine(m Model, st styles) string {
 	verdict := strings.TrimSpace(m.Verdict.Verdict)
 	if verdict == "" {
 		verdict = "the trail"
 	}
 	switch m.Verdict.Status {
 	case usecase.RegressionLocated:
-		return colorize(sgrFG, verdict)
+		return colorize(st.fg, verdict)
 	case usecase.RegressionGreen:
-		return colorize(sgrOK, verdict)
+		return colorize(st.ok, verdict)
 	default:
-		return colorize(sgrRun, verdict)
+		return colorize(st.run, verdict)
 	}
 }
 
-func boundaryGood(run model.Run) string {
-	return colorize(sgrOK, icons.Success+" #"+itoa(run.RunNumber)) + colorize(sgrDim, " clean"+attemptNote(run)+" · "+shortSHA(run.HeadSHA))
+func boundaryGood(st styles, run model.Run) string {
+	return colorize(st.ok, icons.Success+" #"+itoa(run.RunNumber)) + colorize(st.dim, " clean"+attemptNote(run)+" · "+shortSHA(run.HeadSHA))
 }
 
-func boundaryBad(run model.Run) string {
-	return colorize(sgrFail, icons.Failure+" #"+itoa(run.RunNumber)) + colorize(sgrDim, " dirty"+attemptNote(run)+" · "+shortSHA(run.HeadSHA))
+func boundaryBad(st styles, run model.Run) string {
+	return colorize(st.fail, icons.Failure+" #"+itoa(run.RunNumber)) + colorize(st.dim, " dirty"+attemptNote(run)+" · "+shortSHA(run.HeadSHA))
 }
 
 func attemptNote(run model.Run) string {
@@ -75,11 +77,11 @@ func attemptNote(run model.Run) string {
 	return ""
 }
 
-func suspectHeader(verdict usecase.RegressionVerdict) string {
-	return colorize(sgrDim, fmt.Sprintf("suspects · %d of %d commits between them", len(verdict.SuspectCommits), verdict.TotalSuspects))
+func suspectHeader(st styles, verdict usecase.RegressionVerdict) string {
+	return colorize(st.dim, fmt.Sprintf("suspects · %d of %d commits between them", len(verdict.SuspectCommits), verdict.TotalSuspects))
 }
 
-func suspectRows(m Model, width, maxRows int) []string {
+func suspectRows(m Model, st styles, width, maxRows int) []string {
 	commits := m.Verdict.SuspectCommits
 	if maxRows > 0 && len(commits) > maxRows {
 		// Keep the selection visible when the list is taller than the
@@ -89,27 +91,27 @@ func suspectRows(m Model, width, maxRows int) []string {
 			start = m.Selected - maxRows + 1
 		}
 		commits = commits[start:min(start+maxRows, len(commits))]
-		return renderCommitRows(m, commits, width, m.Selected-start)
+		return renderCommitRows(st, commits, width, m.Selected-start)
 	}
-	return renderCommitRows(m, commits, width, m.Selected)
+	return renderCommitRows(st, commits, width, m.Selected)
 }
 
-func renderCommitRows(m Model, commits []model.Commit, width, selected int) []string {
+func renderCommitRows(st styles, commits []model.Commit, width, selected int) []string {
 	rows := make([]string, 0, len(commits))
 	for index, commit := range commits {
-		rows = append(rows, commitRow(commit, width, index == selected))
+		rows = append(rows, commitRow(st, commit, width, index == selected))
 	}
 	return rows
 }
 
-func commitRow(commit model.Commit, width int, selected bool) string {
+func commitRow(st styles, commit model.Commit, width int, selected bool) string {
 	prefix := "  "
 	if selected {
-		prefix = colorize(sgrOK, icons.Cursor) + " "
+		prefix = colorize(st.ok, icons.Cursor) + " "
 	}
 	sha := padPlain(shortSHA(commit.SHA), shaWidth)
 	author := padPlain(truncPlain(commit.Author, authorWidth), authorWidth)
-	row := prefix + colorize(sgrInfo, sha) + "  " + colorize(sgrFGSoft, author) + "  " + colorize(sgrFG, commit.Message)
+	row := prefix + colorize(st.info, sha) + "  " + colorize(st.fgSoft, author) + "  " + colorize(st.fg, commit.Message)
 	return fitANSI(row, width)
 }
 
@@ -156,13 +158,18 @@ func colorize(sgr, value string) string {
 	return sgr + value + sgrReset
 }
 
-const (
-	sgrReset  = "\x1b[0m"
-	sgrOK     = "\x1b[38;2;79;211;122m"
-	sgrFail   = "\x1b[38;2;226;86;75m"
-	sgrRun    = "\x1b[38;2;224;163;62m"
-	sgrInfo   = "\x1b[38;2;110;156;181m"
-	sgrDim    = "\x1b[38;2;107;112;96m"
-	sgrFG     = "\x1b[38;2;234;232;217m"
-	sgrFGSoft = "\x1b[38;2;207;205;187m"
-)
+// styles are the theme's tokens as SGR sequences, resolved once per
+// frame so T recolours the trail screen.
+type styles struct {
+	ok, fail, run, info, dim, fg, fgSoft string
+}
+
+func stylesFor(th theme.Theme) styles {
+	return styles{
+		ok: theme.Fg(th.OK), fail: theme.Fg(th.Fail), run: theme.Fg(th.Run),
+		info: theme.Fg(th.Info), dim: theme.Fg(th.Dim), fg: theme.Fg(th.FG),
+		fgSoft: theme.Fg(th.FGSoft),
+	}
+}
+
+const sgrReset = "\x1b[0m"

@@ -2,6 +2,7 @@ package caches
 
 import (
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -48,6 +49,7 @@ type Model struct {
 	InputMode bool
 	SortBy    usecase.CacheSort
 	Intent    Intent
+	Theme     theme.Theme
 
 	// Loading state is transient render input set by the app from its
 	// pending load each frame — never persisted on the model.

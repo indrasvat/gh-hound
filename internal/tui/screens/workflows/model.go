@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 )
 
 type KeyMsg struct {
@@ -33,6 +34,7 @@ type Model struct {
 	Workflows []model.Workflow
 	Selected  int
 	Intent    Intent
+	Theme     theme.Theme
 }
 
 func NewModel(repo string, workflows []model.Workflow) Model {

@@ -1,0 +1,254 @@
+{
+  "scenario": "failing",
+  "ready": "CI",
+  "size": "120x28",
+  "seconds": 56,
+  "fps": 5,
+  "playback_fps": 7.5,
+  "env": {
+    "COLORTERM": ""
+  },
+  "panes": {
+    "main": "main 9084805 · 256 colours",
+    "pr": "this PR · 256 colours"
+  },
+  "timeline": [
+    {
+      "frame": 0,
+      "caption": "TERM=xterm-256color, no COLORTERM · the selected run's fill"
+    },
+    {
+      "frame": 20,
+      "keys": {
+        "both": "/"
+      },
+      "caption": "/ · the filter input's shading"
+    },
+    {
+      "frame": 40,
+      "keys": {
+        "both": "esc"
+      },
+      "caption": "⎋"
+    },
+    {
+      "frame": 48,
+      "keys": {
+        "both": ":"
+      },
+      "caption": ": · the palette's selected row"
+    },
+    {
+      "frame": 70,
+      "keys": {
+        "both": "esc"
+      },
+      "caption": "⎋"
+    },
+    {
+      "frame": 78,
+      "keys": {
+        "both": "enter"
+      },
+      "caption": "⏎ · the run's detail: the failed step's tint"
+    },
+    {
+      "frame": 100,
+      "keys": {
+        "both": "enter"
+      },
+      "caption": "⏎ · the failure excerpt"
+    },
+    {
+      "frame": 120,
+      "keys": {
+        "both": "l"
+      },
+      "caption": "l · the full log: fold bands"
+    },
+    {
+      "frame": 140,
+      "keys": {
+        "both": "/"
+      },
+      "caption": "/trail · search hits and the current hit"
+    },
+    {
+      "frame": 145,
+      "keys": {
+        "both": "t"
+      }
+    },
+    {
+      "frame": 150,
+      "keys": {
+        "both": "r"
+      }
+    },
+    {
+      "frame": 155,
+      "keys": {
+        "both": "a"
+      }
+    },
+    {
+      "frame": 160,
+      "keys": {
+        "both": "i"
+      }
+    },
+    {
+      "frame": 165,
+      "keys": {
+        "both": "l"
+      }
+    },
+    {
+      "frame": 172,
+      "keys": {
+        "both": "enter"
+      }
+    },
+    {
+      "frame": 230,
+      "keys": {
+        "both": "n"
+      },
+      "caption": "n · the next hit takes the current tint"
+    }
+  ],
+  "rules": [
+    {
+      "frames": [
+        2,
+        19
+      ],
+      "side": "both",
+      "match": "#571",
+      "to_row_end": true,
+      "tone": "same",
+      "label": "selected run (row fill)"
+    },
+    {
+      "frames": [
+        22,
+        39
+      ],
+      "side": "both",
+      "match": "^│ */",
+      "to_row_end": true,
+      "tone": "same",
+      "label": "filter input"
+    },
+    {
+      "frames": [
+        50,
+        69
+      ],
+      "side": "main",
+      "match": "▌runs · workflow runs",
+      "to_row_end": true,
+      "tone": "bad",
+      "label": "no selection fill"
+    },
+    {
+      "frames": [
+        50,
+        69
+      ],
+      "side": "pr",
+      "match": "▌runs · workflow runs",
+      "to_row_end": true,
+      "tone": "good",
+      "label": "surface-2 fill, green bar"
+    },
+    {
+      "frames": [
+        82,
+        99
+      ],
+      "side": "main",
+      "match": "6  go test",
+      "to_row_end": true,
+      "tone": "bad",
+      "label": "failed step: no tint"
+    },
+    {
+      "frames": [
+        82,
+        99
+      ],
+      "side": "pr",
+      "match": "6  go test",
+      "to_row_end": true,
+      "tone": "good",
+      "label": "failed step tint"
+    },
+    {
+      "frames": [
+        124,
+        230
+      ],
+      "side": "main",
+      "match": "^│?002 ",
+      "to_row_end": true,
+      "tone": "bad",
+      "label": "fold band barely shows"
+    },
+    {
+      "frames": [
+        124,
+        230
+      ],
+      "side": "pr",
+      "match": "^│?002 ",
+      "to_row_end": true,
+      "tone": "good",
+      "label": "fold band"
+    },
+    {
+      "frames": [
+        178,
+        229
+      ],
+      "side": "main",
+      "match": "^│?007 ",
+      "to_row_end": true,
+      "tone": "bad",
+      "label": "second hit: no tint"
+    },
+    {
+      "frames": [
+        178,
+        229
+      ],
+      "side": "pr",
+      "match": "^│?007 ",
+      "to_row_end": true,
+      "tone": "good",
+      "label": "second hit tint"
+    },
+    {
+      "frames": [
+        232,
+        280
+      ],
+      "side": "pr",
+      "match": "^│?007 ",
+      "to_row_end": true,
+      "tone": "good",
+      "label": "n: the current hit moves here"
+    },
+    {
+      "frames": [
+        232,
+        280
+      ],
+      "side": "main",
+      "match": "^│?007 ",
+      "to_row_end": true,
+      "tone": "bad",
+      "label": "current hit"
+    }
+  ]
+}

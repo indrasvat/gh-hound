@@ -58,6 +58,16 @@ metadata:
   the job via `gh api repos/O/R/actions/jobs/ID` (run_id, head_branch), then
   `gh-hound -R O/R --branch B`, `/<run#>` + `G` until it loads, ⏎, l, `]` walk.
 
+- Bone QA: OSC 11 alone leaves default-foreground text (detail header,
+  hints, overlay bodies) pale and fakes "unreadable" findings; a real light
+  terminal also sets OSC 10 — send both (`\033]10;#1B1D17\007`).
+- `shux session create` does NOT pass the client's env to the pane: bake
+  env (HOUND_WELCOME etc.) into the runner script text, not `${VAR}` at
+  runner time.
+- Palette input swallows j/k as text; move with arrow keys (G1tC down).
+- Never rewrite a capture script while a sweep is running: bash reads it
+  incrementally; mid-write reads leave orphan sessions.
+
 **How to apply:** reuse these in every gh-hound audit capture loop.
 Related: [[gh-hound-qa-ledger]].
 

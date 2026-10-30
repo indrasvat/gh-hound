@@ -43,6 +43,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -96,12 +97,26 @@ def record(spec, main_bin, pr_bin, out):
         for side, binary in (("main", main_bin), ("pr", pr_bin)):
             (out / side).mkdir(parents=True)
             runner = runtime / f"run-{side}.sh"
+            # The terminal the spec asks for: its env (an empty value
+            # unsets, e.g. COLORTERM for a 256-colour terminal) and the
+            # colours a light terminal sets, OSC 10 and 11, for a light
+            # theme: without the foreground, plain text stays pale.
+            term_env = {"TERM": "xterm-256color", "COLORTERM": "truecolor", **spec.get("env", {})}
+            for key in term_env:
+                if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+                    sys.exit(f"spec env: {key!r} is not a variable name")
+            exports = "".join(f"export {k}={shlex.quote(v)}\n" if v else f"unset {k}\n" for k, v in term_env.items())
+            background = "".join(
+                f"printf '\\033]{code};%s\\007' {shlex.quote(spec[field])}\n"
+                for code, field in (("10", "foreground"), ("11", "background"))
+                if spec.get(field)
+            )
             runner.write_text(
                 "#!/usr/bin/env bash\n"
-                "export TERM=xterm-256color COLORTERM=truecolor CLICOLOR_FORCE=1 HOUND_WELCOME=false\n"
+                f"{exports}export CLICOLOR_FORCE=1 HOUND_WELCOME=false\n"
                 # The TUI reads its size once at start: the pane is
                 # sized while the runner sleeps, before the first paint.
-                "unset NO_COLOR\nsleep 1\n"
+                f"unset NO_COLOR\n{background}sleep 1\n"
                 f"exec {pathlib.Path(binary).resolve()} __vqa-tui --scenario {spec['scenario']}\n"
             )
             runner.chmod(0o755)
