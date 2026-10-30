@@ -2,7 +2,7 @@
 
 ## Status
 
-IN PROGRESS — issue #56, first of three PRs. The second (theme tokens on every screen, the 256-colour fallback, palette selection fill) and the third (runs footer and header at 80 columns, the stale branch-miss notice) close it. UTF-8 input and `?` closing help already shipped in #66.
+IMPLEMENTED — issue #56, first of three PRs. The second (theme tokens on every screen, the 256-colour fallback, palette selection fill) and the third (runs footer and header at 80 columns, the stale branch-miss notice) close it. UTF-8 input and `?` closing help already shipped in #66.
 
 ## Ownership Boundary
 
@@ -26,7 +26,7 @@ IN PROGRESS — issue #56, first of three PRs. The second (theme tokens on every
 - [x] T3 Keymap: default tables conflict-free, translation per screen, display everywhere keys are listed, rejection messages, `FuzzKeymap`; app tests (moved key acts, old key dead, inputs type); CLI tests through the real decoder.
 - [x] T4 PTY scenarios `keymap-help` and `keymap-watch` (each fails on main).
 - [x] T5 Docs: configuration, README, PRD §14 sample.
-- [ ] T6 Verification: `make ci`, `make vqa`, shux on the fakes, takshaka, adversarial review, Codex, cold `tui-qa`.
+- [x] T6 Verification: `make ci` (1,197 tests), `make vqa`, shux on the fakes and live, takshaka, two adversarial reviews, two Codex rounds, cold `tui-qa` (FAIL, then PASS on 0cef8c9); fuzz clean.
 
 ## Found Along The Way
 
