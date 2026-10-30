@@ -48,7 +48,7 @@
         39
       ],
       "side": "pr",
-      "match": "Showing all branches now",
+      "match": "branches now\\.",
       "tone": "good",
       "label": "why all branches"
     },
@@ -58,7 +58,7 @@
         94
       ],
       "side": "main",
-      "match": "Showing all branches now",
+      "match": "branches now\\.",
       "tone": "bad",
       "label": "stale notice"
     },
@@ -109,7 +109,7 @@
         134
       ],
       "side": "pr",
-      "match": "Showing all branches now",
+      "match": "branches now\\.",
       "tone": "good",
       "label": "why all branches"
     },
@@ -119,7 +119,7 @@
         200
       ],
       "side": "main",
-      "match": "Showing all branches now",
+      "match": "branches now\\.",
       "tone": "bad",
       "label": "stale notice"
     },

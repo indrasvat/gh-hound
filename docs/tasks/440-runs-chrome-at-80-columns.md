@@ -2,7 +2,7 @@
 
 ## Status
 
-IN PROGRESS — issue #56, third of three PRs; closes it. #71 read config.toml, made flags beat `HOUND_*` and moved keys; #72 made every screen recolour and kept fills on 256- and 16-colour terminals. UTF-8 input and `?` closing help shipped in #66; the palette's selection fill in #72.
+IMPLEMENTED — issue #56, third of three PRs; closes it. #71 read config.toml, made flags beat `HOUND_*` and moved keys; #72 made every screen recolour and kept fills on 256- and 16-colour terminals. UTF-8 input and `?` closing help shipped in #66; the palette's selection fill in #72.
 
 ## Ownership Boundary
 
@@ -20,10 +20,11 @@ IN PROGRESS — issue #56, third of three PRs; closes it. #71 read config.toml, 
 - [x] T1 Footer priorities, `TestRunsFooterFitsEightyColumns` (fails on main), PTY scenario `runs-footer-80`.
 - [x] T2 Header, `TestHeaderKeepsItsRightSideBesideALongBranch` (fails on main).
 - [x] T3 Notice scope, `TestScopedNoticeShowsOnlyInItsScope` (fails with the old rule), the launch's `NoticeScope` asserted.
-- [ ] T4 Verification: `make ci`, `make vqa`, shux live at 80 columns, takshaka, Codex, cold `tui-qa`, evidence.
+- [x] T4 Verification: `make ci` (1,232 tests), `make vqa` (3 new PTY scenarios), shux live at 80/120/200 columns, Codex, cold `tui-qa` (FAIL, then PASS on 627fcdc), evidence.
 
 ## Found Along The Way
 
 - Codex (1 major, 5 minor, fixed with a test): the header cut kept any context's last ` · ` segment, so a scent-check header lost its workflow name; it now keeps only an identity (` · @login`), and reserves it before a long branch when a long login meets a wide right side. A `branch:` query in repo scope still showed "Showing all branches now"; a branch query hides it. From a detached local checkout, `-R` another repo carried the detached-HEAD notice; it needs the same repo. The footer's documented drop order was the reverse of the code's (equal priorities drop rightmost first): `f status`, `w watch`, `l log`. The evidence recorder's `cwd` now stops the run when the directory is gone instead of recording whatever checkout it ran in.
 - The live evidence uses a temporary worktree on a long local-only branch, read-only (`--actor @me`): no fixture can give a branch with no runs plus the fallback.
 - Cold `tui-qa` round 1 (1d417bd, FAIL on two P2s; all three claims worked): a cut header put its right side in the frame's last cell, against the border, where every other header keeps one; the budget now counts that cell. `__vqa-tui` ignored `--branch`, so no fixture could reach the long-branch header or the fallback; it takes `--branch` now, and PTY scenarios `runs-branch-miss` and `runs-branch-miss-scope` pin both (on a branch the fake has no runs on). Also: the fallback notice no longer advises "try repo-wide discovery" in a list that is already repo-wide (the agent JSON diagnostic keeps it). Recorded, not changed: without a server query, `s` on an empty branch stays put (by design, as on main), and the 80-column footer no longer shows `s` there.
+- Cold `tui-qa` round 2 (627fcdc, PASS): a cut header keeps its border cell at 80/120/200 columns, live and in the fixture; flakes and diff headers keep their workflow name; the 80x24 sweep matches main on every screen but the runs footer line.

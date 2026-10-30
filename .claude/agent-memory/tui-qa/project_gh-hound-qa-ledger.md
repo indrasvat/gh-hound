@@ -814,6 +814,28 @@ now emits ESC[49m: 16-colour runs filter cursor is one cell (both themes,
 80x24/120x40, empty and typed draft). Everything else PNG-identical to round
 2 bar timers and a 21-px antialias delta on the 16-colour current-hit row.
 
+Round 35 (task 440 runs chrome at 80 cols, 1d417bd, 2026-10-29): FAIL.
+VERIFIED: 80-col runs footer drops s scope, keeps "/ filter · ?" (also with
+help="h" remap); 120/200 PNG-identical to base (38 cases); only the 8 runs
+footers differ at 80 (tc, Bone, 256). Live --actor @me long local branch:
+fallback notice shows at launch in repo scope, gone after s to branch, back
+after s s. OPEN P2: when fitContext cuts, the header right side touches the
+border (room = width-title-right-3 but spacer min is 2 -> line is width, not
+width-1); still -3 at aee9042. OPEN P2: __vqa-tui hardcodes Branch "main"
+and ignores --branch, so the long-branch header and branch-miss fallback are
+live-only (no deterministic lens). Without --actor, s on an empty branch is a
+silent no-op by design (toggleScope). Footer drop order is s,f,w,l (rightmost
+first), docs list "l, w, f". Implementer rebased + committed mid-audit.
+
+Round 36 (task 440 round 2, 627fcdc vs origin/main cbec7b7, 2026-10-29):
+PASS. VERIFIED FIXED: cut header keeps the border cell (fixture 80, XL
+branch 120, live 80/120/200, openclaw runs+detail); `__vqa-tui --branch`
+reaches the fallback (launch repo+notice, s -> branch, s s back); PTY
+runs-branch-miss(-scope) pass and inspect the right states; flakes/diff keep
+the workflow and cut the branch end; branch: query hides the notice; the
+detached notice shows only for the own repo. Sweep 80x24 tc/Bone/256 + 120x40:
+only the 8 runs-footer PNGs differ from main.
+
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.
 **How to apply:** read before every gh-hound audit; update entries when a
