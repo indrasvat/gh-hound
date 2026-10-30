@@ -96,12 +96,18 @@ def record(spec, main_bin, pr_bin, out):
         for side, binary in (("main", main_bin), ("pr", pr_bin)):
             (out / side).mkdir(parents=True)
             runner = runtime / f"run-{side}.sh"
+            # The terminal the spec asks for: its env (an empty value
+            # unsets, e.g. COLORTERM for a 256-colour terminal) and an
+            # OSC 11 background, for a light theme on a light terminal.
+            term_env = {"TERM": "xterm-256color", "COLORTERM": "truecolor", **spec.get("env", {})}
+            exports = "".join(f"export {k}={v}\n" if v else f"unset {k}\n" for k, v in term_env.items())
+            background = f"printf '\\033]11;{spec['background']}\\007'\n" if spec.get("background") else ""
             runner.write_text(
                 "#!/usr/bin/env bash\n"
-                "export TERM=xterm-256color COLORTERM=truecolor CLICOLOR_FORCE=1 HOUND_WELCOME=false\n"
+                f"{exports}export CLICOLOR_FORCE=1 HOUND_WELCOME=false\n"
                 # The TUI reads its size once at start: the pane is
                 # sized while the runner sleeps, before the first paint.
-                "unset NO_COLOR\nsleep 1\n"
+                f"unset NO_COLOR\n{background}sleep 1\n"
                 f"exec {pathlib.Path(binary).resolve()} __vqa-tui --scenario {spec['scenario']}\n"
             )
             runner.chmod(0o755)

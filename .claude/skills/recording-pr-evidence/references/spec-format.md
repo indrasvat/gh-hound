@@ -16,6 +16,8 @@ example.
 | `fps` | Capture rate (default 5). |
 | `playback_fps` | Encode rate (default `2 × fps`, so the video plays at 2× speed). |
 | `panes.main`, `panes.pr` | Title-bar labels, e.g. `main d3b625e + fixture`, `this PR`. |
+| `env` | Optional terminal env for both panes, merged over `TERM=xterm-256color COLORTERM=truecolor`; an empty value unsets (`{"COLORTERM": ""}` records a 256-colour terminal). `HOUND_THEME` here picks the starting theme. |
+| `background` | Optional OSC 11 background (`#EFEDE1`), for a light theme on a light terminal. |
 | `runtime_dir` | shux runtime dir (default `/tmp/hdemo<pid>`, one per run); keep it short, since Unix socket paths are limited. |
 | `timeline` | Steps, below. |
 | `rules` | Marks, below. |
