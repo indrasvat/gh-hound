@@ -35,6 +35,15 @@ script, not the rule, when a frame breaks them.
 - Labels are short user language: `running step reads queued`,
   `opens on the running step`. Not `duration() returns queued`.
 
+## Keycaps
+
+- Each pane's title bar shows, right-aligned, the key that pane just
+  received (`pressed [h]`, a large keycap; named keys as `⏎ ⎋ ⇥ ↑ ↓`) for two seconds of
+  recording. Keys sent to one side show on that side only, so a
+  main-only step reads as one.
+- Drawn in the screen's own surface, line and foreground colours, never
+  a mark colour: a keycap says what was pressed, not what is right.
+
 ## Captions
 
 - One line above both panes in soft foreground, changed only at

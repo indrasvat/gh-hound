@@ -20,7 +20,7 @@ func newWorkflowsCommand(runtime commandRuntime, options *cliOptions) *cobra.Com
 		Use:   "workflows",
 		Short: "List the pack's workflows with their state — and wake or muzzle one",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			applyEnv(options, runtime.Env)
+			applyEnv(options, runtime.Env, cmd.Flags().Changed)
 			options.NoTUI = true
 			return writeWorkflowsResult(cmd.Context(), runtime.Stdout, *options, runtime, enable, disable)
 		},
@@ -58,6 +58,9 @@ func writeWorkflowsResult(ctx context.Context, w io.Writer, options cliOptions, 
 			return writeErr
 		}
 		return outcomeError{code: render.ExitError}
+	}
+	if err := configError(runtime.Env); err != nil {
+		return refuse(err)
 	}
 	if enable != "" && disable != "" {
 		return refuse(usecase.ActionError{Kind: usecase.ActionErrorValidation, Field: "workflow", Message: "--enable and --disable are mutually exclusive — one leash at a time"})

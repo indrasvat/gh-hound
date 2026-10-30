@@ -687,11 +687,8 @@ theme         = "bramble"  # bramble | bone
 poll_min_ms   = 2000
 poll_max_ms   = 30000
 
-[keybindings]              # override any binding; merged over defaults (vivecaka pattern)
-rerun_failed  = "r"
-rerun_run     = "R"
-cancel        = "x"
-force_cancel  = "X"
+[keybindings]              # move an action's key; merged over defaults (vivecaka pattern)
+cancel        = "c"        # catalog and rules: docs/configuration.md#keybindings
 ```
 
 **§14 DoD:** missing config → sane defaults; invalid TOML → clear error, not a crash; keybinding overrides merge and a conflict in overrides is rejected with a message; theme/scope honoured.

@@ -80,7 +80,9 @@ type KeyMsg struct {
 }
 
 type Options struct {
-	Config         config.Config
+	Config config.Config
+	// Keymap is Config.Keybindings, validated (keys.NewKeymap).
+	Keymap         keys.Keymap
 	Build          BuildInfo
 	Launch         usecase.LaunchContext
 	DetailResolver func(context.Context, model.Run) (detail.Model, error)
@@ -138,6 +140,7 @@ type ActionRequest struct {
 
 type App struct {
 	config            config.Config
+	keymap            keys.Keymap
 	build             BuildInfo
 	theme             theme.Theme
 	routes            []Route
@@ -552,6 +555,7 @@ func NewApp(options Options) App {
 	}
 	app := App{
 		config:                    cfg,
+		keymap:                    options.Keymap,
 		build:                     options.Build,
 		theme:                     theme.ForMode(theme.Mode(cfg.Theme)),
 		routes:                    []Route{route},
@@ -561,7 +565,7 @@ func NewApp(options Options) App {
 		detail:                    initialDetail,
 		routeErrors:               routeErrors,
 		watch:                     watchModel,
-		palette:                   palette.New(paletteItems(nil)),
+		palette:                   palette.New(paletteItems(options.Keymap, nil)),
 		toasts:                    toast.New(),
 		runsMeta:                  runsMeta,
 		detailResolver:            options.DetailResolver,
@@ -658,6 +662,26 @@ func NewScenarioApp(scenario string, build BuildInfo) App {
 	return app
 }
 
+// translateKey moves an overridden key to the default key the handlers
+// compare. Outside typing only: inputs get the key as pressed.
+func (a App) translateKey(key string) string {
+	// The top layer decides: an overlay over a typing route still acts.
+	switch a.TopOverlay() {
+	case OverlayNone:
+		if a.routeInputMode() {
+			return key
+		}
+		return a.keymap.Key(a.footerScreen(), key)
+	case OverlayHelp:
+		return a.keymap.Key(keys.ScreenHelp, key)
+	case OverlayApprovals:
+		if !a.approvals.CommentMode {
+			return a.keymap.Key(keys.ScreenApprovals, key)
+		}
+	}
+	return key
+}
+
 func (a App) Update(msg KeyMsg) (out App, handled bool) {
 	// Background results apply on the keypress path too, not only on
 	// poll ticks, so a ready section/poll lands as soon as the next key
@@ -724,6 +748,10 @@ func (a App) Update(msg KeyMsg) (out App, handled bool) {
 			return next, true
 		}
 	}
+	// After the drains, so the key is read in the context it lands in (a
+	// drained fetch may have just opened an input). The one re-entry
+	// above returns before this, so a key is translated once.
+	msg.Key = a.translateKey(msg.Key)
 	if a.inputMode {
 		if msg.Key == "esc" {
 			a.inputMode = false
@@ -811,7 +839,7 @@ func (a App) ViewSized(width int) string {
 func (a App) ViewSize(width, height int) string {
 	title, context, right := a.chromeParts()
 	body := a.screenBody(width, height)
-	footer := keys.FooterForScreenWidth(a.footerScreen(), max(width, minFrameWidth)-2)
+	footer := a.keymap.FooterWidth(a.footerScreen(), max(width, minFrameWidth)-2)
 	if a.TopOverlay() != OverlayNone {
 		inner := contentWidth(width)
 		room := 0 // other overlays keep their box and the frame cuts it
@@ -823,9 +851,9 @@ func (a App) ViewSize(width, height int) string {
 			}
 		}
 		body = layerOver(a.theme, colorizeBody(a.theme, body, inner), overlayBox(a.theme, a.overlayTitle(), a.overlayView(width, height), width, room), inner)
-		footer = keys.FooterForScreen(keys.ScreenHelp)
+		footer = a.keymap.Footer(keys.ScreenHelp)
 		if a.TopOverlay() == OverlayPalette {
-			footer = keys.FooterForScreen(keys.ScreenPalette)
+			footer = a.keymap.Footer(keys.ScreenPalette)
 		}
 		if a.TopOverlay() == OverlayConfirm {
 			footer = "y confirm · enter/n/esc cancel"
@@ -852,7 +880,7 @@ func (a App) ViewSize(width, height int) string {
 		for _, t := range a.toasts.Toasts {
 			retry = retry || t.RetryAction != ""
 		}
-		footer = keys.ToastFooter(retry)
+		footer = a.keymap.ToastFooter(retry)
 	}
 	return frameViewSize(a.theme, title, context, right, body, footer, width, height, true)
 }
@@ -2165,7 +2193,7 @@ func (a *App) detailLogNotReady() bool {
 		a.pushToast("log-not-ready", usecase.Resilience{
 			Severity: usecase.SeverityInfo,
 			Title:    "log not ready",
-			Message:  "w follows the run · no job has started yet",
+			Message:  a.keymap.KeyFor("watch") + " follows the run · no job has started yet",
 		})
 		return true
 	}
@@ -2189,7 +2217,7 @@ func (a *App) detailLogNotReady() bool {
 	a.pushToast("log-not-ready", usecase.Resilience{
 		Severity: usecase.SeverityInfo,
 		Title:    "log not ready",
-		Message:  "w follows its steps · " + name + state,
+		Message:  a.keymap.KeyFor("watch") + " follows its steps · " + name + state,
 	})
 	return true
 }
@@ -2606,12 +2634,15 @@ func (a App) timeJumpBreadcrumb() string {
 }
 
 func (a App) updatePalette(msg KeyMsg) (App, bool) {
+	// The palette types every key, except ? for help while help is on
+	// its default key; a moved help key leaves ? to be typed.
+	if msg.Key == "?" && a.keymap.KeyFor("help") == "?" {
+		a.pushOverlay(OverlayHelp)
+		return a, true
+	}
 	switch msg.Key {
 	case "esc":
 		a.PopOverlay()
-		return a, true
-	case "?":
-		a.pushOverlay(OverlayHelp)
 		return a, true
 	case "ctrl+c":
 		a.quit = true
@@ -2715,7 +2746,7 @@ func (a App) openPalette() App {
 	// invariant forbids a network fetch on the ':' keystroke. The
 	// generic dispatch item stays available and openDispatch resolves
 	// (async) when the user actually selects it.
-	a.palette = palette.New(paletteItems(a.dispatchWorkflows))
+	a.palette = palette.New(paletteItems(a.keymap, a.dispatchWorkflows))
 	a.pushOverlay(OverlayPalette)
 	return a
 }
@@ -4469,7 +4500,7 @@ func (a App) overlayView(width, height int) string {
 	case OverlayHelp:
 		// Help wraps long sections; it must wrap to the width the
 		// overlay box actually renders, not get truncated by it.
-		return help.View(a.footerScreen(), overlayInnerWidth(width))
+		return help.View(a.keymap, a.footerScreen(), overlayInnerWidth(width))
 	case OverlayPalette:
 		// Box chrome (4 rows) plus the palette's prompt and footer (3)
 		// leave the rest of the body for items.
@@ -4804,7 +4835,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func paletteItems(workflows []dispatch.Workflow) []palette.Item {
+func paletteItems(km keys.Keymap, workflows []dispatch.Workflow) []palette.Item {
 	items := []palette.Item{
 		{Name: "runs", Description: "workflow runs · this branch", Tag: "default", Route: "runs"},
 		{Name: "runs --all", Description: "runs across all branches", Route: "runs --all"},
@@ -4819,7 +4850,7 @@ func paletteItems(workflows []dispatch.Workflow) []palette.Item {
 		{Name: "queue", Description: "GitHub queue · concurrency blockers", Route: string(RouteQueue)},
 		{Name: "caches", Description: "the kennel · cache usage & eviction", Route: string(RouteCaches)},
 		{Name: "workflows", Description: "the pack · states, wake & muzzle", Route: string(RouteWorkflows)},
-		{Name: "theme", Description: "switch Bramble / Bone (T)", Route: "theme"},
+		{Name: "theme", Description: "switch Bramble / Bone (" + km.KeyFor("theme") + ")", Route: "theme"},
 	}
 	if len(workflows) == 0 {
 		items = append(items, palette.Item{Name: "dispatch", Description: "trigger workflow_dispatch", Route: string(RouteDispatch)})

@@ -245,7 +245,7 @@ Qualifiers are answered by GitHub and combine; text narrows what is loaded. A kn
 
 ## Configuration
 
-Config lives at `~/.config/gh-hound/config.toml`. Environment variables and flags override file values.
+Config lives at `~/.config/gh-hound/config.toml` (or under `$XDG_CONFIG_HOME`). Environment variables override file values, and flags override both. A bad file stops the launch with an error naming it.
 
 ```toml
 default_scope = "branch"
@@ -254,10 +254,9 @@ per_page = 30
 diff_max_pages = 10
 watch_group_max = 10
 theme = "bramble"
-log_level = "info"
 ```
 
-See [docs/configuration.md](docs/configuration.md) for all supported values and precedence rules.
+A `[keybindings]` table moves actions to other keys (`cancel = "c"`); footers and help follow. See [docs/configuration.md](docs/configuration.md) for all supported values, the remappable actions and precedence rules.
 
 ## Agent Surface
 

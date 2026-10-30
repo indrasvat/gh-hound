@@ -71,3 +71,10 @@ Related: [[gh-hound-qa-ledger]].
   creation; `/<run#>` + ⏎ in the runs list (the list re-sorts, so k-walking
   to a row is unreliable); keys typed during "picking up the scent" are
   queued and applied after load.
+
+- macOS FS is case-insensitive: evidence names that differ only by key case
+  (`...-W-...` vs `...-w-...`) overwrite each other and fake a defect. Put
+  a case-safe token in names (e.g. `shiftW`).
+- Never build the audit binary from the shared worktree: the implementer's
+  uncommitted edits get compiled in (round 30). Build from a
+  `git worktree add --detach <sha>` pin, and re-pin if HEAD moves.

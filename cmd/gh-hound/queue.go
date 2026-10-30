@@ -23,7 +23,7 @@ func newQueueCommand(runtime commandRuntime, options *cliOptions) *cobra.Command
 		Use:   "queue",
 		Short: "Explain GitHub Actions concurrency queue blockers",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			applyEnv(options, runtime.Env)
+			applyEnv(options, runtime.Env, cmd.Flags().Changed)
 			options.NoTUI = true
 			request := queueRequest{
 				runID:     options.RunID,
@@ -62,6 +62,9 @@ func writeQueueResult(ctx context.Context, w io.Writer, options cliOptions, runt
 	}
 	if err := validateQueueRequest(request); err != nil {
 		return refuse("validation", "target", err.Error())
+	}
+	if _, err := defaultConfig(runtime.Env); err != nil {
+		return refuse("validation", "config", err.Error())
 	}
 
 	var githubClient any

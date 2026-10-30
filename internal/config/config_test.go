@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -106,18 +108,6 @@ func TestLoadInvalidTOMLReturnsClearError(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsKeybindingConflicts(t *testing.T) {
-	cfg := Default()
-	cfg.Keybindings = map[string]string{
-		"rerun_failed": "r",
-		"rerun_run":    "r",
-	}
-
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("Validate accepted duplicate keybindings")
-	}
-}
-
 func emptyEnv(string) (string, bool) {
 	return "", false
 }
@@ -133,5 +123,96 @@ func assertCoreDefaults(t *testing.T, got Config) {
 		got.PollMin != want.PollMin ||
 		got.PollMax != want.PollMax {
 		t.Fatalf("config = %#v, want core defaults %#v", got, want)
+	}
+}
+
+func loadBody(t *testing.T, body string, env map[string]string) (string, error) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(LoadOptions{Path: path, LookupEnv: func(k string) (string, bool) { v, ok := env[k]; return v, ok }})
+	return path, err
+}
+
+func TestLoadRejectsValuesTheFileCannotMean(t *testing.T) {
+	tests := []struct{ body, want string }{
+		{"poll_min_ms = 18446744073710\npoll_max_ms = 18446744073710\n", "poll_min_ms must be between 1 and 3600000"},
+		{"poll_max_ms = 0\n", "poll_max_ms must be between 1 and 3600000"},
+		{"poll_min_ms = -5\n", "poll_min_ms must be between 1 and 3600000"},
+		{"theme = \"\"\n", `theme must be "bramble" or "bone", got ""`},
+		{"default_scope = \"\"\n", `default_scope must be "branch" or "repo", got ""`},
+		{"keybindings = \"x\"\n", "keybindings must be a table"},
+	}
+	for _, tt := range tests {
+		path, err := loadBody(t, tt.body, nil)
+		if err == nil || !strings.Contains(err.Error(), tt.want) || !strings.Contains(err.Error(), path) {
+			t.Errorf("%q: err = %v, want %q naming the file", tt.body, err, tt.want)
+		}
+	}
+	if _, err := Load(LoadOptions{LookupEnv: func(k string) (string, bool) { return "18446744073710", k == "HOUND_POLL_MIN_MS" }}); err == nil {
+		t.Error("HOUND_POLL_MIN_MS overflow was accepted")
+	}
+}
+
+// Later layers win, so the file may be repaired by the environment.
+func TestLoadValidatesTheMergedLayers(t *testing.T) {
+	if _, err := loadBody(t, "poll_min_ms = 40000\n", map[string]string{"HOUND_POLL_MAX_MS": "60000"}); err != nil {
+		t.Fatalf("file min 40s + env max 60s rejected: %v", err)
+	}
+	if _, err := loadBody(t, "poll_min_ms = 0\n", map[string]string{"HOUND_POLL_MIN_MS": "2000"}); err != nil {
+		t.Fatalf("file poll_min_ms = 0 repaired by the env rejected: %v", err)
+	}
+	for _, tt := range []struct {
+		body string
+		env  map[string]string
+	}{
+		{"", map[string]string{"HOUND_PER_PAGE": "500"}},
+		// The file's own error is repaired; the theme error is the env's.
+		{"per_page = 500\n", map[string]string{"HOUND_PER_PAGE": "30", "HOUND_THEME": "plaid"}},
+		// Both layers say the same thing, but the env's value won.
+		{"poll_min_ms = 0\n", map[string]string{"HOUND_POLL_MIN_MS": "3600001"}},
+	} {
+		path, err := loadBody(t, tt.body, tt.env)
+		if err == nil || strings.Contains(err.Error(), path) {
+			t.Errorf("%q + %v: an env error is blamed on the file: %v", tt.body, tt.env, err)
+		}
+	}
+}
+
+// The env repairs one file value; the file's other bad value is named.
+func TestLoadNamesTheFileForItsRemainingError(t *testing.T) {
+	path, err := loadBody(t, "theme = \"plaid\"\nper_page = 500\n", map[string]string{"HOUND_THEME": "bone"})
+	if err == nil || !strings.Contains(err.Error(), "per_page") || !strings.Contains(err.Error(), path) {
+		t.Fatalf("err = %v, want per_page blamed on %s", err, path)
+	}
+}
+
+func TestLoadRefusesPathsThatAreNotAConfigFile(t *testing.T) {
+	dir := t.TempDir()
+	fifo := filepath.Join(dir, "fifo.toml")
+	if err := syscall.Mkfifo(fifo, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dangling := filepath.Join(dir, "dangling.toml")
+	if err := os.Symlink(filepath.Join(dir, "gone.toml"), dangling); err != nil {
+		t.Fatal(err)
+	}
+	big := filepath.Join(dir, "big.toml")
+	if err := os.WriteFile(big, []byte("# "+strings.Repeat("x", 2<<20)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]string{fifo: "not a regular file", dangling: "broken symlink", big: "larger than"} {
+		done := make(chan error, 1)
+		go func() { _, err := Load(LoadOptions{Path: path, LookupEnv: emptyEnv}); done <- err }()
+		select {
+		case err := <-done:
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("%s: err = %v, want %q", filepath.Base(path), err, want)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("%s: Load hung", filepath.Base(path))
+		}
 	}
 }

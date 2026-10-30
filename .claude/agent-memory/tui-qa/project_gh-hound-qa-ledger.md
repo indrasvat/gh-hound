@@ -766,6 +766,25 @@ tunnels and 502s while a block file exists (go reuses one tunnel, so
 dropping existing tunnels is required). Implementer committed 98f0298
 mid-audit again; source reads via grep showed the uncommitted edit.
 
+Round 30 (task 420 config/keybindings, d128094, 2026-10-29): FAIL.
+No-config: byte-identical PNGs vs main on every non-help frame (8 fakes x
+3 sizes); help gains "R rerun failed · X force cancel" on the existing
+Actions line, still fits 80x24 with legend. Keymap verified: moved keys act,
+old dead, footers/help/toast footer/log-not-ready toast show moved key,
+filter/palette/dispatch/approvals comment/log search type literally, swap
+(watch=f,status_cycle=w) works, CJK key cell-width ok, bad configs exit 2
+naming the file. OPEN P1: full_log remap leaves failure-screen hint
+"expand full log (l)" (failure/view.go) while l is dead. OPEN P2: palette
+"theme · switch Bramble / Bone (T)" after theme moved. PRE-EXISTING: help
+over approvals lists runs keys; detail footer trailing bare "?".
+
+Round 31 (task 420 round 2, 0cef8c9, 2026-10-29): PASS. VERIFIED FIXED:
+full_log="U" refused ("cannot be remapped"), l fixed on failure; palette
+theme entry reads "(M)" after theme="M" (also after dispatch rebuilds the
+palette); every config error starts "config <path>:". Sweep 80x24+120x40:
+82/82 non-help PNGs identical to main. P3: `__vqa-tui --config-home` with a
+RELATIVE dir silently reads no config (absolute only) — use absolute paths.
+
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.
 **How to apply:** read before every gh-hound audit; update entries when a

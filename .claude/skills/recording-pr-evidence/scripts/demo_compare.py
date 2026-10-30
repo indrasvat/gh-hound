@@ -63,6 +63,11 @@ COLOURS = {"bad": (226, 86, 75), "good": (79, 211, 122), "same": (224, 163, 62)}
 RADIUS, STROKE, TINT = 7, 3, 34
 CAP, BAR = 64, 52
 KEYS = {"enter": "DQ==", "esc": "Gw==", "tab": "CQ==", "up": "G1tB", "down": "G1tC"}
+# The keycap a pane just received, on its title bar: the screen's own
+# surface, line and foreground colours, shown for KEYCAP_FRAMES frames.
+KEYCAP_FILL, KEYCAP_LINE, KEYCAP_FG = (36, 39, 30), (61, 66, 51), (234, 232, 217)
+KEYCAP_FRAMES = 10
+KEY_GLYPHS = {"enter": "⏎", "esc": "⎋", "tab": "⇥", "up": "↑", "down": "↓", "space": "␣"}
 
 
 def font(name, size):
@@ -189,13 +194,33 @@ def mark(img, rows, side, i, rules, fonts, hits):
     return Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB"), legend
 
 
+def keycap(draw, right, y, key, fonts):
+    """Draw the key a pane just received, right-aligned in its title bar."""
+    text = KEY_GLYPHS.get(key, key)
+    label = "pressed"
+    label_w = draw.textlength(label, font=fonts["title"])
+    cap_w = max(64, draw.textlength(text, font=fonts["keycap"]) + 36)
+    x1 = right - 20
+    x0 = x1 - cap_w
+    draw.rounded_rectangle((x0, y + 3, x1, y + 49), radius=9, fill=KEYCAP_FILL, outline=KEYCAP_FG, width=3)
+    draw.line((x0 + 8, y + 44, x1 - 8, y + 44), fill=KEYCAP_LINE, width=3)
+    draw.text(((x0 + x1) / 2, y + 24), text, font=fonts["keycap"], fill=KEYCAP_FG, anchor="mm")
+    draw.text((x0 - 14 - label_w, y + 9), label, font=fonts["title"], fill=FG_SOFT)
+
+
 def compose(spec, out, marked):
     fonts = {
         "badge": font("Bold", 19),
         "legend": font("Regular", 23),
         "caption": font("Regular", 28),
         "title": font("Bold", 26),
+        "keycap": font("Bold", 36),
     }
+    pressed = {"main": [], "pr": []}
+    for step in spec["timeline"]:
+        for target, key in step.get("keys", {}).items():
+            for side in ("main", "pr") if target == "both" else (target,):
+                pressed[side].append((step["frame"], key))
     rules = spec["rules"]
     hits = [0] * len(rules)
     captions = [(int(f), t) for f, t in (line.split("\t", 1) for line in (out / "captions.tsv").read_text().splitlines())]
@@ -216,7 +241,7 @@ def compose(spec, out, marked):
         caption = next((t for f, t in reversed(captions) if f <= i), "")
         draw.text((20, 18), caption, font=fonts["caption"], fill=FG_SOFT)
         y = CAP
-        for (pane, legend), (label, colour, _) in zip(panes, panes_spec):
+        for (pane, legend), (label, colour, side) in zip(panes, panes_spec):
             draw.ellipse((20, y + 17, 34, y + 31), fill=colour)
             draw.text((44, y + 9), label, font=fonts["title"], fill=colour)
             x = 44 + draw.textlength(label, font=fonts["title"]) + 36
@@ -225,6 +250,9 @@ def compose(spec, out, marked):
                 draw.text((x + 12, y + 25), number, font=fonts["badge"], fill=INK, anchor="mm")
                 draw.text((x + 33, y + 11), text, font=fonts["legend"], fill=FG_SOFT)
                 x += 33 + draw.textlength(text, font=fonts["legend"]) + 30
+            recent = [key for frame, key in pressed[side] if frame <= i < frame + KEYCAP_FRAMES]
+            if recent:
+                keycap(draw, width, y, recent[-1], fonts)
             canvas.paste(pane, (0, y + BAR))
             y += BAR + pane.height
         canvas.save(marked / path.name, compress_level=1)
