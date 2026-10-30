@@ -809,6 +809,11 @@ inputLine) leaks green to row end because Surface is "" -> no bg reset; both
 themes, every width, empty draft too. P3: 256 hit (236) vs group header
 (235) one step apart; Bone Fail #C24033 downsamples to grey at 16 colours.
 
+Round 34 (task 430 round 3, a0ed3a3, 2026-10-29): PASS. theme.Bg("")
+now emits ESC[49m: 16-colour runs filter cursor is one cell (both themes,
+80x24/120x40, empty and typed draft). Everything else PNG-identical to round
+2 bar timers and a 21-px antialias delta on the 16-colour current-hit row.
+
 **Why:** future audits must not re-litigate verified behavior and must
 re-check the narrow-width loading gap until fixed.
 **How to apply:** read before every gh-hound audit; update entries when a
