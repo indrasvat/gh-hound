@@ -81,6 +81,8 @@ scenarios=(
   keymap-help
   keymap-watch
   runs-footer-80
+  runs-branch-miss
+  runs-branch-miss-scope
 )
 
 adapter_for() {
@@ -148,6 +150,7 @@ keys_for() {
     help-toggle) printf '? : ? ?' ;;
     keymap-help) printf '? h' ;;
     keymap-watch) printf 'w f e' ;;
+    runs-branch-miss-scope) printf 's' ;;
     failure-cut-scroll) printf 'enter enter j j j j j' ;;
     failure-scroll-grow) printf 'enter enter j j j j j resize:120x40' ;;
     watch-skipped-job) printf 'w' ;;
@@ -170,6 +173,9 @@ keys_for() {
 args_for() {
   case "$1" in
     startup-frame) printf -- '--latency 5s' ;;
+    # A branch the fake has no runs on: the launch falls back to all
+    # branches; s returns to the branch, whose long name crowds the header.
+    runs-branch-miss | runs-branch-miss-scope) printf -- '--branch indrasvat/a-long-branch-name-that-crowds-the-runs-header --actor @me' ;;
     *) printf '' ;;
   esac
 }

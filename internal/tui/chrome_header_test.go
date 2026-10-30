@@ -16,8 +16,8 @@ func TestHeaderKeepsItsRightSideBesideALongBranch(t *testing.T) {
 	context := "⎇ branch indrasvat/honour-config-file-flag-precedence-theme-tokens · @indrasvat"
 	right := "6 runs loaded · live"
 	head := ansi.Strip(renderHeader(th, "hound", context, right, 78))
-	if ansi.StringWidth(head) > 78 {
-		t.Fatalf("header is %d cells: %q", ansi.StringWidth(head), head)
+	if ansi.StringWidth(head) > 77 {
+		t.Fatalf("a cut header must keep the cell before the border, like every header: %d cells, %q", ansi.StringWidth(head), head)
 	}
 	if !strings.HasSuffix(strings.TrimRight(head, " "), right) || !strings.Contains(head, "… · @indrasvat") {
 		t.Fatalf("header %q lost its right side or identity", head)

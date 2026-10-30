@@ -62,7 +62,8 @@ func renderHeader(th theme.Theme, title, context, right string, width int) strin
 		width = 1
 	}
 	mark := lipgloss.NewStyle().Foreground(lipgloss.Color(th.OK)).Bold(true).Render(title)
-	context = fitContext(context, width-visibleLen(title)-visibleLen(right)-3)
+	// Title, two separating spaces and a cell before the border.
+	context = fitContext(context, width-visibleLen(title)-visibleLen(right)-4)
 	ctx := lipgloss.NewStyle().Foreground(lipgloss.Color(th.Dim)).Render(context)
 	right = lipgloss.NewStyle().Foreground(lipgloss.Color(th.Dim)).Render(right)
 	raw := title + " " + context + " " + right

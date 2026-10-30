@@ -204,7 +204,10 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 		result.Scope = LaunchScopeRepo
 		result.NoticeScope = LaunchScopeRepo
 		if diagnostic, ok := EmptyBranchRunDiagnostic(result.Repo, result.Branch, request.Actor); ok {
-			result.Notice = diagnostic.Message + " Showing all branches now."
+			// Without its advice to try repo-wide discovery: this list
+			// already is.
+			message, _, _ := strings.Cut(diagnostic.Message, "; try ")
+			result.Notice = strings.TrimSuffix(message, ".") + ". Showing all branches now."
 		} else {
 			result.Notice = fmt.Sprintf("no runs on %s — showing all branches", result.Branch)
 		}
@@ -341,7 +344,8 @@ func (s LaunchService) currentRepository(ctx context.Context) (RepositoryContext
 	}
 	repoCtx, err := s.Repository.Current(ctx)
 	if err != nil {
-		if repoErr, ok := errors.AsType[ErrRepositoryContext](err); ok {
+		var repoErr ErrRepositoryContext
+		if errors.As(err, &repoErr) {
 			return RepositoryContext{}, repoErr
 		}
 		return RepositoryContext{}, ErrRepositoryContext{Reason: err.Error()}
