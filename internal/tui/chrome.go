@@ -62,12 +62,28 @@ func renderHeader(th theme.Theme, title, context, right string, width int) strin
 		width = 1
 	}
 	mark := lipgloss.NewStyle().Foreground(lipgloss.Color(th.OK)).Bold(true).Render(title)
+	context = fitContext(context, width-visibleLen(title)-visibleLen(right)-3)
 	ctx := lipgloss.NewStyle().Foreground(lipgloss.Color(th.Dim)).Render(context)
 	right = lipgloss.NewStyle().Foreground(lipgloss.Color(th.Dim)).Render(right)
 	raw := title + " " + context + " " + right
 	spacer := max(width-visibleLen(raw), 2)
 	line := mark + " " + ctx + strings.Repeat(" ", spacer) + right
 	return fitPlain(line, width)
+}
+
+// fitContext shortens the header's context to room, so the right side
+// (counts, live) always shows: the part before the last " · " (a long
+// branch name) gives way, and what follows (the identity) stays.
+func fitContext(context string, room int) string {
+	if visibleLen(context) <= room {
+		return context
+	}
+	if cut := strings.LastIndex(context, " · "); cut > 0 {
+		if tail := context[cut:]; room-visibleLen(tail) >= 4 {
+			return ansi.Truncate(context[:cut], room-visibleLen(tail), "…") + tail
+		}
+	}
+	return ansi.Truncate(context, max(room, 1), "…")
 }
 
 func renderFooter(th theme.Theme, footer string, width int) string {

@@ -72,13 +72,16 @@ func (e ErrRepositoryContext) Error() string {
 }
 
 type LaunchContext struct {
-	Repo         string
-	Branch       string
-	HeadSHA      string
-	Actor        string
-	Scope        LaunchScope
-	State        LaunchState
-	Notice       string
+	Repo    string
+	Branch  string
+	HeadSHA string
+	Actor   string
+	Scope   LaunchScope
+	State   LaunchState
+	Notice  string
+	// NoticeScope is the scope a notice describes ("showing all branches"
+	// is about repo scope); empty is branch scope.
+	NoticeScope  LaunchScope
 	ErrorMessage string
 	PerPage      int
 	Page         int
@@ -159,6 +162,7 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 	if repoCtx.Detached && result.Branch == "" {
 		result.Scope = LaunchScopeRepo
 		result.Notice = "detached HEAD — showing all branches"
+		result.NoticeScope = LaunchScopeRepo
 	}
 
 	actor := ""
@@ -198,6 +202,7 @@ func (s LaunchService) Resolve(ctx context.Context, request LaunchRequest) Launc
 	// actor's runs may be on the next page.
 	if len(runs) == 0 && !full && result.Scope == LaunchScopeBranch {
 		result.Scope = LaunchScopeRepo
+		result.NoticeScope = LaunchScopeRepo
 		if diagnostic, ok := EmptyBranchRunDiagnostic(result.Repo, result.Branch, request.Actor); ok {
 			result.Notice = diagnostic.Message + " Showing all branches now."
 		} else {

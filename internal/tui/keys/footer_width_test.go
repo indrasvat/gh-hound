@@ -29,9 +29,24 @@ func TestLogFooterFitsNarrowWidths(t *testing.T) {
 }
 
 func TestFooterWithoutPrioritiesIsUnchanged(t *testing.T) {
-	for _, screen := range []Screen{ScreenRunsList, ScreenDetail} {
+	for _, screen := range []Screen{ScreenDetail, ScreenAllGreen} {
 		if got, want := FooterForScreenWidth(screen, 20), FooterForScreen(screen); got != want {
 			t.Fatalf("%s: %q, want %q", screen, got, want)
 		}
+	}
+}
+
+// The runs footer is 86 cells; at 80 columns it once ended "/ …",
+// cutting filter and help.
+func TestRunsFooterFitsEightyColumns(t *testing.T) {
+	got := FooterForScreenWidth(ScreenRunsList, 78)
+	if n := utf8.RuneCountInString(got); n > 78 {
+		t.Fatalf("%d cells: %q", n, got)
+	}
+	if !strings.Contains(got, "/ filter") || !strings.HasSuffix(got, "· ?") || strings.Contains(got, "s scope") {
+		t.Fatalf("80-column runs footer = %q, want / filter and ? kept, s scope dropped first", got)
+	}
+	if wide := FooterForScreenWidth(ScreenRunsList, 120); !strings.Contains(wide, "s scope") {
+		t.Fatalf("wide runs footer dropped s scope: %q", wide)
 	}
 }

@@ -649,8 +649,14 @@ func plainRunTitle(run model.Run) string {
 	}
 }
 
+// visibleNotice shows a notice only in the scope it describes: after s
+// leaves repo scope, "showing all branches now" is no longer true.
 func visibleNotice(m Model) string {
-	if m.Context.Scope == usecase.LaunchScopeRepo {
+	scope := m.Context.NoticeScope
+	if scope == "" {
+		scope = usecase.LaunchScopeBranch
+	}
+	if m.Context.Scope != scope {
 		return ""
 	}
 	return m.Context.Notice

@@ -80,6 +80,7 @@ scenarios=(
   detail-log-not-ready
   keymap-help
   keymap-watch
+  runs-footer-80
 )
 
 adapter_for() {
