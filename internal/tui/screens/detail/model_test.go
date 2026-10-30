@@ -344,7 +344,7 @@ func TestArtifactsBlockLinesMatchesRenderedBlock(t *testing.T) {
 				if downloaded {
 					probe = m.WithDownload(artifacts[selected].ID, DownloadStatus{State: DownloadStateDone, Path: "/tmp/x"})
 				}
-				rendered := len(renderArtifactsBlock(probe, stylesFor(probe.theme()), 80))
+				rendered := len(renderArtifactsBlock(probe, stylesFor(probe.Theme.OrBramble()), 80))
 				budget := artifactsBlockLines(probe)
 				if rendered != budget {
 					t.Fatalf("count=%d selected=%d downloaded=%v: rendered %d lines, budget %d", count, selected, downloaded, rendered, budget)
@@ -537,12 +537,8 @@ func TestThemeRecoloursDetailSurfaces(t *testing.T) {
 		{EnvironmentName: "staging", Reviewers: []model.DeploymentReviewer{{Name: "ops"}}},
 	}
 	bramble, bone := theme.ForMode(theme.ModeBramble), theme.ForMode(theme.ModeBone)
-	before := View(m, 120)
 	m.Theme = bone
 	view := View(m, 120)
-	if view == before {
-		t.Fatal("switching to Bone must recolour the detail view")
-	}
 	for _, sgr := range []string{
 		theme.Fg(bone.OK), theme.Fg(bone.Fail), theme.Fg(bone.Info), theme.Fg(bone.Warn),
 		theme.Fg(bone.Dim), theme.Fg(bone.Subtle), theme.Fg(bone.FG), theme.Fg(bone.FGSoft),

@@ -304,11 +304,8 @@ type styles struct {
 	surfaceBG                                   string
 }
 
-// stylesFor falls back to Bramble for a zero theme.
 func stylesFor(th theme.Theme) styles {
-	if th.Mode == "" {
-		th = theme.ForMode(theme.ModeBramble)
-	}
+	th = th.OrBramble()
 	return styles{
 		ok: theme.Fg(th.OK), run: theme.Fg(th.Run), info: theme.Fg(th.Info), fail: theme.Fg(th.Fail),
 		dim: theme.Fg(th.Dim), fg: theme.Fg(th.FG), fgSoft: theme.Fg(th.FGSoft), line2: theme.Fg(th.Line2),

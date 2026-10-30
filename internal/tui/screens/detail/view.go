@@ -30,7 +30,7 @@ func ViewSize(m Model, width, height int) string {
 		fixed := len(head) + 4 + artifactsBlockLines(m) + gateBlockLines(m)
 		stepsBudget = max(height-fixed, 3)
 	}
-	st := stylesFor(m.theme())
+	st := stylesFor(m.Theme.OrBramble())
 	lines := head
 	if width < 100 {
 		lines = append(lines, renderStepsPane(m, st, width, stepsBudget, true)...)
@@ -711,13 +711,6 @@ func stylesFor(th theme.Theme) styles {
 		fgSoft: theme.Fg(th.FGSoft), line: theme.Fg(th.Line),
 		surface2BG: theme.Bg(th.Surface2), failTintBG: theme.Bg(th.FailTint),
 	}
-}
-
-func (m Model) theme() theme.Theme {
-	if m.Theme.Mode == "" {
-		return theme.ForMode(theme.ModeBramble)
-	}
-	return m.Theme
 }
 
 const sgrReset = "\x1b[0m"

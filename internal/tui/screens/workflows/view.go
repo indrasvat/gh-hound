@@ -19,7 +19,7 @@ func ViewSize(m Model, width, height int) string {
 	if width <= 0 {
 		width = 80
 	}
-	st := stylesFor(m.theme())
+	st := stylesFor(m.Theme.OrBramble())
 	nameW, fileW, stateW := columnWidths(width, m.Workflows)
 	lines := []string{header(st, width, nameW, fileW, stateW)}
 	rows := m.Workflows
@@ -221,13 +221,6 @@ func stylesFor(th theme.Theme) styles {
 		neutral: theme.Fg(th.Neutral), subtle: theme.Fg(th.Subtle), fgSoft: theme.Fg(th.FGSoft),
 		dim: lipgloss.NewStyle().Foreground(lipgloss.Color(th.Subtle)),
 	}
-}
-
-func (m Model) theme() theme.Theme {
-	if m.Theme.Mode == "" {
-		return theme.ForMode(theme.ModeBramble)
-	}
-	return m.Theme
 }
 
 const sgrReset = "\x1b[0m"

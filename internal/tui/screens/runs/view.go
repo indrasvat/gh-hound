@@ -33,7 +33,7 @@ func ViewSize(m Model, width, height int, now time.Time) string {
 }
 
 func renderRuns(m Model, width, height int, now time.Time) string {
-	st := stylesFor(m.theme())
+	st := stylesFor(m.Theme.OrBramble())
 	cols := columnsFor(width)
 	runs := m.filteredRuns()
 	selected := clampSelection(m.Selected, len(runs))
@@ -75,7 +75,7 @@ func renderRuns(m Model, width, height int, now time.Time) string {
 }
 
 func renderAllGreen(m Model, width, height int, now time.Time) string {
-	st := stylesFor(m.theme())
+	st := stylesFor(m.Theme.OrBramble())
 	summary := m.Summary()
 	runs := m.filteredRuns()
 	selected := clampSelection(m.Selected, len(runs))
@@ -748,13 +748,6 @@ func stylesFor(th theme.Theme) styles {
 		fgSoft: theme.Fg(th.FGSoft), fg: theme.Fg(th.FG),
 		surfaceBG: theme.Bg(th.Surface), okBG: theme.Bg(th.OK), bandBG: theme.Bg(th.OKTint),
 	}
-}
-
-func (m Model) theme() theme.Theme {
-	if m.Theme.Mode == "" {
-		return theme.ForMode(theme.ModeBramble)
-	}
-	return m.Theme
 }
 
 const (

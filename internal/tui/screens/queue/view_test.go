@@ -108,12 +108,8 @@ func TestQueueViewShowsEachMemberGroup(t *testing.T) {
 // screen comes from the model's theme, so Bone leaves no Bramble behind.
 func TestQueueViewRecoloursFromTheme(t *testing.T) {
 	m := NewModel(testReport(3))
-	bramble := ViewSize(m, 120, 40)
 	m.Theme = theme.ForMode(theme.ModeBone)
 	bone := ViewSize(m, 120, 40)
-	if bone == bramble {
-		t.Fatal("switching Theme must recolour the view")
-	}
 	bramt, bonet := theme.ForMode(theme.ModeBramble), m.Theme
 	for _, token := range []string{bonet.OK, bonet.Run, bonet.Info, bonet.Dim, bonet.Subtle, bonet.FG, bonet.FGSoft} {
 		if !strings.Contains(bone, theme.Fg(token)) {

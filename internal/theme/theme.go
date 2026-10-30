@@ -46,6 +46,9 @@ type Theme struct {
 	RunTintStrong string
 	FailTint      string
 	InfoTint      string
+	// Mark is the banner's top-to-bottom gradient; Mark[1] is also the
+	// welcome screen's accent.
+	Mark [6]string
 }
 
 func ForMode(mode Mode) Theme {
@@ -78,6 +81,7 @@ func ForMode(mode Mode) Theme {
 			RunTintStrong: "#DECAA7",
 			FailTint:      "#E9D5C9",
 			InfoTint:      "#DADED7",
+			Mark:          [6]string{"#1F9E55", "#2E8E55", "#3E7491", "#4D6466", "#33342A", "#23241C"},
 		}
 	}
 	return Theme{
@@ -107,6 +111,7 @@ func ForMode(mode Mode) Theme {
 		RunTintStrong: "#4C371E",
 		FailTint:      "#281312",
 		InfoTint:      "#141C21",
+		Mark:          [6]string{"#4FD37A", "#66BE8A", "#6E9CB5", "#97AFA9", "#CFCDBB", "#EAE8D9"},
 	}
 }
 
@@ -136,6 +141,15 @@ func (t Theme) SemanticForConclusion(conclusion model.Conclusion) string {
 	default:
 		return t.Neutral
 	}
+}
+
+// OrBramble is the theme a screen draws with: a zero theme (a model built
+// outside the app, as fixtures and tests do) is Bramble.
+func (t Theme) OrBramble() Theme {
+	if t.Mode == "" {
+		return ForMode(ModeBramble)
+	}
+	return t
 }
 
 // Fg is a token as a foreground SGR: #RRGGBB as truecolor, which the TTY

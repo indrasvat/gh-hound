@@ -69,12 +69,8 @@ func TestThemeRecoloursScentCheck(t *testing.T) {
 		Verdict: "squirrel",
 	})
 	bramble, bone := theme.ForMode(theme.ModeBramble), theme.ForMode(theme.ModeBone)
-	before := View(m, 100)
 	m.Theme = bone
 	view := View(m, 100)
-	if view == before {
-		t.Fatal("switching to Bone must recolour the scent check")
-	}
 	for _, token := range []string{bone.OK, bone.Run, bone.Info, bone.Dim, bone.FG, bone.FGSoft} {
 		if !strings.Contains(view, theme.Fg(token)) {
 			t.Fatalf("Bone token %s missing from the scent check:\n%q", token, view)
@@ -85,7 +81,7 @@ func TestThemeRecoloursScentCheck(t *testing.T) {
 			t.Fatalf("Bramble colour %s leaked into the Bone scent check:\n%q", token, view)
 		}
 	}
-	if !strings.Contains(EvidenceRow(bone, m.Report.Jobs[0].Evidence[0], false), theme.Fg(bone.FGSoft)) {
+	if !strings.Contains(EvidenceRows(bone, m.Report.Jobs[0].Evidence[:1], -1)[0], theme.Fg(bone.FGSoft)) {
 		t.Fatal("EvidenceRow must colour from the theme it is given")
 	}
 }

@@ -19,7 +19,7 @@ func View(m Model, width int) string {
 		width = 80
 	}
 	m.Width = width
-	st := stylesFor(m.theme())
+	st := stylesFor(m.Theme.OrBramble())
 	lines := []string{fitANSI(strings.TrimSpace(colorize(st.header, header(m, width))+"  "+scrollIndicator(st, m)), width)}
 	budget := max(m.Height, 1)
 	_, skip := m.position()
@@ -507,13 +507,6 @@ func stylesFor(th theme.Theme) styles {
 		surfaceBG: theme.Bg(th.Surface), infoTintBG: theme.Bg(th.InfoTint),
 		runTintBG: theme.Bg(th.RunTint), runTintStrongBG: theme.Bg(th.RunTintStrong),
 	}
-}
-
-func (m Model) theme() theme.Theme {
-	if m.Theme.Mode == "" {
-		return theme.ForMode(theme.ModeBramble)
-	}
-	return m.Theme
 }
 
 const (

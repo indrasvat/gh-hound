@@ -16,9 +16,6 @@ func downsampled(profile colorprofile.Profile, sgr string) string {
 	return b.String()
 }
 
-// On a 256-colour terminal every fill must land on its own palette
-// index, apart from the background's: the truecolor fills all fold onto
-// the background (232 on Bramble), so selection and shading vanish.
 func TestLimitedThemeFillsStayDistinctAt256(t *testing.T) {
 	for _, mode := range []theme.Mode{theme.ModeBramble, theme.ModeBone} {
 		truecolor, limited := theme.ForMode(mode), theme.ForMode(mode).Limited()

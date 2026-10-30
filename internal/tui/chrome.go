@@ -101,8 +101,8 @@ func overlayInnerWidth(width int) int {
 
 // overlayBox frames body under its title. Short of room (rows, 0:
 // unbounded), the title moves into the top border, then the borders go.
-// overlayBox frames body; with fillSelection the row under the cursor
-// takes the surface-2 fill behind a green bar (the palette, contract ⑧).
+// With fillSelection the row under the cursor takes the surface-2 fill
+// behind a green bar (the palette, contract ⑧).
 func overlayBox(th theme.Theme, title, body string, width, room int, fillSelection bool) string {
 	if width < minFrameWidth {
 		width = minFrameWidth
@@ -458,18 +458,14 @@ func backgroundSafeLine(value string, width int, fg string, bg string) string {
 	return style + value + sgrReset
 }
 
-func parseHex(color string) ([3]int, bool) {
-	v, err := strconv.ParseUint(strings.TrimPrefix(color, "#"), 16, 32)
-	if err != nil || len(strings.TrimPrefix(color, "#")) != 6 {
-		return [3]int{}, false
-	}
-	return [3]int{int(v >> 16 & 0xff), int(v >> 8 & 0xff), int(v & 0xff)}, true
-}
-
-// hexRGB is a theme token's colour; tokens are always #RRGGBB.
+// hexRGB is BG's or FG's colour, always #RRGGBB (Limited's fills are
+// palette indices and must not come here).
 func hexRGB(color string) [3]int {
-	c, _ := parseHex(color)
-	return c
+	v, err := strconv.ParseUint(strings.TrimPrefix(color, "#"), 16, 32)
+	if err != nil {
+		return [3]int{}
+	}
+	return [3]int{int(v >> 16 & 0xff), int(v >> 8 & 0xff), int(v & 0xff)}
 }
 
 const sgrReset = "\x1b[0m"

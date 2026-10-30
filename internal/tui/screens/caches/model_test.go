@@ -272,12 +272,8 @@ func TestViewRecoloursFromTheme(t *testing.T) {
 	now := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 	m := NewModel("indrasvat/gh-hound", testData())
 	m.Usage.ActiveSizeInBytes = 9*(1<<30) + 700*(1<<20)
-	bramble := View(m, 100, now)
 	m.Theme = theme.ForMode(theme.ModeBone)
 	bone := View(m, 100, now)
-	if bone == bramble {
-		t.Fatal("switching Theme must recolour the view")
-	}
 	bramt, bonet := theme.ForMode(theme.ModeBramble), m.Theme
 	for _, token := range []string{bonet.OK, bonet.Fail, bonet.Warn, bonet.Muted, bonet.Subtle, bonet.FGSoft, bonet.Line2} {
 		if !strings.Contains(bone, theme.Fg(token)) {

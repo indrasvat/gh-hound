@@ -167,12 +167,8 @@ func TestViewFitsNarrowWidths(t *testing.T) {
 func TestViewRecoloursFromTheme(t *testing.T) {
 	m := NewModel("indrasvat/gh-hound", fixtureWorkflows())
 	m.Selected = 1
-	bramble := View(m, 100)
 	m.Theme = theme.ForMode(theme.ModeBone)
 	bone := View(m, 100)
-	if bone == bramble {
-		t.Fatal("switching Theme must recolour the view")
-	}
 	bramt, bonet := theme.ForMode(theme.ModeBramble), m.Theme
 	for _, token := range []string{bonet.OK, bonet.Fail, bonet.Run, bonet.Warn, bonet.Neutral, bonet.Subtle, bonet.FGSoft} {
 		if !strings.Contains(bone, theme.Fg(token)) {

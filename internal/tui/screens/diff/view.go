@@ -24,7 +24,7 @@ func ViewSize(m Model, width, height int) string {
 	if width <= 0 {
 		width = 80
 	}
-	st := stylesFor(m.theme())
+	st := stylesFor(m.Theme.OrBramble())
 	lines := []string{fitANSI(headerLine(m, st), width)}
 	switch m.Verdict.Status {
 	case usecase.RegressionLocated:
@@ -170,13 +170,6 @@ func stylesFor(th theme.Theme) styles {
 		info: theme.Fg(th.Info), dim: theme.Fg(th.Dim), fg: theme.Fg(th.FG),
 		fgSoft: theme.Fg(th.FGSoft),
 	}
-}
-
-func (m Model) theme() theme.Theme {
-	if m.Theme.Mode == "" {
-		return theme.ForMode(theme.ModeBramble)
-	}
-	return m.Theme
 }
 
 const sgrReset = "\x1b[0m"

@@ -32,7 +32,7 @@ func ViewSize(m Model, width, height int) string {
 	m.Height = height
 	m = m.fit()
 	excerptRows, _ := m.drawn()
-	st := stylesFor(m.theme())
+	st := stylesFor(m.Theme.OrBramble())
 	lines := []string{
 		fitANSI(header(m), width),
 		annotationHeader(st, width),
@@ -102,8 +102,12 @@ func flakePanel(st styles, m Model, width int) []string {
 		"",
 		fitANSI(focusMark(st, m.PanelFocus)+header, width),
 	}
-	for index, evidence := range flake.Evidence {
-		lines = append(lines, fitANSI(flakesscreen.EvidenceRow(m.theme(), evidence, m.PanelFocus && index == m.PanelSelected), width))
+	selected := -1
+	if m.PanelFocus {
+		selected = m.PanelSelected
+	}
+	for _, row := range flakesscreen.EvidenceRows(m.Theme.OrBramble(), flake.Evidence, selected) {
+		lines = append(lines, fitANSI(row, width))
 	}
 	hint := "⇥ inspect evidence"
 	if m.PanelFocus {
@@ -297,13 +301,6 @@ func stylesFor(th theme.Theme) styles {
 		dim: theme.Fg(th.Dim), fg: theme.Fg(th.FG), fgSoft: theme.Fg(th.FGSoft), line2: theme.Fg(th.Line2),
 		path: info + sgrUnderline, surfaceBG: theme.Bg(th.Surface), runTintBG: theme.Bg(th.RunTint),
 	}
-}
-
-func (m Model) theme() theme.Theme {
-	if m.Theme.Mode == "" {
-		return theme.ForMode(theme.ModeBramble)
-	}
-	return m.Theme
 }
 
 const (

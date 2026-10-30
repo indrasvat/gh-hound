@@ -4919,7 +4919,7 @@ func (a App) screenBody(width, height int) string {
 	}
 	switch a.Route() {
 	case RouteWelcome:
-		return welcome.View(welcome.Model{Build: a.build}, bodyWidth, max(height-6, 0))
+		return welcome.View(welcome.Model{Build: a.build, Theme: a.theme}, bodyWidth, max(height-6, 0))
 	case RouteRuns:
 		if body, ok := a.launchStateBody(bodyWidth); ok {
 			return body

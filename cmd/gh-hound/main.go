@@ -122,6 +122,9 @@ type cliOptions struct {
 	WatchTimeout  time.Duration
 	// perPage is config's per_page, set where a listing is built.
 	perPage int
+	// limitedColor is a TTY without truecolor, read once by runTUI: the
+	// writer downsamples and the theme picks palette fills from it.
+	limitedColor bool
 }
 
 func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Command {
@@ -1191,6 +1194,7 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 	out := runtime.Stdout
 	if runtime.IsTTY {
 		out = tuiOutput(runtime.Stdout, runtime.Env)
+		options.limitedColor = limitedProfile(colorProfile(runtime.Stdout, runtime.Env))
 		// Alt screen + hidden cursor for the app's lifetime: scrollback
 		// stays clean and the cursor never strobes during repaints.
 		if _, err := io.WriteString(out, enterAlt+hideCursor); err != nil {
@@ -1203,7 +1207,7 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 
 	renderer := newFrameRenderer(out)
 	renderer.SetSize(width, height)
-	startup := tui.NewStartup(cfg, options.Repo, runtime.IsTTY && limitedProfile(colorProfile(runtime.Stdout, runtime.Env)))
+	startup := tui.NewStartup(cfg, options.Repo, options.limitedColor)
 	var screen interface {
 		ViewSize(width, height int) string
 	} = startup
@@ -1551,7 +1555,7 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 	return tui.NewApp(tui.Options{
 		Config:       cfg,
 		Keymap:       keymap,
-		LimitedColor: runtime.IsTTY && limitedProfile(colorProfile(runtime.Stdout, runtime.Env)),
+		LimitedColor: options.limitedColor,
 		Build:        build,
 		Launch:       launch,
 		RunsResolver: func(loadCtx context.Context, filter usecase.RunFilter) ([]model.Run, error) {

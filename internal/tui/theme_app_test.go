@@ -35,7 +35,7 @@ func brambleOnly() []string {
 
 func themedRouteApp(route Route) App {
 	cfg := config.Default()
-	cfg.Welcome = false
+	cfg.Welcome = route == RouteWelcome
 	app := NewApp(Options{Config: cfg, Build: BuildInfo{Version: "test"}})
 	app.runs = sampleRunsModel()
 	app.detail = sampleDetailModel()
@@ -48,20 +48,30 @@ func themedRouteApp(route Route) App {
 	app.queue = queuescreen.NewModel(sampleQueueReport())
 	app.workflows = workflowsscreen.NewModel("indrasvat/gh-hound", sampleWorkflows())
 	app.caches = sampleCachesPressureModel()
-	if route != RouteRuns {
+	if route != RouteRuns && route != RouteWelcome {
 		app.PushRoute(route)
 	}
 	return app
 }
 
+// frameBody drops the frame's top three and bottom three rows, so only
+// the screen's own drawing is judged, never the chrome around it.
+func frameBody(view string) string {
+	lines := strings.Split(view, "\n")
+	if len(lines) <= 6 {
+		return ""
+	}
+	return strings.Join(lines[3:len(lines)-3], "\n")
+}
+
 // T recolours every screen: after it, no screen keeps a Bramble colour.
 func TestThemeToggleRecoloursEveryScreen(t *testing.T) {
-	routes := []Route{RouteRuns, RouteDetail, RouteFailure, RouteLog, RouteWatch, RouteWatchBoard, RouteDiff, RouteFlakes, RouteCaches, RouteQueue, RouteWorkflows}
+	routes := []Route{RouteWelcome, RouteRuns, RouteDetail, RouteFailure, RouteLog, RouteWatch, RouteWatchBoard, RouteDiff, RouteFlakes, RouteCaches, RouteQueue, RouteWorkflows}
 	bramble := brambleOnly()
 	for _, route := range routes {
 		t.Run(string(route), func(t *testing.T) {
 			app := themedRouteApp(route)
-			before := app.ViewSize(120, 40)
+			before := frameBody(app.ViewSize(120, 40))
 			drawn := 0
 			for _, sgr := range bramble {
 				if strings.Contains(before, sgr) {
@@ -72,14 +82,21 @@ func TestThemeToggleRecoloursEveryScreen(t *testing.T) {
 				t.Fatalf("%s drew %d Bramble colours; the fixture did not reach the screen:\n%s", route, drawn, before)
 			}
 			app, _ = app.Update(KeyMsg{Key: "T"})
-			after := app.ViewSize(120, 40)
+			after := frameBody(app.ViewSize(120, 40))
 			for _, sgr := range bramble {
 				if strings.Contains(after, sgr) {
 					t.Errorf("%s keeps Bramble %q after T", route, sgr)
 				}
 			}
-			if !strings.Contains(after, theme.Fg(theme.ForMode(theme.ModeBone).OK)) && !strings.Contains(after, theme.Fg(theme.ForMode(theme.ModeBone).FG)) {
-				t.Errorf("%s shows no Bone colour after T", route)
+			bone := theme.ForMode(theme.ModeBone)
+			drawnBone := 0
+			for _, c := range []string{bone.OK, bone.Fail, bone.Run, bone.Info, bone.FG, bone.FGSoft, bone.Dim, bone.Subtle, bone.Muted} {
+				if strings.Contains(after, theme.Fg(c)) {
+					drawnBone++
+				}
+			}
+			if drawnBone < 2 {
+				t.Errorf("%s body shows %d Bone colours after T", route, drawnBone)
 			}
 		})
 	}

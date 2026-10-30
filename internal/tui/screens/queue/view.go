@@ -18,7 +18,7 @@ func ViewSize(m Model, width, height int) string {
 	if width <= 0 {
 		width = 80
 	}
-	st := stylesFor(m.theme())
+	st := stylesFor(m.Theme.OrBramble())
 	lines := []string{
 		fitANSI(headline(st, m.Report, width), width),
 		fitANSI(summaryLine(st, m.Report), width),
@@ -331,13 +331,6 @@ func stylesFor(th theme.Theme) styles {
 		ok: theme.Fg(th.OK), fail: theme.Fg(th.Fail), run: theme.Fg(th.Run), info: theme.Fg(th.Info),
 		dim: theme.Fg(th.Dim), subtle: theme.Fg(th.Subtle), fg: theme.Fg(th.FG), fgSoft: theme.Fg(th.FGSoft),
 	}
-}
-
-func (m Model) theme() theme.Theme {
-	if m.Theme.Mode == "" {
-		return theme.ForMode(theme.ModeBramble)
-	}
-	return m.Theme
 }
 
 const sgrReset = "\x1b[0m"

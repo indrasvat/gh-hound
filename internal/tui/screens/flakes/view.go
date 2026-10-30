@@ -18,7 +18,7 @@ func ViewSize(m Model, width, height int) string {
 	if width <= 0 {
 		width = 80
 	}
-	st := stylesFor(m.theme())
+	st := stylesFor(m.Theme.OrBramble())
 	lines := []string{fitANSI(headerLine(st, m.Report), width)}
 	switch m.Report.Status {
 	case usecase.FlakeStatusClean:
@@ -103,10 +103,16 @@ func jobLine(st styles, job usecase.JobFlake) string {
 		colorize(st.dim, fmt.Sprintf(" · score %.2f · %s · %s", job.Score, job.Verdict, strings.Join(counts, " · ")))
 }
 
-// EvidenceRow renders one evidence line; shared with the failure
-// screen's flake panel so the two surfaces cannot drift.
-func EvidenceRow(th theme.Theme, evidence usecase.FlakeEvidence, selected bool) string {
-	return evidenceRow(stylesFor(th), evidence, selected)
+// EvidenceRows renders evidence for the failure screen's flake panel, the
+// same lines as here so the two cannot drift; selected is the cursor's
+// row, or -1.
+func EvidenceRows(th theme.Theme, evidence []usecase.FlakeEvidence, selected int) []string {
+	st := stylesFor(th)
+	rows := make([]string, len(evidence))
+	for i, e := range evidence {
+		rows[i] = evidenceRow(st, e, i == selected)
+	}
+	return rows
 }
 
 func evidenceRow(st styles, evidence usecase.FlakeEvidence, selected bool) string {
@@ -156,13 +162,6 @@ func stylesFor(th theme.Theme) styles {
 		ok: theme.Fg(th.OK), run: theme.Fg(th.Run), info: theme.Fg(th.Info),
 		dim: theme.Fg(th.Dim), fg: theme.Fg(th.FG), fgSoft: theme.Fg(th.FGSoft),
 	}
-}
-
-func (m Model) theme() theme.Theme {
-	if m.Theme.Mode == "" {
-		return theme.ForMode(theme.ModeBramble)
-	}
-	return m.Theme
 }
 
 const sgrReset = "\x1b[0m"

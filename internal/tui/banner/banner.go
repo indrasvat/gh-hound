@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss/v2"
+	"github.com/indrasvat/gh-hound/internal/theme"
 )
 
 type BuildInfo struct {
@@ -32,18 +33,15 @@ func RenderVersion(info BuildInfo) string {
 	return out.String()
 }
 
+// RenderMark is the banner in Bramble, as --version prints it.
 func RenderMark() string {
-	styles := []lipgloss.Style{
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#4FD37A")),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#66BE8A")),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#6E9CB5")),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#97AFA9")),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#CFCDBB")),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#EAE8D9")),
-	}
+	return RenderMarkTheme(theme.ForMode(theme.ModeBramble))
+}
+
+func RenderMarkTheme(th theme.Theme) string {
 	lines := strings.Split(Mark, "\n")
 	for i, line := range lines {
-		lines[i] = styles[i%len(styles)].Render(line)
+		lines[i] = lipgloss.NewStyle().Foreground(lipgloss.Color(th.Mark[i%len(th.Mark)])).Render(line)
 	}
 	return strings.Join(lines, "\n")
 }

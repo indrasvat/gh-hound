@@ -143,18 +143,18 @@ func TestEditingKeepsResultsUntilEnter(t *testing.T) {
 func TestSummaryCountsAreHonestAboutWhatTheyCounted(t *testing.T) {
 	m := actorModel()
 	m = m.Apply("change")
-	if got := ansi.Strip(strings.Join(filterLines(m, stylesFor(m.theme()), 118, 0), "")); !strings.Contains(got, "/change · 0 of 4 loaded · Esc clear") {
+	if got := ansi.Strip(strings.Join(filterLines(m, stylesFor(m.Theme.OrBramble()), 118, 0), "")); !strings.Contains(got, "/change · 0 of 4 loaded · Esc clear") {
 		t.Fatalf("text search count: %q", got)
 	}
 	m = m.Apply("actor:alice")
 	m.DataKeys = map[usecase.LaunchScope]string{usecase.LaunchScopeBranch: m.ServerKey()}
 	m.Context.HasMore = true
-	if got := ansi.Strip(strings.Join(filterLines(m, stylesFor(m.theme()), 118, 4), "")); !strings.Contains(got, "/actor:alice · 4+ runs · Esc clear") {
+	if got := ansi.Strip(strings.Join(filterLines(m, stylesFor(m.Theme.OrBramble()), 118, 4), "")); !strings.Contains(got, "/actor:alice · 4+ runs · Esc clear") {
 		t.Fatalf("server count: %q", got)
 	}
 	m.Loading = true
 	m.DataKeys = nil
-	if got := ansi.Strip(strings.Join(filterLines(m, stylesFor(m.theme()), 118, 1), "")); strings.Contains(got, "runs") {
+	if got := ansi.Strip(strings.Join(filterLines(m, stylesFor(m.Theme.OrBramble()), 118, 1), "")); strings.Contains(got, "runs") {
 		t.Fatalf("a loading query must not claim a count for stale rows: %q", got)
 	}
 }
@@ -195,7 +195,7 @@ func TestThemeRecoloursRunsSurfaces(t *testing.T) {
 func TestLongAppliedQueryKeepsItsCountAndRunNumbersSearch(t *testing.T) {
 	m := actorModel().Apply("actor:a-very-long-contributor-login-name status:success branch:docs/filters")
 	m.DataKeys = map[usecase.LaunchScope]string{usecase.LaunchScopeBranch: m.ServerKey()}
-	line := ansi.Strip(strings.Join(filterLines(m, stylesFor(m.theme()), 78, 4), ""))
+	line := ansi.Strip(strings.Join(filterLines(m, stylesFor(m.Theme.OrBramble()), 78, 4), ""))
 	if !strings.HasSuffix(strings.TrimRight(line, " "), "· 4 runs · Esc clear") || !strings.Contains(line, "…") {
 		t.Fatalf("long query must truncate itself, not its count: %q", line)
 	}
