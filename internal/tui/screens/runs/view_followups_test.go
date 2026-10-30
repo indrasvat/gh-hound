@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/indrasvat/gh-hound/internal/theme"
+
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/usecase"
@@ -139,5 +141,18 @@ func TestStatusCycleResetsFromTextFilter(t *testing.T) {
 	m = m.Update(KeyMsg{Key: "f"})
 	if m.Filter != "zz status:failure" {
 		t.Fatalf("f after a text filter starts the cycle and keeps the text: %q", m.Filter)
+	}
+}
+
+// At 16 colours there is no input shading: the cursor's green must end
+// at the cursor, not run to the row's end.
+func TestFilterCursorEndsAtSixteenColours(t *testing.T) {
+	m := actorModel()
+	m.Theme = theme.ForMode(theme.ModeBramble).For(theme.Palette16)
+	m.InputMode = true
+	m.Draft = "fla"
+	view := View(m, 80, time.Now())
+	if !strings.Contains(view, theme.Bg(m.Theme.OK)+" "+"\x1b[49m") {
+		t.Fatalf("the cursor's fill does not end at the cursor:\n%q", view)
 	}
 }

@@ -158,8 +158,15 @@ func (t Theme) OrBramble() Theme {
 // write an SGR colour of their own.
 func Fg(color string) string { return sgr(38, color) }
 
-// Bg is Fg for the background.
-func Bg(color string) string { return sgr(48, color) }
+// Bg is Fg for the background. An empty token is no fill (the 16-colour
+// theme's): it resets to the terminal's background, so a fill set before
+// it ends where a fill would have replaced it.
+func Bg(color string) string {
+	if color == "" {
+		return "\x1b[49m"
+	}
+	return sgr(48, color)
+}
 
 func sgr(code int, color string) string {
 	if index, err := strconv.ParseUint(color, 10, 8); err == nil {

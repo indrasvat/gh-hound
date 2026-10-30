@@ -111,8 +111,8 @@ func TestPalette16DrawsNoFills(t *testing.T) {
 	for _, mode := range []theme.Mode{theme.ModeBramble, theme.ModeBone} {
 		basic := theme.ForMode(mode).For(theme.Palette16)
 		for _, name := range fillNames {
-			if sgr := theme.Bg(fills(basic)[name]); sgr != "" {
-				t.Errorf("%s: %s still fills (%q)", mode, name, sgr)
+			if sgr := theme.Bg(fills(basic)[name]); sgr != "\x1b[49m" {
+				t.Errorf("%s: %s fills (%q), want the terminal's background", mode, name, sgr)
 			}
 		}
 	}
