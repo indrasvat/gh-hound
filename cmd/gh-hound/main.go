@@ -398,7 +398,7 @@ func newInteractCommand(stdout io.Writer) *cobra.Command {
 }
 
 func newVQATUICommand(runtime commandRuntime, info buildInfo) *cobra.Command {
-	var scenario, actor, configHome string
+	var scenario, actor, configHome, branch string
 	var latency time.Duration
 	cmd := &cobra.Command{
 		Use:    "__vqa-tui",
@@ -426,16 +426,17 @@ func newVQATUICommand(runtime commandRuntime, info buildInfo) *cobra.Command {
 			runtime.Repo = staticRepositoryContext{
 				context: usecase.RepositoryContext{
 					Repo:   "indrasvat/gh-hound",
-					Branch: "main",
+					Branch: branch,
 					Actor:  "indrasvat",
 				},
 			}
-			return runTUI(cmd.Context(), runtime, info, cliOptions{Repo: "indrasvat/gh-hound", Branch: "main", Actor: actor})
+			return runTUI(cmd.Context(), runtime, info, cliOptions{Repo: "indrasvat/gh-hound", Branch: branch, Actor: actor})
 		},
 	}
 	cmd.Flags().StringVar(&scenario, "scenario", string(fake.ScenarioFailing), "fake adapter scenario for PTY VQA")
 	cmd.Flags().StringVar(&actor, "actor", "", "launch actor filter (login or @me)")
 	cmd.Flags().DurationVar(&latency, "latency", 0, "delay every runs listing and identity lookup, to rehearse loading and stale results")
+	cmd.Flags().StringVar(&branch, "branch", "main", "the checkout's branch; one the fixture has no runs on rehearses the branch-miss fallback")
 	cmd.Flags().StringVar(&configHome, "config-home", "", "read <dir>/gh-hound/config.toml instead of no config file")
 	return cmd
 }

@@ -1,0 +1,137 @@
+{
+  "scenario": "live",
+  "args": [
+    "--actor",
+    "@me"
+  ],
+  "cwd": "/tmp/i56/longwt",
+  "ready": "hound",
+  "size": "80x24",
+  "seconds": 40,
+  "fps": 5,
+  "playback_fps": 7.5,
+  "panes": {
+    "main": "main cbec7b7 · live, read-only",
+    "pr": "this PR · live, read-only"
+  },
+  "timeline": [
+    {
+      "frame": 0,
+      "caption": "gh hound --actor @me on a local branch with a long name and no runs: it falls back to all branches"
+    },
+    {
+      "frame": 40,
+      "keys": {
+        "both": "s"
+      },
+      "caption": "s · back to the branch"
+    },
+    {
+      "frame": 95,
+      "keys": {
+        "both": "s"
+      },
+      "caption": "s · all branches again"
+    },
+    {
+      "frame": 135,
+      "keys": {
+        "both": "s"
+      },
+      "caption": "s · the branch once more"
+    }
+  ],
+  "rules": [
+    {
+      "frames": [
+        10,
+        39
+      ],
+      "side": "pr",
+      "match": "branches now\\.",
+      "tone": "good",
+      "label": "why all branches"
+    },
+    {
+      "frames": [
+        45,
+        94
+      ],
+      "side": "main",
+      "match": "branches now\\.",
+      "tone": "bad",
+      "label": "stale notice"
+    },
+    {
+      "frames": [
+        45,
+        94
+      ],
+      "side": "main",
+      "match": "branch indrasvat/a-long.*",
+      "tone": "bad",
+      "label": "count pushed off"
+    },
+    {
+      "frames": [
+        45,
+        94
+      ],
+      "side": "pr",
+      "match": "… · @indrasvat",
+      "to_row_end": true,
+      "tone": "good",
+      "label": "identity, count kept"
+    },
+    {
+      "frames": [
+        45,
+        94
+      ],
+      "side": "main",
+      "match": "/ …",
+      "tone": "bad",
+      "label": "footer cut"
+    },
+    {
+      "frames": [
+        45,
+        94
+      ],
+      "side": "pr",
+      "match": "/ filter · \\?",
+      "tone": "good",
+      "label": "/ filter · ? kept"
+    },
+    {
+      "frames": [
+        100,
+        134
+      ],
+      "side": "pr",
+      "match": "branches now\\.",
+      "tone": "good",
+      "label": "why all branches"
+    },
+    {
+      "frames": [
+        140,
+        200
+      ],
+      "side": "main",
+      "match": "branches now\\.",
+      "tone": "bad",
+      "label": "stale notice"
+    },
+    {
+      "frames": [
+        140,
+        200
+      ],
+      "side": "pr",
+      "match": "/ filter · \\?",
+      "tone": "good",
+      "label": "/ filter · ? kept"
+    }
+  ]
+}

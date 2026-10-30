@@ -88,3 +88,10 @@ Related: [[gh-hound-qa-ledger]].
 - Never build the audit binary from the shared worktree: the implementer's
   uncommitted edits get compiled in (round 30). Build from a
   `git worktree add --detach <sha>` pin, and re-pin if HEAD moves.
+
+- (fixed 627fcdc: `__vqa-tui --branch` now works.) Before that, `__vqa-tui` hardcoded Branch "main" and ignored
+  `--branch`: long-branch headers and branch-miss fallbacks need a live
+  lens. Read-only recipe: `git worktree add -b <long local name> <dir>`
+  then run the binary from <dir> with `--actor @me` (without an actor, s on
+  an empty branch is a no-op); `-R openclaw/openclaw --branch <46-char
+  branch>` gives a long header with real rows.

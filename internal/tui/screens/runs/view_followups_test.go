@@ -156,3 +156,36 @@ func TestFilterCursorEndsAtSixteenColours(t *testing.T) {
 		t.Fatalf("the cursor's fill does not end at the cursor:\n%q", view)
 	}
 }
+
+// The branch-miss fallback says "Showing all branches now": true in repo
+// scope, where it explains the list, and false once s returns to the
+// branch, where main still showed it.
+func TestScopedNoticeShowsOnlyInItsScope(t *testing.T) {
+	m := actorModel()
+	m.Context.Notice = "None of your runs matched branch \"fix/parser\". Showing all branches now."
+	m.Context.NoticeScope = usecase.LaunchScopeRepo
+	m.Context.Scope = usecase.LaunchScopeRepo
+	if !strings.Contains(View(m, 120, time.Now()), "Showing all branches now") {
+		t.Fatal("the fallback notice is missing in repo scope")
+	}
+	m.Context.Scope = usecase.LaunchScopeBranch
+	if strings.Contains(View(m, 120, time.Now()), "Showing all branches now") {
+		t.Fatal("the fallback notice stays after s returns to the branch")
+	}
+	m.Context.Notice, m.Context.NoticeScope = "repo activity: 1 running across all branches · s scope", ""
+	if !strings.Contains(View(m, 120, time.Now()), "repo activity") {
+		t.Fatal("a branch-scope notice is missing in branch scope")
+	}
+}
+
+// A branch: query narrows the list, so "showing all branches" is no
+// longer what the screen shows.
+func TestScopedNoticeHidesUnderABranchQuery(t *testing.T) {
+	m := actorModel()
+	m.Context.Notice = "None of your runs matched branch \"fix/parser\". Showing all branches now."
+	m.Context.NoticeScope, m.Context.Scope = usecase.LaunchScopeRepo, usecase.LaunchScopeRepo
+	m.Filter = "branch:main"
+	if strings.Contains(View(m, 120, time.Now()), "Showing all branches now") {
+		t.Fatal("the fallback notice stays under a branch: query")
+	}
+}

@@ -39,6 +39,9 @@ func TestLaunchActorFilterReachesEveryListing(t *testing.T) {
 			t.Fatalf("listing without the actor filter: %+v", call)
 		}
 	}
+	if launch.NoticeScope != usecase.LaunchScopeRepo {
+		t.Fatalf("fallback notice scope = %q, want repo", launch.NoticeScope)
+	}
 	if launch.Scope != usecase.LaunchScopeRepo || !strings.HasPrefix(launch.Notice, `None of your runs matched branch "fix/parser".`) {
 		t.Fatalf("fallback scope=%s notice=%q", launch.Scope, launch.Notice)
 	}

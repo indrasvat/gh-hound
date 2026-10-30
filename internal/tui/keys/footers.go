@@ -52,23 +52,26 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "/", Action: "filter", Help: "filter", ShowInFooter: true},
 		{Key: "?", Action: "help", Help: "help", ShowInFooter: true},
 	},
+	// At 80 columns the full footer is 86 cells: s scope drops first (the
+	// notices that need it say "s scope" themselves); / filter and ?
+	// never drop.
 	ScreenRunsList: {
-		{Key: "j/k", Action: "move", Help: "", ShowInFooter: true},
-		{Key: "s", Action: "scope", Help: "scope", ShowInFooter: true},
-		{Key: "enter", Display: "⏎", Action: "open", Help: "open", ShowInFooter: true},
-		{Key: "r", Display: "↻", Action: "rerun", Help: "rerun", ShowInFooter: true},
-		{Key: "x", Display: "✗", Action: "cancel", Help: "cancel", ShowInFooter: true},
+		{Key: "j/k", Action: "move", Help: "", ShowInFooter: true, Keep: 3},
+		{Key: "s", Action: "scope", Help: "scope", ShowInFooter: true, Keep: 1},
+		{Key: "enter", Display: "⏎", Action: "open", Help: "open", ShowInFooter: true, Keep: 4},
+		{Key: "r", Display: "↻", Action: "rerun", Help: "rerun", ShowInFooter: true, Keep: 3},
+		{Key: "x", Display: "✗", Action: "cancel", Help: "cancel", ShowInFooter: true, Keep: 3},
 		{Key: "R", Action: "rerun_failed", Help: "rerun failed", ShowInFooter: false},
 		{Key: "X", Action: "force_cancel", Help: "force cancel", ShowInFooter: false},
-		{Key: "l", Action: "logs", Help: "log", ShowInFooter: true},
-		{Key: "w", Action: "watch", Help: "watch", ShowInFooter: true},
-		{Key: "f", Action: "status_cycle", Help: "status", ShowInFooter: true},
+		{Key: "l", Action: "logs", Help: "log", ShowInFooter: true, Keep: 2},
+		{Key: "w", Action: "watch", Help: "watch", ShowInFooter: true, Keep: 2},
+		{Key: "f", Action: "status_cycle", Help: "status", ShowInFooter: true, Keep: 2},
 		// The summary line advertises A contextually when a gated run
 		// is on screen; the static footer stays truthful for lists
 		// without waiting runs (artifacts precedent on detail).
 		{Key: "A", Action: "approvals", Help: "approvals (waiting runs)", ShowInFooter: false},
-		{Key: "/", Action: "filter", Help: "filter", ShowInFooter: true},
-		{Key: "?", Action: "help", Help: "", ShowInFooter: true},
+		{Key: "/", Action: "filter", Help: "filter", ShowInFooter: true, Keep: KeepAlways},
+		{Key: "?", Action: "help", Help: "", ShowInFooter: true, Keep: KeepAlways},
 	},
 	// While the / input is open every printable key types; only these
 	// edit keys act.

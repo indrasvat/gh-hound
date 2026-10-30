@@ -62,12 +62,31 @@ func renderHeader(th theme.Theme, title, context, right string, width int) strin
 		width = 1
 	}
 	mark := lipgloss.NewStyle().Foreground(lipgloss.Color(th.OK)).Bold(true).Render(title)
+	// Title, two separating spaces and a cell before the border.
+	context = fitContext(context, width-visibleLen(title)-visibleLen(right)-4)
 	ctx := lipgloss.NewStyle().Foreground(lipgloss.Color(th.Dim)).Render(context)
 	right = lipgloss.NewStyle().Foreground(lipgloss.Color(th.Dim)).Render(right)
 	raw := title + " " + context + " " + right
 	spacer := max(width-visibleLen(raw), 2)
 	line := mark + " " + ctx + strings.Repeat(" ", spacer) + right
 	return fitPlain(line, width)
+}
+
+// fitContext shortens the header's context to room, so the right side
+// (counts, live) shows: the context's end gives way, except an identity
+// (" · @login"), which the branch before it gives way to instead.
+func fitContext(context string, room int) string {
+	if visibleLen(context) <= room {
+		return context
+	}
+	if cut := strings.LastIndex(context, " · @"); cut > 0 {
+		head, tail := context[:cut], context[cut:]
+		if avail := room - visibleLen(tail); avail >= 2 {
+			return ansi.Truncate(head, avail, "…") + tail
+		}
+		return ansi.Truncate(strings.TrimPrefix(tail, " · "), max(room, 1), "…")
+	}
+	return ansi.Truncate(context, max(room, 1), "…")
 }
 
 func renderFooter(th theme.Theme, footer string, width int) string {

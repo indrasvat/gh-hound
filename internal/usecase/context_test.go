@@ -456,3 +456,20 @@ func TestLaunchEmptyStateNoticeNamesDisabledWorkflows(t *testing.T) {
 		t.Fatalf("notice = %q, want a +1 more fold past three names", got.Notice)
 	}
 }
+
+// The local checkout being detached says nothing about another repo
+// named with -R, so its launch carries no detached-HEAD notice.
+func TestDetachedCheckoutDoesNotNoticeAForeignRepo(t *testing.T) {
+	service := usecase.LaunchService{
+		Config: config.Default(),
+		GitHub: &launchGitHub{
+			runsByBranch: map[string][]model.Run{"": {greenRun(571, "main")}},
+			workflows:    []model.Workflow{{ID: 1, Name: "CI", State: "active"}},
+		},
+		Repository: fakeRepository{context: usecase.RepositoryContext{Repo: "indrasvat/gh-hound", HeadSHA: "a1b2c3d", Detached: true}},
+	}
+	got := service.Resolve(context.Background(), usecase.LaunchRequest{Repo: "cli/cli"})
+	if strings.Contains(got.Notice, "detached HEAD") {
+		t.Fatalf("a foreign repo got the local checkout's notice: %q", got.Notice)
+	}
+}
