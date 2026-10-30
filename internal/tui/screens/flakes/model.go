@@ -5,6 +5,7 @@ package flakes
 
 import (
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -36,6 +37,7 @@ type Model struct {
 	Report   usecase.FlakeReport
 	Selected int
 	Intent   Intent
+	Theme    theme.Theme
 }
 
 func NewModel(report usecase.FlakeReport) Model {

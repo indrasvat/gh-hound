@@ -1,6 +1,12 @@
 package theme
 
-import "github.com/indrasvat/gh-hound/internal/model"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/indrasvat/gh-hound/internal/model"
+)
 
 type Mode string
 
@@ -33,6 +39,13 @@ type Theme struct {
 	TermBG   string
 	// OKTint fills the all-green summary band.
 	OKTint string
+	// Tints fill rows that carry a state: a search hit (RunTint), the
+	// current hit (RunTintStrong), a failed step (FailTint), a folded
+	// repeat (InfoTint).
+	RunTint       string
+	RunTintStrong string
+	FailTint      string
+	InfoTint      string
 }
 
 func ForMode(mode Mode) Theme {
@@ -60,31 +73,40 @@ func ForMode(mode Mode) Theme {
 			Glow:     "rgba(31,158,85,.10)",
 			TermBG:   "#1B1D17",
 			OKTint:   "#D6E3D0",
+			// About 15/30/14/12% of the semantic colour over BG.
+			RunTint:       "#E6DCC4",
+			RunTintStrong: "#DECAA7",
+			FailTint:      "#E9D5C9",
+			InfoTint:      "#DADED7",
 		}
 	}
 	return Theme{
-		Mode:     ModeBramble,
-		BG:       "#0E0F0C",
-		BGElev:   "#141512",
-		Surface:  "#1B1D17",
-		Surface2: "#24271E",
-		Line:     "#2E3227",
-		Line2:    "#3D4233",
-		Dim:      "#6B7060",
-		Subtle:   "#8C9179",
-		Muted:    "#AEB39B",
-		FGSoft:   "#CFCDBB",
-		FG:       "#EAE8D9",
-		OK:       "#4FD37A",
-		OKDeep:   "#2E8E55",
-		Fail:     "#E2564B",
-		Run:      "#E0A33E",
-		Info:     "#6E9CB5",
-		Warn:     "#E8895A",
-		Neutral:  "#6B7060",
-		Glow:     "rgba(79,211,122,.10)",
-		TermBG:   "#0B0C0A",
-		OKTint:   "#142318",
+		Mode:          ModeBramble,
+		BG:            "#0E0F0C",
+		BGElev:        "#141512",
+		Surface:       "#1B1D17",
+		Surface2:      "#24271E",
+		Line:          "#2E3227",
+		Line2:         "#3D4233",
+		Dim:           "#6B7060",
+		Subtle:        "#8C9179",
+		Muted:         "#AEB39B",
+		FGSoft:        "#CFCDBB",
+		FG:            "#EAE8D9",
+		OK:            "#4FD37A",
+		OKDeep:        "#2E8E55",
+		Fail:          "#E2564B",
+		Run:           "#E0A33E",
+		Info:          "#6E9CB5",
+		Warn:          "#E8895A",
+		Neutral:       "#6B7060",
+		Glow:          "rgba(79,211,122,.10)",
+		TermBG:        "#0B0C0A",
+		OKTint:        "#142318",
+		RunTint:       "#2B2118",
+		RunTintStrong: "#4C371E",
+		FailTint:      "#281312",
+		InfoTint:      "#141C21",
 	}
 }
 
@@ -114,4 +136,43 @@ func (t Theme) SemanticForConclusion(conclusion model.Conclusion) string {
 	default:
 		return t.Neutral
 	}
+}
+
+// Fg is a token as a foreground SGR: #RRGGBB as truecolor, which the TTY
+// writer downsamples on terminals without it, or a decimal xterm-256
+// index (Limited's fills) as is. Screens colour through these and never
+// write an SGR colour of their own.
+func Fg(color string) string { return sgr(38, color) }
+
+// Bg is Fg for the background.
+func Bg(color string) string { return sgr(48, color) }
+
+func sgr(code int, color string) string {
+	if index, err := strconv.ParseUint(color, 10, 8); err == nil {
+		return fmt.Sprintf("\x1b[%d;5;%dm", code, index)
+	}
+	color = strings.TrimPrefix(color, "#")
+	if len(color) != 6 {
+		return ""
+	}
+	value, err := strconv.ParseUint(color, 16, 32)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("\x1b[%d;2;%d;%d;%dm", code, value>>16&0xff, value>>8&0xff, value&0xff)
+}
+
+// Limited is the theme for a terminal without truecolor. Downsampled to
+// 256 colours, every dark grey below #303030 lands on the background's
+// index (232) and the Bone fills share 253, so selection, input shading
+// and bands vanish. Its fills are xterm-256 indices, sent as they are.
+func (t Theme) Limited() Theme {
+	if t.Mode == ModeBone {
+		t.BGElev, t.Surface, t.Surface2 = "254", "253", "251"
+		t.OKTint, t.RunTint, t.RunTintStrong, t.FailTint, t.InfoTint = "194", "230", "223", "224", "195"
+		return t
+	}
+	t.BGElev, t.Surface, t.Surface2 = "234", "236", "238"
+	t.OKTint, t.RunTint, t.RunTintStrong, t.FailTint, t.InfoTint = "22", "58", "94", "52", "23"
+	return t
 }

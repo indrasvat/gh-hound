@@ -36,19 +36,20 @@ func BoardViewSize(b Board, width, height int, now time.Time) string {
 	if width <= 0 {
 		width = 80
 	}
+	st := stylesFor(b.Theme)
 	lines := []string{
-		fitANSI(boardHeadline(b, width), width),
+		fitANSI(boardHeadline(st, b, width), width),
 		"",
-		boardHeader(width),
+		boardHeader(st, width),
 	}
 	if len(b.Runs) == 0 {
-		lines = append(lines, fitANSI(colorize(sgrDim, "  the hunt is empty — nothing to watch on this scent."), width))
+		lines = append(lines, fitANSI(colorize(st.dim, "  the hunt is empty — nothing to watch on this scent."), width))
 		return strings.Join(lines, "\n")
 	}
 	for index, run := range b.Runs {
-		line := boardRow(run, index == b.Selected, width, now)
+		line := boardRow(st, run, index == b.Selected, width, now)
 		if b.Loading {
-			line = fitANSI(colorize(sgrDim, ansi.Strip(line)), width)
+			line = fitANSI(colorize(st.dim, ansi.Strip(line)), width)
 		}
 		lines = append(lines, line)
 	}
@@ -64,30 +65,30 @@ func BoardViewSize(b Board, width, height int, now time.Time) string {
 // boardHeadline is the aggregate header in the hound voice:
 // `the hunt: 3 running · 1 home · 0 lost` with the scent and follow
 // state on the right.
-func boardHeadline(b Board, width int) string {
+func boardHeadline(st styles, b Board, width int) string {
 	summary := b.Summary()
-	left := colorize(sgrFGSoft, "the hunt: ") +
-		colorize(sgrRun, fmt.Sprintf("%d running", summary.Running)) +
-		colorize(sgrDim, " · ") +
-		colorize(sgrOK, fmt.Sprintf("%d home", summary.Home)) +
-		colorize(sgrDim, " · ") +
-		colorize(boardLostColor(summary.Lost), fmt.Sprintf("%d lost", summary.Lost))
+	left := colorize(st.fgSoft, "the hunt: ") +
+		colorize(st.run, fmt.Sprintf("%d running", summary.Running)) +
+		colorize(st.dim, " · ") +
+		colorize(st.ok, fmt.Sprintf("%d home", summary.Home)) +
+		colorize(st.dim, " · ") +
+		colorize(boardLostColor(st, summary.Lost), fmt.Sprintf("%d lost", summary.Lost))
 	follow := "follow ○"
 	if b.Follow {
 		follow = "follow ●"
 	}
-	right := colorize(sgrDim, shortBoardSHA(b.HeadSHA)+" "+b.Event+" · "+follow)
+	right := colorize(st.dim, shortBoardSHA(b.HeadSHA)+" "+b.Event+" · "+follow)
 	return joinRightANSI(left, right, width)
 }
 
-func boardLostColor(lost int) string {
+func boardLostColor(st styles, lost int) string {
 	if lost > 0 {
-		return sgrFail
+		return st.fail
 	}
-	return sgrDim
+	return st.dim
 }
 
-func boardHeader(width int) string {
+func boardHeader(st styles, width int) string {
 	workflowWidth := boardColumnWidths(width)
 	header := strings.Repeat(" ", boardMarkerWidth) +
 		padPlain("St", boardGlyphWidth) + " " +
@@ -95,21 +96,21 @@ func boardHeader(width int) string {
 		padPlain("#", boardNumberWidth) + " " +
 		padPlain("State", boardStateWidth) + " " +
 		padLeftPlain("Elapsed", boardElapsedWidth)
-	return fitANSI(colorize(sgrDim, header), width)
+	return fitANSI(colorize(st.dim, header), width)
 }
 
-func boardRow(run model.Run, selected bool, width int, now time.Time) string {
+func boardRow(st styles, run model.Run, selected bool, width int, now time.Time) string {
 	workflowWidth := boardColumnWidths(width)
 	marker := strings.Repeat(" ", boardMarkerWidth)
 	if selected {
-		marker = colorize(sgrOK, icons.Cursor) + " "
+		marker = colorize(st.ok, icons.Cursor) + " "
 	}
 	line := marker +
-		padANSI(colorize(boardStatusColor(run), boardGlyph(run)), boardGlyphWidth) + " " +
-		padANSI(colorize(sgrFGSoft, truncatePlain(boardWorkflowName(run), workflowWidth)), workflowWidth) + " " +
-		padANSI(colorize(sgrDim, fmt.Sprintf("#%d", run.RunNumber)), boardNumberWidth) + " " +
-		padANSI(colorize(boardStatusColor(run), boardStateLabel(run)), boardStateWidth) + " " +
-		padLeftANSI(colorize(sgrDim, boardElapsed(run, now)), boardElapsedWidth)
+		padANSI(colorize(boardStatusColor(st, run), boardGlyph(run)), boardGlyphWidth) + " " +
+		padANSI(colorize(st.fgSoft, truncatePlain(boardWorkflowName(run), workflowWidth)), workflowWidth) + " " +
+		padANSI(colorize(st.dim, fmt.Sprintf("#%d", run.RunNumber)), boardNumberWidth) + " " +
+		padANSI(colorize(boardStatusColor(st, run), boardStateLabel(run)), boardStateWidth) + " " +
+		padLeftANSI(colorize(st.dim, boardElapsed(run, now)), boardElapsedWidth)
 	return fitANSI(line, width)
 }
 
@@ -142,22 +143,22 @@ func boardStateLabel(run model.Run) string {
 	return string(run.Status)
 }
 
-func boardStatusColor(run model.Run) string {
+func boardStatusColor(st styles, run model.Run) string {
 	if run.Status == model.StatusCompleted {
 		switch run.Conclusion {
 		case model.ConclusionSuccess, model.ConclusionSkipped, model.ConclusionNeutral:
-			return sgrOK
+			return st.ok
 		case model.ConclusionFailure, model.ConclusionActionRequired, model.ConclusionTimedOut:
-			return sgrFail
+			return st.fail
 		default:
-			return sgrDim
+			return st.dim
 		}
 	}
 	switch run.Status {
 	case model.StatusInProgress:
-		return sgrRun
+		return st.run
 	default:
-		return sgrInfo
+		return st.info
 	}
 }
 
@@ -225,7 +226,3 @@ func joinRightANSI(left, right string, width int) string {
 	}
 	return left + strings.Repeat(" ", width-leftWidth-rightWidth) + right
 }
-
-// sgrFail matches the runs list's failure tone; the rest of the board
-// palette reuses this package's existing SGR constants.
-const sgrFail = "\x1b[38;2;226;86;75m"

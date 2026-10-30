@@ -514,7 +514,7 @@ func TestDispatchTextInputConsumesGlobalShortcutLetters(t *testing.T) {
 
 func TestSelectedLineReappliesBackgroundAfterNestedReset(t *testing.T) {
 	th := theme.ForMode(theme.ModeBramble)
-	style := sgrHex(th.FG, false) + sgrHex(th.Surface2, true)
+	style := theme.Fg(th.FG) + theme.Bg(th.Surface2)
 	line := selectedLine(th, "\x1b[38;2;79;211;122m✔\x1b[0m CI", 24)
 	if !strings.HasPrefix(line, style) {
 		t.Fatalf("selected line should start with fg+bg SGR: %q", line)

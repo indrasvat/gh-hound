@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/theme"
+	"github.com/indrasvat/gh-hound/internal/tui/icons"
 	"github.com/indrasvat/gh-hound/internal/tui/keys"
 )
 
@@ -100,7 +101,9 @@ func overlayInnerWidth(width int) int {
 
 // overlayBox frames body under its title. Short of room (rows, 0:
 // unbounded), the title moves into the top border, then the borders go.
-func overlayBox(th theme.Theme, title, body string, width, room int) string {
+// overlayBox frames body; with fillSelection the row under the cursor
+// takes the surface-2 fill behind a green bar (the palette, contract ⑧).
+func overlayBox(th theme.Theme, title, body string, width, room int, fillSelection bool) string {
 	if width < minFrameWidth {
 		width = minFrameWidth
 	}
@@ -110,6 +113,10 @@ func overlayBox(th theme.Theme, title, body string, width, room int) string {
 	rows := splitLines(fitANSIBlock(body, inner))
 	lines := []string{}
 	for _, line := range rows {
+		if fillSelection && strings.HasPrefix(ansi.Strip(line), icons.Cursor) {
+			lines = append(lines, selectedBoxLine(th, line, inner))
+			continue
+		}
 		lines = append(lines, boxLine(th, line, inner))
 	}
 	bottom := border("╰" + strings.Repeat("─", inner) + "╯")
@@ -337,6 +344,14 @@ func boxLine(th theme.Theme, value string, width int) string {
 	return border("│") + value + strings.Repeat(" ", padding) + border("│")
 }
 
+func selectedBoxLine(th theme.Theme, value string, width int) string {
+	border := lipgloss.NewStyle().Foreground(lipgloss.Color(th.OK)).Render
+	value = fitPlain(value, width)
+	rest := strings.TrimPrefix(value, icons.Cursor) + strings.Repeat(" ", max(width-ansi.StringWidth(value), 0))
+	fill := theme.Bg(th.Surface2)
+	return border("│") + fill + theme.Fg(th.OK) + icons.Cursor + theme.Fg(th.FG) + rest + sgrReset + border("│")
+}
+
 func splitLines(value string) []string {
 	if value == "" {
 		return []string{""}
@@ -431,7 +446,7 @@ func visibleLen(value string) int {
 func backgroundSafeLine(value string, width int, fg string, bg string) string {
 	value = fitPlain(value, width)
 	value += strings.Repeat(" ", max(width-ansi.StringWidth(value), 0))
-	style := sgrHex(fg, false) + sgrHex(bg, true)
+	style := theme.Fg(fg) + theme.Bg(bg)
 	if style == "" {
 		return lipgloss.NewStyle().
 			Width(width).
@@ -441,18 +456,6 @@ func backgroundSafeLine(value string, width int, fg string, bg string) string {
 	}
 	value = strings.ReplaceAll(value, sgrReset, sgrReset+style)
 	return style + value + sgrReset
-}
-
-func sgrHex(color string, background bool) string {
-	c, ok := parseHex(color)
-	if !ok {
-		return ""
-	}
-	code := 38
-	if background {
-		code = 48
-	}
-	return fmt.Sprintf("\x1b[%d;2;%sm", code, rgbParams(c))
 }
 
 func parseHex(color string) ([3]int, bool) {

@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/numfmt"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/components/textinput"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 	"github.com/indrasvat/gh-hound/internal/usecase"
@@ -24,12 +25,13 @@ func ViewSize(m Model, width, height int, now time.Time) string {
 	if width <= 0 {
 		width = 80
 	}
+	st := stylesFor(m.theme())
 	lines := []string{
-		fitANSI(joinRightANSI(usageHeadline(m), sortLabel(m.SortBy), width), width),
-		gaugeLine(m, width),
+		fitANSI(joinRightANSI(usageHeadline(st, m), sortLabel(st, m.SortBy), width), width),
+		gaugeLine(st, m, width),
 	}
 	if usecase.CacheNearCap(m.Usage, m.Cap) {
-		lines = append(lines, fitANSI(colorize(sgrWarn, "  kennel's almost full — GitHub starts evicting at 10 GB."), width))
+		lines = append(lines, fitANSI(colorize(st.warn, "  kennel's almost full — GitHub starts evicting at 10 GB."), width))
 	}
 	lines = append(lines, "")
 
@@ -45,15 +47,15 @@ func ViewSize(m Model, width, height int, now time.Time) string {
 			tail = "▌  " + count
 		}
 		filter := textinput.Tail(m.Filter, width-3-ansi.StringWidth(tail))
-		lines = append(lines, dimLine("  /"+filter+tail, width))
+		lines = append(lines, dimLine(st, "  /"+filter+tail, width))
 	}
 	if len(m.Caches) == 0 {
-		lines = append(lines, dimLine("  the kennel's empty — nothing cached on this repo.", width))
+		lines = append(lines, dimLine(st, "  the kennel's empty — nothing cached on this repo.", width))
 		return strings.Join(lines, "\n")
 	}
-	lines = append(lines, cachesHeader(width))
+	lines = append(lines, cachesHeader(st, width))
 	if len(visible) == 0 {
-		lines = append(lines, dimLine("  no caches match /"+m.Filter, width))
+		lines = append(lines, dimLine(st, "  no caches match /"+m.Filter, width))
 		return strings.Join(lines, "\n")
 	}
 
@@ -62,13 +64,13 @@ func ViewSize(m Model, width, height int, now time.Time) string {
 	capacity := rowCapacity(height, fixedRows, len(visible))
 	start, end := viewport(selected, len(visible), capacity)
 	for i, cache := range visible[start:end] {
-		line := row(cache, start+i == selected, width, now)
+		line := row(st, cache, start+i == selected, width, now)
 		if m.Loading {
-			line = dimLine(ansi.Strip(line), width)
+			line = dimLine(st, ansi.Strip(line), width)
 		}
 		lines = append(lines, line)
 	}
-	lines = append(lines, dimLine(pageLine(start, end, len(visible)), width))
+	lines = append(lines, dimLine(st, pageLine(start, end, len(visible)), width))
 	if m.Loading && m.LoadingLine != "" {
 		lines = append(lines, fitANSI(m.LoadingLine, width))
 	}
@@ -84,55 +86,55 @@ func UsageLine(usage model.CacheUsage, capBytes int64) string {
 	return "kennel: " + humanGB(usage.ActiveSizeInBytes) + "/" + humanGB(capBytes) + " GB"
 }
 
-func usageHeadline(m Model) string {
+func usageHeadline(st styles, m Model) string {
 	caches := "caches"
 	if m.Usage.ActiveCount == 1 {
 		caches = "cache"
 	}
-	return "  " + colorize(sgrFGSoft, UsageLine(m.Usage, m.Cap)) +
-		colorize(sgrSubtle, fmt.Sprintf(" · %d %s", m.Usage.ActiveCount, caches))
+	return "  " + colorize(st.fgSoft, UsageLine(m.Usage, m.Cap)) +
+		colorize(st.subtle, fmt.Sprintf(" · %d %s", m.Usage.ActiveCount, caches))
 }
 
 // gaugeLine renders the themed pressure bar. The fill never overflows
 // the bar even when usage runs past the cap (eviction lags), but the
 // color always tells the truth: ok under 50%, run to 90%, fail past
 // the eviction threshold.
-func gaugeLine(m Model, width int) string {
+func gaugeLine(st styles, m Model, width int) string {
 	pressure := usecase.CachePressure(m.Usage, m.Cap)
 	bar := min(gaugeWidth, max(width-6, 5))
 	filled := min(max(int(float64(bar)*pressure+0.5), 0), bar)
 	if pressure > 0 && filled == 0 {
 		filled = 1
 	}
-	color := sgrOK
+	color := st.ok
 	switch {
 	case pressure > 0.9:
-		color = sgrFail
+		color = st.fail
 	case pressure >= 0.5:
-		color = sgrRun
+		color = st.run
 	}
-	value := "  " + colorize(color, strings.Repeat("▰", filled)) + colorize(sgrLine2, strings.Repeat("▱", bar-filled)) +
-		colorize(sgrSubtle, " "+strconv.Itoa(int(pressure*100+0.5))+"%")
+	value := "  " + colorize(color, strings.Repeat("▰", filled)) + colorize(st.line2, strings.Repeat("▱", bar-filled)) +
+		colorize(st.subtle, " "+strconv.Itoa(int(pressure*100+0.5))+"%")
 	return fitANSI(value, width)
 }
 
-func sortLabel(by usecase.CacheSort) string {
+func sortLabel(st styles, by usecase.CacheSort) string {
 	if by == usecase.CacheSortLastUsed {
-		return colorize(sgrSubtle, "s sort: last used · stalest first")
+		return colorize(st.subtle, "s sort: last used · stalest first")
 	}
-	return colorize(sgrSubtle, "s sort: size · biggest first")
+	return colorize(st.subtle, "s sort: size · biggest first")
 }
 
 // cachesHeader derives its columns from the SAME width math as row()
 // so headers can never drift from the values beneath them.
-func cachesHeader(width int) string {
+func cachesHeader(st styles, width int) string {
 	keyWidth, refWidth := columnWidths(width)
 	header := "  " +
 		pad("Key", keyWidth) + "  " +
 		pad("Ref", refWidth) + " " +
 		fmt.Sprintf("%8s", "Size") + "  " +
 		"Last used"
-	return dimLine(header, width)
+	return dimLine(st, header, width)
 }
 
 // columnWidths is the single source of column truth for header and rows.
@@ -150,16 +152,16 @@ func pad(value string, width int) string {
 	return value + strings.Repeat(" ", width-len(value))
 }
 
-func row(cache model.Cache, selected bool, width int, now time.Time) string {
+func row(st styles, cache model.Cache, selected bool, width int, now time.Time) string {
 	prefix := " "
 	if selected {
-		prefix = colorize(sgrOK, icons.Cursor)
+		prefix = colorize(st.ok, icons.Cursor)
 	}
 	keyWidth, refWidth := columnWidths(width)
-	key := colorize(sgrFGSoft, truncate(cache.Key, keyWidth))
-	ref := colorize(sgrSubtle, truncate(shortRef(cache.Ref), refWidth))
-	size := colorize(sgrMuted, fmt.Sprintf("%8s", humanSize(cache.SizeInBytes)))
-	used := colorize(sgrSubtle, age(cache.LastAccessedAt, now))
+	key := colorize(st.fgSoft, truncate(cache.Key, keyWidth))
+	ref := colorize(st.subtle, truncate(shortRef(cache.Ref), refWidth))
+	size := colorize(st.muted, fmt.Sprintf("%8s", humanSize(cache.SizeInBytes)))
+	used := colorize(st.subtle, age(cache.LastAccessedAt, now))
 	line := prefix + " " +
 		padANSI(key, keyWidth) + "  " +
 		padANSI(ref, refWidth) + " " +
@@ -262,8 +264,8 @@ func truncate(value string, width int) string {
 	return string(runes[:width-1]) + "…"
 }
 
-func dimLine(value string, width int) string {
-	return colorize(sgrSubtle, padANSI(fitANSI(value, width), width))
+func dimLine(st styles, value string, width int) string {
+	return colorize(st.subtle, padANSI(fitANSI(value, width), width))
 }
 
 func colorize(sgr, value string) string {
@@ -298,14 +300,24 @@ func joinRightANSI(left, right string, width int) string {
 	return left + strings.Repeat(" ", spaces) + right
 }
 
-const (
-	sgrOK     = "\x1b[38;2;79;211;122m"
-	sgrFail   = "\x1b[38;2;226;86;75m"
-	sgrRun    = "\x1b[38;2;224;163;62m"
-	sgrWarn   = "\x1b[38;2;232;137;90m"
-	sgrMuted  = "\x1b[38;2;174;179;155m"
-	sgrSubtle = "\x1b[38;2;140;145;121m"
-	sgrFGSoft = "\x1b[38;2;207;205;187m"
-	sgrLine2  = "\x1b[38;2;61;66;51m"
-	sgrReset  = "\x1b[0m"
-)
+// styles are the theme's tokens as SGR sequences, resolved once per
+// frame so T recolours the kennel.
+type styles struct {
+	ok, fail, run, warn, muted, subtle, fgSoft, line2 string
+}
+
+func stylesFor(th theme.Theme) styles {
+	return styles{
+		ok: theme.Fg(th.OK), fail: theme.Fg(th.Fail), run: theme.Fg(th.Run), warn: theme.Fg(th.Warn),
+		muted: theme.Fg(th.Muted), subtle: theme.Fg(th.Subtle), fgSoft: theme.Fg(th.FGSoft), line2: theme.Fg(th.Line2),
+	}
+}
+
+func (m Model) theme() theme.Theme {
+	if m.Theme.Mode == "" {
+		return theme.ForMode(theme.ModeBramble)
+	}
+	return m.Theme
+}
+
+const sgrReset = "\x1b[0m"

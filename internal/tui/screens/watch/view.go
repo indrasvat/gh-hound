@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 )
 
@@ -24,10 +25,11 @@ func ViewSize(m Model, width, height int) string {
 	if width <= 0 {
 		width = 80
 	}
+	st := stylesFor(m.Theme)
 	lines := []string{fit(header(m), width)}
 	notes := noLogNotes(m.State.NoLog)
 	for _, note := range notes {
-		lines = append(lines, fitANSI(colorize(sgrDim, note), width))
+		lines = append(lines, fitANSI(colorize(st.dim, note), width))
 	}
 	live := liveJobs(m.State.Jobs)
 	if !m.Finished() && len(live) > 0 {
@@ -56,31 +58,31 @@ func ViewSize(m Model, width, height int) string {
 			shown = live[:max(room-1, 0)]
 		}
 		for _, job := range shown {
-			lines = append(lines, jobProgress(job, now, width))
+			lines = append(lines, jobProgress(st, job, now, width))
 		}
 		if more := len(live) - len(shown); more > 0 {
-			lines = append(lines, fitANSI(colorize(sgrDim, fmt.Sprintf("+%d more jobs not finished", more)), width))
+			lines = append(lines, fitANSI(colorize(st.dim, fmt.Sprintf("+%d more jobs not finished", more)), width))
 		}
-		lines = append(lines, fitANSI(colorize(sgrDim, "GitHub serves a job's log once it finishes · step progress until then"), width))
+		lines = append(lines, fitANSI(colorize(st.dim, "GitHub serves a job's log once it finishes · step progress until then"), width))
 	}
 	if len(m.State.Lines) == 0 {
 		switch {
 		case !m.Finished() && len(live) > 0:
 		case !m.Finished():
-			lines = append(lines, fitANSI(colorize(sgrDim, "waiting for completed job logs from GitHub Actions"), width))
+			lines = append(lines, fitANSI(colorize(st.dim, "waiting for completed job logs from GitHub Actions"), width))
 		case len(notes) == 0:
-			lines = append(lines, fitANSI(colorize(sgrDim, "no job logs to show"), width))
+			lines = append(lines, fitANSI(colorize(st.dim, "no job logs to show"), width))
 		}
 		return strings.Join(lines, "\n")
 	}
-	lines = append(lines, foldLine(width))
+	lines = append(lines, foldLine(st, width))
 	start := 0
 	if m.Follow && len(m.State.Lines) > followTail {
 		start = len(m.State.Lines) - followTail
 	}
 	visible := m.State.Lines[start:]
 	for index, line := range visible {
-		lines = append(lines, logLine(line, width, !m.Finished() && index == len(visible)-1))
+		lines = append(lines, logLine(st, line, width, !m.Finished() && index == len(visible)-1))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -139,29 +141,29 @@ func liveJobs(jobs []model.Job) []model.Job {
 // jobProgress reads "⠿ bdd › 29 Run tests 12m40s": the job, the step it
 // is on, and how long that step has run. A job not yet started reads
 // "○ deploy queued".
-func jobProgress(job model.Job, now time.Time, width int) string {
+func jobProgress(st styles, job model.Job, now time.Time, width int) string {
 	name := oneLine(job.Name)
 	if name == "" {
 		name = "job"
 	}
-	glyph, color := icons.ForStatus(job.Status), sgrDim
+	glyph, color := icons.ForStatus(job.Status), st.dim
 	if job.Status == model.StatusInProgress {
-		color = sgrRun
+		color = st.run
 	}
-	value := colorize(color, glyph) + " " + colorize(sgrFGSoft, name)
+	value := colorize(color, glyph) + " " + colorize(st.fgSoft, name)
 	step, ok := currentStep(job)
 	switch {
 	case ok:
-		value += colorize(sgrDim, " › ") + colorize(sgrDim, fmt.Sprintf("%d", step.Number)) + " " + colorize(sgrFG, oneLine(step.Name))
+		value += colorize(st.dim, " › ") + colorize(st.dim, fmt.Sprintf("%d", step.Number)) + " " + colorize(st.fg, oneLine(step.Name))
 		if step.Status == model.StatusInProgress && !step.StartedAt.IsZero() {
-			value += " " + colorize(sgrInfo, elapsedSince(step.StartedAt, now))
+			value += " " + colorize(st.info, elapsedSince(step.StartedAt, now))
 		}
 	case job.Status == model.StatusInProgress:
 		if !job.StartedAt.IsZero() {
-			value += " " + colorize(sgrInfo, elapsedSince(job.StartedAt, now))
+			value += " " + colorize(st.info, elapsedSince(job.StartedAt, now))
 		}
 	default:
-		value += " " + colorize(sgrDim, string(job.Status))
+		value += " " + colorize(st.dim, string(job.Status))
 	}
 	return fitANSI(value, width)
 }
@@ -231,34 +233,34 @@ func noLogNotes(missing []NoLog) []string {
 	return notes
 }
 
-func foldLine(width int) string {
-	value := colorize(sgrOK, "▾") + " " + colorize(sgrFGSoft, "completed job logs")
-	return backgroundSafe(value, width, sgrFG, sgrSurfaceBG)
+func foldLine(st styles, width int) string {
+	value := colorize(st.ok, "▾") + " " + colorize(st.fgSoft, "completed job logs")
+	return backgroundSafe(value, width, st.fg, st.surfaceBG)
 }
 
-func logLine(line logs.Line, width int, active bool) string {
-	gutter := colorize(sgrLine2, fmt.Sprintf("%03d", line.Number))
-	return fitANSI(gutter+" "+renderLogText(line.Text, active), width)
+func logLine(st styles, line logs.Line, width int, active bool) string {
+	gutter := colorize(st.line2, fmt.Sprintf("%03d", line.Number))
+	return fitANSI(gutter+" "+renderLogText(st, line.Text, active), width)
 }
 
-func renderLogText(text string, active bool) string {
+func renderLogText(st styles, text string, active bool) string {
 	text = strings.TrimSpace(text)
 	rendered := text
 	switch {
 	case strings.HasPrefix(text, "17:"):
 		parts := strings.Fields(text)
 		if len(parts) > 1 {
-			rendered = colorize(sgrDim, parts[0]) + " " + colorize(sgrInfo, strings.Join(parts[1:], " "))
+			rendered = colorize(st.dim, parts[0]) + " " + colorize(st.info, strings.Join(parts[1:], " "))
 		}
 	case strings.HasPrefix(text, "ok "):
-		rendered = colorize(sgrOK, "ok") + strings.TrimPrefix(text, "ok")
+		rendered = colorize(st.ok, "ok") + strings.TrimPrefix(text, "ok")
 	case strings.Contains(text, "--- PASS"):
-		rendered = colorize(sgrRun, text)
+		rendered = colorize(st.run, text)
 	case strings.HasPrefix(text, "=== RUN"):
-		rendered = strings.Replace(text, "Test", colorize(sgrInfo, "Test"), 1)
+		rendered = strings.Replace(text, "Test", colorize(st.info, "Test"), 1)
 	}
 	if active {
-		rendered += colorize(sgrOK, "█")
+		rendered += colorize(st.ok, "█")
 	}
 	return rendered
 }
@@ -295,14 +297,23 @@ func backgroundSafe(value string, width int, fg string, bg string) string {
 	return style + value + sgrReset
 }
 
-const (
-	sgrReset     = "\x1b[0m"
-	sgrOK        = "\x1b[38;2;79;211;122m"
-	sgrRun       = "\x1b[38;2;224;163;62m"
-	sgrInfo      = "\x1b[38;2;110;156;181m"
-	sgrDim       = "\x1b[38;2;107;112;96m"
-	sgrFG        = "\x1b[38;2;234;232;217m"
-	sgrFGSoft    = "\x1b[38;2;207;205;187m"
-	sgrLine2     = "\x1b[38;2;61;66;51m"
-	sgrSurfaceBG = "\x1b[48;2;27;29;23m"
-)
+// styles are the theme's tokens as SGR sequences, resolved once per
+// frame so T recolours the watch and the board.
+type styles struct {
+	ok, run, info, fail, dim, fg, fgSoft, line2 string
+	surfaceBG                                   string
+}
+
+// stylesFor falls back to Bramble for a zero theme.
+func stylesFor(th theme.Theme) styles {
+	if th.Mode == "" {
+		th = theme.ForMode(theme.ModeBramble)
+	}
+	return styles{
+		ok: theme.Fg(th.OK), run: theme.Fg(th.Run), info: theme.Fg(th.Info), fail: theme.Fg(th.Fail),
+		dim: theme.Fg(th.Dim), fg: theme.Fg(th.FG), fgSoft: theme.Fg(th.FGSoft), line2: theme.Fg(th.Line2),
+		surfaceBG: theme.Bg(th.Surface),
+	}
+}
+
+const sgrReset = "\x1b[0m"

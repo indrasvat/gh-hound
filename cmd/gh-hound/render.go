@@ -101,8 +101,17 @@ func (r *frameRenderer) Render(view string) error {
 // passes through untouched: only SGR colours are rewritten, never the
 // cursor and screen sequences the renderer depends on.
 func tuiOutput(w io.Writer, lookup func(string) (string, bool)) io.Writer {
+	if profile := colorProfile(w, lookup); limitedProfile(profile) {
+		return &colorprofile.Writer{Forward: w, Profile: profile}
+	}
+	return w
+}
+
+// colorProfile is what the terminal can show; tuiOutput downsamples to it
+// and the TUI picks its fills for it (theme.Limited).
+func colorProfile(w io.Writer, lookup func(string) (string, bool)) colorprofile.Profile {
 	if colorTerm, _ := lookup("COLORTERM"); strings.EqualFold(colorTerm, "truecolor") || strings.EqualFold(colorTerm, "24bit") {
-		return w
+		return colorprofile.TrueColor
 	}
 	var environ []string
 	for _, key := range []string{"TERM", "COLORTERM", "TMUX", "TTY_FORCE"} {
@@ -110,10 +119,9 @@ func tuiOutput(w io.Writer, lookup func(string) (string, bool)) io.Writer {
 			environ = append(environ, key+"="+value)
 		}
 	}
-	switch profile := colorprofile.Detect(w, environ); profile {
-	case colorprofile.ANSI256, colorprofile.ANSI:
-		return &colorprofile.Writer{Forward: w, Profile: profile}
-	default:
-		return w
-	}
+	return colorprofile.Detect(w, environ)
+}
+
+func limitedProfile(profile colorprofile.Profile) bool {
+	return profile == colorprofile.ANSI256 || profile == colorprofile.ANSI
 }

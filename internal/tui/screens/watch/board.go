@@ -2,6 +2,7 @@ package watch
 
 import (
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -27,6 +28,8 @@ type Board struct {
 	// pending load each frame, mirroring the runs screen.
 	Loading     bool
 	LoadingLine string
+
+	Theme theme.Theme
 }
 
 type BoardIntentKind string

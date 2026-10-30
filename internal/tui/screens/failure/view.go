@@ -9,6 +9,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/numfmt"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 	flakesscreen "github.com/indrasvat/gh-hound/internal/tui/screens/flakes"
 	logscreen "github.com/indrasvat/gh-hound/internal/tui/screens/log"
@@ -31,19 +32,20 @@ func ViewSize(m Model, width, height int) string {
 	m.Height = height
 	m = m.fit()
 	excerptRows, _ := m.drawn()
+	st := stylesFor(m.theme())
 	lines := []string{
 		fitANSI(header(m), width),
-		annotationHeader(width),
+		annotationHeader(st, width),
 	}
 	for _, annotation := range m.Report.Annotations {
-		lines = append(lines, annotationLine(annotation, width))
+		lines = append(lines, annotationLine(st, annotation, width))
 	}
-	lines = append(lines, errorHeader(m, excerptRows, width))
+	lines = append(lines, errorHeader(st, m, excerptRows, width))
 	for _, line := range m.Excerpt[:excerptRows] {
-		lines = append(lines, logLine(line, width))
+		lines = append(lines, logLine(st, line, width))
 	}
 	if excerptRows == len(m.Excerpt) {
-		panel := flakePanel(m, width)
+		panel := flakePanel(st, m, width)
 		if room := height - len(lines); height > 0 && len(panel) > room {
 			// cut the panel, never the counted rows, as the frame would
 			panel = panel[:max(room, 0)]
@@ -88,34 +90,34 @@ func (m Model) chrome() int { return 3 + len(m.Report.Annotations) }
 // flakePanel renders the scent panel once the async verdict lands.
 // The focused pane is marked with the cursor glyph: tab moves focus,
 // j/k drives whichever pane holds it.
-func flakePanel(m Model, width int) []string {
+func flakePanel(st styles, m Model, width int) []string {
 	if m.Flake == nil {
 		return nil
 	}
 	flake := *m.Flake
-	header := colorize(sgrRun, icons.Flake+" seen this one before: ") +
-		colorize(sgrFG, fmt.Sprintf("%s flaked %d of last %d runs", flake.Job, flake.FlakedRuns, m.FlakeWindow)) +
-		colorize(sgrDim, fmt.Sprintf(" (%s · score %.2f)", flake.Verdict, flake.Score))
+	header := colorize(st.run, icons.Flake+" seen this one before: ") +
+		colorize(st.fg, fmt.Sprintf("%s flaked %d of last %d runs", flake.Job, flake.FlakedRuns, m.FlakeWindow)) +
+		colorize(st.dim, fmt.Sprintf(" (%s · score %.2f)", flake.Verdict, flake.Score))
 	lines := []string{
 		"",
-		fitANSI(focusMark(m.PanelFocus)+header, width),
+		fitANSI(focusMark(st, m.PanelFocus)+header, width),
 	}
 	for index, evidence := range flake.Evidence {
-		lines = append(lines, fitANSI(flakesscreen.EvidenceRow(evidence, m.PanelFocus && index == m.PanelSelected), width))
+		lines = append(lines, fitANSI(flakesscreen.EvidenceRow(m.theme(), evidence, m.PanelFocus && index == m.PanelSelected), width))
 	}
 	hint := "⇥ inspect evidence"
 	if m.PanelFocus {
 		hint = "j/k move · ⏎ open run · ⇥ back to excerpt"
 	}
-	lines = append(lines, fitANSI(colorize(sgrDim, "  "+hint), width))
+	lines = append(lines, fitANSI(colorize(st.dim, "  "+hint), width))
 	return lines
 }
 
 // focusMark renders the theme focus marker for the pane that owns
 // j/k.
-func focusMark(focused bool) string {
+func focusMark(st styles, focused bool) string {
 	if focused {
-		return colorize(sgrOK, "▌")
+		return colorize(st.ok, "▌")
 	}
 	return " "
 }
@@ -144,66 +146,66 @@ func header(m Model) string {
 	return strings.Join(parts, " ")
 }
 
-func annotationHeader(width int) string {
-	return fitANSI(colorize(sgrDim, "Annotations"), width)
+func annotationHeader(st styles, width int) string {
+	return fitANSI(colorize(st.dim, "Annotations"), width)
 }
 
-func annotationLine(annotation model.Annotation, width int) string {
+func annotationLine(st styles, annotation model.Annotation, width int) string {
 	line := annotation.StartLine
 	if line == 0 {
 		line = annotation.EndLine
 	}
-	path := underlineInfo(fmt.Sprintf("%s:%d", annotation.Path, line))
-	value := colorize(sgrFail, icons.Failure) + " " + path + "  " + colorize(sgrFGSoft, strings.Join(strings.Fields(annotation.Message), " "))
+	path := colorize(st.path, fmt.Sprintf("%s:%d", annotation.Path, line))
+	value := colorize(st.fail, icons.Failure) + " " + path + "  " + colorize(st.fgSoft, strings.Join(strings.Fields(annotation.Message), " "))
 	return fitANSI(value, width)
 }
 
-func errorHeader(m Model, drawn, width int) string {
-	left := colorize(sgrDim, fmt.Sprintf("error window · %d of %s lines", drawn, numfmt.Group(totalLines(m))))
+func errorHeader(st styles, m Model, drawn, width int) string {
+	left := colorize(st.dim, fmt.Sprintf("error window · %d of %s lines", drawn, numfmt.Group(totalLines(m))))
 	if m.Flake != nil {
 		// Two focusable panes exist: mark the one that owns j/k.
-		left = focusMark(!m.PanelFocus) + left
+		left = focusMark(st, !m.PanelFocus) + left
 	}
-	right := colorize(sgrOK, "⤓ expand full log (l)")
-	return backgroundSafe(joinRightANSI(left, right, width), width, sgrFG, sgrSurfaceBG)
+	right := colorize(st.ok, "⤓ expand full log (l)")
+	return backgroundSafe(joinRightANSI(left, right, width), width, st.fg, st.surfaceBG)
 }
 
-func logLine(line logs.Line, width int) string {
-	gutter := colorize(sgrLine2, fmt.Sprintf("%03d", line.Number))
-	value := gutter + " " + logscreen.TerminalSafe(renderLogText(line.Text))
+func logLine(st styles, line logs.Line, width int) string {
+	gutter := colorize(st.line2, fmt.Sprintf("%03d", line.Number))
+	value := gutter + " " + logscreen.TerminalSafe(renderLogText(st, line.Text))
 	if isHitLine(line.Text) {
-		return backgroundSafe(value, width, sgrFG, sgrHitBG)
+		return backgroundSafe(value, width, st.fg, st.runTintBG)
 	}
 	return fitANSI(value, width)
 }
 
-func renderLogText(text string) string {
+func renderLogText(st styles, text string) string {
 	text = strings.TrimSpace(text)
 	switch {
 	case strings.HasPrefix(text, "17:"):
 		parts := strings.Fields(text)
 		if len(parts) > 1 {
-			return colorize(sgrDim, parts[0]) + " " + colorize(sgrInfo, strings.Join(parts[1:], " "))
+			return colorize(st.dim, parts[0]) + " " + colorize(st.info, strings.Join(parts[1:], " "))
 		}
 	case isHitLine(text):
-		return renderGotWant(text)
+		return renderGotWant(st, text)
 	case strings.Contains(text, "##[error]"):
-		return strings.Replace(text, "##[error]", colorize(sgrFail, "##[error]"), 1)
+		return strings.Replace(text, "##[error]", colorize(st.fail, "##[error]"), 1)
 	case strings.Contains(text, "--- FAIL") || strings.HasPrefix(text, "FAIL "):
-		return colorize(sgrFail, text)
+		return colorize(st.fail, text)
 	case strings.HasPrefix(text, "ok "):
-		return colorize(sgrOK, "ok") + strings.TrimPrefix(text, "ok")
+		return colorize(st.ok, "ok") + strings.TrimPrefix(text, "ok")
 	}
 	return text
 }
 
-func renderGotWant(text string) string {
+func renderGotWant(st styles, text string) string {
 	text = strings.TrimSpace(text)
 	match := gotWantRE.FindStringSubmatch(text)
 	if len(match) != 5 {
 		return text
 	}
-	return underlineInfo(match[1]) + ": got " + colorize(sgrOK, match[2]) + " want " + colorize(sgrFail, match[3]) + match[4]
+	return colorize(st.path, match[1]) + ": got " + colorize(st.ok, match[2]) + " want " + colorize(st.fail, match[3]) + match[4]
 }
 
 func isHitLine(text string) bool {
@@ -259,10 +261,6 @@ func colorize(sgr, value string) string {
 	return sgr + value + sgrReset
 }
 
-func underlineInfo(value string) string {
-	return sgrInfo + sgrUnderline + value + sgrReset
-}
-
 func joinRightANSI(left, right string, width int) string {
 	if width <= 0 {
 		return ""
@@ -285,17 +283,30 @@ func backgroundSafe(value string, width int, fg string, bg string) string {
 	return style + value + sgrReset
 }
 
+// styles are the theme's tokens as SGR sequences, resolved once per
+// frame so T recolours the failure view.
+type styles struct {
+	ok, run, fail, info, dim, fg, fgSoft, line2 string
+	path, surfaceBG, runTintBG                  string
+}
+
+func stylesFor(th theme.Theme) styles {
+	info := theme.Fg(th.Info)
+	return styles{
+		ok: theme.Fg(th.OK), run: theme.Fg(th.Run), fail: theme.Fg(th.Fail), info: info,
+		dim: theme.Fg(th.Dim), fg: theme.Fg(th.FG), fgSoft: theme.Fg(th.FGSoft), line2: theme.Fg(th.Line2),
+		path: info + sgrUnderline, surfaceBG: theme.Bg(th.Surface), runTintBG: theme.Bg(th.RunTint),
+	}
+}
+
+func (m Model) theme() theme.Theme {
+	if m.Theme.Mode == "" {
+		return theme.ForMode(theme.ModeBramble)
+	}
+	return m.Theme
+}
+
 const (
 	sgrReset     = "\x1b[0m"
 	sgrUnderline = "\x1b[4m"
-	sgrOK        = "\x1b[38;2;79;211;122m"
-	sgrRun       = "\x1b[38;2;224;163;62m"
-	sgrFail      = "\x1b[38;2;226;86;75m"
-	sgrInfo      = "\x1b[38;2;110;156;181m"
-	sgrDim       = "\x1b[38;2;107;112;96m"
-	sgrFG        = "\x1b[38;2;234;232;217m"
-	sgrFGSoft    = "\x1b[38;2;207;205;187m"
-	sgrLine2     = "\x1b[38;2;61;66;51m"
-	sgrSurfaceBG = "\x1b[48;2;27;29;23m"
-	sgrHitBG     = "\x1b[48;2;43;33;24m"
 )

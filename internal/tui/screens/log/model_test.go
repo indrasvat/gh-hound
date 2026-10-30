@@ -7,7 +7,56 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/logs"
+	"github.com/indrasvat/gh-hound/internal/theme"
 )
+
+var bramble = stylesFor(theme.ForMode(theme.ModeBramble))
+
+// Bone recolours every log surface, tints and fold bands included, and
+// leaves no Bramble colour behind; switching Theme back recolours again.
+func TestBoneRecoloursTheLog(t *testing.T) {
+	bone := theme.ForMode(theme.ModeBone)
+	m := search(NewModel(document(), 1, 12), "trail").Update(KeyMsg{Key: "g"})
+	m.Theme = bone
+	views := []string{View(m, 100), View(m.Update(KeyMsg{Key: "n"}), 100)}
+	folded := compactModel(t, pollLog(), 20)
+	folded.Theme = bone
+	views = append(views, View(folded, 100))
+	view := strings.Join(views, "\n")
+	for _, want := range []string{
+		theme.Fg(bone.FG), theme.Fg(bone.Dim), theme.Fg(bone.Info), theme.Fg(bone.OK), theme.Fg(bone.Fail),
+		theme.Fg(bone.Line2), theme.Fg(bone.Run), theme.Bg(bone.RunTint), theme.Bg(bone.RunTintStrong), theme.Bg(bone.Surface), theme.Bg(bone.InfoTint),
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("bone log is missing %q", want)
+		}
+	}
+	for _, c := range []string{"\x1b[38;2;", "\x1b[48;2;"} {
+		for _, seq := range strings.Split(view, c)[1:] {
+			if sgr := c + seq[:strings.IndexByte(seq, 'm')+1]; isBrambleOnly(sgr) {
+				t.Fatalf("bone log still carries Bramble colour %q", sgr)
+			}
+		}
+	}
+	m.Theme = theme.ForMode(theme.ModeBramble)
+	if again := View(m, 100); again == views[0] || !strings.Contains(again, bramble.runTintStrongBG) {
+		t.Fatalf("switching Theme back to Bramble did not recolour the log")
+	}
+}
+
+// isBrambleOnly reports an SGR that is a Bramble token and no Bone one.
+func isBrambleOnly(sgr string) bool {
+	has := func(th theme.Theme) bool {
+		for _, c := range []string{th.BG, th.Surface, th.Surface2, th.Line, th.Line2, th.Dim, th.Subtle, th.Muted, th.FGSoft, th.FG,
+			th.OK, th.Fail, th.Run, th.Info, th.Warn, th.RunTint, th.RunTintStrong, th.FailTint, th.InfoTint} {
+			if sgr == theme.Fg(c) || sgr == theme.Bg(c) {
+				return true
+			}
+		}
+		return false
+	}
+	return has(theme.ForMode(theme.ModeBramble)) && !has(theme.ForMode(theme.ModeBone))
+}
 
 func TestModelSearchFoldWrapAndOffset(t *testing.T) {
 	m := NewModel(document(), 5, 6)
@@ -87,14 +136,14 @@ func TestViewHighlightsLogTokensAndSearchHits(t *testing.T) {
 
 	view := View(m, 100)
 	for _, want := range []string{
-		sgrTimestamp + "17:42:53Z" + sgrReset,
-		sgrCommand + "go test ./... -race" + sgrReset,
-		sgrOK + "ok" + sgrReset,
-		sgrPath + "lexer_test.go:88" + sgrReset,
-		sgrStringOK + "\"foo\"" + sgrReset,
-		sgrStringFail + "\"foo_\"" + sgrReset,
-		sgrFail + "--- FAIL: TestLexIdent/trailing_underscore (0.00s)" + sgrReset,
-		sgrSearchBG,
+		bramble.dim + "17:42:53Z" + sgrReset,
+		bramble.info + "go test ./... -race" + sgrReset,
+		bramble.ok + "ok" + sgrReset,
+		bramble.path + "lexer_test.go:88" + sgrReset,
+		bramble.ok + "\"foo\"" + sgrReset,
+		bramble.fail + "\"foo_\"" + sgrReset,
+		bramble.fail + "--- FAIL: TestLexIdent/trailing_underscore (0.00s)" + sgrReset,
+		bramble.runTintBG,
 	} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("highlighted log view missing %q\n%s", want, view)
@@ -139,7 +188,7 @@ func TestRenderLargeHighlightedLogUsesVisibleWindow(t *testing.T) {
 	if strings.Contains(visible, "0001") || !strings.Contains(visible, "9990") {
 		t.Fatalf("viewport did not stay near offset:\n%s", visible)
 	}
-	if !strings.Contains(view, sgrTimestamp) || !strings.Contains(view, sgrOK) {
+	if !strings.Contains(view, bramble.dim) || !strings.Contains(view, bramble.ok) {
 		t.Fatalf("large highlighted render missed semantic colors:\n%s", view)
 	}
 	assertANSIWidth(t, view, 120)

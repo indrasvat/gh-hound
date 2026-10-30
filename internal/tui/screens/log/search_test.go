@@ -15,12 +15,12 @@ func hitRows(view string) (hits []string, current string) {
 	for l := range strings.SplitSeq(view, "\n") {
 		text := strings.TrimRight(plain(l), " ")
 		switch {
-		case strings.HasPrefix(l, sgrFG+sgrCurrentBG):
+		case strings.HasPrefix(l, bramble.fg+bramble.runTintStrongBG):
 			if current == "" {
 				current = text
 			}
 			hits = append(hits, text)
-		case strings.HasPrefix(l, sgrFG+sgrSearchBG):
+		case strings.HasPrefix(l, bramble.fg+bramble.runTintBG):
 			hits = append(hits, text)
 		}
 	}
@@ -77,7 +77,7 @@ func TestAWrappedHitIsTintedOnEveryRow(t *testing.T) {
 func TestTheCurrentHitIsMarkedApart(t *testing.T) {
 	m := search(NewModel(document(), 1, 12), "trail").Update(KeyMsg{Key: "g"})
 	view := View(m, 80)
-	if !strings.Contains(view, sgrSearch+"005") || !strings.Contains(view, sgrLineNo+"007") {
+	if !strings.Contains(view, bramble.run+"005") || !strings.Contains(view, bramble.line2+"007") {
 		t.Fatalf("only the current hit's line number is warn:\n%q", view)
 	}
 	m = m.Update(KeyMsg{Key: "n"}).Update(KeyMsg{Key: "g"})

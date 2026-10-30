@@ -1203,7 +1203,7 @@ func runTUI(ctx context.Context, runtime commandRuntime, info buildInfo, options
 
 	renderer := newFrameRenderer(out)
 	renderer.SetSize(width, height)
-	startup := tui.NewStartup(cfg, options.Repo)
+	startup := tui.NewStartup(cfg, options.Repo, runtime.IsTTY && limitedProfile(colorProfile(runtime.Stdout, runtime.Env)))
 	var screen interface {
 		ViewSize(width, height int) string
 	} = startup
@@ -1549,10 +1549,11 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 		Actor:   actor,
 	})
 	return tui.NewApp(tui.Options{
-		Config: cfg,
-		Keymap: keymap,
-		Build:  build,
-		Launch: launch,
+		Config:       cfg,
+		Keymap:       keymap,
+		LimitedColor: runtime.IsTTY && limitedProfile(colorProfile(runtime.Stdout, runtime.Env)),
+		Build:        build,
+		Launch:       launch,
 		RunsResolver: func(loadCtx context.Context, filter usecase.RunFilter) ([]model.Run, error) {
 			if filter.PerPage == 0 {
 				filter.PerPage = cfg.PerPage

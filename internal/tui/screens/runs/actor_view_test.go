@@ -182,12 +182,12 @@ func TestThemeRecoloursRunsSurfaces(t *testing.T) {
 	m = m.Update(KeyMsg{Key: "/"})
 	view := ViewSize(m, 118, 20, time.Now())
 	for _, token := range []string{bone.Fail, bone.Subtle, bone.Surface, bone.OK} {
-		if !strings.Contains(view, sgrHex(token, false)) && !strings.Contains(view, sgrHex(token, true)) {
+		if !strings.Contains(view, theme.Fg(token)) && !strings.Contains(view, theme.Bg(token)) {
 			t.Fatalf("Bone token %s not used", token)
 		}
 	}
 	bramble := theme.ForMode(theme.ModeBramble)
-	if strings.Contains(view, sgrHex(bramble.FGSoft, false)) || strings.Contains(view, sgrHex(bramble.Fail, false)) {
+	if strings.Contains(view, theme.Fg(bramble.FGSoft)) || strings.Contains(view, theme.Fg(bramble.Fail)) {
 		t.Fatal("Bramble colours leaked into the Bone runs list")
 	}
 }

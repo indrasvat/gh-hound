@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
@@ -17,29 +18,30 @@ func ViewSize(m Model, width, height int) string {
 	if width <= 0 {
 		width = 80
 	}
-	lines := []string{fitANSI(headerLine(m.Report), width)}
+	st := stylesFor(m.theme())
+	lines := []string{fitANSI(headerLine(st, m.Report), width)}
 	switch m.Report.Status {
 	case usecase.FlakeStatusClean:
-		lines = append(lines, fitANSI(colorize(sgrDim, fmt.Sprintf("%d runs sniffed on %s · nothing wobbled.", m.Report.RunsScanned, m.Report.Workflow)), width))
+		lines = append(lines, fitANSI(colorize(st.dim, fmt.Sprintf("%d runs sniffed on %s · nothing wobbled.", m.Report.RunsScanned, m.Report.Workflow)), width))
 	case usecase.FlakeStatusInsufficient:
 		lines = append(lines,
-			fitANSI(colorize(sgrDim, fmt.Sprintf("only %d completed %s on %s — the hound needs %d to call it.", m.Report.SampleSize, runsNoun(m.Report.SampleSize), m.Report.Workflow, usecase.FlakeMinSample)), width),
-			fitANSI(colorize(sgrDim, "no evidence was discarded; what little there is shows below."), width),
+			fitANSI(colorize(st.dim, fmt.Sprintf("only %d completed %s on %s — the hound needs %d to call it.", m.Report.SampleSize, runsNoun(m.Report.SampleSize), m.Report.Workflow, usecase.FlakeMinSample)), width),
+			fitANSI(colorize(st.dim, "no evidence was discarded; what little there is shows below."), width),
 		)
-		lines = append(lines, m.jobLines(width, height)...)
+		lines = append(lines, m.jobLines(st, width, height)...)
 	default:
-		lines = append(lines, m.jobLines(width, height)...)
+		lines = append(lines, m.jobLines(st, width, height)...)
 	}
 	return strings.Join(lines, "\n")
 }
 
-func (m Model) jobLines(width, height int) []string {
+func (m Model) jobLines(st styles, width, height int) []string {
 	lines := []string{}
 	cursor := 0
 	for _, job := range m.Report.Jobs {
-		lines = append(lines, fitANSI(jobLine(job), width))
+		lines = append(lines, fitANSI(jobLine(st, job), width))
 		for _, evidence := range job.Evidence {
-			lines = append(lines, fitANSI(EvidenceRow(evidence, cursor == m.Selected), width))
+			lines = append(lines, fitANSI(evidenceRow(st, evidence, cursor == m.Selected), width))
 			cursor++
 		}
 	}
@@ -68,25 +70,25 @@ func clampToSelection(lines []string, selected, capacity int) []string {
 	return lines[start:min(start+capacity, len(lines))]
 }
 
-func headerLine(report usecase.FlakeReport) string {
+func headerLine(st styles, report usecase.FlakeReport) string {
 	verdict := strings.TrimSpace(report.Verdict)
 	if verdict == "" {
 		verdict = "the scent check"
 	}
 	switch report.Status {
 	case usecase.FlakeStatusFlaky:
-		return colorize(sgrRun, verdict)
+		return colorize(st.run, verdict)
 	case usecase.FlakeStatusSuspect:
-		return colorize(sgrFG, verdict)
+		return colorize(st.fg, verdict)
 	case usecase.FlakeStatusClean:
-		return colorize(sgrOK, verdict)
+		return colorize(st.ok, verdict)
 	default:
-		return colorize(sgrDim, verdict)
+		return colorize(st.dim, verdict)
 	}
 }
 
-func jobLine(job usecase.JobFlake) string {
-	glyph := colorize(sgrRun, icons.Flake)
+func jobLine(st styles, job usecase.JobFlake) string {
+	glyph := colorize(st.run, icons.Flake)
 	counts := []string{}
 	if job.Flips > 0 {
 		counts = append(counts, plural(job.Flips, "flip"))
@@ -97,19 +99,23 @@ func jobLine(job usecase.JobFlake) string {
 	if job.Masks > 0 {
 		counts = append(counts, plural(job.Masks, "masked retry", "masked retries"))
 	}
-	return glyph + " " + colorize(sgrFG, job.Job) +
-		colorize(sgrDim, fmt.Sprintf(" · score %.2f · %s · %s", job.Score, job.Verdict, strings.Join(counts, " · ")))
+	return glyph + " " + colorize(st.fg, job.Job) +
+		colorize(st.dim, fmt.Sprintf(" · score %.2f · %s · %s", job.Score, job.Verdict, strings.Join(counts, " · ")))
 }
 
 // EvidenceRow renders one evidence line; shared with the failure
 // screen's flake panel so the two surfaces cannot drift.
-func EvidenceRow(evidence usecase.FlakeEvidence, selected bool) string {
+func EvidenceRow(th theme.Theme, evidence usecase.FlakeEvidence, selected bool) string {
+	return evidenceRow(stylesFor(th), evidence, selected)
+}
+
+func evidenceRow(st styles, evidence usecase.FlakeEvidence, selected bool) string {
 	prefix := "  "
 	if selected {
-		prefix = colorize(sgrOK, icons.Cursor) + " "
+		prefix = colorize(st.ok, icons.Cursor) + " "
 	}
-	kind := colorize(sgrInfo, string(evidence.Kind))
-	return prefix + colorize(sgrFGSoft, fmt.Sprintf("#%d", evidence.Run.RunNumber)) + " " + kind + colorize(sgrDim, " · "+evidence.Detail)
+	kind := colorize(st.info, string(evidence.Kind))
+	return prefix + colorize(st.fgSoft, fmt.Sprintf("#%d", evidence.Run.RunNumber)) + " " + kind + colorize(st.dim, " · "+evidence.Detail)
 }
 
 func plural(count int, singular string, pluralForm ...string) string {
@@ -139,15 +145,27 @@ func colorize(sgr, value string) string {
 	return sgr + value + sgrReset
 }
 
-const (
-	sgrReset  = "\x1b[0m"
-	sgrOK     = "\x1b[38;2;79;211;122m"
-	sgrRun    = "\x1b[38;2;224;163;62m"
-	sgrInfo   = "\x1b[38;2;110;156;181m"
-	sgrDim    = "\x1b[38;2;107;112;96m"
-	sgrFG     = "\x1b[38;2;234;232;217m"
-	sgrFGSoft = "\x1b[38;2;207;205;187m"
-)
+// styles are the theme's tokens as SGR sequences, resolved once per
+// frame so T recolours the scent check screen.
+type styles struct {
+	ok, run, info, dim, fg, fgSoft string
+}
+
+func stylesFor(th theme.Theme) styles {
+	return styles{
+		ok: theme.Fg(th.OK), run: theme.Fg(th.Run), info: theme.Fg(th.Info),
+		dim: theme.Fg(th.Dim), fg: theme.Fg(th.FG), fgSoft: theme.Fg(th.FGSoft),
+	}
+}
+
+func (m Model) theme() theme.Theme {
+	if m.Theme.Mode == "" {
+		return theme.ForMode(theme.ModeBramble)
+	}
+	return m.Theme
+}
+
+const sgrReset = "\x1b[0m"
 
 func runsNoun(n int) string {
 	if n == 1 {

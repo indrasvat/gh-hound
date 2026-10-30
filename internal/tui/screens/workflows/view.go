@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 )
 
@@ -18,8 +19,9 @@ func ViewSize(m Model, width, height int) string {
 	if width <= 0 {
 		width = 80
 	}
+	st := stylesFor(m.theme())
 	nameW, fileW, stateW := columnWidths(width, m.Workflows)
-	lines := []string{header(width, nameW, fileW, stateW)}
+	lines := []string{header(st, width, nameW, fileW, stateW)}
 	rows := m.Workflows
 	selected := m.Selected
 	if selected >= len(rows) {
@@ -27,11 +29,11 @@ func ViewSize(m Model, width, height int) string {
 	}
 	start, end := viewport(selected, len(rows), rowCapacity(height, len(rows)))
 	for i, workflow := range rows[start:end] {
-		lines = append(lines, row(workflow, start+i == selected, width, nameW, fileW, stateW))
+		lines = append(lines, row(st, workflow, start+i == selected, width, nameW, fileW, stateW))
 	}
-	lines = append(lines, summaryLine(m, width))
+	lines = append(lines, summaryLine(st, m, width))
 	if why := whyLine(m); why != "" {
-		lines = append(lines, dimLine("  "+why, width))
+		lines = append(lines, dimLine(st, "  "+why, width))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -57,19 +59,19 @@ func columnWidths(width int, workflows []model.Workflow) (nameW, fileW, stateW i
 // stateColumnWidth fits the longest documented badge, "⊘ fork-disabled".
 const stateColumnWidth = 15
 
-func header(width, nameW, fileW, stateW int) string {
+func header(st styles, width, nameW, fileW, stateW int) string {
 	line := "  " + pad("Workflow", nameW) + " " + pad("File", fileW) + " " + pad("State", stateW)
-	return dimLine(line, width)
+	return dimLine(st, line, width)
 }
 
-func row(workflow model.Workflow, selected bool, width, nameW, fileW, stateW int) string {
+func row(st styles, workflow model.Workflow, selected bool, width, nameW, fileW, stateW int) string {
 	prefix := "  "
 	if selected {
-		prefix = colorize(sgrOK, icons.Cursor) + " "
+		prefix = colorize(st.ok, icons.Cursor) + " "
 	}
-	name := colorize(sgrFGSoft, truncate(displayName(workflow), nameW))
-	file := colorize(sgrSubtle, truncate(workflow.Path, fileW))
-	glyph, label, color := badge(workflow.State)
+	name := colorize(st.fgSoft, truncate(displayName(workflow), nameW))
+	file := colorize(st.subtle, truncate(workflow.Path, fileW))
+	glyph, label, color := badge(st, workflow.State)
 	state := colorize(color, truncate(glyph+" "+label, stateW))
 	line := prefix + padANSI(name, nameW) + " " + padANSI(file, fileW) + " " + padANSI(state, stateW)
 	return fitANSI(line, width)
@@ -88,38 +90,38 @@ func displayName(workflow model.Workflow) string {
 // badge maps a workflow state to its themed glyph + hound-voiced
 // label. Unknown future states render verbatim with a neutral badge —
 // never rejected, never guessed at.
-func badge(state string) (glyph, label, color string) {
+func badge(st styles, state string) (glyph, label, color string) {
 	switch state {
 	case model.WorkflowStateActive:
-		return icons.Success, "active", sgrOK
+		return icons.Success, "active", st.ok
 	case model.WorkflowStateDisabledInactivity:
-		return icons.Queued, "asleep", sgrRun
+		return icons.Queued, "asleep", st.run
 	case model.WorkflowStateDisabledManually:
-		return icons.Cancelled, "muzzled", sgrWarn
+		return icons.Cancelled, "muzzled", st.warn
 	case model.WorkflowStateDisabledFork:
-		return icons.Cancelled, "fork-disabled", sgrNeutral
+		return icons.Cancelled, "fork-disabled", st.neutral
 	case model.WorkflowStateDeleted:
-		return icons.Failure, "deleted", sgrFail
+		return icons.Failure, "deleted", st.fail
 	default:
-		return icons.Neutral, state, sgrNeutral
+		return icons.Neutral, state, st.neutral
 	}
 }
 
 // BadgeText is the plain badge for other surfaces (the dispatch
 // picker) so every workflow listing shares one vocabulary.
 func BadgeText(state string) string {
-	glyph, label, _ := badge(state)
+	glyph, label, _ := badge(styles{}, state)
 	return glyph + " " + label
 }
 
 // StateLabel is the hound-voiced label alone (asleep, muzzled, …) for
 // toasts that name a state mid-sentence.
 func StateLabel(state string) string {
-	_, label, _ := badge(state)
+	_, label, _ := badge(styles{}, state)
 	return label
 }
 
-func summaryLine(m Model, width int) string {
+func summaryLine(st styles, m Model, width int) string {
 	counts := map[string]int{}
 	for _, workflow := range m.Workflows {
 		counts[workflow.State]++
@@ -134,10 +136,10 @@ func summaryLine(m Model, width int) string {
 		label string
 		color string
 	}{
-		{model.WorkflowStateDisabledInactivity, "asleep", sgrRun},
-		{model.WorkflowStateDisabledManually, "muzzled", sgrWarn},
-		{model.WorkflowStateDisabledFork, "fork-disabled", sgrNeutral},
-		{model.WorkflowStateDeleted, "deleted", sgrFail},
+		{model.WorkflowStateDisabledInactivity, "asleep", st.run},
+		{model.WorkflowStateDisabledManually, "muzzled", st.warn},
+		{model.WorkflowStateDisabledFork, "fork-disabled", st.neutral},
+		{model.WorkflowStateDeleted, "deleted", st.fail},
 	} {
 		if counts[entry.state] > 0 {
 			parts = append(parts, colorize(entry.color, fmt.Sprintf("%d %s", counts[entry.state], entry.label)))
@@ -145,7 +147,7 @@ func summaryLine(m Model, width int) string {
 	}
 	line := strings.Join(parts, " · ")
 	if hint := toggleHint(m); hint != "" {
-		line += " · " + colorize(sgrSubtle, hint)
+		line += " · " + colorize(st.subtle, hint)
 	}
 	return fitANSI(line, width)
 }
@@ -206,26 +208,36 @@ func viewport(selected, total, capacity int) (int, int) {
 	return start, start + capacity
 }
 
-const (
-	sgrOK      = "\x1b[38;2;79;211;122m"
-	sgrFail    = "\x1b[38;2;226;86;75m"
-	sgrRun     = "\x1b[38;2;224;163;62m"
-	sgrWarn    = "\x1b[38;2;232;137;90m"
-	sgrNeutral = "\x1b[38;2;107;112;96m"
-	sgrSubtle  = "\x1b[38;2;140;145;121m"
-	sgrFGSoft  = "\x1b[38;2;207;205;187m"
-	sgrReset   = "\x1b[0m"
-)
+// styles are the theme's tokens as SGR sequences, resolved once per
+// frame so T recolours the workflows screen.
+type styles struct {
+	ok, fail, run, warn, neutral, subtle, fgSoft string
+	dim                                          lipgloss.Style
+}
+
+func stylesFor(th theme.Theme) styles {
+	return styles{
+		ok: theme.Fg(th.OK), fail: theme.Fg(th.Fail), run: theme.Fg(th.Run), warn: theme.Fg(th.Warn),
+		neutral: theme.Fg(th.Neutral), subtle: theme.Fg(th.Subtle), fgSoft: theme.Fg(th.FGSoft),
+		dim: lipgloss.NewStyle().Foreground(lipgloss.Color(th.Subtle)),
+	}
+}
+
+func (m Model) theme() theme.Theme {
+	if m.Theme.Mode == "" {
+		return theme.ForMode(theme.ModeBramble)
+	}
+	return m.Theme
+}
+
+const sgrReset = "\x1b[0m"
 
 func colorize(sgr, value string) string {
 	return sgr + value + sgrReset
 }
 
-func dimLine(value string, width int) string {
-	value = fitANSI(value, width)
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#8C9179")).
-		Render(value)
+func dimLine(st styles, value string, width int) string {
+	return st.dim.Render(fitANSI(value, width))
 }
 
 func pad(value string, width int) string {

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -53,5 +55,37 @@ func TestInsufficientVerdictMatchesSampleNumber(t *testing.T) {
 	}), 100))
 	if !strings.Contains(many, "only 2 completed runs on") {
 		t.Fatalf("plural sample must read 'runs':\n%s", many)
+	}
+}
+
+// EvidenceRow is shared with the failure screen, so it takes the theme
+// rather than reading a package colour.
+func TestThemeRecoloursScentCheck(t *testing.T) {
+	m := NewModel(usecase.FlakeReport{
+		Status: usecase.FlakeStatusFlaky,
+		Jobs: []usecase.JobFlake{{Job: "test", Flips: 2, Evidence: []usecase.FlakeEvidence{
+			{Run: model.Run{ID: 1, RunNumber: 10}, Kind: "flip", Detail: "attempt 1 failed"},
+		}}},
+		Verdict: "squirrel",
+	})
+	bramble, bone := theme.ForMode(theme.ModeBramble), theme.ForMode(theme.ModeBone)
+	before := View(m, 100)
+	m.Theme = bone
+	view := View(m, 100)
+	if view == before {
+		t.Fatal("switching to Bone must recolour the scent check")
+	}
+	for _, token := range []string{bone.OK, bone.Run, bone.Info, bone.Dim, bone.FG, bone.FGSoft} {
+		if !strings.Contains(view, theme.Fg(token)) {
+			t.Fatalf("Bone token %s missing from the scent check:\n%q", token, view)
+		}
+	}
+	for _, token := range []string{bramble.OK, bramble.Run, bramble.Info, bramble.Dim, bramble.FG, bramble.FGSoft} {
+		if strings.Contains(view, theme.Fg(token)) {
+			t.Fatalf("Bramble colour %s leaked into the Bone scent check:\n%q", token, view)
+		}
+	}
+	if !strings.Contains(EvidenceRow(bone, m.Report.Jobs[0].Evidence[0], false), theme.Fg(bone.FGSoft)) {
+		t.Fatal("EvidenceRow must colour from the theme it is given")
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/logs/fold"
 	"github.com/indrasvat/gh-hound/internal/numfmt"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/components/textinput"
 )
 
@@ -18,14 +19,15 @@ func View(m Model, width int) string {
 		width = 80
 	}
 	m.Width = width
-	lines := []string{fitANSI(strings.TrimSpace(colorize(sgrHeader, header(m, width))+"  "+scrollIndicator(m)), width)}
+	st := stylesFor(m.theme())
+	lines := []string{fitANSI(strings.TrimSpace(colorize(st.header, header(m, width))+"  "+scrollIndicator(st, m)), width)}
 	budget := max(m.Height, 1)
 	_, skip := m.position()
 	for i, row := range m.visibleRows() {
 		if budget == 0 {
 			break
 		}
-		rendered := m.renderRow(row)
+		rendered := m.renderRow(st, row)
 		if i == 0 {
 			rendered = rendered[min(skip, len(rendered)-1):]
 		}
@@ -37,17 +39,17 @@ func View(m Model, width int) string {
 }
 
 // renderRow draws one row at m.Width; a wrapped line takes several.
-func (m Model) renderRow(row viewRow) []string {
+func (m Model) renderRow(st styles, row viewRow) []string {
 	gutter := gutterWidth(len(m.Document.Lines))
 	switch row.kind {
 	case rowGroup:
 		f := m.groups[row.line]
-		return []string{renderFold(row.line, gutter, TerminalSafe(f.Title), f.CollapsedCount, !row.open, m.Width)}
+		return []string{renderFold(st, row.line, gutter, TerminalSafe(f.Title), f.CollapsedCount, !row.open, m.Width)}
 	case rowRepeat:
-		return []string{renderRepeat(row.line, gutter, TerminalSafe(m.repeatTitle(row)), row.end-row.line+1, !row.open, m.Width)}
+		return []string{renderRepeat(st, row.line, gutter, TerminalSafe(m.repeatTitle(row)), row.end-row.line+1, !row.open, m.Width)}
 	}
 	line := m.Document.Lines[row.line-1]
-	return renderLine(line, gutter, m.hit(line.Number), m.wrapping(), m.Width)
+	return renderLine(st, line, gutter, m.hit(line.Number), m.wrapping(), m.Width)
 }
 
 func gutterWidth(lines int) int {
@@ -101,7 +103,7 @@ func matchCounter(m Model) string {
 }
 
 // scrollIndicator is a compact viewport-position gauge for the header.
-func scrollIndicator(m Model) string {
+func scrollIndicator(st styles, m Model) string {
 	total := len(m.rows())
 	if total <= 0 || m.Height <= 0 || total <= m.Height {
 		return ""
@@ -114,7 +116,7 @@ func scrollIndicator(m Model) string {
 	}
 	bar := []rune(strings.Repeat("─", cells))
 	bar[pos] = '▮'
-	return colorize(sgrLineNo, string(bar))
+	return colorize(st.line2, string(bar))
 }
 
 func foldGlyph(collapsed bool) string {
@@ -124,16 +126,16 @@ func foldGlyph(collapsed bool) string {
 	return "▾"
 }
 
-func renderFold(number, gutterW int, title string, count int, collapsed bool, width int) string {
-	gutter := colorize(sgrLineNo, gutterText(number, gutterW))
-	label := colorize(sgrOK, foldGlyph(collapsed)) + " " + colorize(sgrFold, title)
-	countText := colorize(sgrDim, numfmt.Group(count)+" line"+plural(count))
-	return backgroundSafe(gutter+" "+label+" "+countText, width, sgrFG, sgrFoldBG)
+func renderFold(st styles, number, gutterW int, title string, count int, collapsed bool, width int) string {
+	gutter := colorize(st.line2, gutterText(number, gutterW))
+	label := colorize(st.ok, foldGlyph(collapsed)) + " " + colorize(st.fgSoft, title)
+	countText := colorize(st.dim, numfmt.Group(count)+" line"+plural(count))
+	return backgroundSafe(gutter+" "+label+" "+countText, width, st.fg, st.surfaceBG)
 }
 
 // renderRepeat draws a repeat fold on its own band. Width goes to the fold's
 // size, the hidden count, the error warning, then the varying values.
-func renderRepeat(number, gutterW int, title string, count int, collapsed bool, width int) string {
+func renderRepeat(st styles, number, gutterW int, title string, count int, collapsed bool, width int) string {
 	marker := "⋯"
 	if !collapsed {
 		marker = "▾"
@@ -161,20 +163,20 @@ func renderRepeat(number, gutterW int, title string, count int, collapsed bool, 
 		warning = fitPlainWidth(fold.SevereGlyph+" "+severe, room-3)
 		room -= 3 + ansi.StringWidth(warning)
 	}
-	label := colorize(sgrRepeatHead, head)
+	label := colorize(st.header, head)
 	if main != "" && room > 4 {
-		label += colorize(sgrFold, " · "+fitPlainWidth(main, room-3))
+		label += colorize(st.fgSoft, " · "+fitPlainWidth(main, room-3))
 	}
 	if warning != "" {
-		label += colorize(sgrFold, " · ") + colorize(sgrFail, warning)
+		label += colorize(st.fgSoft, " · ") + colorize(st.fail, warning)
 	}
 	gutter := strings.Repeat(" ", gutterW) // an open fold's first line carries the number
 	if collapsed {
-		gutter = colorize(sgrLineNo, gutterText(number, gutterW))
+		gutter = colorize(st.line2, gutterText(number, gutterW))
 	}
-	left := gutter + " " + colorize(sgrRepeat, marker) + " " + label
+	left := gutter + " " + colorize(st.info, marker) + " " + label
 	gap := max(1, width-ansi.StringWidth(left)-ansi.StringWidth(countText)-1)
-	return backgroundSafe(left+strings.Repeat(" ", gap)+colorize(sgrDim, countText), width, sgrFG, sgrRepeatBG)
+	return backgroundSafe(left+strings.Repeat(" ", gap)+colorize(st.dim, countText), width, st.fg, st.infoTintBG)
 }
 
 func plural(n int) string {
@@ -197,36 +199,36 @@ func fitPlainWidth(value string, width int) string {
 // renderLine returns one screen line, or several when wrapping. A search
 // hit is tinted, the current one more strongly with a warn line number;
 // neither changes the row's width.
-func renderLine(line logs.Line, gutterW int, hit hitKind, wrap bool, width int) []string {
-	gutterStyle, bg := sgrLineNo, ""
+func renderLine(st styles, line logs.Line, gutterW int, hit hitKind, wrap bool, width int) []string {
+	gutterStyle, bg := st.line2, ""
 	switch hit {
 	case searchHit:
-		bg = sgrSearchBG
+		bg = st.runTintBG
 	case currentHit:
-		gutterStyle, bg = sgrSearch, sgrCurrentBG
+		gutterStyle, bg = st.run, st.runTintStrongBG
 	}
 	gutter := colorize(gutterStyle, gutterText(line.Number, gutterW))
-	text := renderLogText(line)
+	text := renderLogText(st, line)
 	if !wrap {
 		value := gutter + " " + text
 		if bg != "" {
-			return []string{backgroundSafe(value, width, sgrFG, bg)}
+			return []string{backgroundSafe(value, width, st.fg, bg)}
 		}
 		return []string{fitANSI(value, width)}
 	}
 	lead := gutterW + 1
 	parts := strings.Split(ansi.Hardwrap(text, max(1, width-lead), true), "\n")
 	out := make([]string, 0, len(parts))
-	base := baseStyle(line.Tokens)
+	base := baseStyle(st, line.Tokens)
 	for i, part := range parts {
 		head := gutter + " "
 		if i > 0 {
-			head = strings.Repeat(" ", lead-2) + colorize(sgrDim, "↪") + " " + base
+			head = strings.Repeat(" ", lead-2) + colorize(st.dim, "↪") + " " + base
 			part = trimLeadingSpace(part)
 		}
 		value := head + part
 		if bg != "" {
-			out = append(out, backgroundSafe(value, width, sgrFG, bg))
+			out = append(out, backgroundSafe(value, width, st.fg, bg))
 		} else {
 			out = append(out, fitANSI(value, width))
 		}
@@ -251,13 +253,13 @@ func trimLeadingSpace(s string) string {
 	return s
 }
 
-func renderLogText(line logs.Line) string {
+func renderLogText(st styles, line logs.Line) string {
 	text := line.Text
 	if strings.TrimSpace(text) == "" {
 		return ""
 	}
 	tokens := normalizedTokens(text, line.Tokens)
-	baseStyle := baseStyle(line.Tokens)
+	baseStyle := baseStyle(st, line.Tokens)
 	var out strings.Builder
 	cursor := 0
 	wantStart := strings.Index(text, " want ")
@@ -266,12 +268,12 @@ func renderLogText(line logs.Line) string {
 			continue
 		}
 		writeStyled(&out, text[cursor:token.Start], baseStyle)
-		style := tokenStyle(token.Class)
+		style := tokenStyle(st, token.Class)
 		if token.Class == logs.ClassString && wantStart >= 0 {
 			if token.Start > wantStart {
-				style = sgrStringFail
+				style = st.fail
 			} else {
-				style = sgrStringOK
+				style = st.ok
 			}
 		}
 		writeStyled(&out, text[token.Start:token.End], style)
@@ -397,13 +399,13 @@ func normalizedTokens(text string, tokens []logs.Token) []logs.Token {
 	return filtered
 }
 
-func baseStyle(tokens []logs.Token) string {
+func baseStyle(st styles, tokens []logs.Token) string {
 	for _, token := range tokens {
 		switch token.Class {
 		case logs.ClassFail:
-			return sgrFail
+			return st.fail
 		case logs.ClassWarn:
-			return sgrWarn
+			return st.warn
 		}
 	}
 	return ""
@@ -428,20 +430,20 @@ func tokenRank(class logs.TokenClass) int {
 	}
 }
 
-func tokenStyle(class logs.TokenClass) string {
+func tokenStyle(st styles, class logs.TokenClass) string {
 	switch class {
 	case logs.ClassTimestamp:
-		return sgrTimestamp
+		return st.dim
 	case logs.ClassCommand:
-		return sgrCommand
+		return st.info
 	case logs.ClassOK:
-		return sgrOK
+		return st.ok
 	case logs.ClassPath:
-		return sgrPath
+		return st.path
 	case logs.ClassString:
-		return sgrString
+		return st.fgSoft
 	case logs.ClassNumber:
-		return sgrNumber
+		return st.run
 	default:
 		return ""
 	}
@@ -488,28 +490,34 @@ func backgroundSafe(value string, width int, fg string, bg string) string {
 	return style + value + sgrReset
 }
 
+// styles are the theme's tokens as SGR sequences, resolved once per
+// frame so T recolours the log.
+type styles struct {
+	fg, fgSoft, dim, line2, ok, fail, warn, run, info string
+	path, header                                      string
+	surfaceBG, infoTintBG, runTintBG, runTintStrongBG string
+}
+
+func stylesFor(th theme.Theme) styles {
+	info := theme.Fg(th.Info)
+	return styles{
+		fg: theme.Fg(th.FG), fgSoft: theme.Fg(th.FGSoft), dim: theme.Fg(th.Dim), line2: theme.Fg(th.Line2),
+		ok: theme.Fg(th.OK), fail: theme.Fg(th.Fail), warn: theme.Fg(th.Warn), run: theme.Fg(th.Run), info: info,
+		path: info + sgrUnderline, header: sgrBold + info,
+		surfaceBG: theme.Bg(th.Surface), infoTintBG: theme.Bg(th.InfoTint),
+		runTintBG: theme.Bg(th.RunTint), runTintStrongBG: theme.Bg(th.RunTintStrong),
+	}
+}
+
+func (m Model) theme() theme.Theme {
+	if m.Theme.Mode == "" {
+		return theme.ForMode(theme.ModeBramble)
+	}
+	return m.Theme
+}
+
 const (
-	sgrReset      = "\x1b[0m"
-	sgrFG         = "\x1b[38;2;234;232;217m"
-	sgrDim        = "\x1b[38;2;107;112;96m"
-	sgrLineNo     = "\x1b[38;2;61;66;51m"
-	sgrTimestamp  = "\x1b[38;2;107;112;96m"
-	sgrCommand    = "\x1b[38;2;110;156;181m"
-	sgrOK         = "\x1b[38;2;79;211;122m"
-	sgrFail       = "\x1b[38;2;226;86;75m"
-	sgrWarn       = "\x1b[38;2;232;137;90m"
-	sgrPath       = "\x1b[38;2;110;156;181m\x1b[4m"
-	sgrString     = "\x1b[38;2;207;205;187m"
-	sgrStringOK   = "\x1b[38;2;79;211;122m"
-	sgrStringFail = "\x1b[38;2;226;86;75m"
-	sgrNumber     = "\x1b[38;2;224;163;62m"
-	sgrFold       = "\x1b[38;2;207;205;187m"
-	sgrSearch     = "\x1b[38;2;224;163;62m"
-	sgrFoldBG     = "\x1b[48;2;27;29;23m"
-	sgrRepeat     = "\x1b[38;2;110;156;181m"
-	sgrRepeatHead = "\x1b[1;38;2;110;156;181m"
-	sgrHeader     = sgrRepeatHead
-	sgrRepeatBG   = "\x1b[48;2;20;28;33m"
-	sgrSearchBG   = "\x1b[48;2;43;33;24m"
-	sgrCurrentBG  = "\x1b[48;2;76;55;30m"
+	sgrReset     = "\x1b[0m"
+	sgrBold      = "\x1b[1m"
+	sgrUnderline = "\x1b[4m"
 )

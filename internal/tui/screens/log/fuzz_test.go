@@ -158,7 +158,7 @@ func (in *fuzzInput) event(m Model) (Model, string) {
 func flat(m Model) []string {
 	var out []string
 	for _, r := range m.rows() {
-		for _, l := range m.renderRow(r) {
+		for _, l := range m.renderRow(bramble, r) {
 			out = append(out, ansi.Strip(l))
 		}
 	}
@@ -218,7 +218,7 @@ func drawsLine(m Model, line int) bool {
 	head := gutterText(line, gutterWidth(len(m.Document.Lines))) + " "
 	start, n := windowStart(m), 0
 	for _, r := range m.rows() {
-		out := m.renderRow(r)
+		out := m.renderRow(bramble, r)
 		rest, ok := strings.CutPrefix(ansi.Strip(out[0]), head)
 		if ok && !strings.HasPrefix(rest, "⋯") && n+len(out) > start && n < start+max(m.Height, 1) {
 			return true

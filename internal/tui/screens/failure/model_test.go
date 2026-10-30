@@ -10,9 +10,55 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
+
+// Bone recolours the failure view, the hit tint and the error-window band
+// included, and leaves no Bramble colour behind; switching Theme back
+// recolours again.
+func TestBoneRecoloursTheFailureView(t *testing.T) {
+	bone := theme.ForMode(theme.ModeBone)
+	m := flakyModel()
+	m.Theme = bone
+	view := View(m.Update(KeyMsg{Key: "tab"}), 120)
+	for _, want := range []string{
+		theme.Fg(bone.OK), theme.Fg(bone.Fail), theme.Fg(bone.Info) + "\x1b[4m", theme.Fg(bone.Run), theme.Fg(bone.Dim),
+		theme.Fg(bone.FG), theme.Fg(bone.FGSoft), theme.Fg(bone.Line2), theme.Bg(bone.Surface), theme.Bg(bone.RunTint),
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("bone failure view is missing %q", want)
+		}
+	}
+	for line := range strings.SplitSeq(view, "\n") {
+		for _, c := range []string{"\x1b[38;2;", "\x1b[48;2;"} {
+			for _, seq := range strings.Split(line, c)[1:] {
+				if sgr := c + seq[:strings.IndexByte(seq, 'm')+1]; isBrambleOnly(sgr) {
+					t.Fatalf("bone failure view still carries Bramble colour %q in %q", sgr, ansi.Strip(line))
+				}
+			}
+		}
+	}
+	m.Theme = theme.ForMode(theme.ModeBramble)
+	if again := View(m, 120); again == view || !strings.Contains(again, "\x1b[48;2;43;33;24m") {
+		t.Fatalf("switching Theme back to Bramble did not recolour the failure view")
+	}
+}
+
+// isBrambleOnly reports an SGR that is a Bramble token and no Bone one.
+func isBrambleOnly(sgr string) bool {
+	has := func(th theme.Theme) bool {
+		for _, c := range []string{th.BG, th.Surface, th.Surface2, th.Line, th.Line2, th.Dim, th.Subtle, th.Muted, th.FGSoft, th.FG,
+			th.OK, th.Fail, th.Run, th.Info, th.Warn, th.RunTint, th.RunTintStrong, th.FailTint, th.InfoTint} {
+			if sgr == theme.Fg(c) || sgr == theme.Bg(c) {
+				return true
+			}
+		}
+		return false
+	}
+	return has(theme.ForMode(theme.ModeBramble)) && !has(theme.ForMode(theme.ModeBone))
+}
 
 func TestModelActionsRouteWithSameLogOffset(t *testing.T) {
 	m := NewModel("indrasvat/gh-hound", 571, report())

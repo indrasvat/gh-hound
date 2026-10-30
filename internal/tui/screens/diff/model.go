@@ -3,6 +3,7 @@
 package diff
 
 import (
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -27,6 +28,7 @@ type Model struct {
 	Verdict  usecase.RegressionVerdict
 	Selected int
 	Intent   Intent
+	Theme    theme.Theme
 }
 
 func NewModel(verdict usecase.RegressionVerdict) Model {

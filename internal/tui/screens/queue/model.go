@@ -6,6 +6,7 @@ import (
 
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/render"
+	"github.com/indrasvat/gh-hound/internal/theme"
 )
 
 type KeyMsg struct {
@@ -36,6 +37,7 @@ type Model struct {
 	Report   model.ConcurrencyReport
 	Selected int
 	Intent   Intent
+	Theme    theme.Theme
 }
 
 func NewModel(report model.ConcurrencyReport) Model {

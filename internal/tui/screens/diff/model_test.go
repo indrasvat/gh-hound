@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -183,4 +184,25 @@ func stripANSI(value string) string {
 		}
 	}
 	return out.String()
+}
+
+func TestThemeRecoloursTrail(t *testing.T) {
+	m := NewModel(locatedVerdict())
+	bramble, bone := theme.ForMode(theme.ModeBramble), theme.ForMode(theme.ModeBone)
+	before := View(m, 120)
+	m.Theme = bone
+	view := View(m, 120)
+	if view == before {
+		t.Fatal("switching to Bone must recolour the trail")
+	}
+	for _, token := range []string{bone.OK, bone.Fail, bone.Info, bone.Dim, bone.FG, bone.FGSoft} {
+		if !strings.Contains(view, theme.Fg(token)) {
+			t.Fatalf("Bone token %s missing from the trail:\n%q", token, view)
+		}
+	}
+	for _, token := range []string{bramble.OK, bramble.Fail, bramble.Run, bramble.Info, bramble.Dim, bramble.FG, bramble.FGSoft} {
+		if strings.Contains(view, theme.Fg(token)) {
+			t.Fatalf("Bramble colour %s leaked into the Bone trail:\n%q", token, view)
+		}
+	}
 }

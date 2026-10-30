@@ -372,15 +372,16 @@ func (m Model) screenLines(r viewRow) int {
 	if r.kind != rowLine || !m.wrapping() {
 		return 1
 	}
+	// Colour never changes a row's height, so it is measured unstyled.
 	if m.cache == nil {
-		return len(m.renderRow(r))
+		return len(m.renderRow(styles{}, r))
 	}
 	if key := m.layoutKey(); m.cache.layout != key {
 		m.cache.layout, m.cache.heights = key, map[int]int{}
 	}
 	h, ok := m.cache.heights[r.line]
 	if !ok {
-		h = len(m.renderRow(r))
+		h = len(m.renderRow(styles{}, r))
 		m.cache.heights[r.line] = h
 	}
 	return h

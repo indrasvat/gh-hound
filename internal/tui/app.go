@@ -82,7 +82,10 @@ type KeyMsg struct {
 type Options struct {
 	Config config.Config
 	// Keymap is Config.Keybindings, validated (keys.NewKeymap).
-	Keymap         keys.Keymap
+	Keymap keys.Keymap
+	// LimitedColor is a terminal without truecolor: fills come from
+	// the xterm-256 palette (theme.Limited) so they stay visible.
+	LimitedColor   bool
 	Build          BuildInfo
 	Launch         usecase.LaunchContext
 	DetailResolver func(context.Context, model.Run) (detail.Model, error)
@@ -141,6 +144,7 @@ type ActionRequest struct {
 type App struct {
 	config            config.Config
 	keymap            keys.Keymap
+	limitedColor      bool
 	build             BuildInfo
 	theme             theme.Theme
 	routes            []Route
@@ -556,8 +560,9 @@ func NewApp(options Options) App {
 	app := App{
 		config:                    cfg,
 		keymap:                    options.Keymap,
+		limitedColor:              options.LimitedColor,
 		build:                     options.Build,
-		theme:                     theme.ForMode(theme.Mode(cfg.Theme)),
+		theme:                     themeFor(theme.Mode(cfg.Theme), options.LimitedColor),
 		routes:                    []Route{route},
 		pollInterval:              initialPollInterval(cfg),
 		launchRoute:               launchRoute,
@@ -850,7 +855,7 @@ func (a App) ViewSize(width, height int) string {
 				body = strings.Join(lines[:room], "\n")
 			}
 		}
-		body = layerOver(a.theme, colorizeBody(a.theme, body, inner), overlayBox(a.theme, a.overlayTitle(), a.overlayView(width, height), width, room), inner)
+		body = layerOver(a.theme, colorizeBody(a.theme, body, inner), overlayBox(a.theme, a.overlayTitle(), a.overlayView(width, height), width, room, a.TopOverlay() == OverlayPalette), inner)
 		footer = a.keymap.Footer(keys.ScreenHelp)
 		if a.TopOverlay() == OverlayPalette {
 			footer = a.keymap.Footer(keys.ScreenPalette)
@@ -1551,11 +1556,18 @@ func (a *App) PopRoute() {
 func (a *App) toggleTheme() {
 	if a.theme.Mode == theme.ModeBramble {
 		a.config.Theme = config.ThemeBone
-		a.theme = theme.ForMode(theme.ModeBone)
+		a.theme = themeFor(theme.ModeBone, a.limitedColor)
 		return
 	}
 	a.config.Theme = config.ThemeBramble
-	a.theme = theme.ForMode(theme.ModeBramble)
+	a.theme = themeFor(theme.ModeBramble, a.limitedColor)
+}
+
+func themeFor(mode theme.Mode, limited bool) theme.Theme {
+	if limited {
+		return theme.ForMode(mode).Limited()
+	}
+	return theme.ForMode(mode)
 }
 
 func (a App) routeInputMode() bool {
@@ -4924,6 +4936,7 @@ func (a App) screenBody(width, height int) string {
 		return runs.ViewSize(runsModel, bodyWidth, bodyHeight(height), time.Now())
 	case RouteDetail:
 		detailModel := a.detail
+		detailModel.Theme = a.theme
 		if load := a.load; load != nil && load.kind == loadKindDetail {
 			detailModel.Loading = true
 			detailModel.LoadingLine = loadingLine(a.theme, load, bodyWidth/2, time.Now())
@@ -4933,12 +4946,15 @@ func (a App) screenBody(width, height int) string {
 		if load := a.load; load != nil && load.kind == loadKindFailure {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())
 		}
-		return failure.ViewSize(a.failure, bodyWidth, bodyHeight(height))
+		failureModel := a.failure
+		failureModel.Theme = a.theme
+		return failure.ViewSize(failureModel, bodyWidth, bodyHeight(height))
 	case RouteLog:
 		if load := a.load; load != nil && load.kind == loadKindLog {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())
 		}
 		logModel := a.log
+		logModel.Theme = a.theme
 		if rows := bodyHeight(height) - 1; rows > 0 {
 			logModel.Height = rows
 		}
@@ -4948,9 +4964,12 @@ func (a App) screenBody(width, height int) string {
 		if load := a.load; load != nil && load.kind == loadKindWatch {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())
 		}
-		return watch.ViewSize(a.watch, bodyWidth, bodyHeight(height))
+		watchModel := a.watch
+		watchModel.Theme = a.theme
+		return watch.ViewSize(watchModel, bodyWidth, bodyHeight(height))
 	case RouteWatchBoard:
 		boardModel := a.board
+		boardModel.Theme = a.theme
 		if load := a.load; load != nil && load.kind == loadKindPack {
 			boardModel.Loading = true
 			boardModel.LoadingLine = loadingLine(a.theme, load, bodyWidth, time.Now())
@@ -4965,27 +4984,37 @@ func (a App) screenBody(width, height int) string {
 		if load := a.load; load != nil && load.kind == loadKindDiff {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())
 		}
-		return diffscreen.ViewSize(a.diff, bodyWidth, bodyHeight(height))
+		diffModel := a.diff
+		diffModel.Theme = a.theme
+		return diffscreen.ViewSize(diffModel, bodyWidth, bodyHeight(height))
 	case RouteFlakes:
 		if load := a.load; load != nil && load.kind == loadKindFlakes {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())
 		}
-		return flakesscreen.ViewSize(a.flakes, bodyWidth, bodyHeight(height))
+		flakesModel := a.flakes
+		flakesModel.Theme = a.theme
+		return flakesscreen.ViewSize(flakesModel, bodyWidth, bodyHeight(height))
 	case RouteCaches:
 		if load := a.load; load != nil && load.kind == loadKindCaches {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())
 		}
-		return caches.ViewSize(a.caches, bodyWidth, bodyHeight(height), time.Now())
+		cachesModel := a.caches
+		cachesModel.Theme = a.theme
+		return caches.ViewSize(cachesModel, bodyWidth, bodyHeight(height), time.Now())
 	case RouteQueue:
 		if load := a.load; load != nil && load.kind == loadKindQueue {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())
 		}
-		return queuescreen.ViewSize(a.queue, bodyWidth, bodyHeight(height))
+		queueModel := a.queue
+		queueModel.Theme = a.theme
+		return queuescreen.ViewSize(queueModel, bodyWidth, bodyHeight(height))
 	case RouteWorkflows:
 		if load := a.load; load != nil && load.kind == loadKindWorkflows {
 			return loadingBody(a.theme, load, bodyWidth, time.Now())
 		}
-		return workflowsscreen.ViewSize(a.workflows, bodyWidth, bodyHeight(height))
+		workflowsModel := a.workflows
+		workflowsModel.Theme = a.theme
+		return workflowsscreen.ViewSize(workflowsModel, bodyWidth, bodyHeight(height))
 	default:
 		return string(a.Route())
 	}
@@ -5169,7 +5198,7 @@ func toastText(th theme.Theme, item toast.Toast, width int) string {
 	case usecase.SeverityError:
 		color = th.Fail
 	}
-	return sgrHex(color, false) + value + sgrReset
+	return theme.Fg(color) + value + sgrReset
 }
 
 func mergeRight(left, right string, width int) string {

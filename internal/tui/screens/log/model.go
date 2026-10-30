@@ -5,6 +5,7 @@ import (
 
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/logs/fold"
+	"github.com/indrasvat/gh-hound/internal/theme"
 )
 
 type KeyMsg struct {
@@ -24,6 +25,7 @@ type Model struct {
 	Height     int
 	Width      int // set by the caller; lets wrapped scrolling reach the end
 	Wrap       bool
+	Theme      theme.Theme
 	InputMode  bool
 	LastJump   string
 	jumpLine   int // LastJump's line; the echo clears once it is off screen
