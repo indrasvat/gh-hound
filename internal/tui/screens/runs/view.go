@@ -53,7 +53,7 @@ func renderRuns(m Model, width, height int, now time.Time) string {
 	lines = append(lines, empty...)
 	for i, run := range runs[start:end] {
 		index := start + i
-		line := row(st, cols, run, index == selected, m.FlakyRuns[run.ID], m.paceMark(run, now), width, now)
+		line := row(st, cols, run, index == selected, m.FlakyRuns[run.ID], usecase.PaceMarkFor(run, m.Pace[run.ID], now), width, now)
 		if m.Loading {
 			// The previous list stays visible but dimmed while a
 			// reload is in flight.
@@ -83,7 +83,7 @@ func renderAllGreen(m Model, width, height int, now time.Time) string {
 	if len(runs) > 0 {
 		run := runs[0]
 		latestTitle = plainRunTitle(run)
-		latestMeta = fmt.Sprintf("%s · success", m.paceMark(run, now).Text)
+		latestMeta = fmt.Sprintf("%s · success", usecase.PaceMarkFor(run, m.Pace[run.ID], now).Text)
 	}
 	branch := scopeTitle(m.Context.Scope, m.Context.Branch)
 	fixedRows := 5
@@ -104,7 +104,7 @@ func renderAllGreen(m Model, width, height int, now time.Time) string {
 	}
 	lines = append(lines, notice...)
 	for i, run := range runs[start:end] {
-		line := allGreenRow(st, run, m.paceMark(run, now), start+i == selected, width, actorWidth, now)
+		line := allGreenRow(st, run, usecase.PaceMarkFor(run, m.Pace[run.ID], now), start+i == selected, width, actorWidth, now)
 		if m.Loading {
 			line = dimLine(st, ansi.Strip(line), width)
 		}
@@ -557,16 +557,13 @@ func eventColor(st styles, run model.Run) string {
 	return st.subtle
 }
 
-// markColor: an ETA reads in the running colour, a slow flag in warn,
-// a running run without an estimate and a queued one in info, and a
-// measured duration as before.
 func markColor(st styles, run model.Run, mark usecase.PaceMark) string {
 	switch {
 	case mark.Slow:
 		return st.warn
 	case mark.ETA:
 		return st.run
-	case mark.Running || mark.Waiting:
+	case run.Status != model.StatusCompleted || run.RunStartedAt.IsZero():
 		return st.info
 	}
 	return durationColor(st, run)

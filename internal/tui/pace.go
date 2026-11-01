@@ -30,11 +30,8 @@ type paceEntry struct {
 // goroutine's result survives App value copies; drained on poll ticks
 // and keypresses (flakes precedent). One rides at a time.
 type paceFetchState struct {
-	mu  sync.Mutex
-	key string
-	// gen is the cache generation the fetch started under; a reset
-	// moves on, and its result is dropped even if it completed.
-	gen      int
+	mu       sync.Mutex
+	key      string
 	covered  map[int64]bool
 	baseline usecase.PaceBaseline
 	err      error
@@ -69,7 +66,6 @@ func paceKey(repo string, run model.Run) string {
 	return repo + "|" + workflow + "|" + run.HeadBranch + "|" + run.Event
 }
 
-// paceScope is the repository and the runs on the current screen.
 func (a App) paceScope() (string, []model.Run) {
 	switch a.Route() {
 	case RouteRuns:
@@ -111,8 +107,7 @@ func greenRuns(key, repo string, runs []model.Run) []int64 {
 }
 
 // startPaceFetch begins the next missing or stale baseline for the
-// screen's runs. Runs on ticks only, never on render or the keypress
-// path, and never while another fetch rides.
+// screen's runs, on poll ticks, while no other fetch rides.
 func (a App) startPaceFetch() App {
 	if !a.paceActive() || a.paceFetch != nil {
 		return a
@@ -135,7 +130,7 @@ func (a App) startPaceFetch() App {
 		for _, id := range greenRuns(key, repo, runs) {
 			covered[id] = true
 		}
-		state := &paceFetchState{key: key, gen: a.paceGen, covered: covered, cancel: cancel}
+		state := &paceFetchState{key: key, covered: covered, cancel: cancel}
 		a.paceFetch = state
 		resolver := a.paceResolver
 		go func() {
@@ -161,11 +156,6 @@ func (a App) drainPaceFetch() (App, bool) {
 		return a, false
 	}
 	a.paceFetch = nil
-	if fetch.gen != a.paceGen {
-		// Started before a reset: cancellation cannot recall a request
-		// already answered, so its result is dropped here.
-		return a, true
-	}
 	if errors.Is(fetch.err, context.Canceled) {
 		// Abandoned on purpose: no toast. Still report the change, or
 		// the caller keeps the finished fetch and no other ever starts.
@@ -177,8 +167,6 @@ func (a App) drainPaceFetch() (App, bool) {
 		failed[fetch.key] = time.Now()
 		a.paceFailed = failed
 		if !a.paceWarned {
-			// Once per session: a rate-limited hour must not stack a
-			// toast per workflow.
 			a.paceWarned = true
 			a.pushToast("pace-unavailable", usecase.Resilience{
 				Severity: usecase.SeverityWarn,
@@ -205,16 +193,7 @@ func (a *App) abandonPaceFetch() {
 	}
 }
 
-// resetPace drops every baseline: a rerun is about to add attempts.
-func (a *App) resetPace() {
-	a.abandonPaceFetch()
-	a.paceGen++
-	a.paceBaselines = map[string]paceEntry{}
-	a.paceFailed = map[string]time.Time{}
-}
-
 // paceFor maps each run to its cached baseline; nil when Pace is off.
-// Pure lookup: rendering never spends a request.
 func (a App) paceFor(repo string, runs []model.Run) map[int64]usecase.PaceBaseline {
 	if !a.paceActive() {
 		return nil
@@ -228,7 +207,6 @@ func (a App) paceFor(repo string, runs []model.Run) map[int64]usecase.PaceBaseli
 	return out
 }
 
-// paceScreen: the screens p acts on.
 func (a App) paceScreen() bool {
 	switch a.footerScreen() {
 	case keys.ScreenRunsList, keys.ScreenWatch, keys.ScreenWatchDone, keys.ScreenWatchBoard:

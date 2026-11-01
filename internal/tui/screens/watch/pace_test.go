@@ -15,7 +15,7 @@ var watchNow = time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
 
 // fourMinutes is a baseline with p50 4m00s and p90 4m30s.
 func fourMinutes() usecase.PaceBaseline {
-	b := usecase.PaceBaseline{Event: "push"}
+	b := usecase.PaceBaseline{}
 	for i, s := range []int{200, 220, 230, 235, 240, 245, 250, 260, 270, 280} {
 		b.Samples = append(b.Samples, usecase.PaceSample{RunID: int64(9000 + i), Duration: time.Duration(s) * time.Second})
 	}
@@ -92,8 +92,7 @@ func TestBoardHeadlineNeedsEveryRunningRunEstimated(t *testing.T) {
 func TestWatchHeaderCarriesTimeLeft(t *testing.T) {
 	run := live(570, "CI", 48*time.Second)
 	m := watch.NewModel(watch.State{Repo: "o/r", Branch: "main", Run: run, Elapsed: "0m48s", Now: watchNow})
-	b := fourMinutes()
-	m.Pace = &b
+	m.Pace = fourMinutes()
 	head := strings.SplitN(ansi.Strip(watch.View(m, 120)), "\n", 2)[0]
 	if !strings.Contains(head, "0m48s · 4m left follow ●") {
 		t.Fatalf("header = %q, want time left after elapsed", head)
@@ -102,8 +101,23 @@ func TestWatchHeaderCarriesTimeLeft(t *testing.T) {
 	if head := strings.SplitN(ansi.Strip(watch.View(m, 120)), "\n", 2)[0]; !strings.Contains(head, "· ↑ overrun") {
 		t.Fatalf("overrun header = %q", head)
 	}
-	m.Pace = nil
+	m.Pace = usecase.PaceBaseline{}
 	if head := strings.SplitN(ansi.Strip(watch.View(m, 120)), "\n", 2)[0]; strings.Contains(head, "left") || strings.Contains(head, "↑") {
 		t.Fatalf("no baseline header = %q", head)
+	}
+}
+
+// A long estimate keeps its own prefix: never "~>9h".
+func TestBoardHeadlineLongEstimate(t *testing.T) {
+	b := usecase.PaceBaseline{}
+	for i := range 10 {
+		b.Samples = append(b.Samples, usecase.PaceSample{RunID: int64(9000 + i), Duration: time.Duration(11*3600+i) * time.Second})
+	}
+	runs := []model.Run{live(102, "Nightly", time.Minute)}
+	board := watch.NewBoard("o/r", "main", runs[0], runs)
+	board.Pace = map[int64]usecase.PaceBaseline{102: b}
+	headline := strings.SplitN(ansi.Strip(watch.BoardViewSize(board, 120, 0, watchNow)), "\n", 2)[0]
+	if !strings.Contains(headline, "all home in >9h") || strings.Contains(headline, "~>") {
+		t.Fatalf("headline = %q", headline)
 	}
 }

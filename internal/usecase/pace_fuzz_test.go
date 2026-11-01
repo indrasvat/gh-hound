@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/binary"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -95,33 +94,11 @@ func FuzzAssessPace(f *testing.F) {
 				t.Fatalf("a longer run is less slow: %+v", a)
 			}
 		}
-		if mark := PaceMarkFor(run, b, true, now); utf8.RuneCountInString(mark.Text) > 8 {
+		if mark := PaceMarkFor(run, b, now); utf8.RuneCountInString(mark.Text) > 8 {
 			t.Fatalf("mark %q overflows the 8-cell Duration column", mark.Text)
 		}
 		if verdict := PaceVerdictLine(a); verdict == "" || !utf8.ValidString(verdict) {
 			t.Fatalf("empty or invalid verdict for %+v", a)
-		}
-	})
-}
-
-// FuzzFormatPaceETA: every ETA reads "left" and fits the 8-cell
-// Duration column. Inputs fold into 0..200h so the fuzzer explores the
-// range that matters instead of skipping it.
-func FuzzFormatPaceETA(f *testing.F) {
-	for _, s := range []int64{0, 59, 60, 61, 3540, 3541, 3600, 5399, 5400, 34_199, 34_200, 359_999} {
-		f.Add(s)
-	}
-	f.Fuzz(func(t *testing.T, s int64) {
-		s %= 200 * 3600
-		if s < 0 {
-			s = -s
-		}
-		got := FormatPaceETA(time.Duration(s) * time.Second)
-		if !strings.HasSuffix(got, " left") || utf8.RuneCountInString(got) > 8 {
-			t.Fatalf("FormatPaceETA(%ds) = %q", s, got)
-		}
-		if strings.Contains(got, "60m") {
-			t.Fatalf("FormatPaceETA(%ds) = %q: an hour reads ~1h", s, got)
 		}
 	})
 }

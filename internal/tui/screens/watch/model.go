@@ -53,9 +53,8 @@ type Model struct {
 	Debug  bool
 	Intent Intent
 	Theme  theme.Theme
-	// Pace is the watched run's baseline, nil without one or with
-	// Pace off.
-	Pace *usecase.PaceBaseline
+	// Pace is the watched run's baseline; the zero value has none.
+	Pace usecase.PaceBaseline
 }
 
 func NewModel(state State) Model {

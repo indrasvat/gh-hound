@@ -70,7 +70,7 @@ func seconds(values ...int) []time.Duration {
 }
 
 func baselineOf(durations ...time.Duration) PaceBaseline {
-	b := PaceBaseline{Event: "push", BaselineBranch: "main"}
+	b := PaceBaseline{BaselineBranch: "main"}
 	for i, d := range durations {
 		b.Samples = append(b.Samples, PaceSample{RunID: int64(9000 + i), Duration: d})
 	}
@@ -254,8 +254,8 @@ func TestBaselineFiltersSamplesAndPinsServerFilters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(b.Samples) != 6 || b.BaselineBranch != "feat/x" || b.Event != "pull_request" {
-		t.Fatalf("samples %d branch %q event %q, want 6 valid first-attempt pull_request samples on feat/x", len(b.Samples), b.BaselineBranch, b.Event)
+	if len(b.Samples) != 6 || b.BaselineBranch != "feat/x" {
+		t.Fatalf("samples %d branch %q, want 6 valid first-attempt pull_request samples on feat/x", len(b.Samples), b.BaselineBranch)
 	}
 	if b.RunsScanned != 9 {
 		t.Fatalf("runs scanned = %d, want 9", b.RunsScanned)
@@ -405,21 +405,21 @@ func TestPaceMarkFor(t *testing.T) {
 	cases := []struct {
 		name string
 		run  model.Run
-		has  bool
+		base PaceBaseline
 		want PaceMark
 	}{
-		{"waiting", waiting, true, PaceMark{Text: "waiting", Waiting: true}},
-		{"queued", queued, true, PaceMark{Text: "queued", Waiting: true}},
-		{"left", runningRun(60*time.Second, now), true, PaceMark{Text: "3m left", ETA: true, Running: true}},
-		{"due", runningRun(250*time.Second, now), true, PaceMark{Text: "due", ETA: true, Running: true}},
-		{"overrun", runningRun(400*time.Second, now), true, PaceMark{Text: "↑ 6m40s", Slow: true, Running: true}},
-		{"no baseline", runningRun(400*time.Second, now), false, PaceMark{Text: "6m40s", Running: true}},
-		{"re-run never flagged", rerun, true, PaceMark{Text: "6m40s", Running: true}},
-		{"slow", paceRun(1, "main", "push", 571*time.Second), true, PaceMark{Text: "↑ 9m31s", Slow: true}},
-		{"on pace", paceRun(1, "main", "push", 245*time.Second), true, PaceMark{Text: "4m05s"}},
+		{"waiting", waiting, base, PaceMark{Text: "waiting"}},
+		{"queued", queued, base, PaceMark{Text: "queued"}},
+		{"left", runningRun(60*time.Second, now), base, PaceMark{Text: "3m left", ETA: true}},
+		{"due", runningRun(250*time.Second, now), base, PaceMark{Text: "due", ETA: true}},
+		{"overrun", runningRun(400*time.Second, now), base, PaceMark{Text: "↑ 6m40s", Slow: true}},
+		{"no baseline", runningRun(400*time.Second, now), PaceBaseline{}, PaceMark{Text: "6m40s"}},
+		{"re-run never flagged", rerun, base, PaceMark{Text: "6m40s"}},
+		{"slow", paceRun(1, "main", "push", 571*time.Second), base, PaceMark{Text: "↑ 9m31s", Slow: true}},
+		{"on pace", paceRun(1, "main", "push", 245*time.Second), base, PaceMark{Text: "4m05s"}},
 	}
 	for _, tc := range cases {
-		if got := PaceMarkFor(tc.run, base, tc.has, now); got != tc.want {
+		if got := PaceMarkFor(tc.run, tc.base, now); got != tc.want {
 			t.Errorf("%s: %+v, want %+v", tc.name, got, tc.want)
 		}
 	}

@@ -24,7 +24,7 @@ IMPLEMENTED — issue #74. Job, matrix-leg and step flags and the detail-view pa
 
 ## Task List
 
-- [x] T1 Usecase: `PaceService.Baseline`, `AssessPace`, `PaceMarkFor`, formatters; table tests and three fuzz targets (assessment contract, ETA width, baseline walk budget and filters).
+- [x] T1 Usecase: `PaceService.Baseline`, `AssessPace`, `PaceMarkFor`, formatters; table tests and two fuzz targets (assessment contract including mark width, baseline walk budget and filters).
 - [x] T2 Render and CLI: `$defs.pace_result`, golden JSON, schema conformance for every status, exit codes, `paced` fake scenario, `pace` verb, `pace`/`pace_window` config, timing/billing guard test.
 - [x] T3 TUI: Duration cell (the placeholder sparkline and its component removed), 80-column label-column notes, hunt board State and `all home in ~…`, watch header, `p` (`pace_toggle`, remappable, in help), async fetch lifecycle tests, layout fuzz.
 - [x] T4 Fixtures `runs-pace`, `watch-pace`, `watch-board-pace` with VQA assertions; docs.
@@ -34,7 +34,8 @@ IMPLEMENTED — issue #74. Job, matrix-leg and step flags and the detail-view pa
 - `drainPaceFetch` returned "unchanged" for a cancelled fetch, so the caller dropped the copy that cleared it and no later fetch could start: Pace wedged for the session after any cancel. Caught by `TestPaceCancelledFetchIsSilent`.
 - Staleness first compared GitHub's `updated_at` with the local clock: 392 fetches in a second once the run's timestamp ran ahead. Now by run membership.
 - `FuzzPaceRows`: a Pace note could push the Actor column right when the label column was narrower than the note. The note now needs room for a 6-cell label, and the label is clamped.
-- `FuzzAssessPace`: `~10h left` is 9 cells. Now `>9h left`. `FuzzFormatPaceETA` missed it because it skipped out-of-range inputs; it folds them into range now.
+- `FuzzAssessPace`: `~10h left` is 9 cells. Now `>9h left`. A dedicated `FuzzFormatPaceETA` had missed it by skipping out-of-range inputs; it was removed as redundant with the unit table and `FuzzAssessPace`.
 - `runLabel` forced a 6-cell name plus ` · …` at any width, overflowing narrow columns (existing). The detail now goes first.
-- Codex (3 major, 1 minor, each fixed with a test): the judged run counted toward the window and the widening threshold, so `--window 5` read a slow run as `insufficient_data`; a fetch already answered when a rerun cleared the cache was reinstalled by the next drain (a generation now drops it); the all-green home never showed a slow mark; `↑ 100h00m` was 9 cells (whole hours from 100h).
+- Codex (3 major, 1 minor, each fixed with a test): the judged run counted toward the window and the widening threshold, so `--window 5` read a slow run as `insufficient_data`; a fetch already answered when a rerun cleared the cache was reinstalled by the next drain (resolved by removing the reset: see the takshaka note); the all-green home never showed a slow mark; `↑ 100h00m` was 9 cells (whole hours from 100h).
+- Takshaka (deletion pass, about 170 lines): a rerun no longer clears baselines. Attempts above 1 never enter a baseline (`sampleDuration` and `paceKey` refuse them), so the reset only refetched every key, and removing it removed the late-fetch race the cache generation was guarding. Also: `PaceMarkFor` lost its `has` flag (a zero baseline already reads as no baseline), unread `PaceBaseline` and `PaceMark` fields, duplicate resolver guards, redundant tests, restating comments. It found the board headline reading `all home in ~>9h`; fixed with a test.
 - Recorded, not changed: toasts sit over the top-right rows, including their Duration cells (the toast layer's design); the pre-commit hook runs whichever Go is first on `PATH`, and Go 1.27 rewrites files in `gofix-check` (use the pinned 1.26 toolchain).

@@ -44,11 +44,7 @@ type PaceSample struct {
 // event. BaselineBranch is "" when the branch had too few samples and
 // the baseline widened to the same event on any branch.
 type PaceBaseline struct {
-	Repo           string
-	Workflow       string
-	Branch         string
 	BaselineBranch string
-	Event          string
 	Window         int
 	RunsScanned    int
 	Samples        []PaceSample
@@ -117,7 +113,7 @@ func (s PaceService) Baseline(ctx context.Context, repo, workflow, branch, event
 	if perPage <= 0 {
 		perPage = DiffPerPage
 	}
-	b := PaceBaseline{Repo: repo, Workflow: workflow, Branch: branch, BaselineBranch: branch, Event: event, Window: window}
+	b := PaceBaseline{BaselineBranch: branch, Window: window}
 	samples, scanned, err := s.sample(ctx, repo, workflow, branch, event, window+1, perPage)
 	if err != nil {
 		return PaceBaseline{}, err
@@ -248,10 +244,8 @@ func percentile(sorted []time.Duration, p int) time.Duration {
 	return sorted[min(max(rank, 1), len(sorted))-1]
 }
 
-// FormatPaceETA renders time left in whole minutes, rounded up, since
-// an estimate from a median should not claim seconds: "<1m left",
-// "3m left", "~1h left", and ">9h left" from ten hours on. Every form
-// keeps "left" and fits the 8-cell Duration column.
+// FormatPaceETA is time left in whole minutes, rounded up (a median
+// should not claim seconds), always "left" and at most 8 cells.
 func FormatPaceETA(d time.Duration) string {
 	if d < time.Minute {
 		return "<1m left"
@@ -291,35 +285,27 @@ type PaceMark struct {
 	ETA bool
 	// Slow: finished slow or still running and already slow.
 	Slow bool
-	// Waiting: queued or waiting, no duration yet.
-	Waiting bool
-	// Running: in progress (elapsed, ETA or overrun).
-	Running bool
 }
 
 // Note says whether the mark carries Pace information worth a cell of
 // its own where the Duration column is dropped.
 func (m PaceMark) Note() bool { return m.ETA || m.Slow }
 
-// PaceMarkFor renders run against b (has is false without a baseline,
-// or with Pace off) at now. Without a baseline it is the measured
-// duration: elapsed while running, wall time once finished.
-func PaceMarkFor(run model.Run, b PaceBaseline, has bool, now time.Time) PaceMark {
+// PaceMarkFor renders run against b at now. Without a baseline (the
+// zero value, as with Pace off) it is the measured duration: elapsed
+// while running, wall time once finished.
+func PaceMarkFor(run model.Run, b PaceBaseline, now time.Time) PaceMark {
 	switch {
 	case run.Status == model.StatusWaiting:
-		return PaceMark{Text: "waiting", Waiting: true}
+		return PaceMark{Text: "waiting"}
 	case run.RunStartedAt.IsZero() || run.Status != model.StatusInProgress && run.Status != model.StatusCompleted:
-		return PaceMark{Text: "queued", Waiting: true}
+		return PaceMark{Text: "queued"}
 	}
-	running := run.Status == model.StatusInProgress
 	elapsed := run.UpdatedAt.Sub(run.RunStartedAt)
-	if running {
+	if run.Status == model.StatusInProgress {
 		elapsed = now.Sub(run.RunStartedAt)
 	}
-	mark := PaceMark{Text: FormatPaceDuration(elapsed), Running: running}
-	if !has {
-		return mark
-	}
+	mark := PaceMark{Text: FormatPaceDuration(elapsed)}
 	a := AssessPace(run, b, now)
 	switch {
 	case a.Slow:

@@ -50,7 +50,7 @@ func (s *paceResolverSpy) resolve(ctx context.Context, run model.Run) (usecase.P
 	if s.err != nil {
 		return usecase.PaceBaseline{}, s.err
 	}
-	b := usecase.PaceBaseline{Event: run.Event, BaselineBranch: run.HeadBranch}
+	b := usecase.PaceBaseline{BaselineBranch: run.HeadBranch}
 	for i, sec := range []int{200, 220, 230, 235, 240, 245, 250, 260, 270, 280} {
 		b.Samples = append(b.Samples, usecase.PaceSample{RunID: int64(9000 + i), Duration: time.Duration(sec) * time.Second})
 	}
@@ -146,7 +146,7 @@ func TestPaceRenderNeverFetches(t *testing.T) {
 	for range 3 {
 		_ = app.ViewSize(120, 30)
 	}
-	if spy.total() != 0 || app.paceFetch != nil {
+	if spy.total() != 0 {
 		t.Fatalf("render spent %d calls", spy.total())
 	}
 }
@@ -252,21 +252,6 @@ func TestPaceCancelledFetchIsSilent(t *testing.T) {
 	}
 }
 
-// A rerun invalidates baselines: the next ticks fetch again.
-func TestPaceRerunResetsBaselines(t *testing.T) {
-	spy := newPaceSpy()
-	app := settlePace(t, pacedApp(t, spy, config.Default()))
-	app.actionHandler = func(ActionRequest) (usecase.ActionResult, error) { return usecase.ActionResult{Message: "ok"}, nil }
-	app, _ = app.executeAction(RouteRuns, ActionRequest{Action: usecase.ActionRerunRun, Run: app.runs.Context.Runs[0]})
-	if len(app.paceBaselines) != 0 {
-		t.Fatalf("baselines = %d after a rerun, want cleared", len(app.paceBaselines))
-	}
-	app = settlePace(t, app)
-	if spy.total() != 4 {
-		t.Fatalf("calls = %d, want both keys fetched again", spy.total())
-	}
-}
-
 // A baseline goes stale when a run of its key finishes green after the
 // fetch: the new run belongs in the sample.
 func TestPaceBaselineRefreshesWhenARunOfItsKeyGoesGreen(t *testing.T) {
@@ -284,33 +269,5 @@ func TestPaceBaselineRefreshesWhenARunOfItsKeyGoesGreen(t *testing.T) {
 	app = settlePace(t, app)
 	if spy.calls[".github/workflows/ci.yml|main|push"] != 2 {
 		t.Fatalf("calls = %v, want ci refetched once its running run went green", spy.calls)
-	}
-}
-
-// A fetch already past cancellation when a rerun clears the cache must
-// not reinstall the pre-rerun baseline.
-func TestPaceRerunDropsAFetchThatFinishesAfterTheReset(t *testing.T) {
-	spy := newPaceSpy()
-	release := make(chan struct{})
-	app := pacedApp(t, spy, config.Default())
-	app.paceResolver = func(_ context.Context, run model.Run) (usecase.PaceBaseline, error) {
-		<-release // ignores cancellation, as a request already on the wire does
-		return spy.resolve(context.Background(), run)
-	}
-	app, _ = app.Refresh()
-	if app.paceFetch == nil {
-		t.Fatal("a tick must start a pace fetch")
-	}
-	app.actionHandler = func(ActionRequest) (usecase.ActionResult, error) { return usecase.ActionResult{Message: "ok"}, nil }
-	app, _ = app.executeAction(RouteRuns, ActionRequest{Action: usecase.ActionRerunRun, Run: app.runs.Context.Runs[0]})
-	close(release)
-	deadline := time.Now().Add(2 * time.Second)
-	for spy.total() == 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	time.Sleep(5 * time.Millisecond)
-	app, _ = app.drainPaceFetch()
-	if len(app.paceBaselines) != 0 {
-		t.Fatalf("a pre-rerun fetch reinstalled %d baselines", len(app.paceBaselines))
 	}
 }

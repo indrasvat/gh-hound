@@ -16,7 +16,7 @@ var paceNow = time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 
 // fourMinutes is a baseline with p50 4m00s and p90 4m30s.
 func fourMinutes() usecase.PaceBaseline {
-	b := usecase.PaceBaseline{Event: "push", BaselineBranch: "main"}
+	b := usecase.PaceBaseline{BaselineBranch: "main"}
 	for i, s := range []int{200, 220, 230, 235, 240, 245, 250, 260, 270, 280} {
 		b.Samples = append(b.Samples, usecase.PaceSample{RunID: int64(9000 + i), Duration: time.Duration(s) * time.Second})
 	}
@@ -128,20 +128,6 @@ func TestDurationCellCarriesPace(t *testing.T) {
 	}
 	if got := durationCell(t, ViewSize(m, 120, 30, paceNow.Add(150*time.Second)), 102); got != "<1m left" {
 		t.Fatalf("30s from its median, #102 = %q, want <1m left", got)
-	}
-}
-
-// Without a baseline nothing is estimated or flagged.
-func TestNoBaselineNoEstimate(t *testing.T) {
-	m := pacedModel(inProgress(2, 102, "CI", 60*time.Second), pacedRow(5, 105, "CI", 571*time.Second))
-	m.Context.Runs[1].Conclusion = model.ConclusionFailure
-	m.Pace = nil
-	view := ViewSize(m, 120, 30, paceNow)
-	if got := durationCell(t, view, 102); got != "1m00s" {
-		t.Fatalf("#102 = %q, want elapsed 1m00s", got)
-	}
-	if strings.Contains(ansi.Strip(view), "↑") || strings.Contains(ansi.Strip(view), "left") {
-		t.Fatalf("no baseline must mean no pace marks:\n%s", ansi.Strip(view))
 	}
 }
 

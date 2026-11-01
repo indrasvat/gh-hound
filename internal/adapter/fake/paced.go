@@ -1,6 +1,7 @@
 package fake
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/indrasvat/gh-hound/internal/model"
@@ -27,21 +28,12 @@ func pacedRun(number int, branch, event string, took time.Duration) model.Run {
 	run := greenRun(number)
 	started := pacedEpoch.Add(time.Duration(number-500) * time.Hour)
 	run.HeadBranch, run.Event = branch, event
-	run.HeadSHA = pacedSHA(number)
+	run.HeadSHA = fmt.Sprintf("p%06x", number)
 	run.CreatedAt = started.Add(-14 * time.Second)
 	run.RunStartedAt = started
 	run.UpdatedAt = started.Add(took)
 	run.PullRequests = nil
 	return run
-}
-
-func pacedSHA(number int) string {
-	const hex = "0123456789abcdef"
-	b := []byte("p000000")
-	for i, n := len(b)-1, number; i > 0; i, n = i-1, n/16 {
-		b[i] = hex[n%16]
-	}
-	return string(b)
 }
 
 func (a *Adapter) pacedHistory() []model.Run {

@@ -117,21 +117,16 @@ func header(m Model) string {
 	)
 }
 
-// headerPace is the time left after the elapsed clock, or the slow
-// flag; empty without a baseline.
 func headerPace(m Model) string {
-	if m.Pace == nil {
-		return ""
-	}
 	now := m.State.Now
 	if now.IsZero() {
 		now = time.Now()
 	}
-	mark := usecase.PaceMarkFor(m.State.Run, *m.Pace, true, now)
+	mark := usecase.PaceMarkFor(m.State.Run, m.Pace, now)
 	switch {
 	case mark.ETA:
 		return " · " + mark.Text
-	case mark.Slow && mark.Running:
+	case mark.Slow && m.State.Run.Status == model.StatusInProgress:
 		return " · " + icons.Slow + " overrun"
 	case mark.Slow:
 		return " · " + icons.Slow + " slow"

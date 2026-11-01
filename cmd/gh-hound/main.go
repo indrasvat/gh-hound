@@ -1731,18 +1731,11 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			return service.Scan(loadCtx, launch.Repo, workflow, firstNonEmptyString(run.HeadBranch, launch.Branch))
 		},
 		PaceResolver: func(loadCtx context.Context, run model.Run) (usecase.PaceBaseline, error) {
-			history, hasHistory := githubClient.(usecase.WorkflowRunHistory)
-			if !hasHistory {
-				return usecase.PaceBaseline{}, fmt.Errorf("pace is unavailable for this adapter")
-			}
-			workflow := workflowSelectorForRun(run)
-			if workflow == "" {
-				return usecase.PaceBaseline{}, fmt.Errorf("the run has no workflow identity to sample")
-			}
+			// Baseline refuses an adapter without history (nil here) and
+			// a run with no workflow identity.
+			history, _ := githubClient.(usecase.WorkflowRunHistory)
 			service := usecase.PaceService{History: history, Window: cfg.PaceWindow, PerPage: usecase.DiffPerPage}
-			// Keyed by the run's own branch and event, as the app's
-			// session cache is.
-			return service.Baseline(loadCtx, launch.Repo, workflow, run.HeadBranch, run.Event)
+			return service.Baseline(loadCtx, launch.Repo, workflowSelectorForRun(run), run.HeadBranch, run.Event)
 		},
 		QueueResolver: func(loadCtx context.Context, run model.Run) (model.ConcurrencyReport, error) {
 			concurrency, ok := githubClient.(usecase.GitHubConcurrency)

@@ -103,17 +103,15 @@ type Options struct {
 	DispatchWorkflowsResolver func(context.Context) ([]dispatch.Workflow, error)
 	DiffResolver              func(context.Context, model.Run) (usecase.RegressionVerdict, error)
 	FlakesResolver            func(context.Context, model.Run) (usecase.FlakeReport, error)
-	// PaceResolver samples a run's workflow baseline (Pace). Called on
-	// poll ticks only, one at a time, never on render.
-	PaceResolver       func(context.Context, model.Run) (usecase.PaceBaseline, error)
-	QueueResolver      func(context.Context, model.Run) (model.ConcurrencyReport, error)
-	WorkflowsResolver  func(context.Context) ([]model.Workflow, error)
-	RunsMetadata       func() (usecase.RequestMeta, bool)
-	LogRefetchNotice   func(int64) (usecase.LogRefetchNotice, bool)
-	ActionHandler      func(ActionRequest) (usecase.ActionResult, error)
-	ApprovalsResolver  func(context.Context, model.Run) ([]model.PendingDeployment, error)
-	ArtifactsResolver  func(model.Run) ([]model.Artifact, error)
-	ArtifactDownloader func(artifact model.Artifact, destDir string, force bool, onProgress func(usecase.DownloadProgress)) (usecase.DownloadResult, error)
+	PaceResolver              func(context.Context, model.Run) (usecase.PaceBaseline, error)
+	QueueResolver             func(context.Context, model.Run) (model.ConcurrencyReport, error)
+	WorkflowsResolver         func(context.Context) ([]model.Workflow, error)
+	RunsMetadata              func() (usecase.RequestMeta, bool)
+	LogRefetchNotice          func(int64) (usecase.LogRefetchNotice, bool)
+	ActionHandler             func(ActionRequest) (usecase.ActionResult, error)
+	ApprovalsResolver         func(context.Context, model.Run) ([]model.PendingDeployment, error)
+	ArtifactsResolver         func(model.Run) ([]model.Artifact, error)
+	ArtifactDownloader        func(artifact model.Artifact, destDir string, force bool, onProgress func(usecase.DownloadProgress)) (usecase.DownloadResult, error)
 	// ArtifactDir is the absolute download root artifacts extract
 	// into. The app displays it (confirm modal, completion state);
 	// the downloader closure must extract into the same directory.
@@ -216,9 +214,9 @@ type App struct {
 	paceBaselines map[string]paceEntry
 	paceFailed    map[string]time.Time
 	paceFetch     *paceFetchState
-	paceGen       int
 	// paceHidden is the session's p toggle; paceWarned keeps the
-	// unavailable toast to one per session.
+	// unavailable toast to one per session (a rate-limited hour would
+	// otherwise stack one per workflow).
 	paceHidden         bool
 	paceWarned         bool
 	flakePanelRun      model.Run
@@ -1020,7 +1018,7 @@ func RenderFixtureSize(screen string, width, height int) string {
 		m := sampleWatchModel()
 		m.State.Run.RunStartedAt = time.Now().Add(-48 * time.Second)
 		baseline := samplePaceBaseline(240)
-		m.Pace = &baseline
+		m.Pace = baseline
 		return frameViewSize(app.theme, "hound", "CI #570", "streaming · follow ●", watch.View(m, bodyWidth), keys.FooterForScreen(keys.ScreenWatch), width, height, true)
 	case "watch-board-pace":
 		board := sampleBoardModel()
@@ -4009,7 +4007,6 @@ func (a App) executeAction(route Route, request ActionRequest) (App, bool) {
 		a.flakeReports = map[string]usecase.FlakeReport{}
 		a.runs.FlakyRuns = nil
 		a.failure.Flake = nil
-		a.resetPace()
 	}
 	resilience := usecase.ResilienceForSuccess(result)
 	if resilience.Message == "" && request.Workflow.Name != "" {
@@ -5006,9 +5003,7 @@ func (a App) screenBody(width, height int) string {
 		}
 		watchModel := a.watch
 		watchModel.Theme = a.theme
-		if baseline, ok := a.paceFor(watchModel.State.Repo, []model.Run{watchModel.State.Run})[watchModel.State.Run.ID]; ok {
-			watchModel.Pace = &baseline
-		}
+		watchModel.Pace = a.paceFor(watchModel.State.Repo, []model.Run{watchModel.State.Run})[watchModel.State.Run.ID]
 		return watch.ViewSize(watchModel, bodyWidth, bodyHeight(height))
 	case RouteWatchBoard:
 		boardModel := a.board
@@ -5622,7 +5617,7 @@ func sampleWatchModel() watch.Model {
 // samplePaceBaseline is ten green runs around a p50 of p50 seconds,
 // with p90 30s above it.
 func samplePaceBaseline(p50 int) usecase.PaceBaseline {
-	b := usecase.PaceBaseline{Event: "push", BaselineBranch: "fix/parser"}
+	b := usecase.PaceBaseline{BaselineBranch: "fix/parser"}
 	for i, offset := range []int{-40, -20, -10, -5, 0, 5, 10, 20, 30, 40} {
 		b.Samples = append(b.Samples, usecase.PaceSample{RunID: int64(9000 + i), Duration: time.Duration(p50+offset) * time.Second})
 	}

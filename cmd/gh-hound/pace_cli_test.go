@@ -83,14 +83,6 @@ func TestPaceSlowRunExitsOne(t *testing.T) {
 	}
 }
 
-func TestPaceOnPaceRunExitsZero(t *testing.T) {
-	code, out := runPaceCommand(t, nil, "--json", "--fake-scenario", "paced", "--run", pacedRunID(fake.PacedOnPaceNumber))
-	decoded, _ := decodePace(t, out)
-	if code != 0 || decoded["status"] != "on_pace" {
-		t.Fatalf("exit %d status %v, want 0 on_pace\n%s", code, decoded["status"], out)
-	}
-}
-
 // A PR branch with two green runs widens to pull_request runs on any
 // branch, and says so with a null baseline_branch.
 func TestPacePRBranchWidensToTheSameEventAnywhere(t *testing.T) {

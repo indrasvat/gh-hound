@@ -9,8 +9,6 @@ import (
 	"testing"
 )
 
-//go:fix inline
-
 func fixturePaceResult() PaceResult {
 	return PaceResult{
 		Repo: "indrasvat/gh-hound", Workflow: ".github/workflows/ci.yml", Branch: "fix/parser",

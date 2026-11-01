@@ -48,7 +48,7 @@ func BoardViewSize(b Board, width, height int, now time.Time) string {
 		return strings.Join(lines, "\n")
 	}
 	for index, run := range b.Runs {
-		line := boardRow(st, run, b.mark(run, now), index == b.Selected, width, now)
+		line := boardRow(st, run, usecase.PaceMarkFor(run, b.Pace[run.ID], now), index == b.Selected, width, now)
 		if b.Loading {
 			line = fitANSI(colorize(st.dim, ansi.Strip(line)), width)
 		}
@@ -101,11 +101,6 @@ func boardHeader(st styles, width int) string {
 	return fitANSI(colorize(st.dim, header), width)
 }
 
-func (b Board) mark(run model.Run, now time.Time) usecase.PaceMark {
-	baseline, ok := b.Pace[run.ID]
-	return usecase.PaceMarkFor(run, baseline, ok, now)
-}
-
 // allHome says when the last running run is expected home; only when
 // every running run has an estimate, since one unknown makes it a
 // guess.
@@ -117,11 +112,7 @@ func allHome(st styles, b Board, now time.Time) string {
 			continue
 		}
 		running++
-		baseline, ok := b.Pace[run.ID]
-		if !ok {
-			return ""
-		}
-		a := usecase.AssessPace(run, baseline, now)
+		a := usecase.AssessPace(run, b.Pace[run.ID], now)
 		if !a.HasETA {
 			return ""
 		}
@@ -131,7 +122,7 @@ func allHome(st styles, b Board, now time.Time) string {
 		return ""
 	}
 	when := strings.TrimSuffix(usecase.FormatPaceETA(latest), " left")
-	if !strings.HasPrefix(when, "<") && !strings.HasPrefix(when, "~") {
+	if !strings.ContainsAny(when[:1], "<~>") {
 		when = "~" + when
 	}
 	return colorize(st.dim, " · ") + colorize(st.run, "all home in "+when)
@@ -152,8 +143,6 @@ func boardRow(st styles, run model.Run, mark usecase.PaceMark, selected bool, wi
 	return fitANSI(line, width)
 }
 
-// boardState reads time left or the slow flag where it has one, the
-// run's state otherwise.
 func boardState(st styles, run model.Run, mark usecase.PaceMark) string {
 	switch {
 	case mark.Slow:
