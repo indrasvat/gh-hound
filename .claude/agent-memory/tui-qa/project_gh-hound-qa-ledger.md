@@ -858,3 +858,18 @@ off the headline; f gives no visible feedback (VQA assertion misses it).
 Paced fake has unique SHAs: no live hunt board; use openclaw PR branch + w.
 All-green home slow marks (added 00ef068) have no fixture and no live green
 rows on openclaw main: untested.
+
+Round 38 (task 450 round 2, bd0c6be/fix fd58696, 2026-11-01): FAIL.
+VERIFIED FIXED: remapped toast names the bound key (e); repo-scope openclaw
+CI ETA in ~10-18s, all visible running rows annotated in ~70s, no single-bot
+storm (max 5 calls/workflow per 5 min; ~9 pace calls/min sustained); 80-col
+board keeps "sha event · follow ●/○" and drops the estimate, f visible;
+all_green-pace fixture + docs row. NEW P2: watch header goes white (loses
+state colour incl. follow dot) whenever a Pace suffix shows: chrome.go
+colorizeBody skips any line containing ESC[, so the colourised suffix
+disables the whole-line heuristic (amber with p off, white with p on).
+NEW P1 (root pre-existing): repo-scope list never refreshes rows past page
+1, so finished runs stay "running"; main shows ⠹+sparkline, Pace now paints
+confident "↑ 5m39s" overruns on 1-minute runs (verified via gh run list and
+the hunt board showing them success 1m01s). Also present in round 1
+(Auto response ↑ 8m06s) — I missed it: always cross-check ↑ rows with gh.
