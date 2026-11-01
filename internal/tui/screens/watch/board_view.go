@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
+	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
 // Board column geometry. Header and rows derive from the SAME math so
@@ -38,7 +39,7 @@ func BoardViewSize(b Board, width, height int, now time.Time) string {
 	}
 	st := stylesFor(b.Theme)
 	lines := []string{
-		fitANSI(boardHeadline(st, b, width), width),
+		fitANSI(boardHeadline(st, b, width, now), width),
 		"",
 		boardHeader(st, width),
 	}
@@ -47,7 +48,7 @@ func BoardViewSize(b Board, width, height int, now time.Time) string {
 		return strings.Join(lines, "\n")
 	}
 	for index, run := range b.Runs {
-		line := boardRow(st, run, index == b.Selected, width, now)
+		line := boardRow(st, run, b.mark(run, now), index == b.Selected, width, now)
 		if b.Loading {
 			line = fitANSI(colorize(st.dim, ansi.Strip(line)), width)
 		}
@@ -65,14 +66,15 @@ func BoardViewSize(b Board, width, height int, now time.Time) string {
 // boardHeadline is the aggregate header in the hound voice:
 // `the hunt: 3 running · 1 home · 0 lost` with the scent and follow
 // state on the right.
-func boardHeadline(st styles, b Board, width int) string {
+func boardHeadline(st styles, b Board, width int, now time.Time) string {
 	summary := b.Summary()
 	left := colorize(st.fgSoft, "the hunt: ") +
 		colorize(st.run, fmt.Sprintf("%d running", summary.Running)) +
 		colorize(st.dim, " · ") +
 		colorize(st.ok, fmt.Sprintf("%d home", summary.Home)) +
 		colorize(st.dim, " · ") +
-		colorize(boardLostColor(st, summary.Lost), fmt.Sprintf("%d lost", summary.Lost))
+		colorize(boardLostColor(st, summary.Lost), fmt.Sprintf("%d lost", summary.Lost)) +
+		allHome(st, b, now)
 	follow := "follow ○"
 	if b.Follow {
 		follow = "follow ●"
@@ -99,7 +101,43 @@ func boardHeader(st styles, width int) string {
 	return fitANSI(colorize(st.dim, header), width)
 }
 
-func boardRow(st styles, run model.Run, selected bool, width int, now time.Time) string {
+func (b Board) mark(run model.Run, now time.Time) usecase.PaceMark {
+	baseline, ok := b.Pace[run.ID]
+	return usecase.PaceMarkFor(run, baseline, ok, now)
+}
+
+// allHome says when the last running run is expected home; only when
+// every running run has an estimate, since one unknown makes it a
+// guess.
+func allHome(st styles, b Board, now time.Time) string {
+	var latest time.Duration
+	running := 0
+	for _, run := range b.Runs {
+		if run.Status != model.StatusInProgress {
+			continue
+		}
+		running++
+		baseline, ok := b.Pace[run.ID]
+		if !ok {
+			return ""
+		}
+		a := usecase.AssessPace(run, baseline, now)
+		if !a.HasETA {
+			return ""
+		}
+		latest = max(latest, a.ETA)
+	}
+	if running == 0 {
+		return ""
+	}
+	when := strings.TrimSuffix(usecase.FormatPaceETA(latest), " left")
+	if !strings.HasPrefix(when, "<") && !strings.HasPrefix(when, "~") {
+		when = "~" + when
+	}
+	return colorize(st.dim, " · ") + colorize(st.run, "all home in "+when)
+}
+
+func boardRow(st styles, run model.Run, mark usecase.PaceMark, selected bool, width int, now time.Time) string {
 	workflowWidth := boardColumnWidths(width)
 	marker := strings.Repeat(" ", boardMarkerWidth)
 	if selected {
@@ -109,9 +147,21 @@ func boardRow(st styles, run model.Run, selected bool, width int, now time.Time)
 		padANSI(colorize(boardStatusColor(st, run), boardGlyph(run)), boardGlyphWidth) + " " +
 		padANSI(colorize(st.fgSoft, truncatePlain(boardWorkflowName(run), workflowWidth)), workflowWidth) + " " +
 		padANSI(colorize(st.dim, fmt.Sprintf("#%d", run.RunNumber)), boardNumberWidth) + " " +
-		padANSI(colorize(boardStatusColor(st, run), boardStateLabel(run)), boardStateWidth) + " " +
+		padANSI(boardState(st, run, mark), boardStateWidth) + " " +
 		padLeftANSI(colorize(st.dim, boardElapsed(run, now)), boardElapsedWidth)
 	return fitANSI(line, width)
+}
+
+// boardState reads time left or the slow flag where it has one, the
+// run's state otherwise.
+func boardState(st styles, run model.Run, mark usecase.PaceMark) string {
+	switch {
+	case mark.Slow:
+		return colorize(st.warn, mark.Text)
+	case mark.ETA:
+		return colorize(st.run, mark.Text)
+	}
+	return colorize(boardStatusColor(st, run), boardStateLabel(run))
 }
 
 func boardWorkflowName(run model.Run) string {

@@ -11,6 +11,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
+	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
 func View(m Model, width int) string {
@@ -104,15 +105,38 @@ func header(m Model) string {
 	if m.Finished() {
 		state = icons.ForConclusion(m.State.Run.Conclusion) + " " + m.Outcome()
 	}
-	return fmt.Sprintf("watch · %s #%d · %s %s %s %s%s",
+	return fmt.Sprintf("watch · %s #%d · %s %s %s%s %s%s",
 		m.State.Run.Name,
 		m.State.Run.RunNumber,
 		m.State.Branch,
 		state,
 		elapsed,
+		headerPace(m),
 		follow,
 		debug,
 	)
+}
+
+// headerPace is the time left after the elapsed clock, or the slow
+// flag; empty without a baseline.
+func headerPace(m Model) string {
+	if m.Pace == nil {
+		return ""
+	}
+	now := m.State.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	mark := usecase.PaceMarkFor(m.State.Run, *m.Pace, true, now)
+	switch {
+	case mark.ETA:
+		return " · " + mark.Text
+	case mark.Slow && mark.Running:
+		return " · " + icons.Slow + " overrun"
+	case mark.Slow:
+		return " · " + icons.Slow + " slow"
+	}
+	return ""
 }
 
 // maxProgressLines bounds the step-progress block when the view has no
@@ -300,14 +324,14 @@ func backgroundSafe(value string, width int, fg string, bg string) string {
 // styles are the theme's tokens as SGR sequences, resolved once per
 // frame so T recolours the watch and the board.
 type styles struct {
-	ok, run, info, fail, dim, fg, fgSoft, line2 string
-	surfaceBG                                   string
+	ok, run, info, fail, warn, dim, fg, fgSoft, line2 string
+	surfaceBG                                         string
 }
 
 func stylesFor(th theme.Theme) styles {
 	th = th.OrBramble()
 	return styles{
-		ok: theme.Fg(th.OK), run: theme.Fg(th.Run), info: theme.Fg(th.Info), fail: theme.Fg(th.Fail),
+		ok: theme.Fg(th.OK), run: theme.Fg(th.Run), info: theme.Fg(th.Info), fail: theme.Fg(th.Fail), warn: theme.Fg(th.Warn),
 		dim: theme.Fg(th.Dim), fg: theme.Fg(th.FG), fgSoft: theme.Fg(th.FGSoft), line2: theme.Fg(th.Line2),
 		surfaceBG: theme.Bg(th.Surface),
 	}

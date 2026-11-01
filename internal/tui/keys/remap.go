@@ -42,6 +42,7 @@ var remappable = map[string]string{
 	"dig_up":       "d",
 	"dig_up_key":   "D",
 	"copy_json":    "y",
+	"pace_toggle":  "p",
 }
 
 // globalBindings act on every screen outside typing, and in help.

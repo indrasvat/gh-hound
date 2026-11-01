@@ -9,7 +9,6 @@ import (
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/numfmt"
 	"github.com/indrasvat/gh-hound/internal/theme"
-	"github.com/indrasvat/gh-hound/internal/tui/components/sparkline"
 	"github.com/indrasvat/gh-hound/internal/tui/components/textinput"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
 	"github.com/indrasvat/gh-hound/internal/usecase"
@@ -54,7 +53,7 @@ func renderRuns(m Model, width, height int, now time.Time) string {
 	lines = append(lines, empty...)
 	for i, run := range runs[start:end] {
 		index := start + i
-		line := row(st, cols, run, index == selected, m.FlakyRuns[run.ID], width, now)
+		line := row(st, cols, run, index == selected, m.FlakyRuns[run.ID], m.paceMark(run, now), width, now)
 		if m.Loading {
 			// The previous list stays visible but dimmed while a
 			// reload is in flight.
@@ -136,6 +135,8 @@ const (
 	// minLabelWidth is what Workflow / detail keeps before Duration and
 	// then Event give up their space; Actor and Age never do.
 	minLabelWidth = 32
+	// minNoteLabel is the least label a Pace note may leave beside it.
+	minNoteLabel = 6
 )
 
 func columnsFor(width int) runColumns {
@@ -197,22 +198,35 @@ func runsHeader(st styles, c runColumns, width int) string {
 	return dimLine(st, c.cells(" ", "#", "St", truncate("Workflow / detail", c.label), "Actor", "Event", truncate("Duration", c.duration), "Age"), width)
 }
 
-func row(st styles, c runColumns, run model.Run, selected, flaky bool, width int, now time.Time) string {
+func row(st styles, c runColumns, run model.Run, selected, flaky bool, mark usecase.PaceMark, width int, now time.Time) string {
 	prefix := " "
 	if selected {
 		prefix = colorize(st.ok, icons.Cursor)
 	}
 	number := colorize(st.muted, fmt.Sprintf("#%d", run.RunNumber))
 	status := colorize(statusColor(st, run), glyph(run))
-	label := runLabel(st, run, c.label)
+	labelWidth := c.label
+	note := ""
+	if noteWidth := ansi.StringWidth(mark.Text) + 1; c.duration == 0 && mark.Note() && c.label-noteWidth >= minNoteLabel {
+		// Duration is dropped at this width: a running ETA or a slow
+		// flag rides right-aligned inside the label column, as the
+		// flake badge does, and the label truncates first. Too narrow
+		// for both, the label keeps the column and the note waits.
+		note = colorize(markColor(st, run, mark), mark.Text)
+		labelWidth = c.label - noteWidth
+	}
+	label := runLabel(st, run, labelWidth)
 	if flaky {
 		// The flake badge lives inside the label column so every
 		// column keeps its width math and the badge survives 80 cols;
 		// the glyph is plain ASCII by design.
-		label = colorize(st.run, icons.Flake) + " " + runLabel(st, run, c.label-2)
+		label = colorize(st.run, icons.Flake) + " " + runLabel(st, run, labelWidth-2)
+	}
+	if note != "" {
+		label = padANSI(fitANSI(label, labelWidth), labelWidth) + " " + note
 	}
 	event := colorize(eventColor(st, run), truncate(run.Event, c.event))
-	duration := colorize(durationColor(st, run), sparkline.Render(sparkValues(run), 5))
+	duration := colorize(markColor(st, run, mark), mark.Text)
 	runAge := colorize(st.subtle, age(run, now))
 	return fitANSI(c.cells(prefix, number, status, label, actorCell(st, run.Actor, c.actor), event, duration, runAge), width)
 }
@@ -265,17 +279,18 @@ func duration(run model.Run) string {
 	if run.RunStartedAt.IsZero() || run.UpdatedAt.IsZero() || run.UpdatedAt.Before(run.RunStartedAt) {
 		return "queued"
 	}
-	d := run.UpdatedAt.Sub(run.RunStartedAt)
-	if d < time.Minute {
-		return fmt.Sprintf("%.0fs", d.Seconds())
-	}
-	return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
+	return usecase.FormatPaceDuration(run.UpdatedAt.Sub(run.RunStartedAt))
 }
 
 func runLabel(st styles, run model.Run, width int) string {
 	name := runName(run)
 	detail := runDetail(run)
 	if detail == "" {
+		return colorize(st.fgSoft, truncate(name, width))
+	}
+	if width < 6+3+1 {
+		// No room for a name and a detail: the detail goes first, and
+		// the label never outgrows its column.
 		return colorize(st.fgSoft, truncate(name, width))
 	}
 	nameWidth := max(min(ansi.StringWidth(name), width/2), 6)
@@ -549,6 +564,21 @@ func eventColor(st styles, run model.Run) string {
 	return st.subtle
 }
 
+// markColor: an ETA reads in the running colour, a slow flag in warn,
+// a running run without an estimate and a queued one in info, and a
+// measured duration as before.
+func markColor(st styles, run model.Run, mark usecase.PaceMark) string {
+	switch {
+	case mark.Slow:
+		return st.warn
+	case mark.ETA:
+		return st.run
+	case mark.Running || mark.Waiting:
+		return st.info
+	}
+	return durationColor(st, run)
+}
+
 func durationColor(st styles, run model.Run) string {
 	if run.Status == model.StatusInProgress {
 		return st.run
@@ -560,21 +590,6 @@ func durationColor(st styles, run model.Run) string {
 		return st.ok
 	}
 	return st.fgSoft
-}
-
-func sparkValues(run model.Run) []int {
-	switch {
-	case run.Status == model.StatusInProgress:
-		return []int{40, 55, 80, 30, 20}
-	case run.Status != model.StatusCompleted:
-		return []int{15, 15}
-	case run.Conclusion == model.ConclusionSuccess:
-		return []int{30, 35, 50, 65, 50}
-	case run.Conclusion == model.ConclusionCancelled:
-		return []int{25, 25}
-	default:
-		return []int{35, 60, 100, 70, 45}
-	}
 }
 
 func colorize(sgr, value string) string {

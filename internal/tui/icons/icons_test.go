@@ -29,6 +29,7 @@ func TestStatusAndConclusionGlyphsMatchHTMLMock(t *testing.T) {
 		{"fold closed", FoldClosed, "▸"},
 		{"prompt", Prompt, "❯"},
 		{"rerun", Rerun, "↻"},
+		{"slow", Slow, "↑"},
 		{"dispatch", Dispatch, "▶"},
 		{"enter", Enter, "⏎"},
 		{"escape", Escape, "⎋"},

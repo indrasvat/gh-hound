@@ -171,3 +171,36 @@ func TestFooterWidthCountsCellsForWideKeys(t *testing.T) {
 		}
 	}
 }
+
+// p is free on every screen Pace acts on; a move takes it everywhere at
+// once, and a move onto a taken key is refused.
+func TestPaceToggleIsFreeAndMoves(t *testing.T) {
+	pace := []Screen{ScreenRunsList, ScreenWatch, ScreenWatchDone, ScreenWatchBoard}
+	k := mustKeymap(t, nil)
+	for _, screen := range pace {
+		if got := k.Key(screen, "p"); got != "p" {
+			t.Errorf("Key(%s, p) = %q, want p", screen, got)
+		}
+	}
+	moved := mustKeymap(t, map[string]string{"pace_toggle": "P"})
+	for _, screen := range pace {
+		if moved.Key(screen, "P") != "p" || moved.Key(screen, "p") != "" {
+			t.Errorf("%s: P = %q, p = %q; want P to act and p to stop", screen, moved.Key(screen, "P"), moved.Key(screen, "p"))
+		}
+	}
+	// Help lists the moved key; the footer does not carry it.
+	listed := false
+	for _, binding := range moved.Layer(ScreenRunsList).Bindings {
+		if binding.Action == "pace_toggle" {
+			listed = binding.Key == "P" && !binding.ShowInFooter
+		}
+	}
+	if !listed || strings.Contains(moved.FooterWidth(ScreenRunsList, 400), "pace") {
+		t.Fatalf("help must list P pace and the footer must not: %+v", moved.Layer(ScreenRunsList).Bindings)
+	}
+	for _, taken := range []string{"j", "f", "x"} {
+		if _, err := NewKeymap(map[string]string{"pace_toggle": taken}); err == nil {
+			t.Errorf("pace_toggle = %q must conflict on a Pace screen", taken)
+		}
+	}
+}

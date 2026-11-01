@@ -103,14 +103,17 @@ type Options struct {
 	DispatchWorkflowsResolver func(context.Context) ([]dispatch.Workflow, error)
 	DiffResolver              func(context.Context, model.Run) (usecase.RegressionVerdict, error)
 	FlakesResolver            func(context.Context, model.Run) (usecase.FlakeReport, error)
-	QueueResolver             func(context.Context, model.Run) (model.ConcurrencyReport, error)
-	WorkflowsResolver         func(context.Context) ([]model.Workflow, error)
-	RunsMetadata              func() (usecase.RequestMeta, bool)
-	LogRefetchNotice          func(int64) (usecase.LogRefetchNotice, bool)
-	ActionHandler             func(ActionRequest) (usecase.ActionResult, error)
-	ApprovalsResolver         func(context.Context, model.Run) ([]model.PendingDeployment, error)
-	ArtifactsResolver         func(model.Run) ([]model.Artifact, error)
-	ArtifactDownloader        func(artifact model.Artifact, destDir string, force bool, onProgress func(usecase.DownloadProgress)) (usecase.DownloadResult, error)
+	// PaceResolver samples a run's workflow baseline (Pace). Called on
+	// poll ticks only, one at a time, never on render.
+	PaceResolver       func(context.Context, model.Run) (usecase.PaceBaseline, error)
+	QueueResolver      func(context.Context, model.Run) (model.ConcurrencyReport, error)
+	WorkflowsResolver  func(context.Context) ([]model.Workflow, error)
+	RunsMetadata       func() (usecase.RequestMeta, bool)
+	LogRefetchNotice   func(int64) (usecase.LogRefetchNotice, bool)
+	ActionHandler      func(ActionRequest) (usecase.ActionResult, error)
+	ApprovalsResolver  func(context.Context, model.Run) ([]model.PendingDeployment, error)
+	ArtifactsResolver  func(model.Run) ([]model.Artifact, error)
+	ArtifactDownloader func(artifact model.Artifact, destDir string, force bool, onProgress func(usecase.DownloadProgress)) (usecase.DownloadResult, error)
 	// ArtifactDir is the absolute download root artifacts extract
 	// into. The app displays it (confirm modal, completion state);
 	// the downloader closure must extract into the same directory.
@@ -205,8 +208,18 @@ type App struct {
 	queueResolver             func(context.Context, model.Run) (model.ConcurrencyReport, error)
 	// flakeReports caches verdicts per (workflow, branch) for the
 	// session; rerun mutations invalidate it so new attempts re-score.
-	flakeReports       map[string]usecase.FlakeReport
-	flakesFetch        *flakesFetchState
+	flakeReports map[string]usecase.FlakeReport
+	flakesFetch  *flakesFetchState
+	// Pace baselines per repo|workflow|branch|event for the session;
+	// paceFailed holds keys whose fetch failed, retried after paceTTL.
+	paceResolver  func(context.Context, model.Run) (usecase.PaceBaseline, error)
+	paceBaselines map[string]paceEntry
+	paceFailed    map[string]time.Time
+	paceFetch     *paceFetchState
+	// paceHidden is the session's p toggle; paceWarned keeps the
+	// unavailable toast to one per session.
+	paceHidden         bool
+	paceWarned         bool
 	flakePanelRun      model.Run
 	workflowsResolver  func(context.Context) ([]model.Workflow, error)
 	runsMetadata       func() (usecase.RequestMeta, bool)
@@ -586,6 +599,7 @@ func NewApp(options Options) App {
 		dispatchWorkflowsResolver: options.DispatchWorkflowsResolver,
 		diffResolver:              options.DiffResolver,
 		flakesResolver:            options.FlakesResolver,
+		paceResolver:              options.PaceResolver,
 		queueResolver:             options.QueueResolver,
 		flakeReports:              map[string]usecase.FlakeReport{},
 		workflowsResolver:         options.WorkflowsResolver,
@@ -716,6 +730,10 @@ func (a App) Update(msg KeyMsg) (out App, handled bool) {
 		a = next
 		repaint = true
 	}
+	if next, ok := a.drainPaceFetch(); ok {
+		a = next
+		repaint = true
+	}
 	// A completed route poll applies before the key routes, so a
 	// keystroke acts on the freshest list the background fetch produced.
 	if next, ok := a.drainTickPoll(); ok {
@@ -807,6 +825,10 @@ func (a App) Update(msg KeyMsg) (out App, handled bool) {
 	case "T":
 		a.toggleTheme()
 		return a, true
+	case "p":
+		if a.paceScreen() {
+			return a.togglePace(), true
+		}
 	case "?":
 		a.pushOverlay(OverlayHelp)
 		return a, true
@@ -991,6 +1013,23 @@ func RenderFixtureSize(screen string, width, height int) string {
 		return frameViewSize(app.theme, "hound", "build › failed step", "exit 1", failure.ViewSize(sampleFailureModel(), bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenFailure), width, height, true)
 	case "watch":
 		return frameViewSize(app.theme, "hound", "CI #570", "streaming · follow ●", watch.View(sampleWatchModel(), bodyWidth), keys.FooterForScreen(keys.ScreenWatch), width, height, true)
+	case "runs-pace":
+		return frameViewSize(app.theme, "hound", "⎇ branch fix/parser · @indrasvat", "◔ 4,981/5k live 304", runs.View(samplePaceRunsModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
+	case "watch-pace":
+		m := sampleWatchModel()
+		m.State.Run.RunStartedAt = time.Now().Add(-48 * time.Second)
+		baseline := samplePaceBaseline(240)
+		m.Pace = &baseline
+		return frameViewSize(app.theme, "hound", "CI #570", "streaming · follow ●", watch.View(m, bodyWidth), keys.FooterForScreen(keys.ScreenWatch), width, height, true)
+	case "watch-board-pace":
+		board := sampleBoardModel()
+		board.Pace = map[int64]usecase.PaceBaseline{30433702: samplePaceBaseline(240)}
+		boardApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		boardApp.board = board
+		boardApp.routes = []Route{RouteRuns, RouteWatchBoard}
+		boardApp.paceResolver = noPaceFetch
+		boardApp.paceBaselines = map[string]paceEntry{paceKey(board.Repo, board.Runs[1]): {baseline: board.Pace[30433702], fetchedAt: time.Now()}}
+		return boardApp.ViewSize(width, height)
 	case "watch-board":
 		boardApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
 		boardApp.board = sampleBoardModel()
@@ -1209,7 +1248,7 @@ func (a App) PollInterval() time.Duration {
 	// Tighten the loop while async artifact work (including a parked
 	// done-download awaiting its overwrite question) or timed toasts
 	// are pending so completions and TTL expiry surface promptly.
-	if a.artifactsFetch != nil || a.artifactDownload != nil || a.flakesFetch != nil || len(a.toasts.Toasts) > 0 {
+	if a.artifactsFetch != nil || a.artifactDownload != nil || a.flakesFetch != nil || a.paceFetch != nil || len(a.toasts.Toasts) > 0 {
 		if base > time.Second {
 			return time.Second
 		}
@@ -1269,6 +1308,11 @@ func (a App) Refresh() (App, bool) {
 		a = next
 		changed = true
 	}
+	if next, ok := a.drainPaceFetch(); ok {
+		a = next
+		changed = true
+	}
+	a = a.startPaceFetch()
 	// A completed route poll applies here; then a fresh one starts in
 	// the background. The fetch never runs on this goroutine, so a slow
 	// poll cannot stall the next keystroke (Task 28). One poll rides at
@@ -3964,6 +4008,7 @@ func (a App) executeAction(route Route, request ActionRequest) (App, bool) {
 		a.flakeReports = map[string]usecase.FlakeReport{}
 		a.runs.FlakyRuns = nil
 		a.failure.Flake = nil
+		a.resetPace()
 	}
 	resilience := usecase.ResilienceForSuccess(result)
 	if resilience.Message == "" && request.Workflow.Name != "" {
@@ -4926,6 +4971,7 @@ func (a App) screenBody(width, height int) string {
 			runsModel.Loading = true
 			runsModel.LoadingLine = loadingLine(a.theme, load, bodyWidth, time.Now())
 		}
+		runsModel.Pace = a.paceFor(runsModel.Context.Repo, runsModel.Context.Runs)
 		return runs.ViewSize(runsModel, bodyWidth, bodyHeight(height), time.Now())
 	case RouteDetail:
 		detailModel := a.detail
@@ -4959,10 +5005,14 @@ func (a App) screenBody(width, height int) string {
 		}
 		watchModel := a.watch
 		watchModel.Theme = a.theme
+		if baseline, ok := a.paceFor(watchModel.State.Repo, []model.Run{watchModel.State.Run})[watchModel.State.Run.ID]; ok {
+			watchModel.Pace = &baseline
+		}
 		return watch.ViewSize(watchModel, bodyWidth, bodyHeight(height))
 	case RouteWatchBoard:
 		boardModel := a.board
 		boardModel.Theme = a.theme
+		boardModel.Pace = a.paceFor(boardModel.Repo, boardModel.Runs)
 		if load := a.load; load != nil && load.kind == loadKindPack {
 			boardModel.Loading = true
 			boardModel.LoadingLine = loadingLine(a.theme, load, bodyWidth, time.Now())
@@ -5566,6 +5616,36 @@ func sampleWatchModel() watch.Model {
 		},
 		Lines: doc.Lines,
 	})
+}
+
+// samplePaceBaseline is ten green runs around a p50 of p50 seconds,
+// with p90 30s above it.
+func samplePaceBaseline(p50 int) usecase.PaceBaseline {
+	b := usecase.PaceBaseline{Event: "push", BaselineBranch: "fix/parser"}
+	for i, offset := range []int{-40, -20, -10, -5, 0, 5, 10, 20, 30, 40} {
+		b.Samples = append(b.Samples, usecase.PaceSample{RunID: int64(9000 + i), Duration: time.Duration(p50+offset) * time.Second})
+	}
+	return b
+}
+
+// noPaceFetch stands in for a resolver in fixtures: baselines are
+// seeded, and rendering never fetches.
+func noPaceFetch(context.Context, model.Run) (usecase.PaceBaseline, error) {
+	return usecase.PaceBaseline{}, fmt.Errorf("fixtures never fetch")
+}
+
+// samplePaceRunsModel is the runs fixture with Pace: #570 running with
+// about two minutes left, #569 finished well past its usual 4m01s.
+func samplePaceRunsModel() runs.Model {
+	m := sampleRunsModel()
+	now := time.Now().UTC().Truncate(time.Second)
+	for i, run := range m.Context.Runs {
+		if run.ID == 569 {
+			m.Context.Runs[i].RunStartedAt = now.Add(-3*time.Minute - 571*time.Second)
+		}
+	}
+	m.Pace = map[int64]usecase.PaceBaseline{570: samplePaceBaseline(168), 569: samplePaceBaseline(241), 565: samplePaceBaseline(40)}
+	return m
 }
 
 // sampleBoardModel is the pack board fixture: one running, one home,

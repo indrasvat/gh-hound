@@ -244,8 +244,8 @@ func percentile(sorted []time.Duration, p int) time.Duration {
 
 // FormatPaceETA renders time left in whole minutes, rounded up, since
 // an estimate from a median should not claim seconds: "<1m left",
-// "3m left", "~1h left". Every form keeps "left" and fits 8 cells up
-// to 99 hours.
+// "3m left", "~1h left", and ">9h left" from ten hours on. Every form
+// keeps "left" and fits the 8-cell Duration column.
 func FormatPaceETA(d time.Duration) string {
 	if d < time.Minute {
 		return "<1m left"
@@ -253,16 +253,75 @@ func FormatPaceETA(d time.Duration) string {
 	if minutes := int(math.Ceil(d.Minutes())); minutes < 60 {
 		return fmt.Sprintf("%dm left", minutes)
 	}
-	return fmt.Sprintf("~%dh left", max(int(math.Round(d.Hours())), 1))
+	hours := max(int(math.Round(d.Hours())), 1)
+	if hours > 9 {
+		return ">9h left"
+	}
+	return fmt.Sprintf("~%dh left", hours)
 }
 
-// FormatPaceDuration matches the runs list's measured durations:
-// "38s", "4m05s".
+// FormatPaceDuration is a measured duration: "38s", "4m05s", "1h05m".
+// It fits 6 cells below 100 hours, so "↑ " plus it fits the 8-cell
+// Duration column.
 func FormatPaceDuration(d time.Duration) string {
-	if d < time.Minute {
-		return fmt.Sprintf("%.0fs", d.Seconds())
+	d = max(d, 0)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
+	default:
+		return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
 	}
-	return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
+}
+
+// PaceMark is what a duration cell says about a run: time left, a slow
+// flag, or the plain measured duration.
+type PaceMark struct {
+	Text string
+	// ETA: running within its baseline ("3m left", "due").
+	ETA bool
+	// Slow: finished slow or still running and already slow.
+	Slow bool
+	// Waiting: queued or waiting, no duration yet.
+	Waiting bool
+	// Running: in progress (elapsed, ETA or overrun).
+	Running bool
+}
+
+// Note says whether the mark carries Pace information worth a cell of
+// its own where the Duration column is dropped.
+func (m PaceMark) Note() bool { return m.ETA || m.Slow }
+
+// PaceMarkFor renders run against b (has is false without a baseline,
+// or with Pace off) at now. Without a baseline it is the measured
+// duration: elapsed while running, wall time once finished.
+func PaceMarkFor(run model.Run, b PaceBaseline, has bool, now time.Time) PaceMark {
+	switch {
+	case run.Status == model.StatusWaiting:
+		return PaceMark{Text: "waiting", Waiting: true}
+	case run.RunStartedAt.IsZero() || run.Status != model.StatusInProgress && run.Status != model.StatusCompleted:
+		return PaceMark{Text: "queued", Waiting: true}
+	}
+	running := run.Status == model.StatusInProgress
+	elapsed := run.UpdatedAt.Sub(run.RunStartedAt)
+	if running {
+		elapsed = now.Sub(run.RunStartedAt)
+	}
+	mark := PaceMark{Text: FormatPaceDuration(elapsed), Running: running}
+	if !has {
+		return mark
+	}
+	a := AssessPace(run, b, now)
+	switch {
+	case a.Slow:
+		mark.Text, mark.Slow = "↑ "+FormatPaceDuration(a.Elapsed), true
+	case a.Due():
+		mark.Text, mark.ETA = "due", true
+	case a.HasETA:
+		mark.Text, mark.ETA = FormatPaceETA(a.ETA), true
+	}
+	return mark
 }
 
 // PaceVerdictLine is the only place Pace speaks in the hound's voice.

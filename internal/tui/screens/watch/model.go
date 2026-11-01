@@ -6,6 +6,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/logs"
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/theme"
+	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
 type State struct {
@@ -52,6 +53,9 @@ type Model struct {
 	Debug  bool
 	Intent Intent
 	Theme  theme.Theme
+	// Pace is the watched run's baseline, nil without one or with
+	// Pace off.
+	Pace *usecase.PaceBaseline
 }
 
 func NewModel(state State) Model {

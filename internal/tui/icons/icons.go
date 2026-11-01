@@ -20,10 +20,12 @@ const (
 	Sparkline      = "▁▂▃▅▇"
 	Prompt         = "❯"
 	Rerun          = "↻"
-	Dispatch       = "▶"
-	Enter          = "⏎"
-	Escape         = "⎋"
-	Artifact       = "▣"
+	// Slow marks a run that took meaningfully longer than its usual.
+	Slow     = "↑"
+	Dispatch = "▶"
+	Enter    = "⏎"
+	Escape   = "⎋"
+	Artifact = "▣"
 	// Gate marks a run waiting on a deployment review. Text
 	// presentation only (U+25EB), per the theme glyph contract.
 	Gate = "◫"

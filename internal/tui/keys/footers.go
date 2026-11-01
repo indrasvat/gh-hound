@@ -70,6 +70,7 @@ var footerByScreen = map[Screen][]Binding{
 		// is on screen; the static footer stays truthful for lists
 		// without waiting runs (artifacts precedent on detail).
 		{Key: "A", Action: "approvals", Help: "approvals (waiting runs)", ShowInFooter: false},
+		{Key: "p", Action: "pace_toggle", Help: "pace (ETA, slow marks)", ShowInFooter: false},
 		{Key: "/", Action: "filter", Help: "filter", ShowInFooter: true, Keep: KeepAlways},
 		{Key: "?", Action: "help", Help: "", ShowInFooter: true, Keep: KeepAlways},
 	},
@@ -112,12 +113,14 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "x", Display: "✗", Action: "cancel", Help: "cancel", ShowInFooter: true},
 		{Key: "f", Action: "follow", Help: "follow", ShowInFooter: true},
 		{Key: "d", Action: "debug", Help: "debug", ShowInFooter: true},
+		{Key: "p", Action: "pace_toggle", Help: "pace (ETA, slow marks)", ShowInFooter: false},
 		{Key: "esc", Display: "⎋", Action: "detach", Help: "detach", ShowInFooter: true},
 	},
 	// The run has finished: nothing to cancel.
 	ScreenWatchDone: {
 		{Key: "f", Action: "follow", Help: "follow", ShowInFooter: true},
 		{Key: "d", Action: "debug", Help: "debug", ShowInFooter: true},
+		{Key: "p", Action: "pace_toggle", Help: "pace (ETA, slow marks)", ShowInFooter: false},
 		{Key: "esc", Display: "⎋", Action: "detach", Help: "detach", ShowInFooter: true},
 	},
 	// No run on screen yet: the watch is loading or failed to open.
@@ -129,6 +132,7 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "enter", Display: "⏎", Action: "open", Help: "drill in", ShowInFooter: true},
 		{Key: "f", Action: "follow_worst", Help: "follow worst", ShowInFooter: true},
 		{Key: "x", Display: "✗", Action: "cancel", Help: "cancel", ShowInFooter: true},
+		{Key: "p", Action: "pace_toggle", Help: "pace (ETA, slow marks)", ShowInFooter: false},
 		{Key: "esc", Display: "⎋", Action: "back", Help: "back", ShowInFooter: true},
 	},
 	ScreenLog: {

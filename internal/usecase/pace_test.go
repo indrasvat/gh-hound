@@ -369,11 +369,58 @@ func TestFormatPaceETA(t *testing.T) {
 		60 * time.Minute:             "~1h left",
 		89 * time.Minute:             "~1h left",
 		90 * time.Minute:             "~2h left",
-		26 * time.Hour:               "~26h left",
+		9 * time.Hour:                "~9h left",
+		9*time.Hour + 31*time.Minute: ">9h left",
+		26 * time.Hour:               ">9h left",
 	}
 	for d, want := range cases {
 		if got := FormatPaceETA(d); got != want {
 			t.Errorf("FormatPaceETA(%v) = %q, want %q", d, got, want)
+		}
+	}
+}
+
+func TestFormatPaceDuration(t *testing.T) {
+	cases := map[time.Duration]string{
+		0: "0s", 38 * time.Second: "38s", 59*time.Second + 900*time.Millisecond: "59s",
+		time.Minute: "1m00s", 245 * time.Second: "4m05s", 65 * time.Minute: "1h05m", 99*time.Hour + 59*time.Minute: "99h59m",
+		-time.Second: "0s",
+	}
+	for d, want := range cases {
+		if got := FormatPaceDuration(d); got != want {
+			t.Errorf("FormatPaceDuration(%v) = %q, want %q", d, got, want)
+		}
+	}
+}
+
+func TestPaceMarkFor(t *testing.T) {
+	base := baselineOf(seconds(200, 220, 230, 235, 240, 245, 250, 260, 270, 280)...)
+	now := paceEpoch.Add(1000 * time.Hour)
+	waiting := runningRun(time.Minute, now)
+	waiting.Status = model.StatusWaiting
+	queued := runningRun(time.Minute, now)
+	queued.Status, queued.RunStartedAt = model.StatusQueued, time.Time{}
+	rerun := runningRun(400*time.Second, now)
+	rerun.RunAttempt = 2
+	cases := []struct {
+		name string
+		run  model.Run
+		has  bool
+		want PaceMark
+	}{
+		{"waiting", waiting, true, PaceMark{Text: "waiting", Waiting: true}},
+		{"queued", queued, true, PaceMark{Text: "queued", Waiting: true}},
+		{"left", runningRun(60*time.Second, now), true, PaceMark{Text: "3m left", ETA: true, Running: true}},
+		{"due", runningRun(250*time.Second, now), true, PaceMark{Text: "due", ETA: true, Running: true}},
+		{"overrun", runningRun(400*time.Second, now), true, PaceMark{Text: "↑ 6m40s", Slow: true, Running: true}},
+		{"no baseline", runningRun(400*time.Second, now), false, PaceMark{Text: "6m40s", Running: true}},
+		{"re-run never flagged", rerun, true, PaceMark{Text: "6m40s", Running: true}},
+		{"slow", paceRun(1, "main", "push", 571*time.Second), true, PaceMark{Text: "↑ 9m31s", Slow: true}},
+		{"on pace", paceRun(1, "main", "push", 245*time.Second), true, PaceMark{Text: "4m05s"}},
+	}
+	for _, tc := range cases {
+		if got := PaceMarkFor(tc.run, base, tc.has, now); got != tc.want {
+			t.Errorf("%s: %+v, want %+v", tc.name, got, tc.want)
 		}
 	}
 }

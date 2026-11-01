@@ -30,6 +30,9 @@ type Board struct {
 	LoadingLine string
 
 	Theme theme.Theme
+
+	// Pace holds each run's baseline, nil with Pace off.
+	Pace map[int64]usecase.PaceBaseline
 }
 
 type BoardIntentKind string
