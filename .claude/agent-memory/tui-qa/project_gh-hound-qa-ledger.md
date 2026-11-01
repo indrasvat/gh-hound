@@ -840,3 +840,21 @@ only the 8 runs-footer PNGs differ from main.
 re-check the narrow-width loading gap until fixed.
 **How to apply:** read before every gh-hound audit; update entries when a
 finding lands or a fix is verified. See [[shux-capture-recipes]].
+
+Round 37 (task 450 Pace, 517c131 then re-gated 40683a6, 2026-11-01): FAIL.
+VERIFIED: Duration cell real durations; 3m left -> <1m left -> due (at p50)
+-> overrun at max(p90, 1.5x p50, p50+30s) live in paced fake; 80-col note
+inside label column; watch header `· N left`/`· due`/`· ↑ overrun`; p
+toggles on runs/watch/board, inert on detail, typed into `/` filter; pace=false
+and HOUND_PACE=false give "pace is off in config" toast; render hygiene
+passes (flaky and paced). OPEN P1: off-toast hardcodes "p brings it back"
+even with [keybindings] pace_toggle remapped (pace.go togglePace). OPEN P1:
+repo scope on openclaw: baselines fetched in list order over ALL loaded
+rows; bot workflows (new green runs constantly) re-stale and refetch
+(clawsweeper-dispatch 21x in 9 min), the visible running CI row never got
+an ETA in 9+ min while `pace --run` gave one. Branch scope fine. OPEN P2:
+hunt board at 80 cols: "all home in ~Nm" pushes "sha event · follow ●/○"
+off the headline; f gives no visible feedback (VQA assertion misses it).
+Paced fake has unique SHAs: no live hunt board; use openclaw PR branch + w.
+All-green home slow marks (added 00ef068) have no fixture and no live green
+rows on openclaw main: untested.

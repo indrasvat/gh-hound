@@ -95,3 +95,9 @@ Related: [[gh-hound-qa-ledger]].
   then run the binary from <dir> with `--actor @me` (without an actor, s on
   an empty branch is a no-op); `-R openclaw/openclaw --branch <46-char
   branch>` gives a long header with real rows.
+
+- gh-hound has no NO_COLOR handling at all (main too): NO_COLOR captures are
+  colored; don't file as a branch regression.
+- `--trace-http` log lands in ~/.local/state/gh-hound/gh-hound.log (no
+  query strings); count `workflows/<file>/runs` calls for baseline/flake cost.
+- HOUND_WELCOME=false skips welcome: a following Enter opens detail.
