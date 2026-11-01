@@ -873,3 +873,17 @@ NEW P1 (root pre-existing): repo-scope list never refreshes rows past page
 confident "↑ 5m39s" overruns on 1-minute runs (verified via gh run list and
 the hunt board showing them success 1m01s). Also present in round 1
 (Auto response ↑ 8m06s) — I missed it: always cross-check ↑ rows with gh.
+
+Round 39 (task 450 round 3, 8ddc21d/fix 82ea889, 2026-11-01): FAIL.
+VERIFIED: watch header amber with Pace on (plain suffix); GetRun <=5 per
+poll (43 polls x5, 7x1, 7x0) and 0 on a branch with nothing unfinished;
+stale rows past page 1 flip to their conclusion within ~3-4 min. STILL P1:
+the 2-min "confirmed" window outlives short runs: at 20:02:45 one frame
+showed 7 finished runs as "↑ 1m3xs-1m4xs" (finished 70-100s earlier;
+truth via gh run list -L 400 joined on number+workflow prefix). Fix idea:
+measure elapsed only up to the last confirmation. NEW P2: the selected
+running CI flips between "Nm left" and bare elapsed as its confirmation
+ages past 2 min (round-robin of 5 GetRuns over ~50 unfinished rows).
+P2: repo scope after loading pages cost 562 calls/15 min (~2250/h: pace
+283, getrun 222, list 57). Recipe: scratchpad stalecheck.sh compares
+visible ⠹ rows with gh truth each round.
