@@ -91,7 +91,7 @@ func FuzzPaceRows(f *testing.F) {
 			if len(line) <= col || !strings.HasPrefix(string(line[col:]), "@indr") {
 				t.Fatalf("width %d: Actor column moved on row %d: %q", w, i, string(line))
 			}
-			mark := usecase.PaceMarkFor(run, m.Pace[run.ID], now)
+			mark := m.paceMark(run, now)
 			c := columnsFor(w)
 			room := c.duration > 0 || c.label-ansi.StringWidth(mark.Text)-1 >= minNoteLabel
 			if mark.Note() && room && !strings.Contains(string(line), mark.Text) {

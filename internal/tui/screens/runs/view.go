@@ -53,7 +53,7 @@ func renderRuns(m Model, width, height int, now time.Time) string {
 	lines = append(lines, empty...)
 	for i, run := range runs[start:end] {
 		index := start + i
-		line := row(st, cols, run, index == selected, m.FlakyRuns[run.ID], usecase.PaceMarkFor(run, m.Pace[run.ID], now), width, now)
+		line := row(st, cols, run, index == selected, m.FlakyRuns[run.ID], m.paceMark(run, now), width, now)
 		if m.Loading {
 			// The previous list stays visible but dimmed while a
 			// reload is in flight.
@@ -83,7 +83,7 @@ func renderAllGreen(m Model, width, height int, now time.Time) string {
 	if len(runs) > 0 {
 		run := runs[0]
 		latestTitle = plainRunTitle(run)
-		latestMeta = fmt.Sprintf("%s · success", usecase.PaceMarkFor(run, m.Pace[run.ID], now).Text)
+		latestMeta = fmt.Sprintf("%s · success", m.paceMark(run, now).Text)
 	}
 	branch := scopeTitle(m.Context.Scope, m.Context.Branch)
 	fixedRows := 5
@@ -104,7 +104,7 @@ func renderAllGreen(m Model, width, height int, now time.Time) string {
 	}
 	lines = append(lines, notice...)
 	for i, run := range runs[start:end] {
-		line := allGreenRow(st, run, usecase.PaceMarkFor(run, m.Pace[run.ID], now), start+i == selected, width, actorWidth, now)
+		line := allGreenRow(st, run, m.paceMark(run, now), start+i == selected, width, actorWidth, now)
 		if m.Loading {
 			line = dimLine(st, ansi.Strip(line), width)
 		}

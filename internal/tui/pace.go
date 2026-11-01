@@ -11,6 +11,7 @@ import (
 
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/tui/keys"
+	runspkg "github.com/indrasvat/gh-hound/internal/tui/screens/runs"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -25,12 +26,17 @@ const paceConfirmWindow = 2 * time.Minute
 
 // maxRunRefreshes bounds the unfinished rows past page 1 that one runs
 // poll re-reads (304s when unchanged cost no primary rate limit).
-const maxRunRefreshes = 5
+const maxRunRefreshes = 3
 
 // paceMinRefresh is the least age at which a new green run refreshes a
-// baseline: a busy bot workflow goes green every few seconds and must
-// not keep the one fetch slot from the rows on screen.
-const paceMinRefresh = 2 * time.Minute
+// baseline: a 20-run median barely moves with one more run, and busy
+// workflows go green every few seconds.
+const paceMinRefresh = 10 * time.Minute
+
+// paceRowSpan bounds the runs-list rows Pace works for to those within
+// this many rows of the selection: what is on screen, not every page
+// loaded with G.
+const paceRowSpan = 30
 
 type paceEntry struct {
 	baseline  usecase.PaceBaseline
@@ -86,11 +92,8 @@ func paceKey(repo string, run model.Run) string {
 func (a App) paceScope() (string, []model.Run, int) {
 	switch a.Route() {
 	case RouteRuns:
-		selected := 0
-		if run, ok := a.runs.SelectedRun(); ok {
-			selected = max(slices.IndexFunc(a.runs.Context.Runs, func(r model.Run) bool { return r.ID == run.ID }), 0)
-		}
-		return a.runs.Context.Repo, a.runs.Context.Runs, selected
+		rows, selected := nearSelection(a.runs)
+		return a.runs.Context.Repo, rows, selected
 	case RouteWatch:
 		if a.watch.State.Run.ID == 0 {
 			return "", nil, 0
@@ -287,21 +290,40 @@ type runConfirmation struct {
 	updated time.Time
 }
 
-// paceForRuns is paceFor without the running rows whose snapshot no
-// fetch has confirmed within paceConfirmWindow.
-func (a App) paceForRuns(repo string, runs []model.Run) map[int64]usecase.PaceBaseline {
-	out := a.paceFor(repo, runs)
+// nearSelection is the loaded runs within paceRowSpan of the selected
+// one, and the selection's index among them.
+func nearSelection(m runspkg.Model) ([]model.Run, int) {
+	rows := m.Context.Runs
+	selected := 0
+	if run, ok := m.SelectedRun(); ok {
+		selected = max(slices.IndexFunc(rows, func(r model.Run) bool { return r.ID == run.ID }), 0)
+	}
+	lo, hi := max(selected-paceRowSpan, 0), min(selected+paceRowSpan+1, len(rows))
+	return rows[lo:hi], selected - lo
+}
+
+// paceForRuns is paceFor for the runs list: only rows near the
+// selection, and a running row only while a fetch confirmed its
+// snapshot within paceConfirmWindow. A running row is judged as of
+// that confirmation (asOf), so a run that finished unseen cannot grow
+// into an overrun or a false "due".
+func (a App) paceForRuns(m runspkg.Model) (map[int64]usecase.PaceBaseline, map[int64]time.Time) {
+	rows, _ := nearSelection(m)
+	out := a.paceFor(m.Context.Repo, rows)
+	asOf := map[int64]time.Time{}
 	now := time.Now()
-	for _, run := range runs {
-		if run.Status == model.StatusCompleted {
+	for _, run := range rows {
+		if _, ok := out[run.ID]; !ok || run.Status == model.StatusCompleted {
 			continue
 		}
 		c, ok := a.runsConfirmed[run.ID]
 		if !ok || c.status != run.Status || !c.updated.Equal(run.UpdatedAt) || now.Sub(c.at) > paceConfirmWindow {
 			delete(out, run.ID)
+			continue
 		}
+		asOf[run.ID] = c.at
 	}
-	return out
+	return out, asOf
 }
 
 // confirmedAt records that a fetch returned rows at at (when the
@@ -316,15 +338,23 @@ func confirmedAt(confirmed map[int64]runConfirmation, rows []model.Run, at time.
 	return out
 }
 
-// leastRecentlyReadUnfinished is up to n unfinished rows, least recently
-// read first (a confirmation or a failed attempt both count), so every
-// one is re-read in turn and a failing one cannot starve the rest.
-func (a App) leastRecentlyReadUnfinished(n int) []int64 {
+// refreshCandidates is up to n unfinished rows near the selection to
+// re-read: the selected one first, then the least recently read (a
+// confirmation or a failed attempt both count), so each is read in turn
+// and a failing one cannot starve the rest.
+func (a App) refreshCandidates(n int) []int64 {
+	rows, selected := nearSelection(a.runs)
 	var ids []int64
 	last := map[int64]time.Time{}
-	for _, run := range a.runs.Context.Runs {
+	if selected < len(rows) && rows[selected].Status != model.StatusCompleted {
+		last[rows[selected].ID] = time.Time{}.Add(-time.Hour) // always first
+	}
+	for _, run := range rows {
 		if run.Status != model.StatusCompleted && run.ID != 0 {
 			ids = append(ids, run.ID)
+			if _, first := last[run.ID]; first {
+				continue
+			}
 			last[run.ID] = a.runsConfirmed[run.ID].at
 			if tried := a.runsTried[run.ID]; tried.After(last[run.ID]) {
 				last[run.ID] = tried

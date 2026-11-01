@@ -321,6 +321,7 @@ func TestPaceServesTheSelectedRunningRowFirst(t *testing.T) {
 	// to spend another call on it.
 	fresh := paceRow(2000, ".github/workflows/bot0.yml", "main", "push", model.StatusCompleted, model.ConclusionSuccess, 30*time.Second)
 	app.runs.Context.Runs = append([]model.Run{fresh}, app.runs.Context.Runs...)
+	app.runs.Selected++ // the selection stays on its run, as after a poll
 	app = settlePace(t, app)
 	if spy.total() != before {
 		t.Fatalf("calls %d → %d: a fresh baseline refetched on a new green run", before, spy.total())
@@ -465,5 +466,55 @@ func TestPaceConfirmationDatesFromArrival(t *testing.T) {
 	app = app.applyRunsRefresh(fetchedRuns{rows: rows, at: time.Now().Add(-paceConfirmWindow - time.Minute)}, nil, app.runs.ServerKey())
 	if view := ansi.Strip(app.ViewSize(120, 30)); strings.Contains(view, "left") {
 		t.Fatalf("a response parked past the window reads as fresh:\n%s", view)
+	}
+}
+
+// A running row is judged as of its last confirmation: a run confirmed
+// running that then finished unseen cannot grow into an overrun.
+func TestPaceJudgesRunningRowsAsOfTheirConfirmation(t *testing.T) {
+	spy := newPaceSpy()
+	app := settlePace(t, pacedApp(t, spy, config.Default()))
+	run := app.runs.Context.Runs[0] // #600: running, 60s in, p50 4m
+	// Confirmed 100s ago at 60s elapsed; by now it would be 160s in.
+	app.runsConfirmed = confirmedAt(nil, []model.Run{run}, time.Now().Add(-100*time.Second))
+	run.RunStartedAt = time.Now().Add(-160 * time.Second)
+	app.runs.Context.Runs[0] = run
+	app.runsConfirmed = confirmedAt(nil, []model.Run{run}, time.Now().Add(-100*time.Second))
+	if view := ansi.Strip(app.ViewSize(120, 30)); !strings.Contains(view, "3m left") {
+		t.Fatalf("want the ETA as of the confirmation (60s in → 3m left):\n%s", view)
+	}
+	// Confirmed at 230s, unconfirmed since: never an overrun.
+	run.RunStartedAt = time.Now().Add(-400 * time.Second)
+	app.runs.Context.Runs[0] = run
+	app.runsConfirmed = confirmedAt(nil, []model.Run{run}, time.Now().Add(-110*time.Second))
+	if view := ansi.Strip(app.ViewSize(120, 30)); strings.Contains(view, "↑ 6m40s") || strings.Contains(view, "↑ 4m") {
+		t.Fatalf("an unconfirmed tail made an overrun:\n%s", view)
+	}
+}
+
+// Re-reads and baselines stay near the selection on a long list: the
+// selected unfinished row is re-read first, far rows cost nothing.
+func TestPaceAndRefreshesStayNearTheSelection(t *testing.T) {
+	spy := newPaceSpy()
+	app := pacedApp(t, spy, config.Default())
+	rows := []model.Run{}
+	for i := range 200 {
+		rows = append(rows, paceRow(int64(3000+i), fmt.Sprintf(".github/workflows/w%d.yml", i), "main", "push", model.StatusInProgress, model.ConclusionNone, 0))
+	}
+	app.runs = runs.NewModel(usecase.LaunchContext{Repo: "o/r", Branch: "main", State: usecase.LaunchStateRuns, Runs: rows})
+	app.runs.Selected = 150
+	app.runsConfirmed = nil
+	got := app.refreshCandidates(maxRunRefreshes)
+	if len(got) == 0 || got[0] != 3150 {
+		t.Fatalf("candidates %v, want the selected row first", got)
+	}
+	for _, id := range got {
+		if id < 3150-paceRowSpan || id > 3150+paceRowSpan {
+			t.Fatalf("candidate %d is far from the selection", id)
+		}
+	}
+	app = settlePace(t, app)
+	if spy.total() > 2*paceRowSpan+1 {
+		t.Fatalf("%d baselines for a 200-row list, want only rows near the selection", spy.total())
 	}
 }

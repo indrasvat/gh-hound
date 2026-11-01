@@ -3267,7 +3267,7 @@ func (a App) startRunsPoll() App {
 	filter := runsFilterFor(a.runs.Context, a.config.PerPage, q)
 	filter.Page = 1
 	resolver, viewer, key, gen := a.runsResolver, a.viewer, q.ServerKey(), a.runsGen
-	refresher, unfinished := a.runRefresher, a.leastRecentlyReadUnfinished(maxRunRefreshes)
+	refresher, unfinished := a.runRefresher, a.refreshCandidates(maxRunRefreshes)
 	return a.startTickPoll(RouteRuns, a.pollIdentity(RouteRuns), func(ctx context.Context) func(App) App {
 		resolved, err := fetchRuns(ctx, resolver, viewer, filter, q.Actor)
 		if err == nil && refresher != nil {
@@ -5013,7 +5013,7 @@ func (a App) screenBody(width, height int) string {
 			runsModel.Loading = true
 			runsModel.LoadingLine = loadingLine(a.theme, load, bodyWidth, time.Now())
 		}
-		runsModel.Pace = a.paceForRuns(runsModel.Context.Repo, runsModel.Context.Runs)
+		runsModel.Pace, runsModel.PaceAsOf = a.paceForRuns(runsModel)
 		return runs.ViewSize(runsModel, bodyWidth, bodyHeight(height), time.Now())
 	case RouteDetail:
 		detailModel := a.detail
