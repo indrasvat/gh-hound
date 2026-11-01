@@ -218,9 +218,11 @@ type App struct {
 	paceFailed    map[string]time.Time
 	paceFetch     *paceFetchState
 	// runRefresher re-reads unfinished rows the page-1 poll no longer
-	// returns; runsConfirmed is when a fetch last returned each run.
+	// returns; runsConfirmed is when a fetch last returned each run's
+	// snapshot, runsTried when one was last asked for.
 	runRefresher  func(context.Context, int64) (model.Run, error)
-	runsConfirmed map[int64]time.Time
+	runsConfirmed map[int64]runConfirmation
+	runsTried     map[int64]time.Time
 	// paceHidden is the session's p toggle; paceWarned keeps the
 	// unavailable toast to one per session (a rate-limited hour would
 	// otherwise stack one per workflow).
@@ -607,7 +609,7 @@ func NewApp(options Options) App {
 		flakesResolver:            options.FlakesResolver,
 		paceResolver:              options.PaceResolver,
 		runRefresher:              options.RunRefresher,
-		runsConfirmed:             confirmedNow(nil, launch.Runs),
+		runsConfirmed:             confirmedAt(nil, launch.Runs, time.Now()),
 		queueResolver:             options.QueueResolver,
 		flakeReports:              map[string]usecase.FlakeReport{},
 		workflowsResolver:         options.WorkflowsResolver,
@@ -3087,7 +3089,7 @@ func (a App) reloadRuns() App {
 				return app
 			}
 			app = app.storeRuns(requestScope, key, resolved.rows)
-			app.runsConfirmed = confirmedNow(app.runsConfirmed, resolved.rows)
+			app.runsConfirmed = confirmedAt(app.runsConfirmed, resolved.rows, resolved.at)
 			if app.runs.Context.Scope != requestScope {
 				// The user moved to another scope while this was in
 				// flight: the result stays parked in its cache slot,
@@ -3110,8 +3112,15 @@ func (a App) reloadRuns() App {
 type fetchedRuns struct {
 	rows []model.Run
 	full bool
-	// refreshed are unfinished rows past page 1, re-read by ID.
-	refreshed []model.Run
+	// at is when the response arrived.
+	at time.Time
+	// Unfinished rows past page 1, re-read by ID at refreshedAt: the
+	// ones to keep, the ones that left the status filter, and every
+	// one asked about.
+	refreshed   []model.Run
+	dropped     []int64
+	tried       []int64
+	refreshedAt time.Time
 }
 
 // fetchRuns resolves actor:@me through the shared identity lookup, then
@@ -3132,7 +3141,7 @@ func fetchRuns(ctx context.Context, resolver func(context.Context, usecase.RunFi
 	if perPage <= 0 {
 		perPage = config.Default().PerPage
 	}
-	return fetchedRuns{rows: usecase.KeepActorRuns(page, filter.Actor), full: len(page) >= perPage}, nil
+	return fetchedRuns{rows: usecase.KeepActorRuns(page, filter.Actor), full: len(page) >= perPage, at: time.Now()}, nil
 }
 
 // storeRuns records rows for a scope with the server filter they were
@@ -3236,7 +3245,7 @@ func (a App) loadMoreRuns() App {
 			app.runs.Context.Page = nextPage
 			app.runs.Context.PerPage = perPage
 			_ = app.appendActiveRuns(resolved.rows)
-			app.runsConfirmed = confirmedNow(app.runsConfirmed, resolved.rows)
+			app.runsConfirmed = confirmedAt(app.runsConfirmed, resolved.rows, resolved.at)
 			// A full page that deduped (or narrowed) to nothing still means
 			// deeper pages exist (high-velocity repos shift runs between
 			// pages); latching HasMore=false there froze pagination on
@@ -3258,11 +3267,12 @@ func (a App) startRunsPoll() App {
 	filter := runsFilterFor(a.runs.Context, a.config.PerPage, q)
 	filter.Page = 1
 	resolver, viewer, key, gen := a.runsResolver, a.viewer, q.ServerKey(), a.runsGen
-	refresher, unfinished := a.runRefresher, a.leastConfirmedUnfinished(maxRunRefreshes)
+	refresher, unfinished := a.runRefresher, a.leastRecentlyReadUnfinished(maxRunRefreshes)
 	return a.startTickPoll(RouteRuns, a.pollIdentity(RouteRuns), func(ctx context.Context) func(App) App {
 		resolved, err := fetchRuns(ctx, resolver, viewer, filter, q.Actor)
 		if err == nil && refresher != nil {
-			resolved.refreshed = refreshUnfinished(ctx, refresher, unfinished, resolved.rows)
+			resolved.refreshed, resolved.dropped, resolved.tried = refreshUnfinished(ctx, refresher, unfinished, resolved.rows, filter.Status)
+			resolved.refreshedAt = time.Now()
 		}
 		return func(app App) App {
 			if app.runsGen != gen {
@@ -3298,9 +3308,18 @@ func (a App) applyRunsRefresh(fetched fetchedRuns, err error, key string) App {
 	a.clearRouteError(RouteRuns)
 	a.refreshCount++
 	perPage := perPageFor(a.runs.Context, a.config.PerPage)
-	a.runsConfirmed = confirmedNow(a.runsConfirmed, append(slices.Clone(resolved), fetched.refreshed...))
+	a.runsConfirmed = confirmedAt(confirmedAt(a.runsConfirmed, resolved, fetched.at), fetched.refreshed, fetched.refreshedAt)
+	if len(fetched.tried) > 0 {
+		tried := make(map[int64]time.Time, len(a.runsTried)+len(fetched.tried))
+		maps.Copy(tried, a.runsTried)
+		for _, id := range fetched.tried {
+			tried[id] = fetched.refreshedAt
+		}
+		a.runsTried = tried
+	}
 	if current {
 		merged := append(slices.Clone(resolved), dedupeNewRuns(resolved, a.runs.Context.Runs)...)
+		merged = slices.DeleteFunc(merged, func(run model.Run) bool { return slices.Contains(fetched.dropped, run.ID) })
 		for i, run := range merged {
 			if j := slices.IndexFunc(fetched.refreshed, func(r model.Run) bool { return r.ID == run.ID }); j >= 0 {
 				merged[i] = fetched.refreshed[j]

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -95,7 +96,7 @@ func pacedApp(t *testing.T, spy *paceResolverSpy, cfg config.Config) App {
 		paceRow(596, ".github/workflows/ci.yml", "fix/x", "pull_request", model.StatusCompleted, model.ConclusionCancelled, 30*time.Second),
 	}})
 	app.routes = []Route{RouteRuns}
-	app.runsConfirmed = confirmedNow(nil, app.runs.Context.Runs)
+	app.runsConfirmed = confirmedAt(nil, app.runs.Context.Runs, time.Now())
 	return app
 }
 
@@ -329,7 +330,11 @@ func TestPaceServesTheSelectedRunningRowFirst(t *testing.T) {
 // pollRuns runs one runs poll to completion and applies it.
 func pollRuns(t *testing.T, app App) App {
 	t.Helper()
+	app.lastPollStart = time.Time{} // due now: each call is one real poll
 	app = app.startRunsPoll()
+	if app.tickPoll == nil {
+		t.Fatal("no runs poll started")
+	}
 	deadline := time.Now().Add(2 * time.Second)
 	for app.tickPoll != nil && !app.tickPoll.ready() {
 		if time.Now().After(deadline) {
@@ -382,12 +387,83 @@ func TestPaceSkipsUnconfirmedRunningRows(t *testing.T) {
 	if view := ansi.Strip(app.ViewSize(120, 30)); !strings.Contains(view, "3m left") {
 		t.Fatalf("a freshly loaded running row must carry its ETA:\n%s", view)
 	}
-	app.runsConfirmed = map[int64]time.Time{600: time.Now().Add(-paceConfirmWindow - time.Second)}
+	c := app.runsConfirmed[600]
+	c.at = time.Now().Add(-paceConfirmWindow - time.Second)
+	app.runsConfirmed = map[int64]runConfirmation{600: c}
 	view := ansi.Strip(app.ViewSize(120, 30))
 	if strings.Contains(view, "left") {
 		t.Fatalf("an unconfirmed running row carries an ETA:\n%s", view)
 	}
 	if !strings.Contains(view, "↑ 9m31s") {
 		t.Fatalf("a finished slow row needs no confirmation:\n%s", view)
+	}
+}
+
+// A refreshed row that left a status filter leaves the filtered list.
+func TestRunsPollDropsRefreshedRowsThatLeaveTheStatusFilter(t *testing.T) {
+	spy := newPaceSpy()
+	app := pacedApp(t, spy, config.Default())
+	app.runs.Filter = "status:in_progress"
+	slid := app.runs.Context.Runs[0]
+	app.runsResolver = func(context.Context, usecase.RunFilter) ([]model.Run, error) { return nil, nil }
+	app.runRefresher = func(context.Context, int64) (model.Run, error) {
+		done := slid
+		done.Status, done.Conclusion = model.StatusCompleted, model.ConclusionSuccess
+		return done, nil
+	}
+	app = pollRuns(t, app)
+	for _, run := range app.runs.Context.Runs {
+		if run.ID == slid.ID {
+			t.Fatalf("#600 finished but stays under status:in_progress: %+v", run.Status)
+		}
+	}
+}
+
+// A row whose re-read keeps failing must not starve the rows behind it.
+func TestRunsPollRotatesPastFailingRefreshes(t *testing.T) {
+	spy := newPaceSpy()
+	app := pacedApp(t, spy, config.Default())
+	rows := []model.Run{}
+	for i := range maxRunRefreshes + 1 {
+		rows = append(rows, paceRow(int64(800+i), ".github/workflows/ci.yml", "main", "push", model.StatusInProgress, model.ConclusionNone, 0))
+	}
+	app.runs = runs.NewModel(usecase.LaunchContext{Repo: "o/r", Branch: "main", State: usecase.LaunchStateRuns, Runs: rows})
+	app.runsConfirmed = nil
+	app.runsResolver = func(context.Context, usecase.RunFilter) ([]model.Run, error) { return nil, nil }
+	asked := map[int64]int{}
+	app.runRefresher = func(_ context.Context, id int64) (model.Run, error) {
+		asked[id]++
+		return model.Run{}, errors.New("not found")
+	}
+	app = pollRuns(t, app)
+	app = pollRuns(t, app)
+	if asked[int64(800+maxRunRefreshes)] == 0 {
+		t.Fatalf("asked %v: the last row was starved by failing ones", asked)
+	}
+}
+
+// A confirmation vouches for the snapshot it saw: an older snapshot of
+// the same run (the other scope's cache) gets no estimate.
+func TestPaceConfirmationIsBoundToTheSnapshot(t *testing.T) {
+	spy := newPaceSpy()
+	app := settlePace(t, pacedApp(t, spy, config.Default()))
+	running := app.runs.Context.Runs[0]
+	done := running
+	done.Status, done.Conclusion, done.UpdatedAt = model.StatusCompleted, model.ConclusionSuccess, running.UpdatedAt.Add(time.Minute)
+	app.runsConfirmed = confirmedAt(nil, []model.Run{done}, time.Now())
+	if view := ansi.Strip(app.ViewSize(120, 30)); strings.Contains(view, "left") {
+		t.Fatalf("a completed snapshot vouched for a running one:\n%s", view)
+	}
+}
+
+// A response is as fresh as when it arrived, not when it was applied.
+func TestPaceConfirmationDatesFromArrival(t *testing.T) {
+	spy := newPaceSpy()
+	app := settlePace(t, pacedApp(t, spy, config.Default()))
+	app.runsConfirmed = nil
+	rows := slices.Clone(app.runs.Context.Runs)
+	app = app.applyRunsRefresh(fetchedRuns{rows: rows, at: time.Now().Add(-paceConfirmWindow - time.Minute)}, nil, app.runs.ServerKey())
+	if view := ansi.Strip(app.ViewSize(120, 30)); strings.Contains(view, "left") {
+		t.Fatalf("a response parked past the window reads as fresh:\n%s", view)
 	}
 }

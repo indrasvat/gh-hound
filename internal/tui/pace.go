@@ -278,56 +278,83 @@ func (a App) togglePace() App {
 	return a
 }
 
-// paceForRuns is paceFor without the running rows no fetch has
-// confirmed within paceConfirmWindow.
+// runConfirmation is when a fetch returned a run, and the snapshot it
+// returned: a cache holding an older snapshot of the same run (the
+// other scope's list) is not vouched for.
+type runConfirmation struct {
+	at      time.Time
+	status  model.Status
+	updated time.Time
+}
+
+// paceForRuns is paceFor without the running rows whose snapshot no
+// fetch has confirmed within paceConfirmWindow.
 func (a App) paceForRuns(repo string, runs []model.Run) map[int64]usecase.PaceBaseline {
 	out := a.paceFor(repo, runs)
 	now := time.Now()
 	for _, run := range runs {
-		if run.Status != model.StatusCompleted && now.Sub(a.runsConfirmed[run.ID]) > paceConfirmWindow {
+		if run.Status == model.StatusCompleted {
+			continue
+		}
+		c, ok := a.runsConfirmed[run.ID]
+		if !ok || c.status != run.Status || !c.updated.Equal(run.UpdatedAt) || now.Sub(c.at) > paceConfirmWindow {
 			delete(out, run.ID)
 		}
 	}
 	return out
 }
 
-// confirmedNow records that a fetch just returned rows. A fresh map:
-// App copies share the old one.
-func confirmedNow(confirmed map[int64]time.Time, rows []model.Run) map[int64]time.Time {
-	out := make(map[int64]time.Time, len(confirmed)+len(rows))
+// confirmedAt records that a fetch returned rows at at (when the
+// response arrived, not when it was applied). A fresh map: App copies
+// share the old one.
+func confirmedAt(confirmed map[int64]runConfirmation, rows []model.Run, at time.Time) map[int64]runConfirmation {
+	out := make(map[int64]runConfirmation, len(confirmed)+len(rows))
 	maps.Copy(out, confirmed)
-	now := time.Now()
 	for _, run := range rows {
-		out[run.ID] = now
+		out[run.ID] = runConfirmation{at: at, status: run.Status, updated: run.UpdatedAt}
 	}
 	return out
 }
 
-// leastConfirmedUnfinished is up to n unfinished rows, least recently
-// confirmed first, so every one is re-read in turn.
-func (a App) leastConfirmedUnfinished(n int) []int64 {
+// leastRecentlyReadUnfinished is up to n unfinished rows, least recently
+// read first (a confirmation or a failed attempt both count), so every
+// one is re-read in turn and a failing one cannot starve the rest.
+func (a App) leastRecentlyReadUnfinished(n int) []int64 {
 	var ids []int64
+	last := map[int64]time.Time{}
 	for _, run := range a.runs.Context.Runs {
 		if run.Status != model.StatusCompleted && run.ID != 0 {
 			ids = append(ids, run.ID)
+			last[run.ID] = a.runsConfirmed[run.ID].at
+			if tried := a.runsTried[run.ID]; tried.After(last[run.ID]) {
+				last[run.ID] = tried
+			}
 		}
 	}
-	slices.SortStableFunc(ids, func(x, y int64) int { return a.runsConfirmed[x].Compare(a.runsConfirmed[y]) })
+	slices.SortStableFunc(ids, func(x, y int64) int { return last[x].Compare(last[y]) })
 	return ids[:min(n, len(ids))]
 }
 
-// refreshUnfinished re-reads the candidates the page did not return. A
-// failed read leaves the row as it was and unconfirmed, so Pace stays
-// silent on it rather than guessing.
-func refreshUnfinished(ctx context.Context, refresher func(context.Context, int64) (model.Run, error), candidates []int64, page []model.Run) []model.Run {
-	var out []model.Run
+// refreshUnfinished re-reads the candidates the page did not return,
+// keeping a row only while it still matches the server status filter
+// (status is the one filtered field a run changes). It returns the rows
+// to keep, the ids to drop, and every id it asked about. A failed read
+// leaves the row as it was and unconfirmed, so Pace stays silent on it.
+func refreshUnfinished(ctx context.Context, refresher func(context.Context, int64) (model.Run, error), candidates []int64, page []model.Run, status string) (kept []model.Run, dropped, tried []int64) {
 	for _, id := range candidates {
 		if slices.ContainsFunc(page, func(r model.Run) bool { return r.ID == id }) {
 			continue
 		}
-		if run, err := refresher(ctx, id); err == nil {
-			out = append(out, run)
+		tried = append(tried, id)
+		run, err := refresher(ctx, id)
+		if err != nil {
+			continue
 		}
+		if status != "" && string(run.Status) != status && string(run.Conclusion) != status {
+			dropped = append(dropped, id)
+			continue
+		}
+		kept = append(kept, run)
 	}
-	return out
+	return kept, dropped, tried
 }
