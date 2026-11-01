@@ -1,0 +1,128 @@
+{
+  "scenario": "paced",
+  "ready": "hound",
+  "size": "120x28",
+  "seconds": 40,
+  "fps": 5,
+  "playback_fps": 7.5,
+  "panes": {
+    "main": "main 5637079 + fixture",
+    "pr": "this PR"
+  },
+  "timeline": [
+    {
+      "frame": 0,
+      "caption": "the paced fake: CI on main, one run in progress, one that ran slow, eighteen green runs around 4m"
+    },
+    {
+      "frame": 60,
+      "keys": {
+        "both": "p"
+      },
+      "caption": "p · Pace off for the session (main has no p)"
+    },
+    {
+      "frame": 90,
+      "keys": {
+        "both": "p"
+      },
+      "caption": "p · Pace back at once, from the session cache"
+    },
+    {
+      "frame": 120,
+      "keys": {
+        "both": "w"
+      },
+      "caption": "w · watch the running run"
+    },
+    {
+      "frame": 175,
+      "keys": {
+        "both": "esc"
+      },
+      "caption": "esc · back to the runs list"
+    }
+  ],
+  "rules": [
+    {
+      "frames": [
+        10,
+        58
+      ],
+      "side": "main",
+      "match": "[▁▂▃▄▅▆▇█]{5}",
+      "tone": "bad",
+      "label": "a shape, not a duration"
+    },
+    {
+      "frames": [
+        10,
+        58
+      ],
+      "side": "pr",
+      "match": "\\d+m left",
+      "tone": "good",
+      "label": "time left"
+    },
+    {
+      "frames": [
+        10,
+        58
+      ],
+      "side": "pr",
+      "match": "↑ 9m31s",
+      "tone": "good",
+      "label": "ran slow"
+    },
+    {
+      "frames": [
+        10,
+        58
+      ],
+      "side": "pr",
+      "match": "4m05s",
+      "tone": "good",
+      "label": "real durations"
+    },
+    {
+      "frames": [
+        63,
+        88
+      ],
+      "side": "pr",
+      "match": "pace off · p brings it back",
+      "tone": "good",
+      "label": "p hides Pace"
+    },
+    {
+      "frames": [
+        93,
+        118
+      ],
+      "side": "pr",
+      "match": "\\d+m left",
+      "tone": "good",
+      "label": "back without a fetch"
+    },
+    {
+      "frames": [
+        124,
+        172
+      ],
+      "side": "pr",
+      "match": "· \\d+m left",
+      "tone": "good",
+      "label": "time left while watching"
+    },
+    {
+      "frames": [
+        178,
+        199
+      ],
+      "side": "pr",
+      "match": "↑ 9m31s",
+      "tone": "good",
+      "label": "ran slow"
+    }
+  ]
+}
