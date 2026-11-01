@@ -216,6 +216,7 @@ type App struct {
 	paceBaselines map[string]paceEntry
 	paceFailed    map[string]time.Time
 	paceFetch     *paceFetchState
+	paceGen       int
 	// paceHidden is the session's p toggle; paceWarned keeps the
 	// unavailable toast to one per session.
 	paceHidden         bool

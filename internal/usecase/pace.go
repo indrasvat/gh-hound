@@ -89,7 +89,13 @@ type PaceService struct {
 // branch rather than to the default branch is what works for PR runs,
 // whose head branch is the PR's.
 //
-// API budget, pinned by tests: ceil(Window/PerPage) list calls per
+// It keeps one spare sample past the window: AssessPace leaves the
+// judged run out of its own baseline, so whichever run in the sample is
+// judged, a full window remains (one baseline serves every row of its
+// key in the TUI). The branch widens below PaceMinSample plus that
+// spare for the same reason.
+//
+// API budget, pinned by tests: ceil((Window+1)/PerPage) list calls per
 // walk, at most two walks.
 func (s PaceService) Baseline(ctx context.Context, repo, workflow, branch, event string) (PaceBaseline, error) {
 	repo = strings.TrimSpace(repo)
@@ -112,15 +118,15 @@ func (s PaceService) Baseline(ctx context.Context, repo, workflow, branch, event
 		perPage = DiffPerPage
 	}
 	b := PaceBaseline{Repo: repo, Workflow: workflow, Branch: branch, BaselineBranch: branch, Event: event, Window: window}
-	samples, scanned, err := s.sample(ctx, repo, workflow, branch, event, window, perPage)
+	samples, scanned, err := s.sample(ctx, repo, workflow, branch, event, window+1, perPage)
 	if err != nil {
 		return PaceBaseline{}, err
 	}
 	b.Samples, b.RunsScanned = samples, scanned
-	if len(samples) >= PaceMinSample || branch == "" {
+	if len(samples) > PaceMinSample || branch == "" {
 		return b, nil
 	}
-	samples, scanned, err = s.sample(ctx, repo, workflow, "", event, window, perPage)
+	samples, scanned, err = s.sample(ctx, repo, workflow, "", event, window+1, perPage)
 	if err != nil {
 		return PaceBaseline{}, err
 	}
@@ -185,7 +191,7 @@ func AssessPace(run model.Run, b PaceBaseline, now time.Time) PaceAssessment {
 
 	durations := make([]time.Duration, 0, len(b.Samples))
 	for _, sample := range b.Samples {
-		if sample.RunID != run.ID {
+		if sample.RunID != run.ID && (b.Window <= 0 || len(durations) < b.Window) {
 			durations = append(durations, sample.Duration)
 		}
 	}
@@ -260,9 +266,9 @@ func FormatPaceETA(d time.Duration) string {
 	return fmt.Sprintf("~%dh left", hours)
 }
 
-// FormatPaceDuration is a measured duration: "38s", "4m05s", "1h05m".
-// It fits 6 cells below 100 hours, so "↑ " plus it fits the 8-cell
-// Duration column.
+// FormatPaceDuration is a measured duration: "38s", "4m05s", "1h05m",
+// and whole hours from 100h ("140h"). It fits 6 cells below 100,000
+// hours, so "↑ " plus it fits the 8-cell Duration column.
 func FormatPaceDuration(d time.Duration) string {
 	d = max(d, 0)
 	switch {
@@ -270,8 +276,10 @@ func FormatPaceDuration(d time.Duration) string {
 		return fmt.Sprintf("%ds", int(d.Seconds()))
 	case d < time.Hour:
 		return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
-	default:
+	case d < 100*time.Hour:
 		return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
+	default:
+		return fmt.Sprintf("%dh", int(d.Hours()))
 	}
 }
 

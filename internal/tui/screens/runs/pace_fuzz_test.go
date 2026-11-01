@@ -55,6 +55,20 @@ func FuzzPaceRows(f *testing.F) {
 		if len(rows) == 0 {
 			return
 		}
+		// The all-green home, with every row green: nothing overflows.
+		green := make([]model.Run, len(rows))
+		for i, run := range rows {
+			run.Status, run.Conclusion = model.StatusCompleted, model.ConclusionSuccess
+			green[i] = run
+		}
+		home := NewModel(usecase.LaunchContext{Repo: "o/r", State: usecase.LaunchStateRuns, Runs: green})
+		home.Pace = pace
+		for line := range strings.SplitSeq(ansi.Strip(ViewSize(home, w, 40, now)), "\n") {
+			if ansi.StringWidth(line) > w {
+				t.Fatalf("width %d: all-green row overflows (%d): %q", w, ansi.StringWidth(line), line)
+			}
+		}
+
 		rows[0].Conclusion = model.ConclusionFailure // keep the standard table
 		rows[0].Status = model.StatusCompleted
 		m := NewModel(usecase.LaunchContext{Repo: "o/r", State: usecase.LaunchStateRuns, Runs: rows})

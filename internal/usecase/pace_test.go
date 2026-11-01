@@ -308,8 +308,8 @@ func TestBaselineBudgetIsCeilWindowOverPerPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fake.calls) != 3 || len(b.Samples) != 25 {
-		t.Fatalf("calls %d samples %d, want 3 calls (ceil(25/10)) and 25 samples", len(fake.calls), len(b.Samples))
+	if len(fake.calls) != 3 || len(b.Samples) != 26 {
+		t.Fatalf("calls %d samples %d, want 3 calls (ceil(26/10)) and 25 samples plus the spare", len(fake.calls), len(b.Samples))
 	}
 }
 
@@ -383,7 +383,7 @@ func TestFormatPaceETA(t *testing.T) {
 func TestFormatPaceDuration(t *testing.T) {
 	cases := map[time.Duration]string{
 		0: "0s", 38 * time.Second: "38s", 59*time.Second + 900*time.Millisecond: "59s",
-		time.Minute: "1m00s", 245 * time.Second: "4m05s", 65 * time.Minute: "1h05m", 99*time.Hour + 59*time.Minute: "99h59m",
+		time.Minute: "1m00s", 245 * time.Second: "4m05s", 65 * time.Minute: "1h05m", 99*time.Hour + 59*time.Minute: "99h59m", 100 * time.Hour: "100h", 840*time.Hour + 30*time.Minute: "840h",
 		-time.Second: "0s",
 	}
 	for d, want := range cases {
@@ -422,5 +422,42 @@ func TestPaceMarkFor(t *testing.T) {
 		if got := PaceMarkFor(tc.run, base, tc.has, now); got != tc.want {
 			t.Errorf("%s: %+v, want %+v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// The judged run leaves its own baseline without shrinking the window:
+// a window of 5 judging a sampled run still compares against 5.
+func TestJudgedRunLeavesAFullWindow(t *testing.T) {
+	runs := []model.Run{paceRun(100, "main", "push", 571*time.Second)}
+	for id := int64(99); id >= 80; id-- {
+		runs = append(runs, paceRun(id, "main", "push", 240*time.Second))
+	}
+	fake := &paceFake{runs: runs}
+	b, err := PaceService{History: fake, Window: 5, PerPage: 100}.Baseline(context.Background(), "o/r", "ci.yml", "main", "push")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := AssessPace(runs[0], b, paceEpoch)
+	if got.SampleSize != 5 || got.Status != PaceSlow {
+		t.Fatalf("sample %d status %s, want 5 and slow", got.SampleSize, got.Status)
+	}
+	// Judging a run outside the sample trims the spare: still 5.
+	if got := AssessPace(paceRun(500, "main", "push", 240*time.Second), b, paceEpoch); got.SampleSize != 5 {
+		t.Fatalf("sample %d, want the window of 5", got.SampleSize)
+	}
+	// Five on the branch is one short with the spare: it widens.
+	branch := []model.Run{}
+	for id := int64(1); id <= 5; id++ {
+		branch = append(branch, paceRun(id, "feat/x", "push", 240*time.Second))
+	}
+	for id := int64(10); id <= 20; id++ {
+		branch = append(branch, paceRun(id, "main", "push", 250*time.Second))
+	}
+	wide, err := PaceService{History: &paceFake{runs: branch}, Window: 20, PerPage: 100}.Baseline(context.Background(), "o/r", "ci.yml", "feat/x", "push")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wide.BaselineBranch != "" {
+		t.Fatalf("5 branch samples must widen: judging one of them would leave 4")
 	}
 }

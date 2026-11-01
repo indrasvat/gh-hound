@@ -83,7 +83,7 @@ func renderAllGreen(m Model, width, height int, now time.Time) string {
 	if len(runs) > 0 {
 		run := runs[0]
 		latestTitle = plainRunTitle(run)
-		latestMeta = fmt.Sprintf("%s · success", duration(run))
+		latestMeta = fmt.Sprintf("%s · success", m.paceMark(run, now).Text)
 	}
 	branch := scopeTitle(m.Context.Scope, m.Context.Branch)
 	fixedRows := 5
@@ -104,7 +104,7 @@ func renderAllGreen(m Model, width, height int, now time.Time) string {
 	}
 	lines = append(lines, notice...)
 	for i, run := range runs[start:end] {
-		line := allGreenRow(st, run, start+i == selected, width, actorWidth, now)
+		line := allGreenRow(st, run, m.paceMark(run, now), start+i == selected, width, actorWidth, now)
 		if m.Loading {
 			line = dimLine(st, ansi.Strip(line), width)
 		}
@@ -273,13 +273,6 @@ func age(run model.Run, now time.Time) string {
 		return fmt.Sprintf("%dh", int(duration.Hours()))
 	}
 	return fmt.Sprintf("%dd", int(duration.Hours()/24))
-}
-
-func duration(run model.Run) string {
-	if run.RunStartedAt.IsZero() || run.UpdatedAt.IsZero() || run.UpdatedAt.Before(run.RunStartedAt) {
-		return "queued"
-	}
-	return usecase.FormatPaceDuration(run.UpdatedAt.Sub(run.RunStartedAt))
 }
 
 func runLabel(st styles, run model.Run, width int) string {
@@ -628,7 +621,7 @@ func allGreenHeader(st styles, width, actorWidth int) string {
 	return dimLine(st, joinRightANSI(left, right, width), width)
 }
 
-func allGreenRow(st styles, run model.Run, selected bool, width, actorWidth int, now time.Time) string {
+func allGreenRow(st styles, run model.Run, mark usecase.PaceMark, selected bool, width, actorWidth int, now time.Time) string {
 	prefix := "  "
 	if selected {
 		prefix = icons.Cursor + " "
@@ -636,8 +629,15 @@ func allGreenRow(st styles, run model.Run, selected bool, width, actorWidth int,
 	right := padANSI(actorCell(st, run.Actor, actorWidth), actorWidth) + " " + colorize(st.subtle, fmt.Sprintf("%*s", ageWidth, age(run, now)))
 	leftFixed := 2 + numberWidth + 1 + allGreenStatusWidth(width) + 1
 	labelWidth := max(width-leftFixed-ansi.StringWidth(right)-2, 8)
+	label := runLabel(st, run, labelWidth)
+	if noteWidth := ansi.StringWidth(mark.Text) + 1; mark.Note() && labelWidth-noteWidth >= minNoteLabel {
+		// The home list has no Duration column: a slow mark rides at
+		// the label's right edge, as on the narrow runs list.
+		label = padANSI(fitANSI(runLabel(st, run, labelWidth-noteWidth), labelWidth-noteWidth), labelWidth-noteWidth) +
+			" " + colorize(markColor(st, run, mark), mark.Text)
+	}
 	left := prefix + padANSI(colorize(st.dim, fmt.Sprintf("#%d", run.RunNumber)), numberWidth) + " " +
-		padANSI(colorize(st.ok, glyph(run)), allGreenStatusWidth(width)) + " " + runLabel(st, run, labelWidth)
+		padANSI(colorize(st.ok, glyph(run)), allGreenStatusWidth(width)) + " " + label
 	return fitANSI(joinRightANSI(left, right, width), width)
 }
 

@@ -200,3 +200,34 @@ func TestRunLabelNeverOutgrowsItsWidth(t *testing.T) {
 		}
 	}
 }
+
+// The all-green home is where a slow green run most often sits: its
+// rows and the latest-run line carry the slow mark too, beside an
+// Actor column that stays put.
+func TestAllGreenCarriesSlowMarks(t *testing.T) {
+	m := pacedModel(
+		pacedRow(5, 105, "Release", 571*time.Second),
+		pacedRow(6, 106, "CI", 245*time.Second),
+	)
+	m.Context.Runs[0].Actor, m.Context.Runs[1].Actor = "indrasvat", "indrasvat"
+	for _, width := range []int{80, 120} {
+		view := ansi.Strip(ViewSize(m, width, 30, paceNow))
+		if !strings.Contains(view, "All checks passing") {
+			t.Fatalf("want the all-green home:\n%s", view)
+		}
+		if !strings.Contains(view, "↑ 9m31s · success") {
+			t.Fatalf("width %d: latest-run line lost the slow mark:\n%s", width, view)
+		}
+		slow, quiet := rowOf(t, view, 105), rowOf(t, view, 106)
+		if !strings.Contains(slow, " ↑ 9m31s ") || strings.Contains(quiet, "↑") {
+			t.Fatalf("width %d: rows %q / %q", width, slow, quiet)
+		}
+		if ansi.StringWidth(slow[:strings.Index(slow, "@indrasvat")]) != ansi.StringWidth(quiet[:strings.Index(quiet, "@indrasvat")]) {
+			t.Fatalf("width %d: Actor moved:\n%q\n%q", width, slow, quiet)
+		}
+	}
+	m.Pace = nil
+	if view := ansi.Strip(ViewSize(m, 120, 30, paceNow)); strings.Contains(view, "↑") {
+		t.Fatalf("no baseline, no mark:\n%s", view)
+	}
+}

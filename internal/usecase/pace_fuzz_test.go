@@ -95,7 +95,7 @@ func FuzzAssessPace(f *testing.F) {
 				t.Fatalf("a longer run is less slow: %+v", a)
 			}
 		}
-		if mark := PaceMarkFor(run, b, true, now); elapsed < 99*time.Hour && utf8.RuneCountInString(mark.Text) > 8 {
+		if mark := PaceMarkFor(run, b, true, now); utf8.RuneCountInString(mark.Text) > 8 {
 			t.Fatalf("mark %q overflows the 8-cell Duration column", mark.Text)
 		}
 		if verdict := PaceVerdictLine(a); verdict == "" || !utf8.ValidString(verdict) {
@@ -161,11 +161,11 @@ func FuzzPaceBaseline(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		budget := (svc.Window + svc.PerPage - 1) / svc.PerPage
+		budget := (svc.Window + 1 + svc.PerPage - 1) / svc.PerPage
 		if len(fake.calls) > 2*budget {
 			t.Fatalf("calls %d over budget %d", len(fake.calls), 2*budget)
 		}
-		if len(b.Samples) > svc.Window {
+		if len(b.Samples) > svc.Window+1 {
 			t.Fatalf("samples %d over window %d", len(b.Samples), svc.Window)
 		}
 		byID := map[int64]model.Run{}

@@ -178,3 +178,13 @@ func TestPaceMarkdownAndXML(t *testing.T) {
 		t.Fatalf("xml:\n%s", xmlOut)
 	}
 }
+
+// A small window still judges the slow run against a full window, not
+// one short because the run itself was sampled.
+func TestPaceSmallWindowStillJudges(t *testing.T) {
+	code, out := runPaceCommand(t, nil, "--json", "--fake-scenario", "paced", "--run", pacedRunID(fake.PacedSlowNumber), "--window", "5")
+	decoded, _ := decodePace(t, out)
+	if code != 1 || decoded["status"] != "slow" || decoded["sample_size"].(float64) != 5 {
+		t.Fatalf("exit %d status %v sample %v, want 1, slow, 5\n%s", code, decoded["status"], decoded["sample_size"], out)
+	}
+}

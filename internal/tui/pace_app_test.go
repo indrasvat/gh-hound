@@ -286,3 +286,31 @@ func TestPaceBaselineRefreshesWhenARunOfItsKeyGoesGreen(t *testing.T) {
 		t.Fatalf("calls = %v, want ci refetched once its running run went green", spy.calls)
 	}
 }
+
+// A fetch already past cancellation when a rerun clears the cache must
+// not reinstall the pre-rerun baseline.
+func TestPaceRerunDropsAFetchThatFinishesAfterTheReset(t *testing.T) {
+	spy := newPaceSpy()
+	release := make(chan struct{})
+	app := pacedApp(t, spy, config.Default())
+	app.paceResolver = func(_ context.Context, run model.Run) (usecase.PaceBaseline, error) {
+		<-release // ignores cancellation, as a request already on the wire does
+		return spy.resolve(context.Background(), run)
+	}
+	app, _ = app.Refresh()
+	if app.paceFetch == nil {
+		t.Fatal("a tick must start a pace fetch")
+	}
+	app.actionHandler = func(ActionRequest) (usecase.ActionResult, error) { return usecase.ActionResult{Message: "ok"}, nil }
+	app, _ = app.executeAction(RouteRuns, ActionRequest{Action: usecase.ActionRerunRun, Run: app.runs.Context.Runs[0]})
+	close(release)
+	deadline := time.Now().Add(2 * time.Second)
+	for spy.total() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(5 * time.Millisecond)
+	app, _ = app.drainPaceFetch()
+	if len(app.paceBaselines) != 0 {
+		t.Fatalf("a pre-rerun fetch reinstalled %d baselines", len(app.paceBaselines))
+	}
+}
