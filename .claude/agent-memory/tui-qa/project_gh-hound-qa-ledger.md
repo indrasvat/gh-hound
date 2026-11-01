@@ -887,3 +887,14 @@ ages past 2 min (round-robin of 5 GetRuns over ~50 unfinished rows).
 P2: repo scope after loading pages cost 562 calls/15 min (~2250/h: pace
 283, getrun 222, list 57). Recipe: scratchpad stalecheck.sh compares
 visible ⠹ rows with gh truth each round.
+
+Round 40 (task 450 round 4, 9e84add/fixes cf48564+2c8fb37, 2026-11-01): PASS.
+VERIFIED: 0 ↑ on finished runs over 73 running-row observations in three
+openclaw repo-scope passes (incl. a fresh PR group with 1-min siblings that
+produced 7 false ↑ in round 3); selected CI counts down 6->5->4->3->3->2->
+<1m then ✔ 5m23s with no flicker; GetRun <=3/poll, 0 when nothing near
+the selection is unfinished; 15 min: list 127, GetRun 132 (94 x 304),
+pace 42 = ~1200/h raw, ~790/h rate-counted (was ~2250/h). P3 accepted:
+frozen ETA/"due" on rows that finished 18-84s earlier (row still shows ⠹,
+mark true as of last confirmation). Pre-existing: summary "231 running"
+counts stale rows outside the 30-row span.
