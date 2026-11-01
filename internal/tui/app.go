@@ -1012,6 +1012,8 @@ func RenderFixtureSize(screen string, width, height int) string {
 		return frameViewSize(app.theme, "hound", "build › failed step", "exit 1", failure.ViewSize(sampleFailureModel(), bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenFailure), width, height, true)
 	case "watch":
 		return frameViewSize(app.theme, "hound", "CI #570", "streaming · follow ●", watch.View(sampleWatchModel(), bodyWidth), keys.FooterForScreen(keys.ScreenWatch), width, height, true)
+	case "all_green-pace":
+		return frameViewSize(app.theme, "hound", "⎇ branch main · @indrasvat", "◔ 4,981/5k live", runs.View(samplePaceAllGreenModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenAllGreen), width, height, true)
 	case "runs-pace":
 		return frameViewSize(app.theme, "hound", "⎇ branch fix/parser · @indrasvat", "◔ 4,981/5k live 304", runs.View(samplePaceRunsModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
 	case "watch-pace":
@@ -5640,7 +5642,24 @@ func samplePaceRunsModel() runs.Model {
 			m.Context.Runs[i].RunStartedAt = now.Add(-3*time.Minute - 571*time.Second)
 		}
 	}
+	// Varied finished durations, as the issue's mock reads them.
+	took := map[int64]time.Duration{571: 134 * time.Second, 568: 220 * time.Second, 567: 52 * time.Second, 565: 38 * time.Second, 564: 65 * time.Second}
+	for i, run := range m.Context.Runs {
+		if d, ok := took[run.ID]; ok {
+			m.Context.Runs[i].RunStartedAt = run.UpdatedAt.Add(-d)
+		}
+	}
 	m.Pace = map[int64]usecase.PaceBaseline{570: samplePaceBaseline(168), 569: samplePaceBaseline(241), 565: samplePaceBaseline(40)}
+	return m
+}
+
+// samplePaceAllGreenModel is the all-green home with one run that ran
+// well past its usual time.
+func samplePaceAllGreenModel() runs.Model {
+	m := sampleAllGreenModel()
+	slow := m.Context.Runs[0]
+	m.Context.Runs[0].RunStartedAt = slow.UpdatedAt.Add(-571 * time.Second)
+	m.Pace = map[int64]usecase.PaceBaseline{slow.ID: samplePaceBaseline(241)}
 	return m
 }
 

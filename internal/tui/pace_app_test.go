@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -12,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/indrasvat/gh-hound/internal/config"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/tui/keys"
 	"github.com/indrasvat/gh-hound/internal/tui/screens/runs"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
@@ -262,6 +264,11 @@ func TestPaceBaselineRefreshesWhenARunOfItsKeyGoesGreen(t *testing.T) {
 	// timestamps, or a skewed clock refetches on every tick.
 	finished.Status, finished.Conclusion, finished.UpdatedAt = model.StatusCompleted, model.ConclusionSuccess, time.Now().Add(time.Hour)
 	app.runs.Context.Runs[0] = finished
+	// Past paceMinRefresh, so the new green run may refresh it.
+	for key, entry := range app.paceBaselines {
+		entry.fetchedAt = entry.fetchedAt.Add(-paceMinRefresh - time.Second)
+		app.paceBaselines[key] = entry
+	}
 	app = settlePace(t, app)
 	for range 20 {
 		app, _ = app.Refresh()
@@ -269,5 +276,51 @@ func TestPaceBaselineRefreshesWhenARunOfItsKeyGoesGreen(t *testing.T) {
 	app = settlePace(t, app)
 	if spy.calls[".github/workflows/ci.yml|main|push"] != 2 {
 		t.Fatalf("calls = %v, want ci refetched once its running run went green", spy.calls)
+	}
+}
+
+// The off toast names the key that brings Pace back, moved or not.
+func TestPaceToastNamesTheRemappedKey(t *testing.T) {
+	spy := newPaceSpy()
+	keymap, err := keys.NewKeymap(map[string]string{"pace_toggle": "e"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := pacedApp(t, spy, config.Default())
+	app.keymap = keymap
+	app, handled := app.Update(KeyMsg{Key: "e"})
+	if !handled {
+		t.Fatal("the moved key must toggle pace")
+	}
+	if view := ansi.Strip(app.ViewSize(120, 30)); !strings.Contains(view, "pace off · e brings it back") {
+		t.Fatalf("toast must name e:\n%s", view)
+	}
+}
+
+// On a long list the selected running run is served first, and busy
+// workflows going green do not refetch faster than paceMinRefresh.
+func TestPaceServesTheSelectedRunningRowFirst(t *testing.T) {
+	spy := newPaceSpy()
+	app := pacedApp(t, spy, config.Default())
+	rows := []model.Run{}
+	for i := range 40 {
+		rows = append(rows, paceRow(int64(1000+i), fmt.Sprintf(".github/workflows/bot%d.yml", i), "main", "push", model.StatusCompleted, model.ConclusionSuccess, 30*time.Second))
+	}
+	rows = append(rows, paceRow(600, ".github/workflows/ci.yml", "main", "push", model.StatusInProgress, model.ConclusionNone, 0))
+	app.runs = runs.NewModel(usecase.LaunchContext{Repo: "o/r", Branch: "main", State: usecase.LaunchStateRuns, Runs: rows})
+	app.runs.Selected = len(rows) - 1
+	app, _ = app.Refresh()
+	if app.paceFetch == nil || !strings.Contains(app.paceFetch.key, "ci.yml") {
+		t.Fatalf("first fetch = %+v, want the selected running CI row", app.paceFetch)
+	}
+	app = settlePace(t, app)
+	before := spy.total()
+	// A bot workflow goes green again right after its fetch: too soon
+	// to spend another call on it.
+	fresh := paceRow(2000, ".github/workflows/bot0.yml", "main", "push", model.StatusCompleted, model.ConclusionSuccess, 30*time.Second)
+	app.runs.Context.Runs = append([]model.Run{fresh}, app.runs.Context.Runs...)
+	app = settlePace(t, app)
+	if spy.total() != before {
+		t.Fatalf("calls %d → %d: a fresh baseline refetched on a new green run", before, spy.total())
 	}
 }

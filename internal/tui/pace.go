@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -16,6 +17,11 @@ import (
 // paceTTL bounds how long a baseline (or a failed fetch) stands before
 // the next tick reads it again.
 const paceTTL = 15 * time.Minute
+
+// paceMinRefresh is the least age at which a new green run refreshes a
+// baseline: a busy bot workflow goes green every few seconds and must
+// not keep the one fetch slot from the rows on screen.
+const paceMinRefresh = 2 * time.Minute
 
 type paceEntry struct {
 	baseline  usecase.PaceBaseline
@@ -66,27 +72,37 @@ func paceKey(repo string, run model.Run) string {
 	return repo + "|" + workflow + "|" + run.HeadBranch + "|" + run.Event
 }
 
-func (a App) paceScope() (string, []model.Run) {
+// paceScope is the repository, the runs on the current screen, and the
+// index of the selected one.
+func (a App) paceScope() (string, []model.Run, int) {
 	switch a.Route() {
 	case RouteRuns:
-		return a.runs.Context.Repo, a.runs.Context.Runs
+		selected := 0
+		if run, ok := a.runs.SelectedRun(); ok {
+			selected = max(slices.IndexFunc(a.runs.Context.Runs, func(r model.Run) bool { return r.ID == run.ID }), 0)
+		}
+		return a.runs.Context.Repo, a.runs.Context.Runs, selected
 	case RouteWatch:
 		if a.watch.State.Run.ID == 0 {
-			return "", nil
+			return "", nil, 0
 		}
-		return a.watch.State.Repo, []model.Run{a.watch.State.Run}
+		return a.watch.State.Repo, []model.Run{a.watch.State.Run}, 0
 	case RouteWatchBoard:
-		return a.board.Repo, a.board.Runs
+		return a.board.Repo, a.board.Runs, a.board.Selected
 	}
-	return "", nil
+	return "", nil, 0
 }
 
 // paceStale: past its TTL, or a green run of its key that the baseline
 // has not accounted for. Run membership, not timestamps: GitHub's clock
 // and ours need not agree.
 func paceStale(entry paceEntry, key, repo string, runs []model.Run, now time.Time) bool {
-	if now.Sub(entry.fetchedAt) > paceTTL {
+	age := now.Sub(entry.fetchedAt)
+	if age > paceTTL {
 		return true
+	}
+	if age < paceMinRefresh {
+		return false
 	}
 	for _, run := range greenRuns(key, repo, runs) {
 		if !entry.covered[run] {
@@ -106,15 +122,19 @@ func greenRuns(key, repo string, runs []model.Run) []int64 {
 	return ids
 }
 
-// startPaceFetch begins the next missing or stale baseline for the
-// screen's runs, on poll ticks, while no other fetch rides.
+// startPaceFetch begins the most wanted missing or stale baseline for
+// the screen's runs, on poll ticks, while no other fetch rides. Wanted
+// first: running runs with no baseline, then other runs with none, then
+// stale ones; within each, the nearest to the selection, so the rows in
+// view are served before a long list's tail.
 func (a App) startPaceFetch() App {
 	if !a.paceActive() || a.paceFetch != nil {
 		return a
 	}
-	repo, runs := a.paceScope()
+	repo, runs, selected := a.paceScope()
 	now := time.Now()
-	for _, run := range runs {
+	best, bestRank := -1, 0
+	for i, run := range runs {
 		key := paceKey(repo, run)
 		if key == "" {
 			continue
@@ -122,9 +142,26 @@ func (a App) startPaceFetch() App {
 		if failed, ok := a.paceFailed[key]; ok && now.Sub(failed) < paceTTL {
 			continue
 		}
-		if entry, ok := a.paceBaselines[key]; ok && !paceStale(entry, key, repo, runs, now) {
-			continue
+		tier := 0
+		if entry, ok := a.paceBaselines[key]; ok {
+			if !paceStale(entry, key, repo, runs, now) {
+				continue
+			}
+			tier = 2
+		} else if run.Status != model.StatusInProgress {
+			tier = 1
 		}
+		distance := i - selected
+		if distance < 0 {
+			distance = -distance
+		}
+		if rank := tier*len(runs) + distance; best < 0 || rank < bestRank {
+			best, bestRank = i, rank
+		}
+	}
+	if best >= 0 {
+		run := runs[best]
+		key := paceKey(repo, run)
 		ctx, cancel := context.WithCancel(context.Background())
 		covered := map[int64]bool{}
 		for _, id := range greenRuns(key, repo, runs) {
@@ -140,7 +177,6 @@ func (a App) startPaceFetch() App {
 			state.baseline, state.err, state.done = baseline, err, true
 			state.mu.Unlock()
 		}()
-		return a
 	}
 	return a
 }
@@ -225,7 +261,7 @@ func (a App) togglePace() App {
 	a.paceHidden = !a.paceHidden
 	if a.paceHidden {
 		a.abandonPaceFetch()
-		a.pushToast("pace-toggle", usecase.Resilience{Severity: usecase.SeverityInfo, Title: "pace off · p brings it back"})
+		a.pushToast("pace-toggle", usecase.Resilience{Severity: usecase.SeverityInfo, Title: "pace off · " + a.keymap.KeyFor("pace_toggle") + " brings it back"})
 		return a
 	}
 	// The marks coming back say it; the off toast would only cover them.

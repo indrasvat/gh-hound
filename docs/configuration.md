@@ -64,6 +64,7 @@ rerun_failed = "F"  # runs, detail, failure (default R)
 | `compare` | `o` | diff |
 | `dig_up` · `dig_up_key` | `d` · `D` | caches |
 | `copy_json` | `y` | queue |
+| `pace_toggle` | `p` | runs, watch, the hunt board |
 
 A key is one printable character. Navigation keys and keys that in-screen hints name (`j/k`, `g/G`, `s`, `/` on runs, `:`, Enter, Esc, Tab) stay fixed. One key may serve two actions that never share a screen (`rerun = "e"` and `rerun_job = "e"`). A key that would mean two things on one screen, an unknown action, or a key that is not one printable character stops the launch with an error naming the file, the screen and both actions.
 

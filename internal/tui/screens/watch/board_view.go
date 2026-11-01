@@ -73,13 +73,17 @@ func boardHeadline(st styles, b Board, width int, now time.Time) string {
 		colorize(st.dim, " · ") +
 		colorize(st.ok, fmt.Sprintf("%d home", summary.Home)) +
 		colorize(st.dim, " · ") +
-		colorize(boardLostColor(st, summary.Lost), fmt.Sprintf("%d lost", summary.Lost)) +
-		allHome(st, b, now)
+		colorize(boardLostColor(st, summary.Lost), fmt.Sprintf("%d lost", summary.Lost))
 	follow := "follow ○"
 	if b.Follow {
 		follow = "follow ●"
 	}
 	right := colorize(st.dim, shortBoardSHA(b.HeadSHA)+" "+b.Event+" · "+follow)
+	// The estimate yields to the scent and follow state when both do
+	// not fit: f must always show what it toggled.
+	if home := allHome(st, b, now); ansi.StringWidth(left+home)+ansi.StringWidth(right)+1 <= width {
+		left += home
+	}
 	return joinRightANSI(left, right, width)
 }
 

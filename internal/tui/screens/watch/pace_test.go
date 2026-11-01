@@ -121,3 +121,20 @@ func TestBoardHeadlineLongEstimate(t *testing.T) {
 		t.Fatalf("headline = %q", headline)
 	}
 }
+
+// At 80 columns the follow state outranks the all-home estimate.
+func TestBoardHeadlineKeepsFollowAtEighty(t *testing.T) {
+	home := boardRun(101, "CI", model.StatusCompleted, model.ConclusionSuccess)
+	runs := []model.Run{home, live(102, "Release", 48*time.Second)}
+	board := watch.NewBoard("o/r", "main", runs[1], runs)
+	board.Pace = map[int64]usecase.PaceBaseline{102: fourMinutes()}
+	for _, width := range []int{78, 118} {
+		headline := strings.SplitN(ansi.Strip(watch.BoardViewSize(board, width, 0, watchNow)), "\n", 2)[0]
+		if !strings.Contains(headline, "follow ○") {
+			t.Fatalf("width %d: follow state lost: %q", width, headline)
+		}
+		if width == 118 && !strings.Contains(headline, "all home in ~4m") {
+			t.Fatalf("width %d: room for both, estimate missing: %q", width, headline)
+		}
+	}
+}
