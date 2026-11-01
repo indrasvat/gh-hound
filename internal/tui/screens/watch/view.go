@@ -123,14 +123,15 @@ func headerPace(m Model) string {
 		now = time.Now()
 	}
 	mark := usecase.PaceMarkFor(m.State.Run, m.Pace, now)
-	st := stylesFor(m.Theme)
+	// Plain text: the frame colours the whole header line by state, and
+	// only a line with no colour of its own.
 	switch {
 	case mark.ETA:
-		return " · " + colorize(st.run, mark.Text)
+		return " · " + mark.Text
 	case mark.Slow && m.State.Run.Status == model.StatusInProgress:
-		return " · " + colorize(st.warn, icons.Slow+" overrun")
+		return " · " + icons.Slow + " overrun"
 	case mark.Slow:
-		return " · " + colorize(st.warn, icons.Slow+" slow")
+		return " · " + icons.Slow + " slow"
 	}
 	return ""
 }

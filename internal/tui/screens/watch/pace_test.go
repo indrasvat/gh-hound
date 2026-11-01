@@ -138,3 +138,14 @@ func TestBoardHeadlineKeepsFollowAtEighty(t *testing.T) {
 		}
 	}
 }
+
+// The frame colours the header line by state only when the line has no
+// colour of its own: the pace suffix must stay plain.
+func TestWatchHeaderPaceSuffixIsPlain(t *testing.T) {
+	m := watch.NewModel(watch.State{Repo: "o/r", Branch: "main", Run: live(570, "CI", 9*time.Minute), Elapsed: "9m00s", Now: watchNow})
+	m.Pace = fourMinutes()
+	head := strings.SplitN(watch.View(m, 120), "\n", 2)[0]
+	if head != ansi.Strip(head) {
+		t.Fatalf("header carries its own colour: %q", head)
+	}
+}

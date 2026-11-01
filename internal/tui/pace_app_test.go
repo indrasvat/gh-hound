@@ -95,6 +95,7 @@ func pacedApp(t *testing.T, spy *paceResolverSpy, cfg config.Config) App {
 		paceRow(596, ".github/workflows/ci.yml", "fix/x", "pull_request", model.StatusCompleted, model.ConclusionCancelled, 30*time.Second),
 	}})
 	app.routes = []Route{RouteRuns}
+	app.runsConfirmed = confirmedNow(nil, app.runs.Context.Runs)
 	return app
 }
 
@@ -322,5 +323,71 @@ func TestPaceServesTheSelectedRunningRowFirst(t *testing.T) {
 	app = settlePace(t, app)
 	if spy.total() != before {
 		t.Fatalf("calls %d → %d: a fresh baseline refetched on a new green run", before, spy.total())
+	}
+}
+
+// pollRuns runs one runs poll to completion and applies it.
+func pollRuns(t *testing.T, app App) App {
+	t.Helper()
+	app = app.startRunsPoll()
+	deadline := time.Now().Add(2 * time.Second)
+	for app.tickPoll != nil && !app.tickPoll.ready() {
+		if time.Now().After(deadline) {
+			t.Fatal("poll never completed")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	app, _ = app.drainTickPoll()
+	return app
+}
+
+// A run that slid past page 1 while running is never in a page-1 poll
+// again: the poll re-reads unfinished rows it did not return, so a
+// finished run stops reading as running.
+func TestRunsPollRefreshesUnfinishedRowsPastPageOne(t *testing.T) {
+	spy := newPaceSpy()
+	app := pacedApp(t, spy, config.Default())
+	slid := app.runs.Context.Runs[0] // #600, running
+	page := []model.Run{paceRow(700, ".github/workflows/ci.yml", "main", "push", model.StatusCompleted, model.ConclusionSuccess, 30*time.Second)}
+	app.runsResolver = func(context.Context, usecase.RunFilter) ([]model.Run, error) { return page, nil }
+	var asked []int64
+	app.runRefresher = func(_ context.Context, id int64) (model.Run, error) {
+		asked = append(asked, id)
+		done := slid
+		done.Status, done.Conclusion, done.UpdatedAt = model.StatusCompleted, model.ConclusionSuccess, time.Now()
+		return done, nil
+	}
+	app = pollRuns(t, app)
+	if len(asked) != 1 || asked[0] != slid.ID {
+		t.Fatalf("refreshed %v, want only the unfinished row #600", asked)
+	}
+	for _, run := range app.runs.Context.Runs {
+		if run.ID == slid.ID && run.Status != model.StatusCompleted {
+			t.Fatalf("#600 still reads %s after the refresh", run.Status)
+		}
+	}
+	// Nothing unfinished is left: the next poll spends no extra call.
+	asked = nil
+	app = pollRuns(t, app)
+	if len(asked) != 0 {
+		t.Fatalf("refreshed %v with no unfinished rows left", asked)
+	}
+}
+
+// A running row no fetch has confirmed lately gets no estimate and no
+// slow flag: Pace must not make a confident claim on stale data.
+func TestPaceSkipsUnconfirmedRunningRows(t *testing.T) {
+	spy := newPaceSpy()
+	app := settlePace(t, pacedApp(t, spy, config.Default()))
+	if view := ansi.Strip(app.ViewSize(120, 30)); !strings.Contains(view, "3m left") {
+		t.Fatalf("a freshly loaded running row must carry its ETA:\n%s", view)
+	}
+	app.runsConfirmed = map[int64]time.Time{600: time.Now().Add(-paceConfirmWindow - time.Second)}
+	view := ansi.Strip(app.ViewSize(120, 30))
+	if strings.Contains(view, "left") {
+		t.Fatalf("an unconfirmed running row carries an ETA:\n%s", view)
+	}
+	if !strings.Contains(view, "↑ 9m31s") {
+		t.Fatalf("a finished slow row needs no confirmation:\n%s", view)
 	}
 }

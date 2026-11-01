@@ -18,6 +18,15 @@ import (
 // the next tick reads it again.
 const paceTTL = 15 * time.Minute
 
+// paceConfirmWindow is how recently a fetch must have returned a running
+// row for Pace to judge it: a row that slid past page 1 may have finished
+// unseen, and an overrun mark on it would be a confident false claim.
+const paceConfirmWindow = 2 * time.Minute
+
+// maxRunRefreshes bounds the unfinished rows past page 1 that one runs
+// poll re-reads (304s when unchanged cost no primary rate limit).
+const maxRunRefreshes = 5
+
 // paceMinRefresh is the least age at which a new green run refreshes a
 // baseline: a busy bot workflow goes green every few seconds and must
 // not keep the one fetch slot from the rows on screen.
@@ -267,4 +276,58 @@ func (a App) togglePace() App {
 	// The marks coming back say it; the off toast would only cover them.
 	a.toasts = a.toasts.Dismiss("pace-toggle")
 	return a
+}
+
+// paceForRuns is paceFor without the running rows no fetch has
+// confirmed within paceConfirmWindow.
+func (a App) paceForRuns(repo string, runs []model.Run) map[int64]usecase.PaceBaseline {
+	out := a.paceFor(repo, runs)
+	now := time.Now()
+	for _, run := range runs {
+		if run.Status != model.StatusCompleted && now.Sub(a.runsConfirmed[run.ID]) > paceConfirmWindow {
+			delete(out, run.ID)
+		}
+	}
+	return out
+}
+
+// confirmedNow records that a fetch just returned rows. A fresh map:
+// App copies share the old one.
+func confirmedNow(confirmed map[int64]time.Time, rows []model.Run) map[int64]time.Time {
+	out := make(map[int64]time.Time, len(confirmed)+len(rows))
+	maps.Copy(out, confirmed)
+	now := time.Now()
+	for _, run := range rows {
+		out[run.ID] = now
+	}
+	return out
+}
+
+// leastConfirmedUnfinished is up to n unfinished rows, least recently
+// confirmed first, so every one is re-read in turn.
+func (a App) leastConfirmedUnfinished(n int) []int64 {
+	var ids []int64
+	for _, run := range a.runs.Context.Runs {
+		if run.Status != model.StatusCompleted && run.ID != 0 {
+			ids = append(ids, run.ID)
+		}
+	}
+	slices.SortStableFunc(ids, func(x, y int64) int { return a.runsConfirmed[x].Compare(a.runsConfirmed[y]) })
+	return ids[:min(n, len(ids))]
+}
+
+// refreshUnfinished re-reads the candidates the page did not return. A
+// failed read leaves the row as it was and unconfirmed, so Pace stays
+// silent on it rather than guessing.
+func refreshUnfinished(ctx context.Context, refresher func(context.Context, int64) (model.Run, error), candidates []int64, page []model.Run) []model.Run {
+	var out []model.Run
+	for _, id := range candidates {
+		if slices.ContainsFunc(page, func(r model.Run) bool { return r.ID == id }) {
+			continue
+		}
+		if run, err := refresher(ctx, id); err == nil {
+			out = append(out, run)
+		}
+	}
+	return out
 }

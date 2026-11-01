@@ -1730,6 +1730,9 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			// over the launch branch (diff precedent).
 			return service.Scan(loadCtx, launch.Repo, workflow, firstNonEmptyString(run.HeadBranch, launch.Branch))
 		},
+		RunRefresher: func(loadCtx context.Context, id int64) (model.Run, error) {
+			return githubClient.GetRun(loadCtx, launch.Repo, id)
+		},
 		PaceResolver: func(loadCtx context.Context, run model.Run) (usecase.PaceBaseline, error) {
 			// Baseline refuses an adapter without history (nil here) and
 			// a run with no workflow identity.

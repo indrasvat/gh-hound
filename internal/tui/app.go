@@ -104,14 +104,17 @@ type Options struct {
 	DiffResolver              func(context.Context, model.Run) (usecase.RegressionVerdict, error)
 	FlakesResolver            func(context.Context, model.Run) (usecase.FlakeReport, error)
 	PaceResolver              func(context.Context, model.Run) (usecase.PaceBaseline, error)
-	QueueResolver             func(context.Context, model.Run) (model.ConcurrencyReport, error)
-	WorkflowsResolver         func(context.Context) ([]model.Workflow, error)
-	RunsMetadata              func() (usecase.RequestMeta, bool)
-	LogRefetchNotice          func(int64) (usecase.LogRefetchNotice, bool)
-	ActionHandler             func(ActionRequest) (usecase.ActionResult, error)
-	ApprovalsResolver         func(context.Context, model.Run) ([]model.PendingDeployment, error)
-	ArtifactsResolver         func(model.Run) ([]model.Artifact, error)
-	ArtifactDownloader        func(artifact model.Artifact, destDir string, force bool, onProgress func(usecase.DownloadProgress)) (usecase.DownloadResult, error)
+	// RunRefresher re-reads one run by ID: the runs poll uses it for
+	// unfinished rows that have slid past page 1.
+	RunRefresher       func(context.Context, int64) (model.Run, error)
+	QueueResolver      func(context.Context, model.Run) (model.ConcurrencyReport, error)
+	WorkflowsResolver  func(context.Context) ([]model.Workflow, error)
+	RunsMetadata       func() (usecase.RequestMeta, bool)
+	LogRefetchNotice   func(int64) (usecase.LogRefetchNotice, bool)
+	ActionHandler      func(ActionRequest) (usecase.ActionResult, error)
+	ApprovalsResolver  func(context.Context, model.Run) ([]model.PendingDeployment, error)
+	ArtifactsResolver  func(model.Run) ([]model.Artifact, error)
+	ArtifactDownloader func(artifact model.Artifact, destDir string, force bool, onProgress func(usecase.DownloadProgress)) (usecase.DownloadResult, error)
 	// ArtifactDir is the absolute download root artifacts extract
 	// into. The app displays it (confirm modal, completion state);
 	// the downloader closure must extract into the same directory.
@@ -214,6 +217,10 @@ type App struct {
 	paceBaselines map[string]paceEntry
 	paceFailed    map[string]time.Time
 	paceFetch     *paceFetchState
+	// runRefresher re-reads unfinished rows the page-1 poll no longer
+	// returns; runsConfirmed is when a fetch last returned each run.
+	runRefresher  func(context.Context, int64) (model.Run, error)
+	runsConfirmed map[int64]time.Time
 	// paceHidden is the session's p toggle; paceWarned keeps the
 	// unavailable toast to one per session (a rate-limited hour would
 	// otherwise stack one per workflow).
@@ -599,6 +606,8 @@ func NewApp(options Options) App {
 		diffResolver:              options.DiffResolver,
 		flakesResolver:            options.FlakesResolver,
 		paceResolver:              options.PaceResolver,
+		runRefresher:              options.RunRefresher,
+		runsConfirmed:             confirmedNow(nil, launch.Runs),
 		queueResolver:             options.QueueResolver,
 		flakeReports:              map[string]usecase.FlakeReport{},
 		workflowsResolver:         options.WorkflowsResolver,
@@ -3078,6 +3087,7 @@ func (a App) reloadRuns() App {
 				return app
 			}
 			app = app.storeRuns(requestScope, key, resolved.rows)
+			app.runsConfirmed = confirmedNow(app.runsConfirmed, resolved.rows)
 			if app.runs.Context.Scope != requestScope {
 				// The user moved to another scope while this was in
 				// flight: the result stays parked in its cache slot,
@@ -3100,6 +3110,8 @@ func (a App) reloadRuns() App {
 type fetchedRuns struct {
 	rows []model.Run
 	full bool
+	// refreshed are unfinished rows past page 1, re-read by ID.
+	refreshed []model.Run
 }
 
 // fetchRuns resolves actor:@me through the shared identity lookup, then
@@ -3224,6 +3236,7 @@ func (a App) loadMoreRuns() App {
 			app.runs.Context.Page = nextPage
 			app.runs.Context.PerPage = perPage
 			_ = app.appendActiveRuns(resolved.rows)
+			app.runsConfirmed = confirmedNow(app.runsConfirmed, resolved.rows)
 			// A full page that deduped (or narrowed) to nothing still means
 			// deeper pages exist (high-velocity repos shift runs between
 			// pages); latching HasMore=false there froze pagination on
@@ -3245,8 +3258,12 @@ func (a App) startRunsPoll() App {
 	filter := runsFilterFor(a.runs.Context, a.config.PerPage, q)
 	filter.Page = 1
 	resolver, viewer, key, gen := a.runsResolver, a.viewer, q.ServerKey(), a.runsGen
+	refresher, unfinished := a.runRefresher, a.leastConfirmedUnfinished(maxRunRefreshes)
 	return a.startTickPoll(RouteRuns, a.pollIdentity(RouteRuns), func(ctx context.Context) func(App) App {
 		resolved, err := fetchRuns(ctx, resolver, viewer, filter, q.Actor)
+		if err == nil && refresher != nil {
+			resolved.refreshed = refreshUnfinished(ctx, refresher, unfinished, resolved.rows)
+		}
 		return func(app App) App {
 			if app.runsGen != gen {
 				// Re-applied meanwhile (a retry): this answer is stale.
@@ -3281,8 +3298,14 @@ func (a App) applyRunsRefresh(fetched fetchedRuns, err error, key string) App {
 	a.clearRouteError(RouteRuns)
 	a.refreshCount++
 	perPage := perPageFor(a.runs.Context, a.config.PerPage)
+	a.runsConfirmed = confirmedNow(a.runsConfirmed, append(slices.Clone(resolved), fetched.refreshed...))
 	if current {
 		merged := append(slices.Clone(resolved), dedupeNewRuns(resolved, a.runs.Context.Runs)...)
+		for i, run := range merged {
+			if j := slices.IndexFunc(fetched.refreshed, func(r model.Run) bool { return r.ID == run.ID }); j >= 0 {
+				merged[i] = fetched.refreshed[j]
+			}
+		}
 		a = a.storeRuns(a.runs.Context.Scope, key, merged)
 		// A page-1 poll says nothing about deeper pages once more are
 		// loaded: only the last page fetched decides whether G has more.
@@ -4971,7 +4994,7 @@ func (a App) screenBody(width, height int) string {
 			runsModel.Loading = true
 			runsModel.LoadingLine = loadingLine(a.theme, load, bodyWidth, time.Now())
 		}
-		runsModel.Pace = a.paceFor(runsModel.Context.Repo, runsModel.Context.Runs)
+		runsModel.Pace = a.paceForRuns(runsModel.Context.Repo, runsModel.Context.Runs)
 		return runs.ViewSize(runsModel, bodyWidth, bodyHeight(height), time.Now())
 	case RouteDetail:
 		detailModel := a.detail
