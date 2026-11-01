@@ -176,7 +176,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.PersistentFlags().StringVar((*string)(&options.Format), "format", "json", "pipe output format: json, md, xml (env HOUND_FORMAT)")
 	cmd.PersistentFlags().StringVar(&options.LogLevel, "log-level", "info", "log level: off, error, warn, info, debug (env HOUND_LOG_LEVEL)")
 	cmd.PersistentFlags().BoolVar(&options.TraceHTTP, "trace-http", false, "trace GitHub API calls to the JSON log (env HOUND_TRACE_HTTP)")
-	cmd.PersistentFlags().StringVar(&options.Fake, "fake-scenario", "", "deterministic fake scenario: green, failure, pending, empty, api_error, conflict, permission, waiting, regression, pack, flaky, queue, noisy (env HOUND_FAKE_SCENARIO)")
+	cmd.PersistentFlags().StringVar(&options.Fake, "fake-scenario", "", "deterministic fake scenario: green, failure, pending, empty, api_error, conflict, permission, waiting, regression, pack, flaky, queue, noisy, paced (env HOUND_FAKE_SCENARIO)")
 	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		applyEnv(&options, runtime.Env, cmd.Flags().Changed)
 		return nil
@@ -196,6 +196,7 @@ func newRootCommandWithRuntime(runtime commandRuntime, info buildInfo) *cobra.Co
 	cmd.AddCommand(newCancelCommand(runtime, &options))
 	cmd.AddCommand(newDiffCommand(runtime, &options))
 	cmd.AddCommand(newFlakesCommand(runtime, &options))
+	cmd.AddCommand(newPaceCommand(runtime, &options))
 	cmd.AddCommand(newQueueCommand(runtime, &options))
 	cmd.AddCommand(newWorkflowsCommand(runtime, &options))
 	return cmd
@@ -2706,6 +2707,8 @@ func fakeScenarioFor(scenario string) fake.Scenario {
 		return fake.ScenarioQueue
 	case "noisy":
 		return fake.ScenarioNoisy
+	case "paced":
+		return fake.ScenarioPaced
 	default:
 		return fake.ScenarioGreen
 	}
@@ -2998,6 +3001,9 @@ func normalizedScenario(options cliOptions) string {
 	case "noisy":
 		// A failing run whose log is mostly repeats, through real triage.
 		return "noisy"
+	case "paced", "pace":
+		// A Pace baseline: running, slow, on-pace and widened-PR targets.
+		return "paced"
 	}
 	status := strings.ToLower(strings.TrimSpace(options.Status))
 	switch status {
