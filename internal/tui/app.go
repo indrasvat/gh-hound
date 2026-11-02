@@ -3247,8 +3247,12 @@ func (a App) loadMoreRuns() App {
 			}
 			app.runs.Context.Page = nextPage
 			app.runs.Context.PerPage = perPage
+			// A busy repo shifts runs between pages, so a page can repeat
+			// listed rows; only the rows it adds count as read, since the
+			// listed copies stay as they were.
+			added := dedupeNewRuns(app.runs.Context.Runs, resolved.rows)
 			_ = app.appendActiveRuns(resolved.rows)
-			app.runsConfirmed = confirmedAt(app.runsConfirmed, resolved.rows, resolved.at)
+			app.runsConfirmed = confirmedAt(app.runsConfirmed, added, resolved.at)
 			// A full page that deduped (or narrowed) to nothing still means
 			// deeper pages exist (high-velocity repos shift runs between
 			// pages); latching HasMore=false there froze pagination on
@@ -3661,11 +3665,6 @@ func (a *App) appendActiveRuns(next []model.Run) int {
 	if len(next) == 0 {
 		return 0
 	}
-	// A busy repo shifts runs between pages, so a page can repeat rows
-	// already listed: take the newer copy, which the fetch vouches for.
-	a.runs.Context.Runs = refreshListedRuns(a.runs.Context.Runs, next)
-	a.runs.Context.BranchRuns = refreshListedRuns(a.runs.Context.BranchRuns, next)
-	a.runs.Context.RepoRuns = refreshListedRuns(a.runs.Context.RepoRuns, next)
 	next = dedupeNewRuns(a.runs.Context.Runs, next)
 	if len(next) == 0 {
 		return 0
@@ -3681,23 +3680,6 @@ func (a *App) appendActiveRuns(next []model.Run) int {
 		a.runs.Context.Runs = append(a.runs.Context.Runs, next...)
 	}
 	return len(next)
-}
-
-// refreshListedRuns replaces each listed run that fresh carries with
-// fresh's copy, unless the listed one is newer. A fresh slice: App
-// copies share the old one.
-func refreshListedRuns(listed, fresh []model.Run) []model.Run {
-	byID := map[int64]model.Run{}
-	for _, run := range fresh {
-		byID[run.ID] = run
-	}
-	out := slices.Clone(listed)
-	for i, run := range out {
-		if newer, ok := byID[run.ID]; ok && run.ID != 0 && !newer.UpdatedAt.Before(run.UpdatedAt) {
-			out[i] = newer
-		}
-	}
-	return out
 }
 
 func dedupeNewRuns(existing, next []model.Run) []model.Run {

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -76,28 +77,32 @@ func TestSummaryDoesNotTrustAnotherSnapshotsStatus(t *testing.T) {
 	}
 }
 
-// On a busy repo the next page repeats runs already listed. The newer
-// copy replaces the listed one, so the row shows what the fetch saw and
-// its read vouches for it (before, the old copy stayed and read stale).
-func TestLoadMoreRefreshesRunsItRepeats(t *testing.T) {
-	app := NewApp(Options{Config: config.Default()})
-	listed := paceRow(600, ".github/workflows/ci.yml", "main", "push", model.StatusInProgress, model.ConclusionNone, 0)
-	app.runs = runs.NewModel(usecase.LaunchContext{Repo: "o/r", Scope: usecase.LaunchScopeRepo, State: usecase.LaunchStateRuns,
-		Runs: []model.Run{listed}, RepoRuns: []model.Run{listed}})
-	finished := listed
-	finished.Status, finished.Conclusion, finished.UpdatedAt = model.StatusCompleted, model.ConclusionSuccess, listed.UpdatedAt.Add(time.Minute)
-	older := paceRow(590, ".github/workflows/ci.yml", "main", "push", model.StatusInProgress, model.ConclusionNone, 0)
-
-	if added := app.appendActiveRuns([]model.Run{finished, older}); added != 1 {
-		t.Fatalf("added = %d, want only the new run appended", added)
+// On a busy repo the next page repeats listed runs, possibly newer. The
+// listed copy stays, so the page must not vouch for it: recording the
+// page's newer status made a just-read row read stale at once.
+func TestLoadMoreVouchesOnlyForTheRowsItAdds(t *testing.T) {
+	rows := []model.Run{}
+	for i := range 30 {
+		run := actorRun(int64(900-i), "alice", "trunk", model.ConclusionNone)
+		run.Status = model.StatusInProgress
+		rows = append(rows, run)
 	}
-	app.runsConfirmed = confirmedAt(app.runsConfirmed, []model.Run{finished, older}, time.Now())
-	for _, rows := range [][]model.Run{app.runs.Context.Runs, app.runs.Context.RepoRuns} {
-		if len(rows) != 2 || rows[0].Status != model.StatusCompleted {
-			t.Fatalf("the repeated run must take the newer copy: %+v", rows)
+	repeated := rows[29]
+	repeated.Status, repeated.Conclusion = model.StatusCompleted, model.ConclusionSuccess
+	next := actorRun(800, "alice", "trunk", model.ConclusionSuccess)
+	app := newActorApp(&actorRuns{rows: rows}, nil)
+	app.runsResolver = func(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
+		if filter.Page > 1 {
+			return []model.Run{repeated, next}, nil
 		}
+		return rows, nil
+	}
+	app = settleApp(t, typeQuery(t, app, "actor:alice"))
+	app = settleApp(t, typeKeys(t, app, "G"))
+	if len(app.runs.Context.Runs) != 31 {
+		t.Fatalf("rows = %d, want the new run appended", len(app.runs.Context.Runs))
 	}
 	if stale := app.staleRuns(app.runs.Context.Runs, time.Now()); len(stale) != 0 {
-		t.Fatalf("rows just read must not be stale: %v", stale)
+		t.Fatalf("rows just read read stale: %v", stale)
 	}
 }
