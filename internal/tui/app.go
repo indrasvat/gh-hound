@@ -609,7 +609,7 @@ func NewApp(options Options) App {
 		flakesResolver:            options.FlakesResolver,
 		paceResolver:              options.PaceResolver,
 		runRefresher:              options.RunRefresher,
-		runsConfirmed:             confirmedAt(nil, launch.Runs, time.Now()),
+		runsConfirmed:             confirmedAt(nil, slices.Concat(launch.BranchRuns, launch.RepoRuns, launch.Runs), time.Now()),
 		queueResolver:             options.QueueResolver,
 		flakeReports:              map[string]usecase.FlakeReport{},
 		workflowsResolver:         options.WorkflowsResolver,
@@ -3661,6 +3661,11 @@ func (a *App) appendActiveRuns(next []model.Run) int {
 	if len(next) == 0 {
 		return 0
 	}
+	// A busy repo shifts runs between pages, so a page can repeat rows
+	// already listed: take the newer copy, which the fetch vouches for.
+	a.runs.Context.Runs = refreshListedRuns(a.runs.Context.Runs, next)
+	a.runs.Context.BranchRuns = refreshListedRuns(a.runs.Context.BranchRuns, next)
+	a.runs.Context.RepoRuns = refreshListedRuns(a.runs.Context.RepoRuns, next)
 	next = dedupeNewRuns(a.runs.Context.Runs, next)
 	if len(next) == 0 {
 		return 0
@@ -3676,6 +3681,23 @@ func (a *App) appendActiveRuns(next []model.Run) int {
 		a.runs.Context.Runs = append(a.runs.Context.Runs, next...)
 	}
 	return len(next)
+}
+
+// refreshListedRuns replaces each listed run that fresh carries with
+// fresh's copy, unless the listed one is newer. A fresh slice: App
+// copies share the old one.
+func refreshListedRuns(listed, fresh []model.Run) []model.Run {
+	byID := map[int64]model.Run{}
+	for _, run := range fresh {
+		byID[run.ID] = run
+	}
+	out := slices.Clone(listed)
+	for i, run := range out {
+		if newer, ok := byID[run.ID]; ok && run.ID != 0 && !newer.UpdatedAt.Before(run.UpdatedAt) {
+			out[i] = newer
+		}
+	}
+	return out
 }
 
 func dedupeNewRuns(existing, next []model.Run) []model.Run {

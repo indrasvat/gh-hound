@@ -326,9 +326,11 @@ func (a App) paceForRuns(m runspkg.Model) (map[int64]usecase.PaceBaseline, map[i
 	return out, asOf
 }
 
-// staleRuns is the unfinished rows no fetch has returned within three
-// polls (five minutes at least): rows past page 1 and far from the
-// selection are not re-read, and may have finished unseen.
+// staleRuns is the unfinished rows no fetch has returned, in the status
+// they show, within three polls (five minutes at least): rows past page
+// 1 and far from the selection are not re-read, and may have finished
+// unseen. Status only, not updated_at: the other scope's copy of a
+// running run read a few seconds apart is still running.
 func (a App) staleRuns(rows []model.Run, now time.Time) map[int64]bool {
 	limit := max(5*time.Minute, 3*a.pollDueInterval())
 	out := map[int64]bool{}
@@ -336,7 +338,7 @@ func (a App) staleRuns(rows []model.Run, now time.Time) map[int64]bool {
 		if run.Status == model.StatusCompleted {
 			continue
 		}
-		if c, ok := a.runsConfirmed[run.ID]; !ok || now.Sub(c.at) > limit {
+		if c, ok := a.runsConfirmed[run.ID]; !ok || c.status != run.Status || now.Sub(c.at) > limit {
 			out[run.ID] = true
 		}
 	}
