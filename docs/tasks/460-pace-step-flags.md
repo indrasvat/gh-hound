@@ -2,7 +2,7 @@
 
 ## Status
 
-IN PROGRESS — issue #75. Builds on run-level Pace (#74, task 450).
+IMPLEMENTED — issue #75, PR #78, released in v0.10.0. Builds on run-level Pace (#74, task 450).
 
 ## Ownership Boundary
 

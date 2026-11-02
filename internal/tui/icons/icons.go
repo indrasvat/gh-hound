@@ -17,7 +17,6 @@ const (
 	Breadcrumb     = "›"
 	FoldOpen       = "▾"
 	FoldClosed     = "▸"
-	Sparkline      = "▁▂▃▅▇"
 	Prompt         = "❯"
 	Rerun          = "↻"
 	// Slow marks a run that took meaningfully longer than its usual.
