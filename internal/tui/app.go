@@ -688,6 +688,7 @@ func NewScenarioApp(scenario string, build BuildInfo) App {
 	case "green", "ok", "success":
 		app.runs = sampleAllGreenModel()
 	}
+	app.runsConfirmed = confirmedAt(nil, app.runs.Context.Runs, time.Now())
 	return app
 }
 
@@ -988,6 +989,7 @@ func RenderFixtureSize(screen string, width, height int) string {
 		return frameViewSize(app.theme, "hound", queueContext(app.queue.Report), queueRight(app.queue.Report), queuescreen.ViewSize(app.queue, bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenQueue), width, height, true)
 	case "approvals":
 		app.runs = sampleWaitingRunsModel()
+		app.runsConfirmed = confirmedAt(nil, app.runs.Context.Runs, time.Now())
 		app.routes = []Route{RouteRuns}
 		run, _ := app.runs.SelectedRun()
 		app.approvals = approvals.NewModel(run, samplePendingDeployments())
@@ -1005,6 +1007,7 @@ func RenderFixtureSize(screen string, width, height int) string {
 		return loadingApp.ViewSize(width, height)
 	case "rate_limit_toast":
 		app.runs = sampleRunsModel()
+		app.runsConfirmed = confirmedAt(nil, app.runs.Context.Runs, time.Now())
 		app.routes = []Route{RouteRuns}
 		app.pushToast("rate-limit", usecase.ResilienceFor(usecase.APIError{
 			Kind:       usecase.APIErrorRateLimit,
@@ -5014,6 +5017,7 @@ func (a App) screenBody(width, height int) string {
 			runsModel.LoadingLine = loadingLine(a.theme, load, bodyWidth, time.Now())
 		}
 		runsModel.Pace, runsModel.PaceAsOf = a.paceForRuns(runsModel)
+		runsModel.Stale = a.staleRuns(runsModel.Context.Runs, time.Now())
 		return runs.ViewSize(runsModel, bodyWidth, bodyHeight(height), time.Now())
 	case RouteDetail:
 		detailModel := a.detail

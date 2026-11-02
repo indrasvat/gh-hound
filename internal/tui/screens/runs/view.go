@@ -324,8 +324,11 @@ func summaryLine(st styles, summary Summary, hasMore bool) string {
 	line := colorize(st.fail, fmt.Sprintf("%d failing", summary.Failing)) +
 		" · " +
 		colorize(st.run, fmt.Sprintf("%d running", summary.Running)) +
-		" · " +
-		colorize(st.subtle, fmt.Sprintf("%d passed", summary.Passed))
+		" · "
+	if summary.Stale > 0 {
+		line += colorize(st.subtle, fmt.Sprintf("%d stale", summary.Stale)) + " · "
+	}
+	line += colorize(st.subtle, fmt.Sprintf("%d passed", summary.Passed))
 	if summary.Gated > 0 {
 		// The contextual gate affordance: A only acts on waiting runs,
 		// so it is advertised only while one is on screen.

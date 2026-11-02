@@ -44,6 +44,8 @@ type Summary struct {
 	Failing int
 	Running int
 	Passed  int
+	// Stale counts unfinished rows not read lately, kept out of Running.
+	Stale int
 	// Gated counts runs waiting on a deployment review. They are also
 	// part of Running (the run is live) — Gated only adds the gate
 	// affordance to the summary line.
@@ -87,6 +89,10 @@ type Model struct {
 	// PaceAsOf is when each running row was last confirmed; its mark is
 	// judged as of then, never past what a fetch saw.
 	PaceAsOf map[int64]time.Time
+	// Stale marks unfinished rows no fetch has returned lately; the
+	// summary counts them apart from running, since they may have
+	// finished unseen.
+	Stale map[int64]bool
 
 	// Loading state is transient render input set by the app from its
 	// pending load each frame — never persisted on the model, so a
@@ -280,6 +286,10 @@ func (m Model) Restore(filter string, scope usecase.LaunchScope) Model {
 func (m Model) Summary() Summary {
 	var summary Summary
 	for _, run := range m.filteredRuns() {
+		if isRunning(run) && m.Stale[run.ID] {
+			summary.Stale++
+			continue
+		}
 		if run.Status == model.StatusWaiting {
 			summary.Gated++
 		}
