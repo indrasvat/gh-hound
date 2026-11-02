@@ -50,9 +50,8 @@ type paceEntry struct {
 // paceJobEntry is a judged run's job and step baseline, and the run
 // baseline it was built on: a refreshed run baseline rebuilds it.
 type paceJobEntry struct {
-	baseline  usecase.PaceJobBaseline
-	runAt     time.Time
-	fetchedAt time.Time
+	baseline usecase.PaceJobBaseline
+	runAt    time.Time
 }
 
 // paceFetchState carries one baseline fetch. Pointer-held so the
@@ -63,8 +62,8 @@ type paceFetchState struct {
 	key      string
 	covered  map[int64]bool
 	baseline usecase.PaceBaseline
-	// jobKey marks a job baseline fetch, built on the run baseline of
-	// runAt.
+	// jobKey marks a job baseline fetch (stored under key, which is
+	// the same), built on the run baseline of runAt.
 	jobKey string
 	runAt  time.Time
 	jobs   usecase.PaceJobBaseline
@@ -196,22 +195,29 @@ func (a App) startPaceFetch() App {
 	if best >= 0 {
 		run := runs[best]
 		key := paceKey(repo, run)
-		ctx, cancel := context.WithCancel(context.Background())
 		covered := map[int64]bool{}
 		for _, id := range greenRuns(key, repo, runs) {
 			covered[id] = true
 		}
-		state := &paceFetchState{key: key, covered: covered, cancel: cancel}
-		a.paceFetch = state
-		resolver := a.paceResolver
-		go func() {
-			defer cancel()
-			baseline, err := resolver(ctx, run)
-			state.mu.Lock()
-			state.baseline, state.err, state.done = baseline, err, true
-			state.mu.Unlock()
-		}()
+		a = a.launchRunBaseline(key, covered, run)
 	}
+	return a
+}
+
+// launchRunBaseline starts the one fetch in flight: run's baseline,
+// stored under key with the green runs it already accounts for.
+func (a App) launchRunBaseline(key string, covered map[int64]bool, run model.Run) App {
+	ctx, cancel := context.WithCancel(context.Background())
+	state := &paceFetchState{key: key, covered: covered, cancel: cancel}
+	a.paceFetch = state
+	resolver := a.paceResolver
+	go func() {
+		defer cancel()
+		baseline, err := resolver(ctx, run)
+		state.mu.Lock()
+		state.baseline, state.err, state.done = baseline, err, true
+		state.mu.Unlock()
+	}()
 	return a
 }
 
@@ -226,10 +232,6 @@ func (a App) drainPaceFetch() (App, bool) {
 		return a, false
 	}
 	a.paceFetch = nil
-	failedKey := fetch.key
-	if fetch.jobKey != "" {
-		failedKey = fetch.jobKey
-	}
 	if errors.Is(fetch.err, context.Canceled) {
 		// Abandoned on purpose: no toast. Still report the change, or
 		// the caller keeps the finished fetch and no other ever starts.
@@ -238,7 +240,7 @@ func (a App) drainPaceFetch() (App, bool) {
 	if fetch.err != nil {
 		failed := make(map[string]time.Time, len(a.paceFailed)+1)
 		maps.Copy(failed, a.paceFailed)
-		failed[failedKey] = time.Now()
+		failed[fetch.key] = time.Now()
 		a.paceFailed = failed
 		if !a.paceWarned {
 			a.paceWarned = true
@@ -253,7 +255,7 @@ func (a App) drainPaceFetch() (App, bool) {
 	if fetch.jobKey != "" {
 		jobs := make(map[string]paceJobEntry, len(a.paceJobs)+1)
 		maps.Copy(jobs, a.paceJobs)
-		jobs[fetch.jobKey] = paceJobEntry{baseline: fetch.jobs, runAt: fetch.runAt, fetchedAt: time.Now()}
+		jobs[fetch.key] = paceJobEntry{baseline: fetch.jobs, runAt: fetch.runAt}
 		a.paceJobs = jobs
 		return a, true
 	}
@@ -469,24 +471,14 @@ func (a App) startDetailPaceFetch() App {
 		if recentlyFailed(key) {
 			return a
 		}
-		ctx, cancel := context.WithCancel(context.Background())
-		state := &paceFetchState{key: key, covered: map[int64]bool{}, cancel: cancel}
-		a.paceFetch = state
-		resolver := a.paceResolver
-		go func() {
-			defer cancel()
-			baseline, err := resolver(ctx, run)
-			state.mu.Lock()
-			state.baseline, state.err, state.done = baseline, err, true
-			state.mu.Unlock()
-		}()
-		return a
+		return a.launchRunBaseline(key, map[int64]bool{}, run)
 	}
-	if jobs, ok := a.paceJobs[jobKey]; ok && jobs.runAt.Equal(entry.fetchedAt) && now.Sub(jobs.fetchedAt) <= paceTTL || recentlyFailed(jobKey) {
+	// A job baseline lives as long as the run baseline it was built on.
+	if jobs, ok := a.paceJobs[jobKey]; ok && jobs.runAt.Equal(entry.fetchedAt) || recentlyFailed(jobKey) {
 		return a
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	state := &paceFetchState{key: key, jobKey: jobKey, runAt: entry.fetchedAt, cancel: cancel}
+	state := &paceFetchState{key: jobKey, jobKey: jobKey, runAt: entry.fetchedAt, cancel: cancel}
 	a.paceFetch = state
 	resolver, baseline := a.paceJobResolver, entry.baseline
 	go func() {

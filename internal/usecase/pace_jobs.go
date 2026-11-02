@@ -32,19 +32,14 @@ type PaceJobBaseline struct {
 
 // JobBaseline reads the jobs of b's runs, leaving out exclude (the
 // judged run): exactly min(Window, samples) listings, the same history
-// the run itself is judged against, so no second walk and no separate
-// fallback.
+// the run itself is judged against.
 func (s PaceService) JobBaseline(ctx context.Context, repo string, b PaceBaseline, exclude int64) (PaceJobBaseline, error) {
 	if s.Jobs == nil {
 		return PaceJobBaseline{}, fmt.Errorf("job pace is unavailable for this adapter")
 	}
-	window := b.Window
-	if window <= 0 {
-		window = DefaultPaceWindow
-	}
 	jb := PaceJobBaseline{BaselineBranch: b.BaselineBranch, Jobs: map[string][]time.Duration{}, Steps: map[string][]time.Duration{}}
 	for _, sample := range b.Samples {
-		if jb.Runs == window {
+		if jb.Runs == b.Window {
 			break
 		}
 		if sample.RunID == exclude {
@@ -124,16 +119,8 @@ type PaceItem struct {
 	P90        time.Duration
 	Ratio      float64
 	SampleSize int
-	Running    bool
-	HasETA     bool
-	ETA        time.Duration
 	// Slow: finished slow, or still running and already past the line.
 	Slow bool
-}
-
-// Thin is comparable work with too few samples to judge.
-func (a PaceItem) Thin() bool {
-	return a.Comparable && a.SampleSize > 0 && a.SampleSize < PaceMinSample
 }
 
 // Judged says the item has an estimate (p50 and p90).
@@ -169,7 +156,6 @@ func assessSpan(status model.Status, conclusion model.Conclusion, start, end tim
 	case start.IsZero():
 		return a
 	case status == model.StatusInProgress:
-		a.Running = true
 		a.Elapsed = max(now.Sub(start), 0).Truncate(time.Second)
 	case status == model.StatusCompleted && conclusion == model.ConclusionSuccess && !end.Before(start):
 		a.Elapsed = end.Sub(start).Truncate(time.Second)
@@ -187,8 +173,5 @@ func assessSpan(status model.Status, conclusion model.Conclusion, start, end tim
 		a.Ratio = math.Round(float64(a.Elapsed)/float64(a.P50)*100) / 100
 	}
 	a.Slow = a.Elapsed > a.P90 && float64(a.Elapsed) >= paceSlowRatio*float64(a.P50) && a.Elapsed-a.P50 >= floor
-	if a.Running && !a.Slow {
-		a.HasETA, a.ETA = true, max(a.P50-a.Elapsed, 0)
-	}
 	return a
 }

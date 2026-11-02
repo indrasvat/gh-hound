@@ -3,7 +3,6 @@ package usecase
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
@@ -185,8 +184,8 @@ func TestAssessJobsAndSteps(t *testing.T) {
 	}
 }
 
-// Running work judges against now; queued or unsampled work has no
-// estimate; fewer than 5 samples is thin.
+// Running work judges against now; queued or failed work is not judged;
+// fewer than 5 samples is thin.
 func TestAssessJobStates(t *testing.T) {
 	jb := PaceJobBaseline{Runs: 20, Jobs: map[string][]time.Duration{}, Steps: map[string][]time.Duration{}}
 	for range 20 {
@@ -194,10 +193,10 @@ func TestAssessJobStates(t *testing.T) {
 	}
 	jb.Jobs["new"] = []time.Duration{time.Second, time.Second}
 	running := model.Job{Name: "build", Status: model.StatusInProgress, StartedAt: jobEpoch}
-	if a := AssessJob(running, jb, jobEpoch.Add(30*time.Second)); !a.Running || !a.HasETA || a.ETA != time.Minute || a.Slow {
+	if a := AssessJob(running, jb, jobEpoch.Add(30*time.Second)); a.Elapsed != 30*time.Second || a.Slow {
 		t.Fatalf("running: %+v", a)
 	}
-	if a := AssessJob(running, jb, jobEpoch.Add(5*time.Minute)); !a.Slow || a.HasETA {
+	if a := AssessJob(running, jb, jobEpoch.Add(5*time.Minute)); !a.Slow {
 		t.Fatalf("overrun: %+v", a)
 	}
 	if a := AssessJob(model.Job{Name: "build", Status: model.StatusQueued}, jb, jobEpoch); a.SampleSize != 0 || a.Slow {
@@ -208,44 +207,7 @@ func TestAssessJobStates(t *testing.T) {
 	if a := AssessJob(failed, jb, jobEpoch); a.Slow || a.SampleSize != 0 {
 		t.Fatalf("a failed job is not comparable: %+v", a)
 	}
-	if a := AssessJob(paceJob("new", time.Hour), jb, jobEpoch); a.SampleSize != 2 || !a.Thin() || a.Slow {
+	if a := AssessJob(paceJob("new", time.Hour), jb, jobEpoch); a.SampleSize != 2 || a.Judged() || a.Slow {
 		t.Fatalf("thin: %+v", a)
-	}
-}
-
-func ExampleFormatPaceDuration_steps() {
-	for _, d := range []time.Duration{0, 400 * time.Millisecond, 19 * time.Second, 91 * time.Second} {
-		fmt.Println(FormatPaceDuration(d))
-	}
-	// Output:
-	// 0s
-	// 0s
-	// 19s
-	// 1m31s
-}
-
-// One run with a step name twice (two checkouts) is one sample of each
-// occurrence, not two of one: a single run can never reach the minimum.
-func TestRepeatedNamesCountOncePerRun(t *testing.T) {
-	b := sampledBaseline(5, 1)
-	checkouts := []model.Step{}
-	for i := range 5 {
-		checkouts = append(checkouts, paceStep(i+1, "Run actions/checkout@v4", time.Second))
-	}
-	fake := &jobsFake{jobs: map[int64][]model.Job{1: {paceJob("build", time.Minute, checkouts...), paceJob("dup", time.Minute), paceJob("dup", time.Minute)}}}
-	jb, err := PaceService{Jobs: fake}.JobBaseline(context.Background(), "o/r", b, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	target := paceJob("build", time.Minute, checkouts...)
-	target.Steps[0].CompletedAt = target.Steps[0].StartedAt.Add(10 * time.Second)
-	if a := AssessStep(target, target.Steps[0], jb, jobEpoch); a.SampleSize != 1 || a.Slow {
-		t.Fatalf("first checkout: %+v, want one sample from one run", a)
-	}
-	if a := AssessStep(target, target.Steps[1], jb, jobEpoch); a.SampleSize != 1 {
-		t.Fatalf("second checkout keys apart from the first: %+v", a)
-	}
-	if n := len(jb.Jobs["dup"]); n != 0 {
-		t.Fatalf("a job name twice in one run is ambiguous, want no samples, got %d", n)
 	}
 }

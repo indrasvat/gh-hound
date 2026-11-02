@@ -576,33 +576,17 @@ func duration(status model.Status, start, end, now time.Time) string {
 		if start.IsZero() || end.IsZero() || end.Before(start) {
 			return "—"
 		}
-		return formatDuration(end.Sub(start))
+		return usecase.FormatPaceDuration(end.Sub(start))
 	case model.StatusInProgress:
 		if start.IsZero() {
 			return "running"
 		}
-		return elapsed(max(now.Sub(start), 0))
+		return usecase.FormatPaceDuration(now.Sub(start))
 	case model.StatusWaiting:
 		return "waiting"
 	default:
 		return "queued"
 	}
-}
-
-// elapsed reads a running clock in whole seconds (`41s`, `12m40s`),
-// as the watch does.
-func elapsed(d time.Duration) string {
-	d = d.Truncate(time.Second)
-	if d < time.Minute {
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	}
-	return formatDuration(d)
-}
-
-// formatDuration is a measured duration in whole seconds: GitHub stamps
-// steps to the second, so a decimal would claim precision it lacks.
-func formatDuration(d time.Duration) string {
-	return usecase.FormatPaceDuration(d)
 }
 
 func statusSGR(st styles, status model.Status, conclusion model.Conclusion) string {
@@ -762,7 +746,7 @@ func paceLines(m Model, st styles, width int) []string {
 		return nil
 	case a.SampleSize == 0:
 		text = fmt.Sprintf("pace no trail · not in the last %d green runs", m.Pace.Runs)
-	case a.Thin():
+	case !a.Judged():
 		text = fmt.Sprintf("pace thin trail · %d green runs · needs %d for an estimate", a.SampleSize, usecase.PaceMinSample)
 	default:
 		measured := usecase.FormatPaceDuration(a.Elapsed)

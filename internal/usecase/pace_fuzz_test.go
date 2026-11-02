@@ -162,8 +162,7 @@ func FuzzPaceBaseline(f *testing.F) {
 }
 
 // FuzzAssessStep: a step flag always meets the step rule (5s floor),
-// elapsed is whole seconds, an ETA only for running work and never past
-// the median, and thin samples never judge.
+// elapsed is whole seconds, and thin samples never judge.
 func FuzzAssessStep(f *testing.F) {
 	f.Add([]byte{6, 0, 6, 0, 7, 0, 5, 0, 6, 0, 6, 0}, uint32(19), uint8(0))
 	f.Add([]byte{1, 0, 1, 0}, uint32(400), uint8(1))
@@ -185,14 +184,11 @@ func FuzzAssessStep(f *testing.F) {
 		if a.Elapsed%time.Second != 0 || a.Elapsed < 0 {
 			t.Fatalf("elapsed not whole seconds: %+v", a)
 		}
-		if !a.Judged() && (a.Slow || a.HasETA || a.P50 != 0) {
+		if !a.Judged() && (a.Slow || a.P50 != 0) {
 			t.Fatalf("judged without enough samples: %+v", a)
 		}
 		if a.Slow && !(a.Elapsed > a.P90 && float64(a.Elapsed) >= 1.5*float64(a.P50) && a.Elapsed-a.P50 >= 5*time.Second) {
 			t.Fatalf("flag breaks the step rule: %+v", a)
-		}
-		if a.HasETA && (!a.Running || a.Slow || a.ETA > a.P50) {
-			t.Fatalf("bad ETA: %+v", a)
 		}
 		if step.Conclusion == model.ConclusionSkipped && a.SampleSize != 0 {
 			t.Fatalf("a skipped step was judged: %+v", a)

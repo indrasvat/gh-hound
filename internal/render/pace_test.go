@@ -26,16 +26,25 @@ func fixturePaceResult() PaceResult {
 }
 
 func TestPaceJSONMatchesGolden(t *testing.T) {
-	var out bytes.Buffer
-	if err := WritePace(&out, FormatJSON, fixturePaceResult()); err != nil {
-		t.Fatal(err)
-	}
-	golden, err := os.ReadFile("testdata/pace.golden.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out.String() != string(golden) {
-		t.Fatalf("pace JSON drifted from testdata/pace.golden.json:\n%s", out.String())
+	steps := fixturePaceResult()
+	steps.Jobs, steps.Slow = fixturePaceJobs()
+	for golden, result := range map[string]PaceResult{"testdata/pace.golden.json": fixturePaceResult(), "testdata/pace_steps.golden.json": steps} {
+		var out bytes.Buffer
+		if err := WritePace(&out, FormatJSON, result); err != nil {
+			t.Fatal(err)
+		}
+		if os.Getenv("UPDATE_GOLDEN") == "1" {
+			if err := os.WriteFile(golden, out.Bytes(), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		want, err := os.ReadFile(golden)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out.String() != string(want) {
+			t.Fatalf("pace JSON drifted from %s:\n%s", golden, out.String())
+		}
 	}
 }
 
@@ -226,8 +235,8 @@ func fixturePaceJobs() (*[]PaceJob, *[]PaceSlow) {
 	return &jobs, &slow
 }
 
-// jobs and slow are absent unless asked for, and slow is [] (not
-// absent) when steps were judged and nothing ran slow.
+// slow is [] (not absent) when steps were judged and nothing ran slow;
+// pace.golden.json pins that both are absent unless asked for.
 func TestPaceJobsAndSlowShape(t *testing.T) {
 	encode := func(r PaceResult) map[string]any {
 		var out bytes.Buffer
@@ -239,9 +248,6 @@ func TestPaceJobsAndSlowShape(t *testing.T) {
 			t.Fatal(err)
 		}
 		return m
-	}
-	if m := encode(fixturePaceResult()); m["jobs"] != nil || m["slow"] != nil {
-		t.Fatalf("--no-steps must omit jobs and slow: %v", m)
 	}
 	none := fixturePaceResult()
 	none.Jobs, none.Slow = &[]PaceJob{}, &[]PaceSlow{}
@@ -262,26 +268,5 @@ func TestPaceJobsAndSlowShape(t *testing.T) {
 	}
 	if !strings.Contains(xmlOut.String(), `<item kind="step" job="build" step="go build ./..." number="5"`) || !strings.Contains(xmlOut.String(), `<job name="test (1.26)"`) {
 		t.Fatalf("xml jobs and slow:\n%s", xmlOut.String())
-	}
-}
-
-func TestPaceStepsJSONMatchesGolden(t *testing.T) {
-	result := fixturePaceResult()
-	result.Jobs, result.Slow = fixturePaceJobs()
-	var out bytes.Buffer
-	if err := WritePace(&out, FormatJSON, result); err != nil {
-		t.Fatal(err)
-	}
-	if os.Getenv("UPDATE_GOLDEN") == "1" {
-		if err := os.WriteFile("testdata/pace_steps.golden.json", out.Bytes(), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	golden, err := os.ReadFile("testdata/pace_steps.golden.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out.String() != string(golden) {
-		t.Fatalf("pace JSON with steps drifted from testdata/pace_steps.golden.json:\n%s", out.String())
 	}
 }

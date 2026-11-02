@@ -11,7 +11,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
-// paceJobs is jobs() with a slow green step 5 (18.7s against ~6s).
+// paceBaseline backs jobs(): its green step 5 (18.7s) is slow against ~6s.
 func paceBaseline(samples int) *usecase.PaceJobBaseline {
 	jb := &usecase.PaceJobBaseline{BaselineBranch: "fix/parser", Runs: samples, Jobs: map[string][]time.Duration{}, Steps: map[string][]time.Duration{}}
 	for i := range samples {
