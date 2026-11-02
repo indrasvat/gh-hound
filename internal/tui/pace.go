@@ -47,6 +47,14 @@ type paceEntry struct {
 	covered map[int64]bool
 }
 
+// paceJobEntry is a judged run's job and step baseline, and the run
+// baseline it was built on: a refreshed run baseline rebuilds it.
+type paceJobEntry struct {
+	baseline  usecase.PaceJobBaseline
+	runAt     time.Time
+	fetchedAt time.Time
+}
+
 // paceFetchState carries one baseline fetch. Pointer-held so the
 // goroutine's result survives App value copies; drained on poll ticks
 // and keypresses (flakes precedent). One rides at a time.
@@ -55,9 +63,14 @@ type paceFetchState struct {
 	key      string
 	covered  map[int64]bool
 	baseline usecase.PaceBaseline
-	err      error
-	done     bool
-	cancel   context.CancelFunc
+	// jobKey marks a job baseline fetch, built on the run baseline of
+	// runAt.
+	jobKey string
+	runAt  time.Time
+	jobs   usecase.PaceJobBaseline
+	err    error
+	done   bool
+	cancel context.CancelFunc
 }
 
 // paceActive: on in config and not hidden with p this session. Off
@@ -77,6 +90,12 @@ func paceKey(repo string, run model.Run) string {
 	if !running && !green {
 		return ""
 	}
+	return workflowKey(repo, run)
+}
+
+// workflowKey is paceKey whatever the run's outcome: a failed run's
+// green jobs and steps are still judged against its workflow's history.
+func workflowKey(repo string, run model.Run) string {
 	workflow := run.Path
 	if workflow == "" && run.WorkflowID != 0 {
 		workflow = strconv.FormatInt(run.WorkflowID, 10)
@@ -143,6 +162,9 @@ func (a App) startPaceFetch() App {
 	if !a.paceActive() || a.paceFetch != nil {
 		return a
 	}
+	if a.Route() == RouteDetail {
+		return a.startDetailPaceFetch()
+	}
 	repo, runs, selected := a.paceScope()
 	now := time.Now()
 	best, bestRank := -1, 0
@@ -204,6 +226,10 @@ func (a App) drainPaceFetch() (App, bool) {
 		return a, false
 	}
 	a.paceFetch = nil
+	failedKey := fetch.key
+	if fetch.jobKey != "" {
+		failedKey = fetch.jobKey
+	}
 	if errors.Is(fetch.err, context.Canceled) {
 		// Abandoned on purpose: no toast. Still report the change, or
 		// the caller keeps the finished fetch and no other ever starts.
@@ -212,7 +238,7 @@ func (a App) drainPaceFetch() (App, bool) {
 	if fetch.err != nil {
 		failed := make(map[string]time.Time, len(a.paceFailed)+1)
 		maps.Copy(failed, a.paceFailed)
-		failed[fetch.key] = time.Now()
+		failed[failedKey] = time.Now()
 		a.paceFailed = failed
 		if !a.paceWarned {
 			a.paceWarned = true
@@ -222,6 +248,13 @@ func (a App) drainPaceFetch() (App, bool) {
 				Message:  "could not read recent green runs; durations show without estimates",
 			})
 		}
+		return a, true
+	}
+	if fetch.jobKey != "" {
+		jobs := make(map[string]paceJobEntry, len(a.paceJobs)+1)
+		maps.Copy(jobs, a.paceJobs)
+		jobs[fetch.jobKey] = paceJobEntry{baseline: fetch.jobs, runAt: fetch.runAt, fetchedAt: time.Now()}
+		a.paceJobs = jobs
 		return a, true
 	}
 	baselines := make(map[string]paceEntry, len(a.paceBaselines)+1)
@@ -257,7 +290,7 @@ func (a App) paceFor(repo string, runs []model.Run) map[int64]usecase.PaceBaseli
 
 func (a App) paceScreen() bool {
 	switch a.footerScreen() {
-	case keys.ScreenRunsList, keys.ScreenAllGreen, keys.ScreenWatch, keys.ScreenWatchDone, keys.ScreenWatchBoard:
+	case keys.ScreenRunsList, keys.ScreenAllGreen, keys.ScreenDetail, keys.ScreenWatch, keys.ScreenWatchDone, keys.ScreenWatchBoard:
 		return true
 	}
 	return false
@@ -405,4 +438,77 @@ func refreshUnfinished(ctx context.Context, refresher func(context.Context, int6
 		kept = append(kept, run)
 	}
 	return kept, dropped, tried
+}
+
+// detailPaceKey is the detail run's job baseline identity: its workflow
+// key and the run itself, which its baseline leaves out.
+func (a App) detailPaceKey() (string, string) {
+	key := workflowKey(a.detail.Repo, a.detail.Run)
+	if key == "" {
+		return "", ""
+	}
+	return key, key + "#" + strconv.FormatInt(a.detail.Run.ID, 10)
+}
+
+// startDetailPaceFetch serves the open detail run: its run baseline
+// first, then its job baseline built on it. Missing or past paceTTL, or
+// built on an older run baseline; a failed key waits paceTTL.
+func (a App) startDetailPaceFetch() App {
+	key, jobKey := a.detailPaceKey()
+	if key == "" || a.paceJobResolver == nil {
+		return a
+	}
+	now := time.Now()
+	recentlyFailed := func(k string) bool {
+		failed, ok := a.paceFailed[k]
+		return ok && now.Sub(failed) < paceTTL
+	}
+	run := a.detail.Run
+	entry, ok := a.paceBaselines[key]
+	if !ok || now.Sub(entry.fetchedAt) > paceTTL {
+		if recentlyFailed(key) {
+			return a
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		state := &paceFetchState{key: key, covered: map[int64]bool{}, cancel: cancel}
+		a.paceFetch = state
+		resolver := a.paceResolver
+		go func() {
+			defer cancel()
+			baseline, err := resolver(ctx, run)
+			state.mu.Lock()
+			state.baseline, state.err, state.done = baseline, err, true
+			state.mu.Unlock()
+		}()
+		return a
+	}
+	if jobs, ok := a.paceJobs[jobKey]; ok && jobs.runAt.Equal(entry.fetchedAt) && now.Sub(jobs.fetchedAt) <= paceTTL || recentlyFailed(jobKey) {
+		return a
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	state := &paceFetchState{key: key, jobKey: jobKey, runAt: entry.fetchedAt, cancel: cancel}
+	a.paceFetch = state
+	resolver, baseline := a.paceJobResolver, entry.baseline
+	go func() {
+		defer cancel()
+		jobs, err := resolver(ctx, run, baseline)
+		state.mu.Lock()
+		state.jobs, state.err, state.done = jobs, err, true
+		state.mu.Unlock()
+	}()
+	return a
+}
+
+// detailPace is the open detail run's job baseline; nil when Pace is
+// off or it has not arrived.
+func (a App) detailPace() *usecase.PaceJobBaseline {
+	if !a.paceActive() {
+		return nil
+	}
+	_, jobKey := a.detailPaceKey()
+	entry, ok := a.paceJobs[jobKey]
+	if !ok {
+		return nil
+	}
+	return &entry.baseline
 }

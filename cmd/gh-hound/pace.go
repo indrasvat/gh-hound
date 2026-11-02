@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/indrasvat/gh-hound/internal/adapter/fake"
@@ -195,4 +196,34 @@ func paceRunResult(run model.Run, a usecase.PaceAssessment) *render.PaceRun {
 
 func wholeSeconds(d time.Duration) int64 {
 	return int64(d.Round(time.Second) / time.Second)
+}
+
+// sessionJobs caches job listings per run for the session: Pace only
+// lists finished sample runs, whose jobs never change, so a refreshed
+// baseline lists only its new runs.
+type sessionJobs struct {
+	lister usecase.PaceJobLister
+	mu     sync.Mutex
+	jobs   map[int64][]model.Job
+}
+
+func newSessionJobs(lister usecase.PaceJobLister) *sessionJobs {
+	return &sessionJobs{lister: lister, jobs: map[int64][]model.Job{}}
+}
+
+func (c *sessionJobs) ListJobs(ctx context.Context, repo string, runID int64) ([]model.Job, error) {
+	c.mu.Lock()
+	jobs, ok := c.jobs[runID]
+	c.mu.Unlock()
+	if ok {
+		return jobs, nil
+	}
+	jobs, err := c.lister.ListJobs(ctx, repo, runID)
+	if err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	c.jobs[runID] = jobs
+	c.mu.Unlock()
+	return jobs, nil
 }

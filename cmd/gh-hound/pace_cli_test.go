@@ -2,12 +2,16 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/indrasvat/gh-hound/internal/adapter/fake"
+	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
 func runPaceCommand(t *testing.T, env map[string]string, args ...string) (int, string) {
@@ -178,5 +182,30 @@ func TestPaceSmallWindowStillJudges(t *testing.T) {
 	decoded, _ := decodePace(t, out)
 	if code != 1 || decoded["status"] != "slow" || decoded["sample_size"].(float64) != 5 {
 		t.Fatalf("exit %d status %v sample %v, want 1, slow, 5\n%s", code, decoded["status"], decoded["sample_size"], out)
+	}
+}
+
+type countingJobs struct{ calls int }
+
+func (c *countingJobs) ListJobs(context.Context, string, int64) ([]model.Job, error) {
+	c.calls++
+	return nil, nil
+}
+
+// A refreshed baseline lists only the runs it has not read this session.
+func TestSessionJobsListsEachRunOnce(t *testing.T) {
+	counter := &countingJobs{}
+	jobs := newSessionJobs(counter)
+	b := usecase.PaceBaseline{Window: 5}
+	for i := int64(1); i <= 6; i++ {
+		b.Samples = append(b.Samples, usecase.PaceSample{RunID: i, Duration: time.Minute})
+	}
+	service := usecase.PaceService{Jobs: jobs}
+	if _, err := service.JobBaseline(context.Background(), "o/r", b, 0); err != nil || counter.calls != 5 {
+		t.Fatalf("first build: %d listings, err %v", counter.calls, err)
+	}
+	b.Samples = append([]usecase.PaceSample{{RunID: 7, Duration: time.Minute}}, b.Samples...)
+	if _, err := service.JobBaseline(context.Background(), "o/r", b, 0); err != nil || counter.calls != 6 {
+		t.Fatalf("refresh with one new run: %d listings in all, want 6", counter.calls)
 	}
 }

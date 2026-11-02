@@ -104,6 +104,9 @@ type Options struct {
 	DiffResolver              func(context.Context, model.Run) (usecase.RegressionVerdict, error)
 	FlakesResolver            func(context.Context, model.Run) (usecase.FlakeReport, error)
 	PaceResolver              func(context.Context, model.Run) (usecase.PaceBaseline, error)
+	// PaceJobResolver builds a run's job and step baseline on its run
+	// baseline (the detail view).
+	PaceJobResolver func(context.Context, model.Run, usecase.PaceBaseline) (usecase.PaceJobBaseline, error)
 	// RunRefresher re-reads one run by ID: the runs poll uses it for
 	// unfinished rows that have slid past page 1.
 	RunRefresher       func(context.Context, int64) (model.Run, error)
@@ -215,8 +218,11 @@ type App struct {
 	// paceFailed holds keys whose fetch failed, retried after paceTTL.
 	paceResolver  func(context.Context, model.Run) (usecase.PaceBaseline, error)
 	paceBaselines map[string]paceEntry
-	paceFailed    map[string]time.Time
-	paceFetch     *paceFetchState
+	// paceJobs holds job baselines per workflow key and judged run.
+	paceJobResolver func(context.Context, model.Run, usecase.PaceBaseline) (usecase.PaceJobBaseline, error)
+	paceJobs        map[string]paceJobEntry
+	paceFailed      map[string]time.Time
+	paceFetch       *paceFetchState
 	// runRefresher re-reads unfinished rows the page-1 poll no longer
 	// returns; runsConfirmed is when a fetch last returned each run's
 	// snapshot, runsTried when one was last asked for.
@@ -608,6 +614,7 @@ func NewApp(options Options) App {
 		diffResolver:              options.DiffResolver,
 		flakesResolver:            options.FlakesResolver,
 		paceResolver:              options.PaceResolver,
+		paceJobResolver:           options.PaceJobResolver,
 		runRefresher:              options.RunRefresher,
 		runsConfirmed:             confirmedAt(nil, slices.Concat(launch.Runs, launch.BranchRuns, launch.RepoRuns), time.Now()),
 		queueResolver:             options.QueueResolver,
@@ -5026,6 +5033,7 @@ func (a App) screenBody(width, height int) string {
 	case RouteDetail:
 		detailModel := a.detail
 		detailModel.Theme = a.theme
+		detailModel.Pace, detailModel.PaceHint = a.detailPace(), a.config.Pace && a.paceJobResolver != nil
 		if load := a.load; load != nil && load.kind == loadKindDetail {
 			detailModel.Loading = true
 			detailModel.LoadingLine = loadingLine(a.theme, load, bodyWidth/2, time.Now())

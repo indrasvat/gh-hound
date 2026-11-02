@@ -1555,6 +1555,7 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 		PerPage: cfg.PerPage,
 		Actor:   actor,
 	})
+	paceJobs := newSessionJobs(githubClient)
 	return tui.NewApp(tui.Options{
 		Config:  cfg,
 		Keymap:  keymap,
@@ -1739,6 +1740,9 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			history, _ := githubClient.(usecase.WorkflowRunHistory)
 			service := usecase.PaceService{History: history, Window: cfg.PaceWindow, PerPage: usecase.DiffPerPage}
 			return service.Baseline(loadCtx, launch.Repo, workflowSelectorForRun(run), run.HeadBranch, run.Event)
+		},
+		PaceJobResolver: func(loadCtx context.Context, run model.Run, b usecase.PaceBaseline) (usecase.PaceJobBaseline, error) {
+			return usecase.PaceService{Jobs: paceJobs}.JobBaseline(loadCtx, launch.Repo, b, run.ID)
 		},
 		QueueResolver: func(loadCtx context.Context, run model.Run) (model.ConcurrencyReport, error) {
 			concurrency, ok := githubClient.(usecase.GitHubConcurrency)
