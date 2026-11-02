@@ -49,6 +49,7 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "enter", Display: "⏎", Action: "open", Help: "open", ShowInFooter: true},
 		{Key: "w", Action: "watch", Help: "watch", ShowInFooter: true},
 		{Key: "D", Action: "dispatch", Help: "dispatch", ShowInFooter: true},
+		{Key: "p", Action: "pace_toggle", Help: "pace (ETA, slow marks)", ShowInFooter: false},
 		{Key: "/", Action: "filter", Help: "filter", ShowInFooter: true},
 		{Key: "?", Action: "help", Help: "help", ShowInFooter: true},
 	},

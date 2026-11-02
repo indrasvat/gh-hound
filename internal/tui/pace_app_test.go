@@ -518,3 +518,32 @@ func TestPaceAndRefreshesStayNearTheSelection(t *testing.T) {
 		t.Fatalf("%d baselines for a 200-row list, want only rows near the selection", spy.total())
 	}
 }
+
+// The all-green home shows slow marks and keeps fetching, so p must
+// work there too: hidden while a run was live, Pace has to come back
+// once the list turns all green.
+func TestPaceToggleWorksOnTheAllGreenHome(t *testing.T) {
+	spy := newPaceSpy()
+	app := pacedApp(t, spy, config.Default())
+	app.runs = runs.NewModel(usecase.LaunchContext{Repo: "o/r", Branch: "main", State: usecase.LaunchStateRuns, Runs: []model.Run{
+		paceRow(599, ".github/workflows/ci.yml", "main", "push", model.StatusCompleted, model.ConclusionSuccess, 571*time.Second),
+		paceRow(597, ".github/workflows/ci.yml", "main", "push", model.StatusCompleted, model.ConclusionSuccess, 240*time.Second),
+	}})
+	app = settlePace(t, app)
+	if app.footerScreen() != keys.ScreenAllGreen {
+		t.Fatalf("screen = %s, want the all-green home", app.footerScreen())
+	}
+	if view := ansi.Strip(app.ViewSize(120, 30)); !strings.Contains(view, "↑ 9m31s") {
+		t.Fatalf("the all-green home must carry the slow mark:\n%s", view)
+	}
+	app, handled := app.Update(KeyMsg{Key: "p"})
+	if !handled || !app.paceHidden {
+		t.Fatalf("p on the all-green home: handled=%v hidden=%v", handled, app.paceHidden)
+	}
+	if view := ansi.Strip(app.ViewSize(120, 30)); strings.Contains(view, "↑") {
+		t.Fatalf("pace off must hide the slow mark:\n%s", view)
+	}
+	if app, _ = app.Update(KeyMsg{Key: "p"}); app.paceHidden {
+		t.Fatal("p again must bring Pace back on the all-green home")
+	}
+}

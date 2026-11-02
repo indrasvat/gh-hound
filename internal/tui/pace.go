@@ -257,7 +257,7 @@ func (a App) paceFor(repo string, runs []model.Run) map[int64]usecase.PaceBaseli
 
 func (a App) paceScreen() bool {
 	switch a.footerScreen() {
-	case keys.ScreenRunsList, keys.ScreenWatch, keys.ScreenWatchDone, keys.ScreenWatchBoard:
+	case keys.ScreenRunsList, keys.ScreenAllGreen, keys.ScreenWatch, keys.ScreenWatchDone, keys.ScreenWatchBoard:
 		return true
 	}
 	return false
