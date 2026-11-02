@@ -262,7 +262,7 @@ unset NO_COLOR
 RUNNER
   chmod +x "$runner"
   shux session kill "$session" >/dev/null 2>&1 || true
-  shux session create "$session" -d --cwd "$root" --title "hound ia ${scenario}" -- "$runner" >/dev/null
+  pane="$(shux --format json session create "$session" -d --cwd "$root" --title "hound ia ${scenario}" -- "$runner" | python3 -c 'import json, sys; print(json.load(sys.stdin)["pane_id"])')"
   cleanup() {
     shux session kill "$session" >/dev/null 2>&1 || true
     rm -f "$runner"
@@ -273,7 +273,15 @@ RUNNER
   sleep 0.1
   for key in $(keys_for "$scenario"); do
     send_key "$session" "$key"
-    sleep 0.08
+    case "$key" in
+      # enter opens detail and l fetches a log: let the load land, or the
+      # next key reaches a screen it was not meant for. Bounded, since a
+      # spinner never goes quiet.
+      enter | l) shux pane wait-settled "$pane" --quiet 150ms --timeout 2s >/dev/null || true ;;
+      # Live screens (the hunt board polls a moving fake) keep the short
+      # gap, or they move on before the capture.
+      *) sleep 0.08 ;;
+    esac
   done
   needle="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["contains"][0])' "$assertion")"
   shux pane wait-for -s "$session" --text "$needle" --timeout-ms 20000 >/dev/null

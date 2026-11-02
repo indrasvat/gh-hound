@@ -70,7 +70,7 @@ func New(scenario Scenario) *Adapter {
 }
 
 func (a *Adapter) ListRuns(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
-	runs, err := a.listScenarioRuns()
+	runs, err := a.listScenarioRuns(true)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,10 @@ func filterFixtureRuns(runs []model.Run, filter usecase.RunFilter) []model.Run {
 	return out[start:min(start+filter.PerPage, len(out))]
 }
 
-func (a *Adapter) listScenarioRuns() ([]model.Run, error) {
+// listScenarioRuns is the scenario's runs. advance is true only for a
+// runs-list call, the one call that moves the pack along; other reads
+// only look.
+func (a *Adapter) listScenarioRuns(advance bool) ([]model.Run, error) {
 	switch a.scenario {
 	case ScenarioGreen:
 		return []model.Run{greenRun(571), greenRun(570), greenRun(569)}, nil
@@ -132,7 +135,7 @@ func (a *Adapter) listScenarioRuns() ([]model.Run, error) {
 	case ScenarioRegression:
 		return regressionHistory(), nil
 	case ScenarioPack:
-		return a.packRuns(), nil
+		return a.packRuns(advance), nil
 	case ScenarioFlaky:
 		return flakyHistory(), nil
 	case ScenarioPaced:
@@ -172,8 +175,8 @@ func (a *Adapter) listScenarioRuns() ([]model.Run, error) {
 	}
 }
 
-func (a *Adapter) GetRun(ctx context.Context, repo string, runID int64) (model.Run, error) {
-	runs, err := a.ListRuns(ctx, usecase.RunFilter{Repo: repo})
+func (a *Adapter) GetRun(_ context.Context, repo string, runID int64) (model.Run, error) {
+	runs, err := a.listScenarioRuns(false)
 	if err != nil {
 		return model.Run{}, err
 	}
@@ -661,10 +664,12 @@ const packSHA = "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432"
 //	tick 2: CI home    · Release running · Docs queued
 //	tick 3: CI home    · Release home    · Docs running
 //	tick 4+: CI home   · Release home    · Docs lost (failure)
-func (a *Adapter) packRuns() []model.Run {
+func (a *Adapter) packRuns(advance bool) []model.Run {
 	a.packMu.Lock()
-	a.packTicks++
-	tick := min(a.packTicks, 4)
+	if advance {
+		a.packTicks++
+	}
+	tick := min(max(a.packTicks, 1), 4)
 	a.packMu.Unlock()
 
 	// Now-relative clocks keep the board's elapsed column reading
@@ -808,7 +813,7 @@ func (a *Adapter) ListWorkflowRuns(_ context.Context, _ string, _ string, filter
 	if filter.Page > 1 {
 		return []model.Run{}, nil
 	}
-	runs, err := a.listScenarioRuns()
+	runs, err := a.listScenarioRuns(false)
 	if err != nil {
 		return nil, err
 	}
