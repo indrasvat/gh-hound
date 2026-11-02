@@ -86,13 +86,13 @@ type PaceStep struct {
 
 // PaceSlow lists one slow job or step, the summary agents act on.
 type PaceSlow struct {
-	Kind           string  `json:"kind" xml:"kind,attr"`
-	Job            string  `json:"job" xml:"job,attr"`
-	Step           string  `json:"step,omitempty" xml:"step,attr,omitempty"`
-	Number         int     `json:"number,omitempty" xml:"number,attr,omitempty"`
-	ElapsedSeconds int64   `json:"elapsed_seconds" xml:"elapsed_seconds,attr"`
-	P50Seconds     int64   `json:"p50_seconds" xml:"p50_seconds,attr"`
-	Ratio          float64 `json:"ratio" xml:"ratio,attr"`
+	Kind           string   `json:"kind" xml:"kind,attr"`
+	Job            string   `json:"job" xml:"job,attr"`
+	Step           string   `json:"step,omitempty" xml:"step,attr,omitempty"`
+	Number         int      `json:"number,omitempty" xml:"number,attr,omitempty"`
+	ElapsedSeconds int64    `json:"elapsed_seconds" xml:"elapsed_seconds,attr"`
+	P50Seconds     int64    `json:"p50_seconds" xml:"p50_seconds,attr"`
+	Ratio          *float64 `json:"ratio" xml:"ratio,attr,omitempty"`
 }
 
 // PaceError is the typed refusal for exit 2, in the APIError taxonomy.
@@ -175,7 +175,7 @@ func writePaceMarkdown(w io.Writer, result PaceResult) error {
 		if slow.Kind == "step" {
 			step = fmt.Sprintf("%d %s", slow.Number, slow.Step)
 		}
-		if _, err := fmt.Fprintf(w, "| %s | %s | %s | %ds | %ds | %.2f× |\n", slow.Kind, slow.Job, step, slow.ElapsedSeconds, slow.P50Seconds, slow.Ratio); err != nil {
+		if _, err := fmt.Fprintf(w, "| %s | %s | %s | %ds | %ds | %s |\n", slow.Kind, slow.Job, step, slow.ElapsedSeconds, slow.P50Seconds, ratioCell(slow.Ratio)); err != nil {
 			return err
 		}
 	}

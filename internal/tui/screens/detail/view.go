@@ -757,8 +757,12 @@ func paceLines(m Model, st styles, width int) []string {
 		if branch == "" {
 			branch = "any branch"
 		}
-		text = fmt.Sprintf("pace %s vs p50 %s · p90 %s · %.1f× · %d runs · %s", measured,
-			usecase.FormatPaceDuration(a.P50), usecase.FormatPaceDuration(a.P90), a.Ratio, a.SampleSize, branch)
+		ratio := ""
+		if a.P50 > 0 {
+			ratio = fmt.Sprintf(" · %.1f×", a.Ratio)
+		}
+		text = fmt.Sprintf("pace %s vs p50 %s · p90 %s%s · %d runs · %s", measured,
+			usecase.FormatPaceDuration(a.P50), usecase.FormatPaceDuration(a.P90), ratio, a.SampleSize, branch)
 	}
 	return []string{fitANSI("  "+colorize(st.dim, text), width)}
 }

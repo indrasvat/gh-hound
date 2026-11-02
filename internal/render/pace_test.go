@@ -231,7 +231,7 @@ func fixturePaceJobs() (*[]PaceJob, *[]PaceSlow) {
 			}},
 		{Name: "test (1.26)", Status: "in_progress", Conclusion: "", ElapsedSeconds: new(int64(40)), SampleSize: 3, Steps: []PaceStep{}},
 	}
-	slow := []PaceSlow{{Kind: "step", Job: "build", Step: "go build ./...", Number: 5, ElapsedSeconds: 19, P50Seconds: 6, Ratio: 3.17}}
+	slow := []PaceSlow{{Kind: "step", Job: "build", Step: "go build ./...", Number: 5, ElapsedSeconds: 19, P50Seconds: 6, Ratio: new(3.17)}}
 	return &jobs, &slow
 }
 

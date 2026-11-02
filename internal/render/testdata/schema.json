@@ -1438,7 +1438,7 @@
         "number",
         "null"
        ],
-       "description": "elapsed over p50"
+       "description": "elapsed over p50; null when p50 is 0"
       },
       "slow": {
        "type": "boolean"
@@ -1619,7 +1619,11 @@
         "minimum": 0
        },
        "ratio": {
-        "type": "number"
+        "type": [
+         "number",
+         "null"
+        ],
+        "description": "elapsed over p50; null when p50 is 0"
        }
       }
      }

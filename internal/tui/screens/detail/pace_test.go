@@ -158,3 +158,15 @@ func TestDetailPaceLineGivesWayWhenTight(t *testing.T) {
 		}
 	}
 }
+
+// A step that usually takes 0s has no ratio; 0.0× would read as measured.
+func TestDetailPaceLineOmitsAnUndefinedRatio(t *testing.T) {
+	m := pacedModel(20)
+	for i := range m.Pace.Steps["build\x00go build ./..."] {
+		m.Pace.Steps["build\x00go build ./..."][i] = 0
+	}
+	view := ansi.Strip(View(m, 120))
+	if !strings.Contains(view, "pace ↑ 18s vs p50 0s · p90 0s · 20 runs") || strings.Contains(view, "×") {
+		t.Fatalf("a zero p50 must drop the ratio:\n%s", view)
+	}
+}

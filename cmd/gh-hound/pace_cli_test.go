@@ -12,6 +12,7 @@ import (
 
 	"github.com/indrasvat/gh-hound/internal/adapter/fake"
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/render"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -256,5 +257,28 @@ func TestPaceNoStepsOmitsJobsAndSlow(t *testing.T) {
 	_, out = runPaceCommand(t, nil, "--json", "--fake-scenario", "paced", "--run", pacedRunID(fake.PacedOnPaceNumber))
 	if !strings.Contains(out, `"slow": []`) {
 		t.Fatalf("an on-pace run must say slow: []:\n%s", out)
+	}
+}
+
+// A step that usually takes 0s is still judged, but its ratio is null,
+// never a measured-looking 0.
+func TestPaceZeroMedianRatioIsNull(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	job := model.Job{Name: "build", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, StartedAt: start, CompletedAt: start.Add(10 * time.Second),
+		Steps: []model.Step{{Number: 1, Name: "wait", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, StartedAt: start, CompletedAt: start.Add(10 * time.Second)}}}
+	jb := usecase.PaceJobBaseline{Runs: 5, Jobs: map[string][]time.Duration{}, Steps: map[string][]time.Duration{"build\x00wait": make([]time.Duration, 5)}}
+	jobs, slow := paceJobsResult([]model.Job{job}, jb, start.Add(time.Minute))
+	if len(*slow) != 1 || (*slow)[0].Ratio != nil {
+		t.Fatalf("slow = %+v, want the step with a null ratio", *slow)
+	}
+	if r := (*jobs)[0].Steps[0].Ratio; r != nil {
+		t.Fatalf("step ratio = %v, want nil", *r)
+	}
+	var md strings.Builder
+	if err := render.WritePace(&md, render.FormatMarkdown, render.PaceResult{Status: "slow", Slow: slow}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(md.String(), "0.00×") {
+		t.Fatalf("markdown printed a zero ratio:\n%s", md.String())
 	}
 }

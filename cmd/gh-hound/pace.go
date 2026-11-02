@@ -203,7 +203,7 @@ func paceRunResult(run model.Run, a usecase.PaceAssessment) *render.PaceRun {
 	if a.Status != usecase.PaceInsufficient && a.Status != usecase.PaceNotComparable {
 		out.P50Seconds = new(wholeSeconds(a.P50))
 		out.P90Seconds = new(wholeSeconds(a.P90))
-		out.Ratio = new(a.Ratio)
+		out.Ratio = paceRatio(a.P50, a.Ratio)
 	}
 	return out
 }
@@ -218,7 +218,7 @@ func paceJobsResult(jobs []model.Job, jb usecase.PaceJobBaseline, now time.Time)
 		out.ElapsedSeconds = spanSeconds(job.Status, job.StartedAt, job.CompletedAt, now)
 		out.P50Seconds, out.P90Seconds, out.Ratio = paceFigures(a)
 		if a.Slow {
-			slow = append(slow, render.PaceSlow{Kind: "job", Job: job.Name, ElapsedSeconds: wholeSeconds(a.Elapsed), P50Seconds: wholeSeconds(a.P50), Ratio: a.Ratio})
+			slow = append(slow, render.PaceSlow{Kind: "job", Job: job.Name, ElapsedSeconds: wholeSeconds(a.Elapsed), P50Seconds: wholeSeconds(a.P50), Ratio: paceRatio(a.P50, a.Ratio)})
 		}
 		for i, step := range job.Steps {
 			sa := usecase.AssessStep(job, i, jb, now)
@@ -227,7 +227,7 @@ func paceJobsResult(jobs []model.Job, jb usecase.PaceJobBaseline, now time.Time)
 			ps.P50Seconds, ps.P90Seconds, ps.Ratio = paceFigures(sa)
 			out.Steps = append(out.Steps, ps)
 			if sa.Slow {
-				slow = append(slow, render.PaceSlow{Kind: "step", Job: job.Name, Step: step.Name, Number: step.Number, ElapsedSeconds: wholeSeconds(sa.Elapsed), P50Seconds: wholeSeconds(sa.P50), Ratio: sa.Ratio})
+				slow = append(slow, render.PaceSlow{Kind: "step", Job: job.Name, Step: step.Name, Number: step.Number, ElapsedSeconds: wholeSeconds(sa.Elapsed), P50Seconds: wholeSeconds(sa.P50), Ratio: paceRatio(sa.P50, sa.Ratio)})
 			}
 		}
 		outJobs = append(outJobs, out)
@@ -254,7 +254,15 @@ func paceFigures(a usecase.PaceItem) (p50, p90 *int64, ratio *float64) {
 	if !a.Judged() {
 		return nil, nil, nil
 	}
-	return new(wholeSeconds(a.P50)), new(wholeSeconds(a.P90)), new(a.Ratio)
+	return new(wholeSeconds(a.P50)), new(wholeSeconds(a.P90)), paceRatio(a.P50, a.Ratio)
+}
+
+// paceRatio is nil when the median is 0s: there is nothing to divide by.
+func paceRatio(p50 time.Duration, ratio float64) *float64 {
+	if p50 <= 0 {
+		return nil
+	}
+	return new(ratio)
 }
 
 func wholeSeconds(d time.Duration) int64 {
