@@ -49,18 +49,25 @@ func TestSummaryCountsOnlyRecentlyReadRowsAsRunning(t *testing.T) {
 	}
 }
 
-// Launch fetches both scopes; s straight after must not call the repo
-// rows stale.
+// Launch reads the branch, then the repo. Both are fresh reads, and the
+// later one wins: s straight after launch shows no stale repo rows, and
+// a branch row the repo read saw finish is not counted as running.
 func TestSummaryTrustsBothScopesFetchedAtLaunch(t *testing.T) {
 	cfg := config.Default()
 	cfg.Welcome = false
-	branchRun := paceRow(600, ".github/workflows/ci.yml", "main", "push", model.StatusInProgress, model.ConclusionNone, 0)
+	branchRun := paceRow(600, ".github/workflows/ci.yml", "main", "push", model.StatusQueued, model.ConclusionNone, 0)
 	repoRun := paceRow(601, ".github/workflows/ci.yml", "feat/x", "push", model.StatusInProgress, model.ConclusionNone, 0)
-	launch := usecase.LaunchContext{Repo: "o/r", Branch: "main", State: usecase.LaunchStateRuns, Scope: usecase.LaunchScopeRepo,
-		Runs: []model.Run{repoRun, branchRun}, BranchRuns: []model.Run{branchRun}, RepoRuns: []model.Run{repoRun, branchRun}}
+	finished := branchRun
+	finished.Status, finished.Conclusion = model.StatusCompleted, model.ConclusionSuccess
+	launch := usecase.LaunchContext{Repo: "o/r", Branch: "main", State: usecase.LaunchStateRuns, Scope: usecase.LaunchScopeBranch,
+		Runs: []model.Run{branchRun}, BranchRuns: []model.Run{branchRun}, RepoRuns: []model.Run{repoRun, finished}}
 	app := NewApp(Options{Config: cfg, Launch: launch})
-	if stale := app.staleRuns(app.runs.Context.RepoRuns, time.Now()); len(stale) != 0 {
-		t.Fatalf("rows fetched at launch read stale: %v", stale)
+	now := time.Now()
+	if stale := app.staleRuns(launch.RepoRuns, now); len(stale) != 0 {
+		t.Fatalf("repo rows fetched at launch read stale: %v", stale)
+	}
+	if !app.staleRuns(launch.BranchRuns, now)[600] {
+		t.Fatal("the branch copy of a run the later repo read saw finish must not count as running")
 	}
 }
 
@@ -104,5 +111,21 @@ func TestLoadMoreVouchesOnlyForTheRowsItAdds(t *testing.T) {
 	}
 	if stale := app.staleRuns(app.runs.Context.Runs, time.Now()); len(stale) != 0 {
 		t.Fatalf("rows just read read stale: %v", stale)
+	}
+}
+
+// A re-read that a status filter drops still read the run: the other
+// scope's copy, still running, must not count as running.
+func TestDroppedRefreshStillCountsAsRead(t *testing.T) {
+	app := NewApp(Options{Config: config.Default()})
+	cached := paceRow(600, ".github/workflows/ci.yml", "main", "push", model.StatusInProgress, model.ConclusionNone, 0)
+	app.runsConfirmed = confirmedAt(nil, []model.Run{cached}, time.Now())
+	finished := cached
+	finished.Status, finished.Conclusion = model.StatusCompleted, model.ConclusionSuccess
+	_, dropped, _ := refreshUnfinished(context.Background(), func(context.Context, int64) (model.Run, error) { return finished, nil },
+		[]int64{600}, nil, string(model.StatusInProgress))
+	app = app.applyRunsRefresh(fetchedRuns{dropped: dropped, at: time.Now(), refreshedAt: time.Now()}, nil, "")
+	if !app.staleRuns([]model.Run{cached}, time.Now())[600] {
+		t.Fatal("a run read as finished must not count as running in another scope")
 	}
 }

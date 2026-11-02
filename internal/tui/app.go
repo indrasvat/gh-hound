@@ -609,21 +609,22 @@ func NewApp(options Options) App {
 		flakesResolver:            options.FlakesResolver,
 		paceResolver:              options.PaceResolver,
 		runRefresher:              options.RunRefresher,
-		runsConfirmed:             confirmedAt(nil, slices.Concat(launch.BranchRuns, launch.RepoRuns, launch.Runs), time.Now()),
-		queueResolver:             options.QueueResolver,
-		flakeReports:              map[string]usecase.FlakeReport{},
-		workflowsResolver:         options.WorkflowsResolver,
-		runsMetadata:              options.RunsMetadata,
-		logRefetchNotice:          options.LogRefetchNotice,
-		actionHandler:             options.ActionHandler,
-		approvalsResolver:         options.ApprovalsResolver,
-		artifactsResolver:         options.ArtifactsResolver,
-		artifactDownloader:        options.ArtifactDownloader,
-		artifactDir:               options.ArtifactDir,
-		cachesResolver:            options.CachesResolver,
-		cacheDeleter:              options.CacheDeleter,
-		openURL:                   options.OpenURL,
-		copyText:                  options.CopyText,
+		// Newest last: launch reads the branch, then the repo.
+		runsConfirmed:      confirmedAt(nil, slices.Concat(launch.Runs, launch.BranchRuns, launch.RepoRuns), time.Now()),
+		queueResolver:      options.QueueResolver,
+		flakeReports:       map[string]usecase.FlakeReport{},
+		workflowsResolver:  options.WorkflowsResolver,
+		runsMetadata:       options.RunsMetadata,
+		logRefetchNotice:   options.LogRefetchNotice,
+		actionHandler:      options.ActionHandler,
+		approvalsResolver:  options.ApprovalsResolver,
+		artifactsResolver:  options.ArtifactsResolver,
+		artifactDownloader: options.ArtifactDownloader,
+		artifactDir:        options.ArtifactDir,
+		cachesResolver:     options.CachesResolver,
+		cacheDeleter:       options.CacheDeleter,
+		openURL:            options.OpenURL,
+		copyText:           options.CopyText,
 	}
 	if route == RouteDispatch {
 		// A dispatch launch (gh hound dispatch) must start the async
@@ -3121,7 +3122,7 @@ type fetchedRuns struct {
 	// ones to keep, the ones that left the status filter, and every
 	// one asked about.
 	refreshed   []model.Run
-	dropped     []int64
+	dropped     []model.Run
 	tried       []int64
 	refreshedAt time.Time
 }
@@ -3315,7 +3316,7 @@ func (a App) applyRunsRefresh(fetched fetchedRuns, err error, key string) App {
 	a.clearRouteError(RouteRuns)
 	a.refreshCount++
 	perPage := perPageFor(a.runs.Context, a.config.PerPage)
-	a.runsConfirmed = confirmedAt(confirmedAt(a.runsConfirmed, resolved, fetched.at), fetched.refreshed, fetched.refreshedAt)
+	a.runsConfirmed = confirmedAt(confirmedAt(a.runsConfirmed, resolved, fetched.at), slices.Concat(fetched.refreshed, fetched.dropped), fetched.refreshedAt)
 	if len(fetched.tried) > 0 {
 		tried := make(map[int64]time.Time, len(a.runsTried)+len(fetched.tried))
 		maps.Copy(tried, a.runsTried)
@@ -3326,7 +3327,9 @@ func (a App) applyRunsRefresh(fetched fetchedRuns, err error, key string) App {
 	}
 	if current {
 		merged := append(slices.Clone(resolved), dedupeNewRuns(resolved, a.runs.Context.Runs)...)
-		merged = slices.DeleteFunc(merged, func(run model.Run) bool { return slices.Contains(fetched.dropped, run.ID) })
+		merged = slices.DeleteFunc(merged, func(run model.Run) bool {
+			return slices.ContainsFunc(fetched.dropped, func(d model.Run) bool { return d.ID == run.ID })
+		})
 		for i, run := range merged {
 			if j := slices.IndexFunc(fetched.refreshed, func(r model.Run) bool { return r.ID == run.ID }); j >= 0 {
 				merged[i] = fetched.refreshed[j]
