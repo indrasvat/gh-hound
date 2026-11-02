@@ -192,6 +192,9 @@ func (a *Adapter) ListJobs(_ context.Context, _ string, runID int64) ([]model.Jo
 	if a.scenario == ScenarioLiveRun && runID == greenRun(liveRunNumber).ID {
 		return a.liveJobs(), nil
 	}
+	if a.scenario == ScenarioPaced {
+		return a.pacedJobs(runID), nil
+	}
 	if a.scenario != ScenarioSkippedJob {
 		return []model.Job{job()}, nil
 	}

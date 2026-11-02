@@ -17,6 +17,7 @@ import (
 
 func newPaceCommand(runtime commandRuntime, options *cliOptions) *cobra.Command {
 	var window int
+	var noSteps bool
 	cmd := &cobra.Command{
 		Use:   "pace",
 		Short: "Is this run on pace? ETA and slow verdict against recent green runs",
@@ -27,12 +28,13 @@ func newPaceCommand(runtime commandRuntime, options *cliOptions) *cobra.Command 
 			if cmd.Flags().Changed("window") {
 				override = &window
 			}
-			return writePaceResult(cmd.Context(), runtime.Stdout, *options, runtime, override)
+			return writePaceResult(cmd.Context(), runtime.Stdout, *options, runtime, override, !noSteps)
 		},
 	}
 	cmd.Flags().StringVar(&options.Workflow, "workflow", "", "workflow name, file (ci.yml), or numeric ID (default: the latest run's workflow)")
 	cmd.Flags().Int64Var(&options.RunID, "run", 0, "run ID to judge (default: the newest run of the workflow on the branch)")
 	cmd.Flags().IntVar(&window, "window", 0, "green runs to sample, 5-100 (default pace_window, 20; env HOUND_PACE_WINDOW)")
+	cmd.Flags().BoolVar(&noSteps, "no-steps", false, "skip jobs[] and slow[] (saves one job listing per sampled run)")
 	return cmd
 }
 
@@ -40,7 +42,7 @@ func newPaceCommand(runtime commandRuntime, options *cliOptions) *cobra.Command 
 // runs and emits the pace envelope. Exit codes: 1 slow or overrun, 3
 // running within the baseline, 2 typed error, 0 otherwise (JSON status
 // is the source of truth).
-func writePaceResult(ctx context.Context, w io.Writer, options cliOptions, runtime commandRuntime, window *int) error {
+func writePaceResult(ctx context.Context, w io.Writer, options cliOptions, runtime commandRuntime, window *int, steps bool) error {
 	format := render.Format(options.Format)
 	result := render.PaceResult{Workflow: options.Workflow, Branch: options.Branch, Statistic: "p50_p90"}
 	refuse := func(kind, message string) error {
@@ -113,7 +115,19 @@ func writePaceResult(ctx context.Context, w io.Writer, options cliOptions, runti
 	if err != nil {
 		return refuse(diffErrorKind(err), err.Error())
 	}
-	assessed := usecase.AssessPace(run, baseline, time.Now())
+	now := time.Now()
+	assessed := usecase.AssessPace(run, baseline, now)
+	if steps {
+		jobs, err := githubClient.ListJobs(ctx, repo, run.ID)
+		if err != nil {
+			return refuse(diffErrorKind(err), err.Error())
+		}
+		jb, err := usecase.PaceService{Jobs: githubClient}.JobBaseline(ctx, repo, baseline, run.ID)
+		if err != nil {
+			return refuse(diffErrorKind(err), err.Error())
+		}
+		result.Jobs, result.Slow = paceJobsResult(jobs, jb, now)
+	}
 
 	result.Status = string(assessed.Status)
 	result.Window = baseline.Window
@@ -192,6 +206,55 @@ func paceRunResult(run model.Run, a usecase.PaceAssessment) *render.PaceRun {
 		out.Ratio = new(a.Ratio)
 	}
 	return out
+}
+
+// paceJobsResult judges every job and step of the run, and lists the
+// slow ones.
+func paceJobsResult(jobs []model.Job, jb usecase.PaceJobBaseline, now time.Time) (*[]render.PaceJob, *[]render.PaceSlow) {
+	outJobs, slow := []render.PaceJob{}, []render.PaceSlow{}
+	for _, job := range jobs {
+		a := usecase.AssessJob(job, jb, now)
+		out := render.PaceJob{Name: job.Name, Status: string(job.Status), Conclusion: string(job.Conclusion), SampleSize: a.SampleSize, Slow: a.Slow, Steps: []render.PaceStep{}}
+		out.ElapsedSeconds = spanSeconds(job.Status, job.StartedAt, job.CompletedAt, now)
+		out.P50Seconds, out.P90Seconds, out.Ratio = paceFigures(a)
+		if a.Slow {
+			slow = append(slow, render.PaceSlow{Kind: "job", Job: job.Name, ElapsedSeconds: wholeSeconds(a.Elapsed), P50Seconds: wholeSeconds(a.P50), Ratio: a.Ratio})
+		}
+		for _, step := range job.Steps {
+			sa := usecase.AssessStep(job, step, jb, now)
+			ps := render.PaceStep{Number: step.Number, Name: step.Name, Status: string(step.Status), Conclusion: string(step.Conclusion), SampleSize: sa.SampleSize, Slow: sa.Slow}
+			ps.ElapsedSeconds = spanSeconds(step.Status, step.StartedAt, step.CompletedAt, now)
+			ps.P50Seconds, ps.P90Seconds, ps.Ratio = paceFigures(sa)
+			out.Steps = append(out.Steps, ps)
+			if sa.Slow {
+				slow = append(slow, render.PaceSlow{Kind: "step", Job: job.Name, Step: step.Name, Number: step.Number, ElapsedSeconds: wholeSeconds(sa.Elapsed), P50Seconds: wholeSeconds(sa.P50), Ratio: sa.Ratio})
+			}
+		}
+		outJobs = append(outJobs, out)
+	}
+	return &outJobs, &slow
+}
+
+// spanSeconds is how long a job or step ran (or has run), whatever its
+// outcome, in whole seconds; nil before it starts.
+func spanSeconds(status model.Status, start, end, now time.Time) *int64 {
+	switch {
+	case start.IsZero():
+		return nil
+	case status == model.StatusInProgress:
+		return new(int64(max(now.Sub(start), 0) / time.Second))
+	case status == model.StatusCompleted && !end.Before(start):
+		return new(int64(end.Sub(start) / time.Second))
+	}
+	return nil
+}
+
+// paceFigures are the baseline figures, only when judged.
+func paceFigures(a usecase.PaceItem) (p50, p90 *int64, ratio *float64) {
+	if !a.Judged() {
+		return nil, nil, nil
+	}
+	return new(wholeSeconds(a.P50)), new(wholeSeconds(a.P90)), new(a.Ratio)
 }
 
 func wholeSeconds(d time.Duration) int64 {

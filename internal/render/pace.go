@@ -19,16 +19,20 @@ type PaceResult struct {
 	Branch   string   `json:"branch" xml:"branch,attr"`
 	// BaselineBranch is null when the branch had too few green runs
 	// and the baseline widened to the same event on any branch.
-	BaselineBranch *string    `json:"baseline_branch" xml:"baseline_branch,attr,omitempty"`
-	BaselineEvent  string     `json:"baseline_event" xml:"baseline_event,attr"`
-	Status         string     `json:"status" xml:"status,attr"`
-	Window         int        `json:"window" xml:"window,attr"`
-	SampleSize     int        `json:"sample_size" xml:"sample_size,attr"`
-	RunsScanned    int        `json:"runs_scanned" xml:"runs_scanned,attr"`
-	Statistic      string     `json:"statistic" xml:"statistic,attr"`
-	Run            *PaceRun   `json:"run" xml:"run,omitempty"`
-	Verdict        string     `json:"verdict" xml:"verdict"`
-	Error          *PaceError `json:"error,omitempty" xml:"error,omitempty"`
+	BaselineBranch *string  `json:"baseline_branch" xml:"baseline_branch,attr,omitempty"`
+	BaselineEvent  string   `json:"baseline_event" xml:"baseline_event,attr"`
+	Status         string   `json:"status" xml:"status,attr"`
+	Window         int      `json:"window" xml:"window,attr"`
+	SampleSize     int      `json:"sample_size" xml:"sample_size,attr"`
+	RunsScanned    int      `json:"runs_scanned" xml:"runs_scanned,attr"`
+	Statistic      string   `json:"statistic" xml:"statistic,attr"`
+	Run            *PaceRun `json:"run" xml:"run,omitempty"`
+	// Jobs and Slow judge the run's jobs and steps; absent with
+	// --no-steps, Slow is [] when nothing ran slow.
+	Jobs    *[]PaceJob  `json:"jobs,omitempty" xml:"jobs>job,omitempty"`
+	Slow    *[]PaceSlow `json:"slow,omitempty" xml:"slow>item,omitempty"`
+	Verdict string      `json:"verdict" xml:"verdict"`
+	Error   *PaceError  `json:"error,omitempty" xml:"error,omitempty"`
 }
 
 // PaceRun is the judged run. The baseline figures are null when there
@@ -48,6 +52,47 @@ type PaceRun struct {
 	Ratio          *float64 `json:"ratio" xml:"ratio,attr,omitempty"`
 	Slow           bool     `json:"slow" xml:"slow,attr"`
 	Reason         string   `json:"reason,omitempty" xml:"reason,attr,omitempty"`
+}
+
+// PaceJob is one job of the judged run; the baseline figures are null
+// below 5 samples or for work Pace does not judge (failed, skipped,
+// queued).
+type PaceJob struct {
+	Name           string     `json:"name" xml:"name,attr"`
+	Status         string     `json:"status" xml:"status,attr"`
+	Conclusion     string     `json:"conclusion" xml:"conclusion,attr"`
+	ElapsedSeconds *int64     `json:"elapsed_seconds" xml:"elapsed_seconds,attr,omitempty"`
+	P50Seconds     *int64     `json:"p50_seconds" xml:"p50_seconds,attr,omitempty"`
+	P90Seconds     *int64     `json:"p90_seconds" xml:"p90_seconds,attr,omitempty"`
+	Ratio          *float64   `json:"ratio" xml:"ratio,attr,omitempty"`
+	SampleSize     int        `json:"sample_size" xml:"sample_size,attr"`
+	Slow           bool       `json:"slow" xml:"slow,attr"`
+	Steps          []PaceStep `json:"steps" xml:"step"`
+}
+
+// PaceStep is one step of a job, by number and name.
+type PaceStep struct {
+	Number         int      `json:"number" xml:"number,attr"`
+	Name           string   `json:"name" xml:"name,attr"`
+	Status         string   `json:"status" xml:"status,attr"`
+	Conclusion     string   `json:"conclusion" xml:"conclusion,attr"`
+	ElapsedSeconds *int64   `json:"elapsed_seconds" xml:"elapsed_seconds,attr,omitempty"`
+	P50Seconds     *int64   `json:"p50_seconds" xml:"p50_seconds,attr,omitempty"`
+	P90Seconds     *int64   `json:"p90_seconds" xml:"p90_seconds,attr,omitempty"`
+	Ratio          *float64 `json:"ratio" xml:"ratio,attr,omitempty"`
+	SampleSize     int      `json:"sample_size" xml:"sample_size,attr"`
+	Slow           bool     `json:"slow" xml:"slow,attr"`
+}
+
+// PaceSlow lists one slow job or step, the summary agents act on.
+type PaceSlow struct {
+	Kind           string  `json:"kind" xml:"kind,attr"`
+	Job            string  `json:"job" xml:"job,attr"`
+	Step           string  `json:"step,omitempty" xml:"step,attr,omitempty"`
+	Number         int     `json:"number,omitempty" xml:"number,attr,omitempty"`
+	ElapsedSeconds int64   `json:"elapsed_seconds" xml:"elapsed_seconds,attr"`
+	P50Seconds     int64   `json:"p50_seconds" xml:"p50_seconds,attr"`
+	Ratio          float64 `json:"ratio" xml:"ratio,attr"`
 }
 
 // PaceError is the typed refusal for exit 2, in the APIError taxonomy.
@@ -111,9 +156,30 @@ func writePaceMarkdown(w io.Writer, result PaceResult) error {
 		return nil
 	}
 	run := result.Run
-	_, err := fmt.Fprintf(w, "\n| Run | Attempt | Status | Elapsed | Queued | ETA | p50 | p90 | Ratio | Slow |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| #%d | %d | %s | %ds | %ds | %s | %s | %s | %s | %t |\n",
-		run.Number, run.Attempt, run.Status, run.ElapsedSeconds, run.QueuedSeconds, secondsCell(run.ETASeconds), secondsCell(run.P50Seconds), secondsCell(run.P90Seconds), ratioCell(run.Ratio), run.Slow)
-	return err
+	if _, err := fmt.Fprintf(w, "\n| Run | Attempt | Status | Elapsed | Queued | ETA | p50 | p90 | Ratio | Slow |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n| #%d | %d | %s | %ds | %ds | %s | %s | %s | %s | %t |\n",
+		run.Number, run.Attempt, run.Status, run.ElapsedSeconds, run.QueuedSeconds, secondsCell(run.ETASeconds), secondsCell(run.P50Seconds), secondsCell(run.P90Seconds), ratioCell(run.Ratio), run.Slow); err != nil {
+		return err
+	}
+	if result.Slow == nil {
+		return nil
+	}
+	if len(*result.Slow) == 0 {
+		_, err := fmt.Fprintln(w, "\nNo job or step ran slow.")
+		return err
+	}
+	if _, err := fmt.Fprint(w, "\n| Slow | Job | Step | Elapsed | p50 | Ratio |\n| --- | --- | --- | --- | --- | --- |\n"); err != nil {
+		return err
+	}
+	for _, slow := range *result.Slow {
+		step := "—"
+		if slow.Kind == "step" {
+			step = fmt.Sprintf("%d %s", slow.Number, slow.Step)
+		}
+		if _, err := fmt.Fprintf(w, "| %s | %s | %s | %ds | %ds | %.2f× |\n", slow.Kind, slow.Job, step, slow.ElapsedSeconds, slow.P50Seconds, slow.Ratio); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func secondsCell(v *int64) string {

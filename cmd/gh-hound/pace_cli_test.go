@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"strconv"
 	"strings"
@@ -207,5 +208,53 @@ func TestSessionJobsListsEachRunOnce(t *testing.T) {
 	b.Samples = append([]usecase.PaceSample{{RunID: 7, Duration: time.Minute}}, b.Samples...)
 	if _, err := service.JobBaseline(context.Background(), "o/r", b, 0); err != nil || counter.calls != 6 {
 		t.Fatalf("refresh with one new run: %d listings in all, want 6", counter.calls)
+	}
+}
+
+// The verb judges the run's jobs and steps against the same sampled
+// runs, lists the slow ones, and keeps the pinned checkout step's
+// baseline across the ref bump between runs.
+func TestPaceStepsListSlowWork(t *testing.T) {
+	code, out := runPaceCommand(t, nil, "--json", "--fake-scenario", "paced", "--run", pacedRunID(fake.PacedSlowNumber))
+	if code != 1 {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	var result struct {
+		Jobs []struct {
+			Name  string `json:"name"`
+			Steps []struct {
+				Name       string `json:"name"`
+				SampleSize int    `json:"sample_size"`
+				Slow       bool   `json:"slow"`
+			} `json:"steps"`
+		} `json:"jobs"`
+		Slow []struct {
+			Kind string `json:"kind"`
+			Step string `json:"step"`
+		} `json:"slow"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatal(err)
+	}
+	slow := map[string]bool{}
+	for _, s := range result.Slow {
+		slow[s.Kind+":"+s.Step] = true
+	}
+	if !slow["step:go build ./..."] || !slow["job:"] {
+		t.Fatalf("slow = %+v, want the build job and its go build step", result.Slow)
+	}
+	if len(result.Jobs) != 2 || result.Jobs[0].Steps[1].SampleSize != 19 {
+		t.Fatalf("checkout must keep 19 samples across its ref bump: %+v", result.Jobs)
+	}
+}
+
+func TestPaceNoStepsOmitsJobsAndSlow(t *testing.T) {
+	_, out := runPaceCommand(t, nil, "--json", "--fake-scenario", "paced", "--run", pacedRunID(fake.PacedSlowNumber), "--no-steps")
+	if strings.Contains(out, `"jobs":`) || strings.Contains(out, `"slow": [`) {
+		t.Fatalf("--no-steps must omit jobs and slow:\n%s", out)
+	}
+	_, out = runPaceCommand(t, nil, "--json", "--fake-scenario", "paced", "--run", pacedRunID(fake.PacedOnPaceNumber))
+	if !strings.Contains(out, `"slow": []`) {
+		t.Fatalf("an on-pace run must say slow: []:\n%s", out)
 	}
 }

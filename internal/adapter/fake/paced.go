@@ -66,3 +66,47 @@ func (a *Adapter) pacedHistory() []model.Run {
 	failed.Conclusion = model.ConclusionFailure
 	return append(runs, scheduled, rerun, failed)
 }
+
+// pacedJobs are a run's jobs: build (five steps; checkout pinned to a
+// ref that Dependabot bumps every other run) and lint. #599 ran slow in
+// go build and go test; #600 is in go build.
+func (a *Adapter) pacedJobs(runID int64) []model.Job {
+	var run model.Run
+	for _, candidate := range a.pacedHistory() {
+		if candidate.ID == runID {
+			run = candidate
+		}
+	}
+	if run.ID == 0 {
+		return []model.Job{}
+	}
+	n := run.RunNumber
+	ref := "34e114876b0b11c390a56381ad16ebd13914f8d5"
+	if n%2 == 0 {
+		ref = "11bd71901bbe5b1630ceea73d27597364c9af683"
+	}
+	build := []time.Duration{time.Second, 2 * time.Second, time.Duration(5+n%3) * time.Second, time.Duration(200+n%5) * time.Second, 0}
+	lint := time.Duration(28+n%4) * time.Second
+	if n == PacedSlowNumber {
+		build[2], build[3] = 19*time.Second, 540*time.Second
+	}
+	names := []string{"Set up job", "Run actions/checkout@" + ref, "go build ./...", "go test ./...", "Complete job"}
+	start := run.RunStartedAt
+	steps := make([]model.Step, len(names))
+	at := start
+	for i, name := range names {
+		steps[i] = model.Step{Number: i + 1, Name: name, Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, StartedAt: at, CompletedAt: at.Add(build[i])}
+		at = at.Add(build[i])
+	}
+	buildJob := model.Job{ID: runID*10 + 1, RunID: runID, Name: "build", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, StartedAt: start, CompletedAt: at, Labels: []string{"ubuntu-latest"}, Steps: steps}
+	lintJob := model.Job{ID: runID*10 + 2, RunID: runID, Name: "lint", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, StartedAt: start, CompletedAt: start.Add(lint), Labels: []string{"ubuntu-latest"}}
+	if run.Status == model.StatusInProgress {
+		// 90s in: build is in go build, lint has finished.
+		buildJob.Status, buildJob.Conclusion, buildJob.CompletedAt = model.StatusInProgress, model.ConclusionNone, time.Time{}
+		steps[2].Status, steps[2].Conclusion, steps[2].CompletedAt = model.StatusInProgress, model.ConclusionNone, time.Time{}
+		for i := 3; i < len(steps); i++ {
+			steps[i] = model.Step{Number: i + 1, Name: names[i], Status: model.StatusQueued}
+		}
+	}
+	return []model.Job{buildJob, lintJob}
+}
