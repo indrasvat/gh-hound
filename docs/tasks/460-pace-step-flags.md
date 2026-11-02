@@ -18,14 +18,19 @@ IN PROGRESS — issue #75. Builds on run-level Pace (#74, task 450).
 - **Samples are green work.** A sample job counts only when it concluded `success`; a step only when it concluded `success` (a skipped step inside a green run is not a sample).
 - **Durations are whole seconds** (`completed_at − started_at`; GitHub stamps steps to the second). The detail view drops `4.0s` for `4s` everywhere, so measured and judged cells agree.
 - **Slow rule** as for runs: past p90, at least 1.5× p50, and at least 30s (jobs) or 5s (steps) over p50. A running job or step past the line is an overrun and reads `↑` too.
-- **Fetched lazily, on poll ticks only, one at a time,** when the detail view is open on a run whose run baseline is cached; rendering only reads the cache. `p` hides it on the detail screen as everywhere.
+- **Fetched lazily, on poll ticks only, one at a time,** while the detail view is open: the run baseline first, then the job baseline built on it; rendering only reads the cache. `p` hides it on the detail screen as everywhere.
+- **A failed run's green work is judged.** The run-level key refuses failed runs (a failed run has no run verdict), but the detail view is mostly opened on failures and their green steps are what this is for, so it keys by workflow, branch and event whatever the outcome; for green first attempts the key is the same, so the cache is shared.
+- **`slow[]` never changes `status` or the exit code**: those stay the run's, as agents already branch on them. `slow` is `[]` when nothing ran slow and absent with `--no-steps`.
+- **The re-run ETA in the issue is not here.** It needs job baselines for runs-list rows (window listings per re-run row), which the runs list never pays; it belongs with a design for that cost.
 
 ## Task List
 
-- [ ] T1 Usecase: `stepKey`, `PaceService.JobBaseline`, `AssessJobs`; table tests, a counting fake pinning `window` listings, fuzz.
-- [ ] T2 Detail view: whole-second durations, `↑` on job and step cells, `p50 …` in the steps pane header, the focused-step pace line inside the `stepWindow` budget, `· p pace` in the hint.
-- [ ] T3 App: lazy job-baseline fetch, per-run jobs cache, `pace_toggle` on `ScreenDetail`.
-- [ ] T4 CLI: `jobs[]` and `slow[]` in `$defs.pace_result`, `--no-steps`.
-- [ ] T5 Fixtures `detail-pace`, `detail-pace-thin`; VQA assertions; docs.
+- [x] T1 Usecase: `stepKey`, `PaceService.JobBaseline`, `AssessJobs`; table tests, a counting fake pinning `window` listings, fuzz.
+- [x] T2 Detail view: whole-second durations, `↑` on job and step cells, `p50 …` in the steps pane header, the focused-step pace line inside the `stepWindow` budget, `· p pace` in the hint.
+- [x] T3 App: lazy job-baseline fetch, per-run jobs cache, `pace_toggle` on `ScreenDetail`.
+- [x] T4 CLI: `jobs[]` and `slow[]` in `$defs.pace_result`, `--no-steps`.
+- [x] T5 Fixtures `detail-pace`, `detail-pace-thin`; VQA assertions; docs.
 
 ## Found Along The Way
+
+- The detail view printed `0.4s`, `18.7s` for steps GitHub stamps to the second. Durations are whole seconds now (existing).

@@ -1035,6 +1035,15 @@ func RenderFixtureSize(screen string, width, height int) string {
 		return frameViewSize(app.theme, "hound", "CI #570", "streaming · follow ●", watch.View(sampleWatchModel(), bodyWidth), keys.FooterForScreen(keys.ScreenWatch), width, height, true)
 	case "all_green-pace":
 		return frameViewSize(app.theme, "hound", "⎇ branch main · @indrasvat", "◔ 4,981/5k live", runs.View(samplePaceAllGreenModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenAllGreen), width, height, true)
+	case "detail-pace", "detail-pace-thin":
+		m := sampleDetailModel()
+		samples := 20
+		if screen == "detail-pace-thin" {
+			samples = 2
+		}
+		m.Pace, m.PaceHint = samplePaceJobBaseline(samples), true
+		m.Focus, m.SelectedStep = detail.FocusSteps, 4 // go build ./...
+		return frameViewSize(app.theme, "hound", "CI #571 › fix/parser", "a1b2c3d", detail.ViewSize(m, bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
 	case "runs-pace":
 		return frameViewSize(app.theme, "hound", "⎇ branch fix/parser · @indrasvat", "◔ 4,981/5k live 304", runs.View(samplePaceRunsModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
 	case "watch-pace":
@@ -5364,6 +5373,21 @@ func sampleDetailModel() detail.Model {
 		{ID: 903, Name: "old-report", SizeInBytes: 52480, Expired: true, CreatedAt: start.AddDate(0, -3, 0), ExpiresAt: start.AddDate(0, -3, 7)},
 	}
 	return detail.NewModel(run, jobs).WithRepo("indrasvat/gh-hound").WithArtifacts(artifacts)
+}
+
+// samplePaceJobBaseline backs the detail-pace fixtures: build ~1m31s
+// with go build ~6s (p90 10s), and the test (1.26) leg ~1m00s, so the
+// sample run's go build (18.7s) and test (1.26) (1m52s) read slow.
+func samplePaceJobBaseline(samples int) *usecase.PaceJobBaseline {
+	jb := &usecase.PaceJobBaseline{BaselineBranch: "fix/parser", Runs: samples, Jobs: map[string][]time.Duration{}, Steps: map[string][]time.Duration{}}
+	for i := range samples {
+		jb.Jobs["build"] = append(jb.Jobs["build"], time.Duration(86+i%11)*time.Second)
+		jb.Jobs["test (1.26)"] = append(jb.Jobs["test (1.26)"], time.Duration(56+i%9)*time.Second)
+		jb.Jobs["lint"] = append(jb.Jobs["lint"], time.Duration(29+i%5)*time.Second)
+		jb.Steps["build\x00go build ./..."] = append(jb.Steps["build\x00go build ./..."], []time.Duration{5, 6, 6, 7, 10}[i%5]*time.Second)
+		jb.Steps["build\x00Checkout"] = append(jb.Steps["build\x00Checkout"], time.Second)
+	}
+	return jb
 }
 
 func DetailModelForRun(run model.Run) detail.Model {
