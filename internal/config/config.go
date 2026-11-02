@@ -50,6 +50,11 @@ type Config struct {
 	FlakeBadges bool
 	// LogCompact opens full logs with repeating lines folded.
 	LogCompact bool
+	// Pace shows run ETAs and slow marks; off, it makes no Pace
+	// requests at all.
+	Pace bool
+	// PaceWindow is how many recent green runs a Pace baseline samples.
+	PaceWindow int
 }
 
 type LoadOptions struct {
@@ -72,6 +77,8 @@ type Overrides struct {
 	FlakeWindow   *int
 	FlakeBadges   *bool
 	LogCompact    *bool
+	Pace          *bool
+	PaceWindow    *int
 }
 
 type fileConfig struct {
@@ -88,6 +95,8 @@ type fileConfig struct {
 	FlakeWindow   *int              `toml:"flake_window"`
 	FlakeBadges   *bool             `toml:"flake_badges"`
 	LogCompact    *bool             `toml:"log_compact"`
+	Pace          *bool             `toml:"pace"`
+	PaceWindow    *int              `toml:"pace_window"`
 }
 
 //go:fix inline
@@ -110,6 +119,8 @@ func Default() Config {
 		FlakeWindow:   50,
 		FlakeBadges:   true,
 		LogCompact:    true,
+		Pace:          true,
+		PaceWindow:    20,
 	}
 }
 
@@ -160,6 +171,9 @@ func (c Config) Validate() error {
 	}
 	if c.FlakeWindow < 1 || c.FlakeWindow > 500 {
 		return fmt.Errorf("flake_window must be between 1 and 500, got %d", c.FlakeWindow)
+	}
+	if c.PaceWindow < 5 || c.PaceWindow > 100 {
+		return fmt.Errorf("pace_window must be between 5 and 100, got %d", c.PaceWindow)
 	}
 	if c.PollMin < time.Millisecond || c.PollMin > maxPoll {
 		return fmt.Errorf("poll_min_ms must be between 1 and %d", maxPoll.Milliseconds())
@@ -273,6 +287,12 @@ func loadFile(path string, cfg *Config) error {
 	if fc.LogCompact != nil {
 		cfg.LogCompact = *fc.LogCompact
 	}
+	if fc.Pace != nil {
+		cfg.Pace = *fc.Pace
+	}
+	if fc.PaceWindow != nil {
+		cfg.PaceWindow = *fc.PaceWindow
+	}
 	if fc.Theme != nil {
 		cfg.Theme = Theme(*fc.Theme)
 	}
@@ -348,6 +368,20 @@ func applyEnv(lookup func(string) (string, bool), cfg *Config) error {
 		}
 		cfg.LogCompact = parsed
 	}
+	if value, ok := lookup("HOUND_PACE"); ok {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("parse HOUND_PACE: %w", err)
+		}
+		cfg.Pace = parsed
+	}
+	if value, ok := lookup("HOUND_PACE_WINDOW"); ok {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("parse HOUND_PACE_WINDOW: %w", err)
+		}
+		cfg.PaceWindow = parsed
+	}
 	if value, ok := lookup("HOUND_THEME"); ok {
 		cfg.Theme = Theme(value)
 	}
@@ -395,6 +429,12 @@ func applyOverrides(overrides Overrides, cfg *Config) {
 	}
 	if overrides.LogCompact != nil {
 		cfg.LogCompact = *overrides.LogCompact
+	}
+	if overrides.Pace != nil {
+		cfg.Pace = *overrides.Pace
+	}
+	if overrides.PaceWindow != nil {
+		cfg.PaceWindow = *overrides.PaceWindow
 	}
 	if overrides.Theme != nil {
 		cfg.Theme = *overrides.Theme

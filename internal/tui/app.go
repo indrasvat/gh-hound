@@ -103,14 +103,18 @@ type Options struct {
 	DispatchWorkflowsResolver func(context.Context) ([]dispatch.Workflow, error)
 	DiffResolver              func(context.Context, model.Run) (usecase.RegressionVerdict, error)
 	FlakesResolver            func(context.Context, model.Run) (usecase.FlakeReport, error)
-	QueueResolver             func(context.Context, model.Run) (model.ConcurrencyReport, error)
-	WorkflowsResolver         func(context.Context) ([]model.Workflow, error)
-	RunsMetadata              func() (usecase.RequestMeta, bool)
-	LogRefetchNotice          func(int64) (usecase.LogRefetchNotice, bool)
-	ActionHandler             func(ActionRequest) (usecase.ActionResult, error)
-	ApprovalsResolver         func(context.Context, model.Run) ([]model.PendingDeployment, error)
-	ArtifactsResolver         func(model.Run) ([]model.Artifact, error)
-	ArtifactDownloader        func(artifact model.Artifact, destDir string, force bool, onProgress func(usecase.DownloadProgress)) (usecase.DownloadResult, error)
+	PaceResolver              func(context.Context, model.Run) (usecase.PaceBaseline, error)
+	// RunRefresher re-reads one run by ID: the runs poll uses it for
+	// unfinished rows that have slid past page 1.
+	RunRefresher       func(context.Context, int64) (model.Run, error)
+	QueueResolver      func(context.Context, model.Run) (model.ConcurrencyReport, error)
+	WorkflowsResolver  func(context.Context) ([]model.Workflow, error)
+	RunsMetadata       func() (usecase.RequestMeta, bool)
+	LogRefetchNotice   func(int64) (usecase.LogRefetchNotice, bool)
+	ActionHandler      func(ActionRequest) (usecase.ActionResult, error)
+	ApprovalsResolver  func(context.Context, model.Run) ([]model.PendingDeployment, error)
+	ArtifactsResolver  func(model.Run) ([]model.Artifact, error)
+	ArtifactDownloader func(artifact model.Artifact, destDir string, force bool, onProgress func(usecase.DownloadProgress)) (usecase.DownloadResult, error)
 	// ArtifactDir is the absolute download root artifacts extract
 	// into. The app displays it (confirm modal, completion state);
 	// the downloader closure must extract into the same directory.
@@ -205,8 +209,25 @@ type App struct {
 	queueResolver             func(context.Context, model.Run) (model.ConcurrencyReport, error)
 	// flakeReports caches verdicts per (workflow, branch) for the
 	// session; rerun mutations invalidate it so new attempts re-score.
-	flakeReports       map[string]usecase.FlakeReport
-	flakesFetch        *flakesFetchState
+	flakeReports map[string]usecase.FlakeReport
+	flakesFetch  *flakesFetchState
+	// Pace baselines per repo|workflow|branch|event for the session;
+	// paceFailed holds keys whose fetch failed, retried after paceTTL.
+	paceResolver  func(context.Context, model.Run) (usecase.PaceBaseline, error)
+	paceBaselines map[string]paceEntry
+	paceFailed    map[string]time.Time
+	paceFetch     *paceFetchState
+	// runRefresher re-reads unfinished rows the page-1 poll no longer
+	// returns; runsConfirmed is when a fetch last returned each run's
+	// snapshot, runsTried when one was last asked for.
+	runRefresher  func(context.Context, int64) (model.Run, error)
+	runsConfirmed map[int64]runConfirmation
+	runsTried     map[int64]time.Time
+	// paceHidden is the session's p toggle; paceWarned keeps the
+	// unavailable toast to one per session (a rate-limited hour would
+	// otherwise stack one per workflow).
+	paceHidden         bool
+	paceWarned         bool
 	flakePanelRun      model.Run
 	workflowsResolver  func(context.Context) ([]model.Workflow, error)
 	runsMetadata       func() (usecase.RequestMeta, bool)
@@ -586,6 +607,9 @@ func NewApp(options Options) App {
 		dispatchWorkflowsResolver: options.DispatchWorkflowsResolver,
 		diffResolver:              options.DiffResolver,
 		flakesResolver:            options.FlakesResolver,
+		paceResolver:              options.PaceResolver,
+		runRefresher:              options.RunRefresher,
+		runsConfirmed:             confirmedAt(nil, launch.Runs, time.Now()),
 		queueResolver:             options.QueueResolver,
 		flakeReports:              map[string]usecase.FlakeReport{},
 		workflowsResolver:         options.WorkflowsResolver,
@@ -716,6 +740,10 @@ func (a App) Update(msg KeyMsg) (out App, handled bool) {
 		a = next
 		repaint = true
 	}
+	if next, ok := a.drainPaceFetch(); ok {
+		a = next
+		repaint = true
+	}
 	// A completed route poll applies before the key routes, so a
 	// keystroke acts on the freshest list the background fetch produced.
 	if next, ok := a.drainTickPoll(); ok {
@@ -807,6 +835,10 @@ func (a App) Update(msg KeyMsg) (out App, handled bool) {
 	case "T":
 		a.toggleTheme()
 		return a, true
+	case "p":
+		if a.paceScreen() {
+			return a.togglePace(), true
+		}
 	case "?":
 		a.pushOverlay(OverlayHelp)
 		return a, true
@@ -991,6 +1023,25 @@ func RenderFixtureSize(screen string, width, height int) string {
 		return frameViewSize(app.theme, "hound", "build › failed step", "exit 1", failure.ViewSize(sampleFailureModel(), bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenFailure), width, height, true)
 	case "watch":
 		return frameViewSize(app.theme, "hound", "CI #570", "streaming · follow ●", watch.View(sampleWatchModel(), bodyWidth), keys.FooterForScreen(keys.ScreenWatch), width, height, true)
+	case "all_green-pace":
+		return frameViewSize(app.theme, "hound", "⎇ branch main · @indrasvat", "◔ 4,981/5k live", runs.View(samplePaceAllGreenModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenAllGreen), width, height, true)
+	case "runs-pace":
+		return frameViewSize(app.theme, "hound", "⎇ branch fix/parser · @indrasvat", "◔ 4,981/5k live 304", runs.View(samplePaceRunsModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
+	case "watch-pace":
+		m := sampleWatchModel()
+		m.State.Run.RunStartedAt = time.Now().Add(-48 * time.Second)
+		baseline := samplePaceBaseline(240)
+		m.Pace = baseline
+		return frameViewSize(app.theme, "hound", "CI #570", "streaming · follow ●", watch.View(m, bodyWidth), keys.FooterForScreen(keys.ScreenWatch), width, height, true)
+	case "watch-board-pace":
+		board := sampleBoardModel()
+		board.Pace = map[int64]usecase.PaceBaseline{30433702: samplePaceBaseline(240)}
+		boardApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		boardApp.board = board
+		boardApp.routes = []Route{RouteRuns, RouteWatchBoard}
+		boardApp.paceResolver = noPaceFetch
+		boardApp.paceBaselines = map[string]paceEntry{paceKey(board.Repo, board.Runs[1]): {baseline: board.Pace[30433702], fetchedAt: time.Now()}}
+		return boardApp.ViewSize(width, height)
 	case "watch-board":
 		boardApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
 		boardApp.board = sampleBoardModel()
@@ -1209,7 +1260,7 @@ func (a App) PollInterval() time.Duration {
 	// Tighten the loop while async artifact work (including a parked
 	// done-download awaiting its overwrite question) or timed toasts
 	// are pending so completions and TTL expiry surface promptly.
-	if a.artifactsFetch != nil || a.artifactDownload != nil || a.flakesFetch != nil || len(a.toasts.Toasts) > 0 {
+	if a.artifactsFetch != nil || a.artifactDownload != nil || a.flakesFetch != nil || a.paceFetch != nil || len(a.toasts.Toasts) > 0 {
 		if base > time.Second {
 			return time.Second
 		}
@@ -1269,6 +1320,11 @@ func (a App) Refresh() (App, bool) {
 		a = next
 		changed = true
 	}
+	if next, ok := a.drainPaceFetch(); ok {
+		a = next
+		changed = true
+	}
+	a = a.startPaceFetch()
 	// A completed route poll applies here; then a fresh one starts in
 	// the background. The fetch never runs on this goroutine, so a slow
 	// poll cannot stall the next keystroke (Task 28). One poll rides at
@@ -3033,6 +3089,7 @@ func (a App) reloadRuns() App {
 				return app
 			}
 			app = app.storeRuns(requestScope, key, resolved.rows)
+			app.runsConfirmed = confirmedAt(app.runsConfirmed, resolved.rows, resolved.at)
 			if app.runs.Context.Scope != requestScope {
 				// The user moved to another scope while this was in
 				// flight: the result stays parked in its cache slot,
@@ -3055,6 +3112,15 @@ func (a App) reloadRuns() App {
 type fetchedRuns struct {
 	rows []model.Run
 	full bool
+	// at is when the response arrived.
+	at time.Time
+	// Unfinished rows past page 1, re-read by ID at refreshedAt: the
+	// ones to keep, the ones that left the status filter, and every
+	// one asked about.
+	refreshed   []model.Run
+	dropped     []int64
+	tried       []int64
+	refreshedAt time.Time
 }
 
 // fetchRuns resolves actor:@me through the shared identity lookup, then
@@ -3075,7 +3141,7 @@ func fetchRuns(ctx context.Context, resolver func(context.Context, usecase.RunFi
 	if perPage <= 0 {
 		perPage = config.Default().PerPage
 	}
-	return fetchedRuns{rows: usecase.KeepActorRuns(page, filter.Actor), full: len(page) >= perPage}, nil
+	return fetchedRuns{rows: usecase.KeepActorRuns(page, filter.Actor), full: len(page) >= perPage, at: time.Now()}, nil
 }
 
 // storeRuns records rows for a scope with the server filter they were
@@ -3179,6 +3245,7 @@ func (a App) loadMoreRuns() App {
 			app.runs.Context.Page = nextPage
 			app.runs.Context.PerPage = perPage
 			_ = app.appendActiveRuns(resolved.rows)
+			app.runsConfirmed = confirmedAt(app.runsConfirmed, resolved.rows, resolved.at)
 			// A full page that deduped (or narrowed) to nothing still means
 			// deeper pages exist (high-velocity repos shift runs between
 			// pages); latching HasMore=false there froze pagination on
@@ -3200,8 +3267,13 @@ func (a App) startRunsPoll() App {
 	filter := runsFilterFor(a.runs.Context, a.config.PerPage, q)
 	filter.Page = 1
 	resolver, viewer, key, gen := a.runsResolver, a.viewer, q.ServerKey(), a.runsGen
+	refresher, unfinished := a.runRefresher, a.refreshCandidates(maxRunRefreshes)
 	return a.startTickPoll(RouteRuns, a.pollIdentity(RouteRuns), func(ctx context.Context) func(App) App {
 		resolved, err := fetchRuns(ctx, resolver, viewer, filter, q.Actor)
+		if err == nil && refresher != nil {
+			resolved.refreshed, resolved.dropped, resolved.tried = refreshUnfinished(ctx, refresher, unfinished, resolved.rows, filter.Status)
+			resolved.refreshedAt = time.Now()
+		}
 		return func(app App) App {
 			if app.runsGen != gen {
 				// Re-applied meanwhile (a retry): this answer is stale.
@@ -3236,8 +3308,23 @@ func (a App) applyRunsRefresh(fetched fetchedRuns, err error, key string) App {
 	a.clearRouteError(RouteRuns)
 	a.refreshCount++
 	perPage := perPageFor(a.runs.Context, a.config.PerPage)
+	a.runsConfirmed = confirmedAt(confirmedAt(a.runsConfirmed, resolved, fetched.at), fetched.refreshed, fetched.refreshedAt)
+	if len(fetched.tried) > 0 {
+		tried := make(map[int64]time.Time, len(a.runsTried)+len(fetched.tried))
+		maps.Copy(tried, a.runsTried)
+		for _, id := range fetched.tried {
+			tried[id] = fetched.refreshedAt
+		}
+		a.runsTried = tried
+	}
 	if current {
 		merged := append(slices.Clone(resolved), dedupeNewRuns(resolved, a.runs.Context.Runs)...)
+		merged = slices.DeleteFunc(merged, func(run model.Run) bool { return slices.Contains(fetched.dropped, run.ID) })
+		for i, run := range merged {
+			if j := slices.IndexFunc(fetched.refreshed, func(r model.Run) bool { return r.ID == run.ID }); j >= 0 {
+				merged[i] = fetched.refreshed[j]
+			}
+		}
 		a = a.storeRuns(a.runs.Context.Scope, key, merged)
 		// A page-1 poll says nothing about deeper pages once more are
 		// loaded: only the last page fetched decides whether G has more.
@@ -4926,6 +5013,7 @@ func (a App) screenBody(width, height int) string {
 			runsModel.Loading = true
 			runsModel.LoadingLine = loadingLine(a.theme, load, bodyWidth, time.Now())
 		}
+		runsModel.Pace, runsModel.PaceAsOf = a.paceForRuns(runsModel)
 		return runs.ViewSize(runsModel, bodyWidth, bodyHeight(height), time.Now())
 	case RouteDetail:
 		detailModel := a.detail
@@ -4959,10 +5047,12 @@ func (a App) screenBody(width, height int) string {
 		}
 		watchModel := a.watch
 		watchModel.Theme = a.theme
+		watchModel.Pace = a.paceFor(watchModel.State.Repo, []model.Run{watchModel.State.Run})[watchModel.State.Run.ID]
 		return watch.ViewSize(watchModel, bodyWidth, bodyHeight(height))
 	case RouteWatchBoard:
 		boardModel := a.board
 		boardModel.Theme = a.theme
+		boardModel.Pace = a.paceFor(boardModel.Repo, boardModel.Runs)
 		if load := a.load; load != nil && load.kind == loadKindPack {
 			boardModel.Loading = true
 			boardModel.LoadingLine = loadingLine(a.theme, load, bodyWidth, time.Now())
@@ -5566,6 +5656,53 @@ func sampleWatchModel() watch.Model {
 		},
 		Lines: doc.Lines,
 	})
+}
+
+// samplePaceBaseline is ten green runs around a p50 of p50 seconds,
+// with p90 30s above it.
+func samplePaceBaseline(p50 int) usecase.PaceBaseline {
+	b := usecase.PaceBaseline{BaselineBranch: "fix/parser"}
+	for i, offset := range []int{-40, -20, -10, -5, 0, 5, 10, 20, 30, 40} {
+		b.Samples = append(b.Samples, usecase.PaceSample{RunID: int64(9000 + i), Duration: time.Duration(p50+offset) * time.Second})
+	}
+	return b
+}
+
+// noPaceFetch stands in for a resolver in fixtures: baselines are
+// seeded, and rendering never fetches.
+func noPaceFetch(context.Context, model.Run) (usecase.PaceBaseline, error) {
+	return usecase.PaceBaseline{}, fmt.Errorf("fixtures never fetch")
+}
+
+// samplePaceRunsModel is the runs fixture with Pace: #570 running with
+// about two minutes left, #569 finished well past its usual 4m01s.
+func samplePaceRunsModel() runs.Model {
+	m := sampleRunsModel()
+	now := time.Now().UTC().Truncate(time.Second)
+	for i, run := range m.Context.Runs {
+		if run.ID == 569 {
+			m.Context.Runs[i].RunStartedAt = now.Add(-3*time.Minute - 571*time.Second)
+		}
+	}
+	// Varied finished durations, as the issue's mock reads them.
+	took := map[int64]time.Duration{571: 134 * time.Second, 568: 220 * time.Second, 567: 52 * time.Second, 565: 38 * time.Second, 564: 65 * time.Second}
+	for i, run := range m.Context.Runs {
+		if d, ok := took[run.ID]; ok {
+			m.Context.Runs[i].RunStartedAt = run.UpdatedAt.Add(-d)
+		}
+	}
+	m.Pace = map[int64]usecase.PaceBaseline{570: samplePaceBaseline(168), 569: samplePaceBaseline(241), 565: samplePaceBaseline(40)}
+	return m
+}
+
+// samplePaceAllGreenModel is the all-green home with one run that ran
+// well past its usual time.
+func samplePaceAllGreenModel() runs.Model {
+	m := sampleAllGreenModel()
+	slow := m.Context.Runs[0]
+	m.Context.Runs[0].RunStartedAt = slow.UpdatedAt.Add(-571 * time.Second)
+	m.Pace = map[int64]usecase.PaceBaseline{slow.ID: samplePaceBaseline(241)}
+	return m
 }
 
 // sampleBoardModel is the pack board fixture: one running, one home,

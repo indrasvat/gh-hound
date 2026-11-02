@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/theme"
@@ -78,6 +79,14 @@ type Model struct {
 	// verdicts already computed this session (config flake_badges).
 	// The badge never spends API calls of its own.
 	FlakyRuns map[int64]bool
+
+	// Pace holds each row's baseline from the session cache; nil when
+	// Pace is off. Cells are worked out at paint time, so an ETA counts
+	// down between fetches.
+	Pace map[int64]usecase.PaceBaseline
+	// PaceAsOf is when each running row was last confirmed; its mark is
+	// judged as of then, never past what a fetch saw.
+	PaceAsOf map[int64]time.Time
 
 	// Loading state is transient render input set by the app from its
 	// pending load each frame — never persisted on the model, so a
@@ -538,4 +547,13 @@ func truncate(value string, width int) string {
 		return "…"
 	}
 	return string(runes[:width-1]) + "…"
+}
+
+// paceMark is the row's Duration mark, a running row judged as of its
+// last confirmation.
+func (m Model) paceMark(run model.Run, now time.Time) usecase.PaceMark {
+	if asOf, ok := m.PaceAsOf[run.ID]; ok && asOf.Before(now) {
+		now = asOf
+	}
+	return usecase.PaceMarkFor(run, m.Pace[run.ID], now)
 }

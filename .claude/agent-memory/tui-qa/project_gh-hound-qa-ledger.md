@@ -840,3 +840,61 @@ only the 8 runs-footer PNGs differ from main.
 re-check the narrow-width loading gap until fixed.
 **How to apply:** read before every gh-hound audit; update entries when a
 finding lands or a fix is verified. See [[shux-capture-recipes]].
+
+Round 37 (task 450 Pace, 517c131 then re-gated 40683a6, 2026-11-01): FAIL.
+VERIFIED: Duration cell real durations; 3m left -> <1m left -> due (at p50)
+-> overrun at max(p90, 1.5x p50, p50+30s) live in paced fake; 80-col note
+inside label column; watch header `· N left`/`· due`/`· ↑ overrun`; p
+toggles on runs/watch/board, inert on detail, typed into `/` filter; pace=false
+and HOUND_PACE=false give "pace is off in config" toast; render hygiene
+passes (flaky and paced). OPEN P1: off-toast hardcodes "p brings it back"
+even with [keybindings] pace_toggle remapped (pace.go togglePace). OPEN P1:
+repo scope on openclaw: baselines fetched in list order over ALL loaded
+rows; bot workflows (new green runs constantly) re-stale and refetch
+(clawsweeper-dispatch 21x in 9 min), the visible running CI row never got
+an ETA in 9+ min while `pace --run` gave one. Branch scope fine. OPEN P2:
+hunt board at 80 cols: "all home in ~Nm" pushes "sha event · follow ●/○"
+off the headline; f gives no visible feedback (VQA assertion misses it).
+Paced fake has unique SHAs: no live hunt board; use openclaw PR branch + w.
+All-green home slow marks (added 00ef068) have no fixture and no live green
+rows on openclaw main: untested.
+
+Round 38 (task 450 round 2, bd0c6be/fix fd58696, 2026-11-01): FAIL.
+VERIFIED FIXED: remapped toast names the bound key (e); repo-scope openclaw
+CI ETA in ~10-18s, all visible running rows annotated in ~70s, no single-bot
+storm (max 5 calls/workflow per 5 min; ~9 pace calls/min sustained); 80-col
+board keeps "sha event · follow ●/○" and drops the estimate, f visible;
+all_green-pace fixture + docs row. NEW P2: watch header goes white (loses
+state colour incl. follow dot) whenever a Pace suffix shows: chrome.go
+colorizeBody skips any line containing ESC[, so the colourised suffix
+disables the whole-line heuristic (amber with p off, white with p on).
+NEW P1 (root pre-existing): repo-scope list never refreshes rows past page
+1, so finished runs stay "running"; main shows ⠹+sparkline, Pace now paints
+confident "↑ 5m39s" overruns on 1-minute runs (verified via gh run list and
+the hunt board showing them success 1m01s). Also present in round 1
+(Auto response ↑ 8m06s) — I missed it: always cross-check ↑ rows with gh.
+
+Round 39 (task 450 round 3, 8ddc21d/fix 82ea889, 2026-11-01): FAIL.
+VERIFIED: watch header amber with Pace on (plain suffix); GetRun <=5 per
+poll (43 polls x5, 7x1, 7x0) and 0 on a branch with nothing unfinished;
+stale rows past page 1 flip to their conclusion within ~3-4 min. STILL P1:
+the 2-min "confirmed" window outlives short runs: at 20:02:45 one frame
+showed 7 finished runs as "↑ 1m3xs-1m4xs" (finished 70-100s earlier;
+truth via gh run list -L 400 joined on number+workflow prefix). Fix idea:
+measure elapsed only up to the last confirmation. NEW P2: the selected
+running CI flips between "Nm left" and bare elapsed as its confirmation
+ages past 2 min (round-robin of 5 GetRuns over ~50 unfinished rows).
+P2: repo scope after loading pages cost 562 calls/15 min (~2250/h: pace
+283, getrun 222, list 57). Recipe: scratchpad stalecheck.sh compares
+visible ⠹ rows with gh truth each round.
+
+Round 40 (task 450 round 4, 9e84add/fixes cf48564+2c8fb37, 2026-11-01): PASS.
+VERIFIED: 0 ↑ on finished runs over 73 running-row observations in three
+openclaw repo-scope passes (incl. a fresh PR group with 1-min siblings that
+produced 7 false ↑ in round 3); selected CI counts down 6->5->4->3->3->2->
+<1m then ✔ 5m23s with no flicker; GetRun <=3/poll, 0 when nothing near
+the selection is unfinished; 15 min: list 127, GetRun 132 (94 x 304),
+pace 42 = ~1200/h raw, ~790/h rate-counted (was ~2250/h). P3 accepted:
+frozen ETA/"due" on rows that finished 18-84s earlier (row still shows ⠹,
+mark true as of last confirmation). Pre-existing: summary "231 running"
+counts stale rows outside the 30-row span.

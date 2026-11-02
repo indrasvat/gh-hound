@@ -34,6 +34,7 @@ gh hound cancel --run <run-id> --no-tui --json
 gh hound cancel --run <run-id> --force --no-tui --json
 gh hound diff --workflow <name|file|id> [--branch <b>] --no-tui --json
 gh hound flakes [--workflow <name|file|id>] [--branch <b>] --no-tui --json
+gh hound pace [--workflow <name|file|id> | --run <id>] [--branch <b>] [--window <n>] --no-tui --json
 gh hound workflows --no-tui --json
 gh hound workflows --enable <id|path> --no-tui --json
 gh hound workflows --disable <id|path> --no-tui --json
@@ -238,6 +239,28 @@ Caveats agents must know:
 
 Rehearse deterministically with `--fake-scenario flaky` (two seeded attempt flips plus a retry-masked step: exit `1`, `status: "flaky"`).
 
+## Pace Verdict (pace)
+
+"Is this run nearly done, or stuck?" gets a number. `gh hound pace` judges one run against its workflow's recent green runs: an expected time left while it runs, and a slow verdict once it is past its usual time.
+
+```bash
+gh hound pace --no-tui --json                         # the newest run on the branch
+gh hound pace --run <run-id> --no-tui --json
+gh hound pace --workflow CI --branch fix/parser --no-tui --json
+```
+
+Verdict envelope (`$defs.pace_result` in schema.json): `{repo, workflow, branch, baseline_branch, baseline_event, status, window, sample_size, runs_scanned, statistic, run, verdict}`, with `run`: `{id, number, attempt, event, status, conclusion, elapsed_seconds, queued_seconds, eta_seconds, p50_seconds, p90_seconds, ratio, slow, reason?}`. Durations are whole seconds; GitHub's timestamps have one-second resolution.
+
+- **Baseline.** The last `window` (default 20, `pace_window` / `HOUND_PACE_WINDOW` / `--window`, 5-100) successful first attempts of the same workflow, on the same branch, with the same event as the judged run. Matching the event keeps job sets comparable: a `push`-only deploy leg never inflates a `pull_request` baseline, and a slow `schedule` run never sets the `push` one. Below 5 samples the baseline widens to the same event on any branch (`baseline_branch: null`), which is what gives a young PR branch a baseline: `pull_request` runs carry the PR's head branch, so the default branch has none of them. The judged run is never part of its own baseline; one spare sample keeps the window full when it is left out. Re-run attempts are not sampled: they re-execute only some jobs.
+- **Statistics.** Nearest-rank p50 and p90. A duration is slow when it is past p90, at least 1.5x p50, and at least 30s over p50. `eta_seconds` is p50 minus elapsed (0 once past the median) and is set only for `running`. Queue time (`created_at` to `run_started_at`) is reported as `queued_seconds` and never counted as slowness.
+- **`status`** is the field to branch on: `on_pace` | `running` | `overrun` (still running, already slow) | `slow` | `insufficient_data` (fewer than 5 samples: nothing is estimated) | `not_comparable` (queued or waiting, a re-run attempt, or a finished run that did not succeed; `run.reason` says which) | `error`.
+
+Pace exit codes: `1` for `slow` or `overrun`, `3` for `running` within the baseline, `2` typed `error: {kind, message}`, `0` for `on_pace`, `insufficient_data` and `not_comparable`.
+
+The API budget is pinned: one call to find the target (none with `--run` beyond the run itself), then `ceil((window + 1) / 100)` history-list calls (one spare sample, so the judged run can leave its own baseline and a full window remains), plus as many again when the baseline widens. Pace never calls the workflow-run `timing` endpoint or any billing or usage endpoint. `pace = false` turns off the TUI's Pace annotations and their requests; the verb, asked for by name, still answers.
+
+Rehearse deterministically with `--fake-scenario paced`: the default target is a running run (exit `3`), `--run 30433599` ran slow (exit `1`), `--run 30433598` is on pace, `--branch fix/parser` widens to `pull_request` runs on any branch, and `--run 30433578` is a re-run attempt (`not_comparable`).
+
 ## Workflow State (workflows)
 
 "My cron workflow stopped running" has a one-field answer: scheduled workflows are disabled automatically after 60 days of repo inactivity (`disabled_inactivity`), and the only sign is a state field buried in the web UI. The `workflows` verb surfaces it and flips it back.
@@ -263,7 +286,7 @@ Rehearse deterministically with `--fake-scenario green` (the fake fleet covers a
 
 ## JSON Contract
 
-The JSON schema lives at `internal/render/testdata/schema.json` (`diagnostic` on the top-level runs result, mutation envelope under `$defs.mutation_result`, approvals envelope under `$defs.approvals_result`, queue verdict under `$defs.queue_result`, regression verdict under `$defs.diff_result`, caches envelope under `$defs.caches_result`, workflows envelope under `$defs.workflows_result`, pack stream under `$defs.watch_group_event` / `$defs.watch_group_summary`, flake verdict under `$defs.flakes_result`); the canonical failure fixture lives at `internal/render/testdata/failure.golden.json`.
+The JSON schema lives at `internal/render/testdata/schema.json` (`diagnostic` on the top-level runs result, mutation envelope under `$defs.mutation_result`, approvals envelope under `$defs.approvals_result`, queue verdict under `$defs.queue_result`, regression verdict under `$defs.diff_result`, caches envelope under `$defs.caches_result`, workflows envelope under `$defs.workflows_result`, pack stream under `$defs.watch_group_event` / `$defs.watch_group_summary`, flake verdict under `$defs.flakes_result`, pace verdict under `$defs.pace_result`); the canonical failure fixture lives at `internal/render/testdata/failure.golden.json`.
 
 
 Each run includes:
@@ -304,7 +327,7 @@ For local tests and docs, use fake scenarios:
 ./bin/gh-hound watch --json --fake-scenario failure
 ```
 
-Accepted aliases: `ok`, `green`, `success`; `failure`, `failed`, `failing`; `pending`, `running`, `in_progress`, `queued`; `api_error`, `network_error`, `rate_limited`; `waiting`, `gated`. The `regression` scenario seeds a deterministic last-green → first-red boundary for `diff`; `pack` seeds the staggered multi-run group for `watch --group`; `flaky` seeds attempt flips and a retry-masked step for `flakes`.
+Accepted aliases: `ok`, `green`, `success`; `failure`, `failed`, `failing`; `pending`, `running`, `in_progress`, `queued`; `api_error`, `network_error`, `rate_limited`; `waiting`, `gated`. The `regression` scenario seeds a deterministic last-green → first-red boundary for `diff`; `pack` seeds the staggered multi-run group for `watch --group`; `flaky` seeds attempt flips and a retry-masked step for `flakes`; `paced` (alias `pace`) seeds a Pace baseline for `pace`.
 
 ## Guardrails
 

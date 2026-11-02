@@ -25,6 +25,7 @@ func TestGlyphsMatchVisualContract(t *testing.T) {
 		"fold_closed":     FoldClosed,
 		"prompt":          Prompt,
 		"rerun":           Rerun,
+		"slow":            Slow,
 		"dispatch":        Dispatch,
 		"enter":           Enter,
 		"escape":          Escape,

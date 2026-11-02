@@ -20,6 +20,8 @@ watch_group_max = 10    # runs one hunt board watches (1-50)
 flake_window = 50       # recent runs the flake scan reads per workflow+branch
 flake_badges = true     # mark known flakers on the runs list; off = zero flake calls
 log_compact = true      # open full logs with repeating lines folded; c toggles
+pace = true             # run ETAs and slow marks; off = zero Pace calls
+pace_window = 20        # green runs a Pace baseline samples (5-100)
 theme = "bramble"       # bramble | bone
 welcome = true          # show the welcome banner on launch
 poll_min_ms = 2000      # fastest live poll (1-3600000)
@@ -30,6 +32,8 @@ poll_max_ms = 30000     # slowest live poll (1-3600000)
 
 `watch_group_max` caps how many runs one hunt board (or `watch --group` stream) follows at once. The group poll budget stays one runs-list call per tick regardless of hunt size. Accepted range 1-50.
 `flake_window` (accepted range 1-500, default 50) is how many recent runs `gh hound flakes` and the TUI scent check read per workflow+branch before issuing a verdict. `flake_badges` (default on) controls two things: the `~` flake badge on runs-list rows whose workflow has a known flaker, and the automatic failure-screen scent check. Verdicts are cached per workflow+branch for the session and recomputed after a rerun; badges never spend API calls of their own. With `flake_badges = false` the failure screen spends zero flake calls — the `:flakes` jump and the `flakes` verb stay available.
+
+`pace` (default on) shows each running run's expected time left and marks runs that took meaningfully longer than usual, from the workflow's recent green runs. With `pace = false` the TUI shows no Pace annotations and makes zero Pace requests; the `pace` verb still answers when asked by name. `pace_window` (accepted range 5-100, default 20) is how many recent green runs a baseline samples; `--window` on the `pace` verb overrides it.
 
 `log_compact` (default on) opens the full-log screen with runs of repeating lines folded into one row each. `c` switches between the compact and the full log either way; with `log_compact = false` logs open full and `c` folds them. It does not change pipe output.
 
@@ -60,6 +64,7 @@ rerun_failed = "F"  # runs, detail, failure (default R)
 | `compare` | `o` | diff |
 | `dig_up` · `dig_up_key` | `d` · `D` | caches |
 | `copy_json` | `y` | queue |
+| `pace_toggle` | `p` | runs (including the all-green home), watch, the hunt board |
 
 A key is one printable character. Navigation keys and keys that in-screen hints name (`j/k`, `g/G`, `s`, `/` on runs, `:`, Enter, Esc, Tab) stay fixed. One key may serve two actions that never share a screen (`rerun = "e"` and `rerun_job = "e"`). A key that would mean two things on one screen, an unknown action, or a key that is not one printable character stops the launch with an error naming the file, the screen and both actions.
 
@@ -78,6 +83,8 @@ A key is one printable character. Navigation keys and keys that in-screen hints 
 | `HOUND_FLAKE_WINDOW` | Run window for the `flakes` scan (default 50) |
 | `HOUND_FLAKE_BADGES` | Flake badges + automatic failure-screen scent check (default true) |
 | `HOUND_LOG_COMPACT` | Open full logs with repeating lines folded (default true) |
+| `HOUND_PACE` | Pace ETAs and slow marks in the TUI (default true) |
+| `HOUND_PACE_WINDOW` | Green runs a Pace baseline samples (default 20) |
 | `HOUND_NO_TUI` | Force structured output when true |
 | `HOUND_JSON` | Force JSON output when true |
 | `HOUND_FORMAT` | `json`, `md`, or `xml` |

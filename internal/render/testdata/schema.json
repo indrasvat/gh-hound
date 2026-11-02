@@ -1297,6 +1297,185 @@
      "description": "True when a bounded --timeout expired before the hunt settled; the summary then still carries live running (and any lost) members. The command exits 1 if a member is already lost, else 3 (still in flight) — worst-outcome, same as a clean settle."
     }
    }
+  },
+  "pace_result": {
+   "type": "object",
+   "description": "One run judged against its workflow's recent green runs. The baseline is the last `window` successful first attempts of the same workflow, branch and event; below 5 samples it widens to the same event on any branch (baseline_branch null). The judged run is excluded from its own baseline. Statistics are nearest-rank p50 and p90 over whole seconds. A duration is slow when it is past p90, at least 1.5x p50, and at least 30s over p50. status is the field agents branch on: exit 1 for slow|overrun, 3 for running (within the baseline), 2 for error, 0 for on_pace|insufficient_data|not_comparable. not_comparable covers queued or waiting runs, re-run attempts, and finished runs that did not succeed; run.reason says which.",
+   "required": [
+    "repo",
+    "workflow",
+    "branch",
+    "baseline_branch",
+    "baseline_event",
+    "status",
+    "window",
+    "sample_size",
+    "runs_scanned",
+    "statistic",
+    "run",
+    "verdict"
+   ],
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "workflow": {
+     "type": "string",
+     "description": "workflow path or ID the history was read from"
+    },
+    "branch": {
+     "type": "string"
+    },
+    "baseline_branch": {
+     "type": [
+      "string",
+      "null"
+     ],
+     "description": "branch the samples came from; null when widened to any branch"
+    },
+    "baseline_event": {
+     "type": "string"
+    },
+    "status": {
+     "enum": [
+      "on_pace",
+      "running",
+      "overrun",
+      "slow",
+      "insufficient_data",
+      "not_comparable",
+      "error"
+     ]
+    },
+    "window": {
+     "type": "integer"
+    },
+    "sample_size": {
+     "type": "integer",
+     "description": "green runs in the baseline, the judged run excluded"
+    },
+    "runs_scanned": {
+     "type": "integer"
+    },
+    "statistic": {
+     "enum": [
+      "p50_p90"
+     ]
+    },
+    "run": {
+     "type": [
+      "object",
+      "null"
+     ],
+     "required": [
+      "id",
+      "number",
+      "attempt",
+      "event",
+      "status",
+      "conclusion",
+      "elapsed_seconds",
+      "queued_seconds",
+      "eta_seconds",
+      "p50_seconds",
+      "p90_seconds",
+      "ratio",
+      "slow"
+     ],
+     "properties": {
+      "id": {
+       "type": "integer"
+      },
+      "number": {
+       "type": "integer"
+      },
+      "attempt": {
+       "type": "integer"
+      },
+      "event": {
+       "type": "string"
+      },
+      "status": {
+       "type": "string"
+      },
+      "conclusion": {
+       "type": "string"
+      },
+      "elapsed_seconds": {
+       "type": "integer",
+       "minimum": 0,
+       "description": "run_started_at to now (running) or to updated_at (finished)"
+      },
+      "queued_seconds": {
+       "type": "integer",
+       "minimum": 0,
+       "description": "created_at to run_started_at; never counted as slowness"
+      },
+      "eta_seconds": {
+       "type": [
+        "integer",
+        "null"
+       ],
+       "minimum": 0,
+       "description": "p50 minus elapsed, floored at 0; set only while status is running"
+      },
+      "p50_seconds": {
+       "type": [
+        "integer",
+        "null"
+       ],
+       "minimum": 0
+      },
+      "p90_seconds": {
+       "type": [
+        "integer",
+        "null"
+       ],
+       "minimum": 0
+      },
+      "ratio": {
+       "type": [
+        "number",
+        "null"
+       ],
+       "description": "elapsed over p50"
+      },
+      "slow": {
+       "type": "boolean"
+      },
+      "reason": {
+       "type": "string",
+       "description": "why a not_comparable run has no pace"
+      }
+     }
+    },
+    "verdict": {
+     "type": "string"
+    },
+    "error": {
+     "type": "object",
+     "required": [
+      "kind",
+      "message"
+     ],
+     "properties": {
+      "kind": {
+       "enum": [
+        "auth",
+        "permission",
+        "not_found",
+        "rate_limit",
+        "network",
+        "validation",
+        "unknown"
+       ]
+      },
+      "message": {
+       "type": "string"
+      }
+     }
+    }
+   }
   }
  }
 }

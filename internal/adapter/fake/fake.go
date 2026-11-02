@@ -135,6 +135,8 @@ func (a *Adapter) listScenarioRuns() ([]model.Run, error) {
 		return a.packRuns(), nil
 	case ScenarioFlaky:
 		return flakyHistory(), nil
+	case ScenarioPaced:
+		return a.pacedHistory(), nil
 	case ScenarioActors, ScenarioActorsAnon:
 		return actorRuns(), nil
 	case ScenarioLiveRun:

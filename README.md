@@ -56,7 +56,7 @@ The top image is the gallery. Use these source frames when you want to inspect t
 | Frame | What it proves |
 | --- | --- |
 | [ASCII banner](assets/readme/00-ascii-banner.png) | The first impression is branded, terminal-native, and rendered by the real binary. |
-| [OpenClaw live runs](assets/readme/02-openclaw-live-runs.png) | Repo-wide high-volume Actions feed with run numbers first, event names, sparklines, scope, and rate budget. |
+| [OpenClaw live runs](assets/readme/02-openclaw-live-runs.png) | Repo-wide high-volume Actions feed with run numbers first, event names, durations, scope, and rate budget. |
 | [Full log viewer](assets/readme/09-gh-hound-self-log-search.png) | Real CI log rendering with line numbers, folds, scrollbar, search count, and highlighted matches. |
 | [Run detail](assets/readme/07-gh-hound-self-detail.png) | Jobs and step timeline from a live run, not fixture data. |
 | [Guarded rerun](assets/readme/11-action-confirm-rerun.png) | Mutation flows are present, but confirmation-gated. |
@@ -113,6 +113,7 @@ The local gate includes race-enabled Go tests, large-log performance tests, and 
 - **Attempt forensics**: `runs --run <id> --attempt <n>` triages a specific attempt after a re-run -- failed jobs, clean excerpts, exit codes.
 - **The trail**: `diff` walks a workflow's history to the last-green → first-red boundary and names the suspect commits -- the answer `git bisect` re-runs builds for is already in the run history. TUI screen via `:diff`, JSON verdict for agents, `diff_max_pages` bounds the spend.
 - **Flake forensics**: `flakes` answers "real failure or flake?" with a scored, evidenced verdict -- attempt flips, cross-run flapping, and retry-wrapper masking over the last `flake_window` runs. The failure screen recognizes the scent (`seen this one before: flaked 2 of last 50 runs`) with evidence drill-down, known flakers wear a `~` badge on the runs list, and agents branch on `status`: `flaky` -> rerun, `clean` -> investigate.
+- **Pace**: every running run reads its expected time left (`3m left`, `due`) from its workflow's recent green runs on the same branch and event, and a run that took meaningfully longer than usual wears `↑ 9m31s` -- on the runs list, the hunt board (`all home in ~4m`), and the watch header. The Duration column shows real durations, and with too little history nothing is estimated. `p` hides it for the session, `pace = false` turns it and its API calls off, and `gh hound pace` gives agents the same answer with exit `3` while running and `1` when slow.
 - **GitHub queue**: `queue` explains `pending` runs and jobs through GitHub Actions concurrency groups -- target, blockers, positions when GitHub exposes them, and a `decision.action` agents can branch on. A proved concurrency block exits `3`, not `1`: it is a wait state, not a red CI state.
 - **The pack**: `:workflows` lists every workflow with its state badge -- `✔ active`, `◌ asleep` (fell asleep after 60 quiet days, the classic "my cron stopped" mystery), `⊘ muzzled` (disabled by hand), `⊘ fork-disabled`, `✗ deleted` -- and `e` wakes or muzzles the toggleable ones, confirm-gated. The `workflows` pipe verb lists states and flips them by id or file path. Disabled workflows are named on the empty screen, and the dispatch picker badges them instead of hiding them.
 - **Failure diagnosis**: annotations, failing step, exit code, and de-noised failure excerpts.
@@ -191,6 +192,7 @@ gh hound rerun --run <id> --failed-only --debug --no-tui --json
 gh hound cancel --run <id> --no-tui --json
 gh hound diff --workflow CI --no-tui --json            # who broke main?
 gh hound flakes --workflow CI --no-tui --json          # flaky or real?
+gh hound pace --no-tui --json                          # how long left? did it run slow?
 gh hound workflows --no-tui --json                     # every workflow + state (why did my cron stop?)
 gh hound workflows --enable ci.yml --no-tui --json     # wake it: back on duty
 gh hound workflows --disable 290736476 --no-tui --json # muzzle it (id or file path)
@@ -217,14 +219,14 @@ Fixture scenarios are intentionally restricted to non-interactive/test paths. Th
 | Context | Keys |
 | --- | --- |
 | Global | `?` help, `:` palette, `T` theme, `q`/`Ctrl+C` quit, `Esc` back |
-| Runs | `j/k` or arrows move, `g/G` top/bottom, `s` scope, `Enter` open, `f` status cycle, `/` filter, `l` logs, `w` watch, `A` approvals (waiting runs) |
+| Runs | `j/k` or arrows move, `g/G` top/bottom, `s` scope, `Enter` open, `f` status cycle, `/` filter, `l` logs, `w` watch, `A` approvals (waiting runs), `p` Pace on/off |
 | Filter `/` | type a query, `Enter` apply, `Esc` cancel (restores the applied filter), `Ctrl+U` clear; `Esc` on the list clears the applied filter |
 | Actions | `r` rerun, `R` rerun failed, `x` cancel, `X` force cancel, `D` dispatch |
 | Detail | `Tab` focus, `n` next failure, `l` logs, `w` watch (follows a running job step by step), `a` artifacts, `d` download (overwrite-guarded re-download), `o`/`y` open folder / copy path on a downloaded artifact (browser / run URL otherwise), `J/K` next/previous run |
 | Failure | `l` full log, `o` browser, `y` copy excerpt, `r` rerun job |
 | Log | `/` search, `t` time jump/range, `n/N` matches, `z/Z` fold, `c` compact/full, `]/[` next/previous repeat fold, `w` wrap, `g/G` top/bottom |
-| Watch | `f` follow, `d` debug, `x` cancel, `Esc` detach — a running job shows its current step and elapsed time; GitHub serves its log once the job finishes |
-| Hunt board | `j/k` move, `Enter` drill into one run, `f` follow worst, `x` cancel, `Esc` back |
+| Watch | `f` follow, `d` debug, `x` cancel, `p` Pace on/off, `Esc` detach — a running job shows its current step and elapsed time; GitHub serves its log once the job finishes |
+| Hunt board | `j/k` move, `Enter` drill into one run, `f` follow worst, `x` cancel, `p` Pace on/off, `Esc` back |
 | Dispatch | `Tab` next, arrows/select controls, `Enter` run, `Esc` cancel |
 | Trail (diff) | `j/k` move suspects, `Enter` open first bad run, `o` compare in browser, `Esc` back |
 | Scent check (flakes) | `j/k` move evidence, `Enter` open that run, `Esc` back; on the failure screen `Tab` toggles excerpt/panel focus |
