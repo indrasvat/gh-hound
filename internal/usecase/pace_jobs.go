@@ -92,6 +92,8 @@ func stepBaselineKey(job, step string) string { return job + "\x00" + stepKey(st
 
 // PaceItem is one job or step judged against its samples.
 type PaceItem struct {
+	// Comparable: green or running work, the kind samples describe.
+	Comparable bool
 	Elapsed    time.Duration
 	P50        time.Duration
 	P90        time.Duration
@@ -105,10 +107,22 @@ type PaceItem struct {
 }
 
 // Thin is comparable work with too few samples to judge.
-func (a PaceItem) Thin() bool { return a.SampleSize > 0 && a.SampleSize < PaceMinSample }
+func (a PaceItem) Thin() bool {
+	return a.Comparable && a.SampleSize > 0 && a.SampleSize < PaceMinSample
+}
 
 // Judged says the item has an estimate (p50 and p90).
 func (a PaceItem) Judged() bool { return a.SampleSize >= PaceMinSample }
+
+// JobP50 is a job's median over its samples, whatever the job's own
+// outcome; false below PaceMinSample.
+func (b PaceJobBaseline) JobP50(name string) (time.Duration, bool) {
+	samples := b.Jobs[name]
+	if len(samples) < PaceMinSample {
+		return 0, false
+	}
+	return percentile(slices.Sorted(slices.Values(samples)), 50), true
+}
 
 // AssessJob judges a job: green or running work only.
 func AssessJob(job model.Job, b PaceJobBaseline, now time.Time) PaceItem {
@@ -133,6 +147,7 @@ func assessSpan(status model.Status, conclusion model.Conclusion, start, end tim
 	default:
 		return a
 	}
+	a.Comparable = true
 	a.SampleSize = len(samples)
 	if !a.Judged() {
 		return a

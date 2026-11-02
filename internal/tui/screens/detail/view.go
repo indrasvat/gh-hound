@@ -9,6 +9,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
+	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
 func View(m Model, width int) string {
@@ -27,7 +28,7 @@ func ViewSize(m Model, width, height int) string {
 	head := headLines(m, width)
 	if height > 0 {
 		// breadcrumb row(s) + pane header + divider + trailing divider + hint.
-		fixed := len(head) + 4 + artifactsBlockLines(m) + gateBlockLines(m)
+		fixed := len(head) + 4 + artifactsBlockLines(m) + gateBlockLines(m) + len(paceLines(m, styles{}, width))
 		stepsBudget = max(height-fixed, 3)
 	}
 	st := stylesFor(m.Theme.OrBramble())
@@ -100,7 +101,7 @@ func renderJobsPane(m Model, st styles, width int) []string {
 		return append(lines, fitANSI(colorize(st.dim, "No jobs returned by GitHub"), width))
 	}
 	for i, job := range m.Jobs {
-		lines = append(lines, jobRow(st, job, i == m.SelectedJob, width, m.clock()))
+		lines = append(lines, jobRow(st, job, m.jobPace(job), i == m.SelectedJob, width, m.clock()))
 	}
 	return lines
 }
@@ -129,8 +130,14 @@ func renderStepsPane(m Model, st styles, width, stepsBudget int, standalone bool
 		}, renderGateBlock(m, st, width)...)
 	}
 	header := stepHeader(st, job)
+	right := duration(job.Status, job.StartedAt, job.CompletedAt, m.clock())
+	if m.Pace != nil {
+		if p50, ok := m.Pace.JobP50(job.Name); ok {
+			right = "p50 " + usecase.FormatPaceDuration(p50) + " · " + right
+		}
+	}
 	lines := []string{
-		paneHeader(st, header, duration(job.Status, job.StartedAt, job.CompletedAt, m.clock()), width, m.Focus == FocusSteps),
+		paneHeader(st, header, right, width, m.Focus == FocusSteps),
 		divider(st, width),
 	}
 	start, end := stepWindow(len(job.Steps), m.SelectedStep, stepsBudget)
@@ -138,7 +145,7 @@ func renderStepsPane(m Model, st styles, width, stepsBudget int, standalone bool
 		lines = append(lines, fitANSI("    "+colorize(st.dim, fmt.Sprintf("+%d more above", start)), width))
 	}
 	for i := start; i < end; i++ {
-		lines = append(lines, stepRow(st, job.Steps[i], i == m.SelectedStep, width, m.clock()))
+		lines = append(lines, stepRow(st, job.Steps[i], m.stepPace(job, job.Steps[i]), i == m.SelectedStep, width, m.clock()))
 	}
 	if remaining := len(job.Steps) - end; remaining > 0 {
 		lines = append(lines, fitANSI("    "+colorize(st.dim, fmt.Sprintf("+%d more", remaining)), width))
@@ -147,6 +154,7 @@ func renderStepsPane(m Model, st styles, width, stepsBudget int, standalone bool
 		// GitHub lists a job's steps once a runner picks it up.
 		lines = append(lines, fitANSI("  "+colorize(st.dim, "waiting for a runner · steps appear once it starts"), width))
 	}
+	lines = append(lines, paceLines(m, st, width)...)
 	lines = append(lines, renderGateBlock(m, st, width)...)
 	lines = append(lines, renderArtifactsBlock(m, st, width)...)
 	lines = append(lines, divider(st, width))
@@ -367,7 +375,7 @@ func chip(st styles, label string) string {
 	return colorize(st.subtle, "["+label+"]")
 }
 
-func jobRow(st styles, job model.Job, selected bool, width int, now time.Time) string {
+func jobRow(st styles, job model.Job, pace usecase.PaceItem, selected bool, width int, now time.Time) string {
 	bar := " "
 	if selected {
 		bar = colorize(st.ok, icons.Cursor)
@@ -375,6 +383,9 @@ func jobRow(st styles, job model.Job, selected bool, width int, now time.Time) s
 	leftWidth := max(width-12, 1)
 	left := fitANSI(bar+" "+colorize(statusSGR(st, job.Status, job.Conclusion), jobGlyph(job))+" "+colorize(st.fgSoft, jobTitle(job)), leftWidth)
 	right := colorize(st.dim, duration(job.Status, job.StartedAt, job.CompletedAt, now))
+	if pace.Slow {
+		right = colorize(st.warn, icons.Slow+" "+usecase.FormatPaceDuration(pace.Elapsed))
+	}
 	row := joinRightANSI(left, right, width)
 	if selected {
 		return backgroundSafe(row, width, st.fg, st.surface2BG)
@@ -382,7 +393,7 @@ func jobRow(st styles, job model.Job, selected bool, width int, now time.Time) s
 	return row
 }
 
-func stepRow(st styles, step model.Step, selected bool, width int, now time.Time) string {
+func stepRow(st styles, step model.Step, pace usecase.PaceItem, selected bool, width int, now time.Time) string {
 	bar := " "
 	isFailure := step.Conclusion == model.ConclusionFailure || step.Conclusion == model.ConclusionActionRequired || step.Conclusion == model.ConclusionTimedOut
 	if isFailure {
@@ -398,6 +409,9 @@ func stepRow(st styles, step model.Step, selected bool, width int, now time.Time
 	leftWidth := max(width-12, 1)
 	left := fitANSI(bar+" "+colorize(statusSGR(st, step.Status, step.Conclusion), stepGlyph(step))+" "+padANSI(number, 2)+" "+colorize(nameColor, step.Name), leftWidth)
 	right := colorize(durationSGR(st, step), duration(step.Status, step.StartedAt, step.CompletedAt, now))
+	if pace.Slow {
+		right = colorize(st.warn, icons.Slow+" "+usecase.FormatPaceDuration(pace.Elapsed))
+	}
 	row := joinRightANSI(left, right, width)
 	switch {
 	case isFailure:
@@ -423,6 +437,9 @@ func hintLine(m Model, st styles, width int) string {
 		hint += " · " + colorize(st.info, "a") + " artifacts · " + colorize(st.info, "d") + " download"
 	} else {
 		hint += " · " + colorize(st.info, "y") + " copy"
+	}
+	if m.PaceHint {
+		hint += " · " + colorize(st.info, "p") + " pace"
 	}
 	return fitANSI(hint, width)
 }
@@ -577,14 +594,10 @@ func elapsed(d time.Duration) string {
 	return formatDuration(d)
 }
 
+// formatDuration is a measured duration in whole seconds: GitHub stamps
+// steps to the second, so a decimal would claim precision it lacks.
 func formatDuration(d time.Duration) string {
-	if d < time.Second {
-		return fmt.Sprintf("%.1fs", float64(d.Milliseconds())/1000)
-	}
-	if d < time.Minute {
-		return fmt.Sprintf("%.1fs", d.Seconds())
-	}
-	return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
+	return usecase.FormatPaceDuration(d)
 }
 
 func statusSGR(st styles, status model.Status, conclusion model.Conclusion) string {
@@ -714,3 +727,49 @@ func stylesFor(th theme.Theme) styles {
 }
 
 const sgrReset = "\x1b[0m"
+
+func (m Model) jobPace(job model.Job) usecase.PaceItem {
+	if m.Pace == nil {
+		return usecase.PaceItem{}
+	}
+	return usecase.AssessJob(job, *m.Pace, m.clock())
+}
+
+func (m Model) stepPace(job model.Job, step model.Step) usecase.PaceItem {
+	if m.Pace == nil {
+		return usecase.PaceItem{}
+	}
+	return usecase.AssessStep(job, step, *m.Pace, m.clock())
+}
+
+// paceLines is the one dim line under the steps that explains the
+// focused step's Pace: its numbers, a thin trail, or no trail. None for
+// work Pace does not judge (failed, skipped, queued) or without Pace.
+func paceLines(m Model, st styles, width int) []string {
+	job := m.selectedJob()
+	if m.Pace == nil || m.Focus != FocusSteps || m.SelectedStep < 0 || m.SelectedStep >= len(job.Steps) {
+		return nil
+	}
+	a := m.stepPace(job, job.Steps[m.SelectedStep])
+	var text string
+	switch {
+	case !a.Comparable:
+		return nil
+	case a.SampleSize == 0:
+		text = fmt.Sprintf("pace no trail · not in the last %d green runs", m.Pace.Runs)
+	case a.Thin():
+		text = fmt.Sprintf("pace thin trail · %d green runs · needs %d for an estimate", a.SampleSize, usecase.PaceMinSample)
+	default:
+		measured := usecase.FormatPaceDuration(a.Elapsed)
+		if a.Slow {
+			measured = icons.Slow + " " + measured
+		}
+		branch := m.Pace.BaselineBranch
+		if branch == "" {
+			branch = "any branch"
+		}
+		text = fmt.Sprintf("pace %s vs p50 %s · p90 %s · %.1f× · %d runs · %s", measured,
+			usecase.FormatPaceDuration(a.P50), usecase.FormatPaceDuration(a.P90), a.Ratio, a.SampleSize, branch)
+	}
+	return []string{fitANSI("  "+colorize(st.dim, text), width)}
+}

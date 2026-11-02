@@ -367,7 +367,7 @@ func TestViewReadsRunningStepsAsElapsed(t *testing.T) {
 	m := NewModel(model.Run{ID: 3902, Name: "E2E", RunNumber: 3902, Status: model.StatusInProgress}, []model.Job{job})
 	m.Now = now
 	plain := ansi.Strip(View(m, 120))
-	for _, want := range []string{"Run tests", "12m40s", "20m00s", "15.0s", "—"} {
+	for _, want := range []string{"Run tests", "12m40s", "20m00s", "15s", "—"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("view missing %q:\n%s", want, plain)
 		}
