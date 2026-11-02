@@ -149,3 +149,18 @@ func TestWatchHeaderPaceSuffixIsPlain(t *testing.T) {
 		t.Fatalf("header carries its own colour: %q", head)
 	}
 }
+
+// A queued or approval-waiting member has no estimate and may never
+// start, so the board must not promise when everyone is home.
+func TestBoardHeadlineMakesNoPromiseWhileAMemberWaits(t *testing.T) {
+	for _, status := range []model.Status{model.StatusQueued, model.StatusWaiting} {
+		waiting := boardRun(105, "Deploy", status, model.ConclusionNone)
+		runs := []model.Run{live(102, "Release", 48*time.Second), waiting}
+		board := watch.NewBoard("o/r", "main", runs[0], runs)
+		board.Pace = map[int64]usecase.PaceBaseline{102: fourMinutes(), 105: fourMinutes()}
+		headline := strings.SplitN(ansi.Strip(watch.BoardViewSize(board, 120, 0, watchNow)), "\n", 2)[0]
+		if strings.Contains(headline, "all home") {
+			t.Fatalf("%s member: headline = %q, want no all-home estimate", status, headline)
+		}
+	}
+}

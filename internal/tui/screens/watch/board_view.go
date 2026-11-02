@@ -105,14 +105,14 @@ func boardHeader(st styles, width int) string {
 	return fitANSI(colorize(st.dim, header), width)
 }
 
-// allHome says when the last running run is expected home; only when
-// every running run has an estimate, since one unknown makes it a
-// guess.
+// allHome says when the last unfinished run is expected home; only when
+// every one has an estimate, since one unknown (a queued or waiting run
+// may never start) makes it a guess.
 func allHome(st styles, b Board, now time.Time) string {
 	var latest time.Duration
 	running := 0
 	for _, run := range b.Runs {
-		if run.Status != model.StatusInProgress {
+		if run.Status == model.StatusCompleted {
 			continue
 		}
 		running++
