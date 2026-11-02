@@ -74,6 +74,8 @@ func (a PaceAssessment) Due() bool {
 // PaceService samples a workflow's recent green runs.
 type PaceService struct {
 	History WorkflowRunHistory
+	// Jobs lists sample runs' jobs for job and step baselines.
+	Jobs    PaceJobLister
 	Window  int
 	PerPage int
 }
