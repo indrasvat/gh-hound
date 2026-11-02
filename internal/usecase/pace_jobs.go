@@ -141,13 +141,11 @@ func AssessJob(job model.Job, b PaceJobBaseline, now time.Time) PaceItem {
 	return assessSpan(job.Status, job.Conclusion, job.StartedAt, job.CompletedAt, b.Jobs[job.Name], paceSlowFloor, now)
 }
 
-// AssessStep judges one of job's steps by its normalised name.
-func AssessStep(job model.Job, step model.Step, b PaceJobBaseline, now time.Time) PaceItem {
-	key := stepBaselineKey(job.Name, step.Name)
-	if i := slices.IndexFunc(job.Steps, func(s model.Step) bool { return s.Number == step.Number }); i >= 0 {
-		key = stepOccurrenceKey(job, i)
-	}
-	return assessSpan(step.Status, step.Conclusion, step.StartedAt, step.CompletedAt, b.Steps[key], paceStepFloor, now)
+// AssessStep judges job's i-th step by its normalised name and
+// occurrence.
+func AssessStep(job model.Job, i int, b PaceJobBaseline, now time.Time) PaceItem {
+	step := job.Steps[i]
+	return assessSpan(step.Status, step.Conclusion, step.StartedAt, step.CompletedAt, b.Steps[stepOccurrenceKey(job, i)], paceStepFloor, now)
 }
 
 func assessSpan(status model.Status, conclusion model.Conclusion, start, end time.Time, samples []time.Duration, floor time.Duration, now time.Time) PaceItem {

@@ -150,7 +150,7 @@ func renderStepsPane(m Model, st styles, width, stepsBudget int, standalone bool
 		lines = append(lines, fitANSI("    "+colorize(st.dim, fmt.Sprintf("+%d more above", start)), width))
 	}
 	for i := start; i < end; i++ {
-		lines = append(lines, stepRow(st, job.Steps[i], m.stepPace(job, job.Steps[i]), i == m.SelectedStep, width, m.clock()))
+		lines = append(lines, stepRow(st, job.Steps[i], m.stepPace(job, i), i == m.SelectedStep, width, m.clock()))
 	}
 	if remaining := len(job.Steps) - end; remaining > 0 {
 		lines = append(lines, fitANSI("    "+colorize(st.dim, fmt.Sprintf("+%d more", remaining)), width))
@@ -724,11 +724,11 @@ func (m Model) jobPace(job model.Job) usecase.PaceItem {
 	return usecase.AssessJob(job, *m.Pace, m.clock())
 }
 
-func (m Model) stepPace(job model.Job, step model.Step) usecase.PaceItem {
+func (m Model) stepPace(job model.Job, i int) usecase.PaceItem {
 	if m.Pace == nil {
 		return usecase.PaceItem{}
 	}
-	return usecase.AssessStep(job, step, *m.Pace, m.clock())
+	return usecase.AssessStep(job, i, *m.Pace, m.clock())
 }
 
 // paceLines is the one dim line under the steps that explains the
@@ -739,7 +739,7 @@ func paceLines(m Model, st styles, width int) []string {
 	if m.Pace == nil || m.hidePaceLine || m.Focus != FocusSteps || m.SelectedStep < 0 || m.SelectedStep >= len(job.Steps) {
 		return nil
 	}
-	a := m.stepPace(job, job.Steps[m.SelectedStep])
+	a := m.stepPace(job, m.SelectedStep)
 	var text string
 	switch {
 	case !a.Comparable:

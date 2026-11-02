@@ -220,8 +220,8 @@ func paceJobsResult(jobs []model.Job, jb usecase.PaceJobBaseline, now time.Time)
 		if a.Slow {
 			slow = append(slow, render.PaceSlow{Kind: "job", Job: job.Name, ElapsedSeconds: wholeSeconds(a.Elapsed), P50Seconds: wholeSeconds(a.P50), Ratio: a.Ratio})
 		}
-		for _, step := range job.Steps {
-			sa := usecase.AssessStep(job, step, jb, now)
+		for i, step := range job.Steps {
+			sa := usecase.AssessStep(job, i, jb, now)
 			ps := render.PaceStep{Number: step.Number, Name: step.Name, Status: string(step.Status), Conclusion: string(step.Conclusion), SampleSize: sa.SampleSize, Slow: sa.Slow}
 			ps.ElapsedSeconds = spanSeconds(step.Status, step.StartedAt, step.CompletedAt, now)
 			ps.P50Seconds, ps.P90Seconds, ps.Ratio = paceFigures(sa)

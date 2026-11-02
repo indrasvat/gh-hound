@@ -180,7 +180,7 @@ func FuzzAssessStep(f *testing.F) {
 		case 2:
 			step.Status, step.Conclusion, step.CompletedAt = model.StatusCompleted, model.ConclusionSkipped, now
 		}
-		a := AssessStep(model.Job{Name: "build"}, step, jb, now)
+		a := AssessStep(model.Job{Name: "build", Steps: []model.Step{step}}, 0, jb, now)
 		if a.Elapsed%time.Second != 0 || a.Elapsed < 0 {
 			t.Fatalf("elapsed not whole seconds: %+v", a)
 		}
