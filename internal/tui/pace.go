@@ -326,6 +326,24 @@ func (a App) paceForRuns(m runspkg.Model) (map[int64]usecase.PaceBaseline, map[i
 	return out, asOf
 }
 
+// staleRuns is the unfinished rows no fetch has returned unfinished
+// within three polls (five minutes at least): rows past page 1 and far
+// from the selection are not re-read, and may have finished unseen. A
+// read that saw the run finished never vouches for a copy that is not.
+func (a App) staleRuns(rows []model.Run, now time.Time) map[int64]bool {
+	limit := max(5*time.Minute, 3*a.pollDueInterval())
+	out := map[int64]bool{}
+	for _, run := range rows {
+		if run.Status == model.StatusCompleted {
+			continue
+		}
+		if c, ok := a.runsConfirmed[run.ID]; !ok || c.status == model.StatusCompleted || now.Sub(c.at) > limit {
+			out[run.ID] = true
+		}
+	}
+	return out
+}
+
 // confirmedAt records that a fetch returned rows at at (when the
 // response arrived, not when it was applied). A fresh map: App copies
 // share the old one.
@@ -368,9 +386,9 @@ func (a App) refreshCandidates(n int) []int64 {
 // refreshUnfinished re-reads the candidates the page did not return,
 // keeping a row only while it still matches the server status filter
 // (status is the one filtered field a run changes). It returns the rows
-// to keep, the ids to drop, and every id it asked about. A failed read
+// to keep, the rows to drop (as read), and every id it asked about. A failed read
 // leaves the row as it was and unconfirmed, so Pace stays silent on it.
-func refreshUnfinished(ctx context.Context, refresher func(context.Context, int64) (model.Run, error), candidates []int64, page []model.Run, status string) (kept []model.Run, dropped, tried []int64) {
+func refreshUnfinished(ctx context.Context, refresher func(context.Context, int64) (model.Run, error), candidates []int64, page []model.Run, status string) (kept, dropped []model.Run, tried []int64) {
 	for _, id := range candidates {
 		if slices.ContainsFunc(page, func(r model.Run) bool { return r.ID == id }) {
 			continue
@@ -381,7 +399,7 @@ func refreshUnfinished(ctx context.Context, refresher func(context.Context, int6
 			continue
 		}
 		if status != "" && string(run.Status) != status && string(run.Conclusion) != status {
-			dropped = append(dropped, id)
+			dropped = append(dropped, run)
 			continue
 		}
 		kept = append(kept, run)

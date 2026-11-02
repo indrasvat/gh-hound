@@ -609,7 +609,7 @@ func NewApp(options Options) App {
 		flakesResolver:            options.FlakesResolver,
 		paceResolver:              options.PaceResolver,
 		runRefresher:              options.RunRefresher,
-		runsConfirmed:             confirmedAt(nil, launch.Runs, time.Now()),
+		runsConfirmed:             confirmedAt(nil, slices.Concat(launch.Runs, launch.BranchRuns, launch.RepoRuns), time.Now()),
 		queueResolver:             options.QueueResolver,
 		flakeReports:              map[string]usecase.FlakeReport{},
 		workflowsResolver:         options.WorkflowsResolver,
@@ -688,6 +688,7 @@ func NewScenarioApp(scenario string, build BuildInfo) App {
 	case "green", "ok", "success":
 		app.runs = sampleAllGreenModel()
 	}
+	app.runsConfirmed = confirmedAt(nil, app.runs.Context.Runs, time.Now())
 	return app
 }
 
@@ -988,6 +989,7 @@ func RenderFixtureSize(screen string, width, height int) string {
 		return frameViewSize(app.theme, "hound", queueContext(app.queue.Report), queueRight(app.queue.Report), queuescreen.ViewSize(app.queue, bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenQueue), width, height, true)
 	case "approvals":
 		app.runs = sampleWaitingRunsModel()
+		app.runsConfirmed = confirmedAt(nil, app.runs.Context.Runs, time.Now())
 		app.routes = []Route{RouteRuns}
 		run, _ := app.runs.SelectedRun()
 		app.approvals = approvals.NewModel(run, samplePendingDeployments())
@@ -1005,6 +1007,7 @@ func RenderFixtureSize(screen string, width, height int) string {
 		return loadingApp.ViewSize(width, height)
 	case "rate_limit_toast":
 		app.runs = sampleRunsModel()
+		app.runsConfirmed = confirmedAt(nil, app.runs.Context.Runs, time.Now())
 		app.routes = []Route{RouteRuns}
 		app.pushToast("rate-limit", usecase.ResilienceFor(usecase.APIError{
 			Kind:       usecase.APIErrorRateLimit,
@@ -3118,7 +3121,7 @@ type fetchedRuns struct {
 	// ones to keep, the ones that left the status filter, and every
 	// one asked about.
 	refreshed   []model.Run
-	dropped     []int64
+	dropped     []model.Run
 	tried       []int64
 	refreshedAt time.Time
 }
@@ -3244,8 +3247,10 @@ func (a App) loadMoreRuns() App {
 			}
 			app.runs.Context.Page = nextPage
 			app.runs.Context.PerPage = perPage
+			// Only the rows the page adds count as read; listed copies stay as they were.
+			added := dedupeNewRuns(app.runs.Context.Runs, resolved.rows)
 			_ = app.appendActiveRuns(resolved.rows)
-			app.runsConfirmed = confirmedAt(app.runsConfirmed, resolved.rows, resolved.at)
+			app.runsConfirmed = confirmedAt(app.runsConfirmed, added, resolved.at)
 			// A full page that deduped (or narrowed) to nothing still means
 			// deeper pages exist (high-velocity repos shift runs between
 			// pages); latching HasMore=false there froze pagination on
@@ -3308,7 +3313,7 @@ func (a App) applyRunsRefresh(fetched fetchedRuns, err error, key string) App {
 	a.clearRouteError(RouteRuns)
 	a.refreshCount++
 	perPage := perPageFor(a.runs.Context, a.config.PerPage)
-	a.runsConfirmed = confirmedAt(confirmedAt(a.runsConfirmed, resolved, fetched.at), fetched.refreshed, fetched.refreshedAt)
+	a.runsConfirmed = confirmedAt(confirmedAt(a.runsConfirmed, resolved, fetched.at), slices.Concat(fetched.refreshed, fetched.dropped), fetched.refreshedAt)
 	if len(fetched.tried) > 0 {
 		tried := make(map[int64]time.Time, len(a.runsTried)+len(fetched.tried))
 		maps.Copy(tried, a.runsTried)
@@ -3319,7 +3324,9 @@ func (a App) applyRunsRefresh(fetched fetchedRuns, err error, key string) App {
 	}
 	if current {
 		merged := append(slices.Clone(resolved), dedupeNewRuns(resolved, a.runs.Context.Runs)...)
-		merged = slices.DeleteFunc(merged, func(run model.Run) bool { return slices.Contains(fetched.dropped, run.ID) })
+		merged = slices.DeleteFunc(merged, func(run model.Run) bool {
+			return slices.ContainsFunc(fetched.dropped, func(d model.Run) bool { return d.ID == run.ID })
+		})
 		for i, run := range merged {
 			if j := slices.IndexFunc(fetched.refreshed, func(r model.Run) bool { return r.ID == run.ID }); j >= 0 {
 				merged[i] = fetched.refreshed[j]
@@ -5014,6 +5021,7 @@ func (a App) screenBody(width, height int) string {
 			runsModel.LoadingLine = loadingLine(a.theme, load, bodyWidth, time.Now())
 		}
 		runsModel.Pace, runsModel.PaceAsOf = a.paceForRuns(runsModel)
+		runsModel.Stale = a.staleRuns(runsModel.Context.Runs, time.Now())
 		return runs.ViewSize(runsModel, bodyWidth, bodyHeight(height), time.Now())
 	case RouteDetail:
 		detailModel := a.detail

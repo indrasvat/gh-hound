@@ -368,3 +368,30 @@ func TestPackScenarioStaggersCompletionAcrossTicks(t *testing.T) {
 		t.Fatalf("chained run event = %q, want workflow_run", runs[0].Event)
 	}
 }
+
+// Only a runs-list call moves the pack along. History walks (Pace
+// baselines) and single-run reads (Pace re-reads, watch) only look:
+// before, each one advanced the clock and a PTY audit saw the hunt end
+// early.
+func TestPackAdvancesOnlyOnRunsList(t *testing.T) {
+	ctx := context.Background()
+	a := New(ScenarioPack)
+	first, err := a.ListRuns(ctx, usecase.RunFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 5 {
+		if _, err := a.ListWorkflowRuns(ctx, "o/r", "ci.yml", usecase.RunFilter{}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := a.GetRun(ctx, "o/r", first[0].ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a.packMu.Lock()
+	ticks := a.packTicks
+	a.packMu.Unlock()
+	if ticks != 1 {
+		t.Fatalf("pack ticks = %d after one runs list and ten reads, want 1", ticks)
+	}
+}
