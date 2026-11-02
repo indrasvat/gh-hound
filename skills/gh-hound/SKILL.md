@@ -128,7 +128,7 @@ Before cancelling a long run, ask how it compares with recent green runs:
 gh hound pace --run <run-id> --no-tui --json
 ```
 
-Branch on `status`: `running` (exit `3`) is within its usual time, so wait (`run.eta_seconds` is the time left). `overrun` or `slow` (exit `1`) means `slow[]` names the jobs and steps that took the time. Anything else exiting `0` needs no action. Baseline, slow rule and API cost: `docs/agent-surface.md` (Pace Verdict) in the gh-hound repo.
+Branch on `status`: `running` (exit `3`) is within its usual time, so wait (`run.eta_seconds` is the time left). `overrun` or `slow` (exit `1`) means `slow[]` names the jobs and steps that took the time. Anything else exiting `0` needs no action. `--no-steps` skips the job and step checks and their API calls.
 
 ## Mutations
 
