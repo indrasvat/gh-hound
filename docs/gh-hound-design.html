@@ -143,7 +143,7 @@ p.body code{font-size:.86em;background:var(--surface);padding:1px 6px;border-rad
 .warn{color:var(--warn)} .dim{color:var(--dim)} .neutral{color:var(--neutral)}
 .sel{color:var(--ok);font-weight:700} .key{color:var(--info)} .acc{color:var(--ok)}
 .grp{color:var(--info)} .hi{background:var(--surface-2);color:var(--fg)} .match{color:var(--warn)}
-.spark{color:var(--info)} .fillok{color:var(--ok-deep)} .b{color:var(--fg)}
+.fillok{color:var(--ok-deep)} .b{color:var(--fg)}
 
 /* ---------- pain-point map ---------- */
 .pain{display:flex;flex-direction:column;gap:10px;margin-top:10px}
@@ -305,9 +305,8 @@ footer .sig{color:var(--ok);font-family:"JetBrains Mono",monospace}
 .ferr{color:var(--fail);padding:1px 13px}
 .attrib{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:7px 13px;color:var(--fg-soft)}
 
-/* sparkline (ntcharts / custom block map) */
-.spk{display:flex;align-items:flex-end;gap:2px;height:13px}
-.spk i{width:3px;background:var(--info);border-radius:1px;opacity:.8}
+/* Pace duration cell: measured duration, time left, or a slow flag */
+.pace{color:var(--dim);text-align:right} .pace.left{color:var(--run)} .pace.slow{color:var(--warn)} .pace.queued{color:var(--info)}
 
 /* master-detail */
 .md{display:grid;grid-template-columns:minmax(158px,210px) 1fr;min-width:520px}
@@ -628,7 +627,7 @@ footer .sig{color:var(--ok);font-family:"JetBrains Mono",monospace}
     <tr><td>Dispatch form</td><td><code>huh</code> / <code>bubbles/v2/textinput</code></td><td>Select, input, radio; real cursor via <code>tea.Cursor</code> (block, blink, colour).</td></tr>
     <tr><td>Palette &amp; help overlays</td><td><code>lipgloss/v2</code> Canvas + Layers</td><td>Z-indexed layers float a modal over a dimmed base — new in v2.</td></tr>
     <tr><td>Help content</td><td><code>bubbles/v2/help</code> + <code>key</code></td><td>Auto-generated from the keymap; keymap is user-configurable.</td></tr>
-    <tr><td>Duration sparklines</td><td><code>ntcharts</code> / custom block map</td><td>Nimble Terminal Charts for Bubble Tea + Lip Gloss.</td></tr>
+    <tr><td>Duration cell (Pace)</td><td>plain text</td><td>Measured duration, time left from recent green runs, or <code>↑</code> when slow. No charting library.</td></tr>
     <tr><td>Theme (light/dark)</td><td>explicit styles</td><td>Lip Gloss v2 removed <code>AdaptiveColor</code> — so a fixed, hand-tuned theme is the idiomatic path, with truecolor degrading to 256/16/ASCII.</td></tr>
   </table></div>
   <div class="note">Border titles (the <span class="mono">╭ hound ─ … ╮</span> headers) aren't a built-in — Lip Gloss borders are plain rectangles. hound composes the title onto the top edge as a render step (string overlay), the same technique mature Charm apps use.</div>
@@ -662,7 +661,7 @@ footer .sig{color:var(--ok);font-family:"JetBrains Mono",monospace}
     <tr><td><span class="swix" style="background:var(--ok)"></span><code>ok</code></td><td>#4FD37A</td><td>success · live · cursor bar · brand</td><td>conclusion=success</td></tr>
     <tr><td><span class="swix" style="background:var(--fail)"></span><code>fail</code></td><td>#E2564B</td><td>failure · error</td><td>conclusion=failure</td></tr>
     <tr><td><span class="swix" style="background:var(--run)"></span><code>run</code></td><td>#E0A33E</td><td>in_progress</td><td>status=in_progress</td></tr>
-    <tr><td><span class="swix" style="background:var(--info)"></span><code>info</code></td><td>#6E9CB5</td><td>queued/pending · keys · sparkline</td><td>status=queued</td></tr>
+    <tr><td><span class="swix" style="background:var(--info)"></span><code>info</code></td><td>#6E9CB5</td><td>queued/pending · keys</td><td>status=queued</td></tr>
     <tr><td><span class="swix" style="background:var(--warn)"></span><code>warn</code></td><td>#E8895A</td><td>action_required · timed_out</td><td>conclusion=action_required</td></tr>
     <tr><td><span class="swix" style="background:var(--neutral)"></span><code>neutral</code></td><td>#6B7060</td><td>cancelled · stale · skipped</td><td>conclusion=cancelled/skipped</td></tr>
   </table></div>
@@ -692,7 +691,7 @@ footer .sig{color:var(--ok);font-family:"JetBrains Mono",monospace}
     <div class="ico"><span class="g info">⎇</span><span class="t"><b>branch</b>U+2387</span></div>
     <div class="ico"><span class="g dim">›</span><span class="t"><b>breadcrumb</b>U+203A</span></div>
     <div class="ico"><span class="g acc">▾ ▸</span><span class="t"><b>fold</b>U+25BE/B8</span></div>
-    <div class="ico"><span class="g spark">▁▂▃▅▇</span><span class="t"><b>sparkline</b>blocks</span></div>
+    <div class="ico"><span class="g" style="color:var(--warn)">↑</span><span class="t"><b>slow</b>Pace flag</span></div>
     <div class="ico"><span class="g info">❯</span><span class="t"><b>prompt</b>U+276F</span></div>
     <div class="ico"><span class="g acc">↻</span><span class="t"><b>rerun</b>U+21BB</span></div>
     <div class="ico"><span class="g acc">▶</span><span class="t"><b>dispatch</b>U+25B6</span></div>
@@ -753,12 +752,12 @@ footer .sig{color:var(--ok);font-family:"JetBrains Mono",monospace}
     <div class="t-body">
       <div class="colhead g"><span></span><span>Workflow</span><span>Event</span><span>#</span><span>Duration</span><span>Age</span></div>
       <div class="runs">
-        <div class="tr cur"><span class="st fail">✗</span><span class="b">CI</span><span class="ev">pull_request</span><span class="num">571</span><span class="spk"><i style="height:35%"></i><i style="height:60%"></i><i style="height:100%"></i><i style="height:70%"></i><i style="height:45%"></i></span><span class="age">12s</span></div>
-        <div class="tr"><span class="st run">⠹</span><span class="b">CI</span><span class="ev">push</span><span class="num">570</span><span class="spk"><i style="height:40%"></i><i style="height:55%"></i><i style="height:80%"></i><i style="height:30%;opacity:.4"></i><i style="height:20%;opacity:.4"></i></span><span class="age">now</span></div>
-        <div class="tr"><span class="st ok">✔</span><span class="b">Release</span><span class="ev">push</span><span class="num">569</span><span class="spk"><i style="height:30%"></i><i style="height:35%"></i><i style="height:50%"></i><i style="height:65%"></i><i style="height:50%"></i></span><span class="age">3m</span></div>
-        <div class="tr"><span class="st ok">✔</span><span class="b">CodeQL</span><span class="ev">schedule</span><span class="num">568</span><span class="spk"><i style="height:55%"></i><i style="height:75%"></i><i style="height:100%"></i><i style="height:85%"></i><i style="height:70%"></i></span><span class="age">2h</span></div>
-        <div class="tr"><span class="st cancel">⊘</span><span class="b">CI</span><span class="ev">workflow_dispatch</span><span class="num">567</span><span class="spk"><i style="height:25%"></i><i style="height:25%;opacity:.4"></i></span><span class="age">3h</span></div>
-        <div class="tr"><span class="st queue">◌</span><span class="b">Deploy</span><span class="ev">push</span><span class="num">566</span><span class="spk" style="opacity:.4"><i style="height:15%"></i><i style="height:15%"></i></span><span class="age">3h</span></div>
+        <div class="tr cur"><span class="st fail">✗</span><span class="b">CI</span><span class="ev">pull_request</span><span class="num">571</span><span class="pace">2m14s</span><span class="age">12s</span></div>
+        <div class="tr"><span class="st run">⠹</span><span class="b">CI</span><span class="ev">push</span><span class="num">570</span><span class="pace left">3m left</span><span class="age">now</span></div>
+        <div class="tr"><span class="st ok">✔</span><span class="b">Release</span><span class="ev">push</span><span class="num">569</span><span class="pace slow">↑ 9m31s</span><span class="age">3m</span></div>
+        <div class="tr"><span class="st ok">✔</span><span class="b">CodeQL</span><span class="ev">schedule</span><span class="num">568</span><span class="pace">4m05s</span><span class="age">2h</span></div>
+        <div class="tr"><span class="st cancel">⊘</span><span class="b">CI</span><span class="ev">workflow_dispatch</span><span class="num">567</span><span class="pace">1m02s</span><span class="age">3h</span></div>
+        <div class="tr"><span class="st queue">◌</span><span class="b">Deploy</span><span class="ev">push</span><span class="num">566</span><span class="pace queued">queued</span><span class="age">3h</span></div>
       </div>
       <div style="padding:7px 13px 1px;color:var(--dim)"><span style="color:var(--fail)">1 failing</span> · <span style="color:var(--run)">1 running</span> · 4 passed</div>
     </div>
@@ -773,9 +772,9 @@ footer .sig{color:var(--ok);font-family:"JetBrains Mono",monospace}
       <div class="colhead g"><span>#</span><span>St</span><span>Workflow / detail</span><span>Actor</span><span>Event</span><span>Dur.</span><span>Age</span></div>
       <div class="filterin"><span class="p">/</span><span>actor:@me status:failure</span><span class="cur"></span></div>
       <div class="fhint">actor:@me · actor:login · status:failure · branch:trunk · event:push</div>
-      <div class="tr cur"><span class="num">#701</span><span class="st fail">✗</span><span class="b">CI · fix: flaky lexer test</span><span class="actor">@indrasvat</span><span class="ev">push</span><span class="spk"><i style="height:35%"></i><i style="height:60%"></i><i style="height:100%"></i><i style="height:70%"></i></span><span class="age">12m</span></div>
-      <div class="tr"><span class="num">#700</span><span class="st ok">✔</span><span class="b">Release · chore(deps): bump x/term</span><span class="actor">@dependabot[bot]</span><span class="ev">push</span><span class="spk"><i style="height:30%"></i><i style="height:50%"></i><i style="height:65%"></i></span><span class="age">36m</span></div>
-      <div class="tr"><span class="num">#699</span><span class="st cancel">⊘</span><span class="b">CI · imported run</span><span class="actor na">unavailable</span><span class="ev">push</span><span class="spk"><i style="height:25%"></i></span><span class="age">2h</span></div>
+      <div class="tr cur"><span class="num">#701</span><span class="st fail">✗</span><span class="b">CI · fix: flaky lexer test</span><span class="actor">@indrasvat</span><span class="ev">push</span><span class="pace">3m12s</span><span class="age">12m</span></div>
+      <div class="tr"><span class="num">#700</span><span class="st ok">✔</span><span class="b">Release · chore(deps): bump x/term</span><span class="actor">@dependabot[bot]</span><span class="ev">push</span><span class="pace">48s</span><span class="age">36m</span></div>
+      <div class="tr"><span class="num">#699</span><span class="st cancel">⊘</span><span class="b">CI · imported run</span><span class="actor na">unavailable</span><span class="ev">push</span><span class="pace">—</span><span class="age">2h</span></div>
     </div>
     <div class="t-foot"><span><k>⏎</k>apply</span><span><k>⎋</k>cancel</span><span><k>ctrl+u</k>clear</span></div>
   </div>
@@ -893,9 +892,9 @@ footer .sig{color:var(--ok);font-family:"JetBrains Mono",monospace}
       <div class="t-body dimbg">
         <div class="colhead g"><span></span><span>Workflow</span><span>Event</span><span>#</span><span>Duration</span><span>Age</span></div>
         <div class="runs">
-          <div class="tr"><span class="st ok">✔</span><span class="b">CI</span><span class="ev">push</span><span class="num">569</span><span class="spk"><i style="height:40%"></i><i style="height:60%"></i><i style="height:50%"></i></span><span class="age">3m</span></div>
-          <div class="tr"><span class="st ok">✔</span><span class="b">CodeQL</span><span class="ev">schedule</span><span class="num">568</span><span class="spk"><i style="height:55%"></i><i style="height:80%"></i><i style="height:70%"></i></span><span class="age">2h</span></div>
-          <div class="tr"><span class="st ok">✔</span><span class="b">Release</span><span class="ev">push</span><span class="num">567</span><span class="spk"><i style="height:30%"></i><i style="height:45%"></i><i style="height:40%"></i></span><span class="age">5h</span></div>
+          <div class="tr"><span class="st ok">✔</span><span class="b">CI</span><span class="ev">push</span><span class="num">569</span><span class="pace">4m05s</span><span class="age">3m</span></div>
+          <div class="tr"><span class="st ok">✔</span><span class="b">CodeQL</span><span class="ev">schedule</span><span class="num">568</span><span class="pace">3m58s</span><span class="age">2h</span></div>
+          <div class="tr"><span class="st ok">✔</span><span class="b">Release</span><span class="ev">push</span><span class="num">567</span><span class="pace slow">↑ 9m31s</span><span class="age">5h</span></div>
         </div>
       </div>
       <div class="toastwrap">
@@ -983,7 +982,7 @@ footer .sig{color:var(--ok);font-family:"JetBrains Mono",monospace}
   <p class="body">A terminal has no room to waste. hound answers the 80% question on one line, then reveals depth on demand — four levels, each one <code>⏎</code> deeper, <code>⎋</code> shallower. A breadcrumb always shows where you are; on narrow terminals the right detail pane collapses into a full-screen push rather than truncating. The most likely <i>next action</i> is always the most prominent thing on screen — a failed run surfaces "rerun failed," a running one surfaces "watch," a green one gets out of your way.</p>
   <div class="ladder">
     <div class="rung"><div class="lv">L0</div><div><h5>Glance</h5><p>One header line: branch, counts — <span class="mono">"1 failing · 1 running"</span>. Answers <i>is it green?</i> before you read a table.</p><span class="kk">always visible</span></div></div>
-    <div class="rung"><div class="lv">L1</div><div><h5>List</h5><p>The runs table — status, workflow, duration sparkline, age. The landing screen, and where 90% of time is spent.</p><span class="kk">⏎ from L0 · the default</span></div></div>
+    <div class="rung"><div class="lv">L1</div><div><h5>List</h5><p>The runs table — status, workflow, duration (time left while running, ↑ when slow), age. The landing screen, and where 90% of time is spent.</p><span class="kk">⏎ from L0 · the default</span></div></div>
     <div class="rung"><div class="lv">L2</div><div><h5>Detail</h5><p>Jobs + step timeline for one run, master-detail. The failed step pre-flagged so the next keystroke is obvious.</p><span class="kk">⏎ on a run · ⎋ back</span></div></div>
     <div class="rung"><div class="lv">L3</div><div><h5>Deep</h5><p>The de-noised error window + annotations — and only if you ask, the full folded log. The long tail stays hidden until summoned.</p><span class="kk">n jump · l full log · ⤓ expand</span></div></div>
   </div>
@@ -1012,7 +1011,7 @@ footer .sig{color:var(--ok);font-family:"JetBrains Mono",monospace}
   <h2>v1 — the daily loop</h2>
   <p class="body">Every line ships because a stable endpoint backs it.</p>
   <div class="feat">
-    <div class="frow"><span class="n">✔</span><div class="d"><b>Runs list, branch-scoped, filterable</b><br><span>status / branch / event / actor · live spinner · duration sparkline · age. The home screen.</span></div><span class="ep">GET …/actions/runs</span></div>
+    <div class="frow"><span class="n">✔</span><div class="d"><b>Runs list, branch-scoped, filterable</b><br><span>status / branch / event / actor · live spinner · duration with time left and slow flags · age. The home screen.</span></div><span class="ep">GET …/actions/runs</span></div>
     <div class="frow"><span class="n">✔</span><div class="d"><b>Run detail — jobs &amp; step timeline</b><br><span>Master-detail; steps light up by conclusion; failed step flagged.</span></div><span class="ep">GET …/runs/{id}/jobs</span></div>
     <div class="frow"><span class="n">✔</span><div class="d"><b>De-noised failure view</b><br><span>Error window + inline annotations instead of the full log.</span></div><span class="ep">jobs/{id}/logs · annotations</span></div>
     <div class="frow"><span class="n">✔</span><div class="d"><b>Live watch</b><br><span>Adaptive-poll step timeline; logs unlock on completion.</span></div><span class="ep">GET …/runs/{id}/jobs + ETag</span></div>

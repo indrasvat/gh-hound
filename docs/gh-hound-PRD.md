@@ -140,7 +140,7 @@ gh-hound/
 │   │   ├── app.go               # root model, modal/focus stack, routing
 │   │   ├── keys/                # key.Map definitions per context (§7)
 │   │   ├── screens/             # one model per screen (§9)
-│   │   ├── components/          # reusable: statuspill, sparkline, toast, breadcrumb
+│   │   ├── components/          # reusable: statuspill, toast, breadcrumb
 │   │   └── overlay/             # help modal, command palette (lipgloss Canvas/Layer)
 │   ├── usecase/                 # orchestration (no Bubble Tea, no HTTP)
 │   ├── adapter/                 # GitHub port + go-gh implementation + cache + poller + log parse
@@ -187,7 +187,7 @@ gh-hound/
 
 > **Gotcha (Lip Gloss v2):** `AdaptiveColor` was **removed**. Light/dark is explicit — query once via `tea.RequestBackgroundColor` → `tea.BackgroundColorMsg.IsDark()`, then select the Bramble/Bone token set. Do **not** reach for `AdaptiveColor`. (§5, §20)
 
-> **Sparklines:** hand-roll (map a normalised value to one of `▁▂▃▄▅▆▇█`). No charting dependency required for v1.
+> **Duration cell:** plain text, no charting dependency. Pace (#74, #75) replaced the planned sparkline with the measured duration, time left from recent green runs, and `↑` when a run ran slow; see `docs/visual-contract.md`.
 
 > **Dependency baseline = gh-ghent (the approved extension), upgraded to the v2 Charm stack.** gh-ghent's `go.mod` is `module github.com/indrasvat/gh-ghent`, `go 1.26.0`, with `cli/go-gh/v2`, `spf13/cobra`, `golang.org/x/sync` (serial queue / errgroup), `muesli/termenv`, `google/go-cmp` (tests). Mirror those exact choices; the **only** deliberate divergence is using **Bubble Tea / Lip Gloss / Bubbles v2** (as nidhi does) instead of ghent's v1.
 
@@ -298,7 +298,7 @@ Default **Bramble** (dark): warm ink-and-bone neutrals, one electric "on-the-sce
 | `ok` | `#4FD37A` | `#1F9E55` | success · live · cursor bar · brand |
 | `fail` | `#E2564B` | `#C24033` | failure · error |
 | `run` | `#E0A33E` | `#B57A1E` | in_progress |
-| `info` | `#6E9CB5` | `#3E7491` | queued/pending · keys · sparkline |
+| `info` | `#6E9CB5` | `#3E7491` | queued/pending · keys |
 | `warn` | `#E8895A` | `#C2632F` | action_required · timed_out |
 | `neutral` | `#6B7060` | `#8A8773` | cancelled · stale · skipped |
 
@@ -332,7 +332,7 @@ Default **Bramble** (dark): warm ink-and-bone neutrals, one electric "on-the-sce
 | failure | `✗` | U+2717 | branch | `⎇` | U+2387 |
 | in_progress | `⠹` (braille spinner) | — | breadcrumb | `›` | U+203A |
 | queued | `◌` | U+25CC | fold open/closed | `▾`/`▸` | U+25BE/B8 |
-| cancelled | `⊘` | U+2298 | sparkline | `▁▂▃▅▇` | blocks |
+| cancelled | `⊘` | U+2298 | slow (Pace) | `↑` | U+2191 |
 | skipped | `⊝` | U+229D | prompt | `❯` | U+276F |
 | action_required | `▲` | U+25B2 | rerun | `↻` | U+21BB |
 | timed_out | `⧗` | U+29D7 | dispatch | `▶` | U+25B6 |
@@ -509,8 +509,8 @@ Per screen below: **purpose · when shown · layout/components · data · contex
 ### §9.1 Runs list (landing) — visual ref §②
 
 - **Purpose / when:** the home screen; the no-arg default mid-flight (some runs failing/running).
-- **Layout:** focused panel (gradient border). Header: `hound` mark · breadcrumb (`⎇ branch · @actor`) · right: rate budget, live pulse, `304` cache indicator. Body: a `bubbles/v2/table` — columns `status-glyph · Workflow · Event · # · Duration(sparkline) · Age`. Selected row = `surface-2` fill + green bar. Summary line: `N failing · N running · N passed`. Footer (contextual).
-- **Components:** `table`, `spinner` (live cell), `sparkline` (hand-rolled bars), status pills, `breadcrumb`.
+- **Layout:** focused panel (gradient border). Header: `hound` mark · breadcrumb (`⎇ branch · @actor`) · right: rate budget, live pulse, `304` cache indicator. Body: a `bubbles/v2/table` — columns `status-glyph · Workflow · Event · # · Duration · Age` (Duration: measured time, time left, or `↑` when slow — Pace). Selected row = `surface-2` fill + green bar. Summary line: `N failing · N running · N passed`. Footer (contextual).
+- **Components:** `table`, `spinner` (live cell), the Pace duration cell, status pills, `breadcrumb`.
 - **Data:** `GET …/runs?branch&per_page` (§4.1); adaptive poll; ETag.
 - **Keys:** `j/k g/G ⏎ l w o y r R x X D / : ? T` (§7.3). Footer: `⏎ open · ↻ rerun · ✗ cancel · l logs · w watch · / filter · ? help`.
 - **States:** loading (skeleton rows + spinner), empty (→ widen, §8.2), error (toast + cached rows, §12), live (spinner cells update in place).
@@ -601,7 +601,7 @@ Three target geometries; define column-collapse rules for each:
 
 | Breakpoint | Layout rule |
 |---|---|
-| **80×24** (min) | single column; master-detail becomes a full-screen push (detail replaces list, `⎋` returns); drop the Event and sparkline columns from the runs table; keep glyph · Workflow · # · Age. |
+| **80×24** (min) | single column; master-detail becomes a full-screen push (detail replaces list, `⎋` returns); drop the Event and Duration columns from the runs table; keep glyph · Workflow · # · Age. |
 | **120×40** (default) | master-detail side-by-side; full runs columns. |
 | **200×60** (wide) | side-by-side with extra padding; show actor + SHA in the runs table. |
 

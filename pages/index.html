@@ -68,9 +68,9 @@
     </div>
     <figure class="hero-term rise d4">
       <div class="term">
-        <img src="/assets/shots/runs.png" alt="gh-hound runs screen: a branch-scoped list of workflow runs with status glyphs, actors, events, duration sparklines and rate budget, with the / filter open on actor:@me status:failure" width="2240" height="782" fetchpriority="high">
+        <img src="/assets/shots/runs.png" alt="gh-hound runs screen: a branch-scoped list of workflow runs with status glyphs, actors, events and durations; a running run reads 2m left, a slow one ↑ 9m31s" width="2240" height="702" fetchpriority="high">
       </div>
-      <figcaption>the runs home: status, actor, event, duration sparkline, age, rate budget · / filters by actor:@me, status, branch</figcaption>
+      <figcaption>the runs home: status, actor, event, duration, age · Pace reads time left and flags slow runs (↑) against recent green runs</figcaption>
     </figure>
   </header>
 
@@ -114,6 +114,11 @@
         <p class="trail-q">Why is it still pending?</p>
         <div class="keys"><span class="key">gh hound queue</span></div>
         <p class="trail-a">Reads the concurrency group and names the <b>older blocker, newer preemptor, or stale-looking lock</b>.</p>
+      </div>
+      <div class="trail-row reveal">
+        <p class="trail-q">Nearly done, or stuck?</p>
+        <div class="keys"><span class="key">p</span><span class="key">gh hound pace</span></div>
+        <p class="trail-a">Judges a run against its recent green runs: <b>time left while it runs, &uarr; on the run, job and step that ran slow</b>.</p>
       </div>
       <div class="trail-row reveal">
         <p class="trail-q">Can I retry safely?</p>
@@ -174,8 +179,8 @@
     </div>
     <div class="shot-stage reveal">
       <figure class="shot active" id="shot-detail" role="tabpanel">
-        <div class="term"><img src="/assets/shots/detail.png" alt="Run detail screen: master-detail view of jobs, step timeline with durations, and the run's artifacts" loading="lazy" width="2242" height="1038"></div>
-        <figcaption class="shot-caption">jobs, step timeline and artifacts · n jumps to the failure</figcaption>
+        <div class="term"><img src="/assets/shots/detail.png" alt="Run detail screen: jobs, step timeline with durations, a slow step flagged ↑ 18s with its pace line, and the run's artifacts" loading="lazy" width="2242" height="1038"></div>
+        <figcaption class="shot-caption">jobs, step timeline and artifacts · slow jobs and steps flagged ↑ · n jumps to the failure</figcaption>
       </figure>
       <figure class="shot" id="shot-failure" role="tabpanel" hidden>
         <div class="term"><img src="/assets/shots/failure.png" alt="Failure screen: annotations, failing step, exit code and a de-noised log excerpt" loading="lazy" width="2242" height="670"></div>
