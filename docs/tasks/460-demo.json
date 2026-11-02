@@ -1,0 +1,103 @@
+{
+  "scenario": "paced",
+  "ready": "hound",
+  "size": "120x28",
+  "seconds": 32,
+  "fps": 5,
+  "playback_fps": 7.5,
+  "panes": {
+    "main": "main 621419a + fixture",
+    "pr": "this PR"
+  },
+  "timeline": [
+    {
+      "frame": 0,
+      "caption": "the paced fake: CI on main; #599 ran slow (9m31s against ~4m)"
+    },
+    {
+      "frame": 10,
+      "keys": {"both": "j"},
+      "caption": "j · #599"
+    },
+    {
+      "frame": 16,
+      "keys": {"both": "enter"},
+      "caption": "⏎ · its detail: jobs and steps"
+    },
+    {
+      "frame": 45,
+      "keys": {"both": "tab"},
+      "caption": "tab · into the steps"
+    },
+    {
+      "frame": 52,
+      "keys": {"both": "j"}
+    },
+    {
+      "frame": 58,
+      "keys": {"both": "j"},
+      "caption": "j j · go build ./..., focused"
+    },
+    {
+      "frame": 100,
+      "keys": {"both": "p"},
+      "caption": "p · Pace off for the session (main has no p)"
+    },
+    {
+      "frame": 128,
+      "keys": {"both": "p"},
+      "caption": "p · Pace back at once, from the session cache"
+    }
+  ],
+  "rules": [
+    {
+      "frames": [25, 99],
+      "side": "main",
+      "match": "go build \\./\\.\\.\\.\\s+\\d+\\.\\ds",
+      "tone": "bad",
+      "label": "a decimal GitHub never measured; no pace"
+    },
+    {
+      "frames": [25, 99],
+      "side": "pr",
+      "match": "↑ 9m22s",
+      "tone": "good",
+      "label": "slow job"
+    },
+    {
+      "frames": [25, 99],
+      "side": "pr",
+      "match": "↑ 19s",
+      "tone": "good",
+      "label": "slow step"
+    },
+    {
+      "frames": [25, 99],
+      "side": "pr",
+      "match": "p50 3m31s",
+      "tone": "good",
+      "label": "the job's usual time"
+    },
+    {
+      "frames": [61, 99],
+      "side": "pr",
+      "match": "pace ↑ 19s vs p50 6s[^│]*",
+      "tone": "good",
+      "label": "why the focused step is flagged"
+    },
+    {
+      "frames": [103, 127],
+      "side": "pr",
+      "match": "pace off · p brings it back",
+      "tone": "good",
+      "label": "p hides Pace"
+    },
+    {
+      "frames": [131, 159],
+      "side": "pr",
+      "match": "pace ↑ 19s vs p50 6s[^│]*",
+      "tone": "good",
+      "label": "back without a fetch"
+    }
+  ]
+}

@@ -175,7 +175,7 @@ func TestFooterWidthCountsCellsForWideKeys(t *testing.T) {
 // p is free on every screen Pace acts on; a move takes it everywhere at
 // once, and a move onto a taken key is refused.
 func TestPaceToggleIsFreeAndMoves(t *testing.T) {
-	pace := []Screen{ScreenRunsList, ScreenAllGreen, ScreenWatch, ScreenWatchDone, ScreenWatchBoard}
+	pace := []Screen{ScreenRunsList, ScreenAllGreen, ScreenDetail, ScreenWatch, ScreenWatchDone, ScreenWatchBoard}
 	k := mustKeymap(t, nil)
 	for _, screen := range pace {
 		if got := k.Key(screen, "p"); got != "p" {

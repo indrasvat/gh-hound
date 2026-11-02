@@ -1,0 +1,90 @@
+{
+  "repo": "indrasvat/gh-hound",
+  "workflow": ".github/workflows/ci.yml",
+  "branch": "fix/parser",
+  "baseline_branch": null,
+  "baseline_event": "pull_request",
+  "status": "slow",
+  "window": 20,
+  "sample_size": 20,
+  "runs_scanned": 23,
+  "statistic": "p50_p90",
+  "run": {
+    "id": 1234567890,
+    "number": 573,
+    "attempt": 1,
+    "event": "pull_request",
+    "status": "completed",
+    "conclusion": "success",
+    "elapsed_seconds": 571,
+    "queued_seconds": 14,
+    "eta_seconds": null,
+    "p50_seconds": 241,
+    "p90_seconds": 298,
+    "ratio": 2.37,
+    "slow": true
+  },
+  "jobs": [
+    {
+      "name": "build",
+      "status": "completed",
+      "conclusion": "success",
+      "elapsed_seconds": 134,
+      "p50_seconds": 91,
+      "p90_seconds": 99,
+      "ratio": 1.47,
+      "sample_size": 20,
+      "slow": false,
+      "steps": [
+        {
+          "number": 5,
+          "name": "go build ./...",
+          "status": "completed",
+          "conclusion": "success",
+          "elapsed_seconds": 19,
+          "p50_seconds": 6,
+          "p90_seconds": 10,
+          "ratio": 3.17,
+          "sample_size": 20,
+          "slow": true
+        },
+        {
+          "number": 6,
+          "name": "Upload coverage",
+          "status": "completed",
+          "conclusion": "skipped",
+          "elapsed_seconds": null,
+          "p50_seconds": null,
+          "p90_seconds": null,
+          "ratio": null,
+          "sample_size": 0,
+          "slow": false
+        }
+      ]
+    },
+    {
+      "name": "test (1.26)",
+      "status": "in_progress",
+      "conclusion": "",
+      "elapsed_seconds": 40,
+      "p50_seconds": null,
+      "p90_seconds": null,
+      "ratio": null,
+      "sample_size": 3,
+      "slow": false,
+      "steps": []
+    }
+  ],
+  "slow": [
+    {
+      "kind": "step",
+      "job": "build",
+      "step": "go build ./...",
+      "number": 5,
+      "elapsed_seconds": 19,
+      "p50_seconds": 6,
+      "ratio": 3.17
+    }
+  ],
+  "verdict": "the hound ran slow: 9m31s against its usual 4m01s"
+}

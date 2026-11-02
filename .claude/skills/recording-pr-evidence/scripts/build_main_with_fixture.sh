@@ -23,12 +23,18 @@ shift
 root="$(git rev-parse --show-toplevel)"
 base="$(git -C "$root" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || echo main)"
 base="${base#origin/}"
+# Build what the PR merges into: the remote-tracking ref, not a local
+# default branch that may lag it (worktrees rarely pull main).
+ref="$base"
+if git -C "$root" rev-parse --verify --quiet "refs/remotes/origin/$base" >/dev/null; then
+  ref="origin/$base"
+fi
 tree="$(mktemp -d "${TMPDIR:-/tmp}/main-fixture.XXXXXX")"
 cleanup() { git -C "$root" worktree remove --force "$tree" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 # Detached: the default branch may already be checked out elsewhere.
-git -C "$root" worktree add --quiet --detach "$tree" "$base"
+git -C "$root" worktree add --quiet --detach "$tree" "$ref"
 for file in "$@"; do
   mkdir -p "$tree/$(dirname "$file")"
   cp "$root/$file" "$tree/$file"

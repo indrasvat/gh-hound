@@ -160,3 +160,38 @@ func FuzzPaceBaseline(f *testing.F) {
 		}
 	})
 }
+
+// FuzzAssessStep: a step flag always meets the step rule (5s floor),
+// elapsed is whole seconds, and thin samples never judge.
+func FuzzAssessStep(f *testing.F) {
+	f.Add([]byte{6, 0, 6, 0, 7, 0, 5, 0, 6, 0, 6, 0}, uint32(19), uint8(0))
+	f.Add([]byte{1, 0, 1, 0}, uint32(400), uint8(1))
+	f.Fuzz(func(t *testing.T, raw []byte, elapsedSeconds uint32, state uint8) {
+		durations := fuzzDurations(raw)
+		jb := PaceJobBaseline{Steps: map[string][]time.Duration{stepBaselineKey("build", "go test"): durations}}
+		now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+		elapsed := time.Duration(elapsedSeconds%(48*3600))*time.Second + 400*time.Millisecond
+		step := model.Step{Name: "go test", StartedAt: now.Add(-elapsed)}
+		switch state % 3 {
+		case 0:
+			step.Status, step.Conclusion, step.CompletedAt = model.StatusCompleted, model.ConclusionSuccess, now
+		case 1:
+			step.Status = model.StatusInProgress
+		case 2:
+			step.Status, step.Conclusion, step.CompletedAt = model.StatusCompleted, model.ConclusionSkipped, now
+		}
+		a := AssessStep(model.Job{Name: "build", Steps: []model.Step{step}}, 0, jb, now)
+		if a.Elapsed%time.Second != 0 || a.Elapsed < 0 {
+			t.Fatalf("elapsed not whole seconds: %+v", a)
+		}
+		if !a.Judged() && (a.Slow || a.P50 != 0) {
+			t.Fatalf("judged without enough samples: %+v", a)
+		}
+		if a.Slow && !(a.Elapsed > a.P90 && float64(a.Elapsed) >= 1.5*float64(a.P50) && a.Elapsed-a.P50 >= 5*time.Second) {
+			t.Fatalf("flag breaks the step rule: %+v", a)
+		}
+		if step.Conclusion == model.ConclusionSkipped && a.SampleSize != 0 {
+			t.Fatalf("a skipped step was judged: %+v", a)
+		}
+	})
+}

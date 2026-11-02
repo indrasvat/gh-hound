@@ -6,6 +6,7 @@ import (
 
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/theme"
+	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
 type Focus string
@@ -105,6 +106,14 @@ type Model struct {
 	// Now is the clock a running job or step's elapsed time reads
 	// against; zero means the wall clock.
 	Now time.Time
+
+	// Pace is the job and step baseline for this run's workflow key; nil
+	// when Pace is off or not fetched yet. Render-time input.
+	Pace *usecase.PaceJobBaseline
+	// PaceHint teaches p in the hint line (Pace is on in config).
+	PaceHint bool
+	// hidePaceLine: the height budget has no row to spare for it.
+	hidePaceLine bool
 
 	// Theme colours the screen; the zero value renders Bramble.
 	Theme theme.Theme

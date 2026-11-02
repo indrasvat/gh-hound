@@ -1438,7 +1438,7 @@
         "number",
         "null"
        ],
-       "description": "elapsed over p50"
+       "description": "elapsed over p50; null when p50 is 0"
       },
       "slow": {
        "type": "boolean"
@@ -1446,6 +1446,185 @@
       "reason": {
        "type": "string",
        "description": "why a not_comparable run has no pace"
+      }
+     }
+    },
+    "jobs": {
+     "type": "array",
+     "description": "the run's jobs judged against the same sampled runs' green jobs (exactly `window` job listings); absent with --no-steps. Jobs key by full name, steps by job and name with pinned action refs (Run owner/action@ref) dropped. Steps are slow past p90, at least 1.5x p50 and at least 5s over p50; jobs with a 30s floor. Failed, skipped and queued work is listed with null figures.",
+     "items": {
+      "type": "object",
+      "required": [
+       "name",
+       "status",
+       "conclusion",
+       "elapsed_seconds",
+       "p50_seconds",
+       "p90_seconds",
+       "ratio",
+       "sample_size",
+       "slow",
+       "steps"
+      ],
+      "properties": {
+       "name": {
+        "type": "string",
+        "description": "full job name; matrix legs and reusable-workflow jobs are their own jobs"
+       },
+       "status": {
+        "type": "string"
+       },
+       "conclusion": {
+        "type": "string"
+       },
+       "elapsed_seconds": {
+        "type": [
+         "integer",
+         "null"
+        ],
+        "minimum": 0,
+        "description": "whole seconds; null before it starts"
+       },
+       "p50_seconds": {
+        "type": [
+         "integer",
+         "null"
+        ],
+        "minimum": 0
+       },
+       "p90_seconds": {
+        "type": [
+         "integer",
+         "null"
+        ],
+        "minimum": 0
+       },
+       "ratio": {
+        "type": [
+         "number",
+         "null"
+        ]
+       },
+       "sample_size": {
+        "type": "integer",
+        "description": "green samples of this job or step in the baseline's runs"
+       },
+       "slow": {
+        "type": "boolean"
+       },
+       "steps": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "required": [
+          "number",
+          "name",
+          "status",
+          "conclusion",
+          "elapsed_seconds",
+          "p50_seconds",
+          "p90_seconds",
+          "ratio",
+          "sample_size",
+          "slow"
+         ],
+         "properties": {
+          "number": {
+           "type": "integer"
+          },
+          "name": {
+           "type": "string"
+          },
+          "status": {
+           "type": "string"
+          },
+          "conclusion": {
+           "type": "string"
+          },
+          "elapsed_seconds": {
+           "type": [
+            "integer",
+            "null"
+           ],
+           "minimum": 0,
+           "description": "whole seconds; null before it starts"
+          },
+          "p50_seconds": {
+           "type": [
+            "integer",
+            "null"
+           ],
+           "minimum": 0
+          },
+          "p90_seconds": {
+           "type": [
+            "integer",
+            "null"
+           ],
+           "minimum": 0
+          },
+          "ratio": {
+           "type": [
+            "number",
+            "null"
+           ]
+          },
+          "sample_size": {
+           "type": "integer",
+           "description": "green samples of this job or step in the baseline's runs"
+          },
+          "slow": {
+           "type": "boolean"
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    "slow": {
+     "type": "array",
+     "description": "every slow job and step; [] when none; absent with --no-steps. Does not change status or the exit code.",
+     "items": {
+      "type": "object",
+      "required": [
+       "kind",
+       "job",
+       "elapsed_seconds",
+       "p50_seconds",
+       "ratio"
+      ],
+      "properties": {
+       "kind": {
+        "enum": [
+         "job",
+         "step"
+        ]
+       },
+       "job": {
+        "type": "string"
+       },
+       "step": {
+        "type": "string"
+       },
+       "number": {
+        "type": "integer"
+       },
+       "elapsed_seconds": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "p50_seconds": {
+        "type": "integer",
+        "minimum": 0
+       },
+       "ratio": {
+        "type": [
+         "number",
+         "null"
+        ],
+        "description": "elapsed over p50; null when p50 is 0"
+       }
       }
      }
     },

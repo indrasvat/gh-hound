@@ -3,6 +3,7 @@ package render
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -25,22 +26,32 @@ func fixturePaceResult() PaceResult {
 }
 
 func TestPaceJSONMatchesGolden(t *testing.T) {
-	var out bytes.Buffer
-	if err := WritePace(&out, FormatJSON, fixturePaceResult()); err != nil {
-		t.Fatal(err)
-	}
-	golden, err := os.ReadFile("testdata/pace.golden.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out.String() != string(golden) {
-		t.Fatalf("pace JSON drifted from testdata/pace.golden.json:\n%s", out.String())
+	steps := fixturePaceResult()
+	steps.Jobs, steps.Slow = fixturePaceJobs()
+	for golden, result := range map[string]PaceResult{"testdata/pace.golden.json": fixturePaceResult(), "testdata/pace_steps.golden.json": steps} {
+		var out bytes.Buffer
+		if err := WritePace(&out, FormatJSON, result); err != nil {
+			t.Fatal(err)
+		}
+		if os.Getenv("UPDATE_GOLDEN") == "1" {
+			if err := os.WriteFile(golden, out.Bytes(), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		want, err := os.ReadFile(golden)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out.String() != string(want) {
+			t.Fatalf("pace JSON drifted from %s:\n%s", golden, out.String())
+		}
 	}
 }
 
 type schemaNode struct {
 	Required   []string              `json:"required"`
 	Properties map[string]schemaNode `json:"properties"`
+	Items      *schemaNode           `json:"items"`
 	Enum       []any                 `json:"enum"`
 	Type       any                   `json:"type"`
 }
@@ -73,6 +84,12 @@ func conform(t *testing.T, path string, value any, node schemaNode) {
 	}
 	if node.Type != nil && !typeAllowed(node.Type, value) {
 		t.Fatalf("%s = %v (%T), want type %v", path, value, value, node.Type)
+	}
+	if list, ok := value.([]any); ok && node.Items != nil {
+		for i, item := range list {
+			conform(t, fmt.Sprintf("%s[%d]", path, i), item, *node.Items)
+		}
+		return
 	}
 	obj, ok := value.(map[string]any)
 	if !ok {
@@ -148,7 +165,11 @@ func TestPaceEnvelopesConformToSchema(t *testing.T) {
 	rerun.Run = &PaceRun{ID: 1, Number: 2, Attempt: 2, Event: "push", Status: "completed", Conclusion: "success", Reason: "attempt 2 is a re-run"}
 	failed := PaceResult{Repo: "o/r", Status: "error", Statistic: "p50_p90", Verdict: "", Error: &PaceError{Kind: "not_found", Message: "no workflow"}}
 
-	for name, result := range map[string]PaceResult{"slow": fixturePaceResult(), "running": running, "thin": thin, "rerun": rerun, "error": failed} {
+	steps := fixturePaceResult()
+	steps.Jobs, steps.Slow = fixturePaceJobs()
+	none := fixturePaceResult()
+	none.Jobs, none.Slow = &[]PaceJob{}, &[]PaceSlow{}
+	for name, result := range map[string]PaceResult{"slow": fixturePaceResult(), "running": running, "thin": thin, "rerun": rerun, "error": failed, "steps": steps, "steps-none": none} {
 		var out bytes.Buffer
 		if err := WritePace(&out, FormatJSON, result); err != nil {
 			t.Fatal(err)
@@ -198,5 +219,54 @@ func TestPaceMarkdownAndXML(t *testing.T) {
 	}
 	if strings.Contains(xmlOut.String(), "eta_seconds") || strings.Contains(xmlOut.String(), "baseline_branch") {
 		t.Fatalf("xml must omit absent values, not print empty attributes:\n%s", xmlOut.String())
+	}
+}
+
+func fixturePaceJobs() (*[]PaceJob, *[]PaceSlow) {
+	jobs := []PaceJob{
+		{Name: "build", Status: "completed", Conclusion: "success", ElapsedSeconds: new(int64(134)), P50Seconds: new(int64(91)), P90Seconds: new(int64(99)), Ratio: new(1.47), SampleSize: 20,
+			Steps: []PaceStep{
+				{Number: 5, Name: "go build ./...", Status: "completed", Conclusion: "success", ElapsedSeconds: new(int64(19)), P50Seconds: new(int64(6)), P90Seconds: new(int64(10)), Ratio: new(3.17), SampleSize: 20, Slow: true},
+				{Number: 6, Name: "Upload coverage", Status: "completed", Conclusion: "skipped"},
+			}},
+		{Name: "test (1.26)", Status: "in_progress", Conclusion: "", ElapsedSeconds: new(int64(40)), SampleSize: 3, Steps: []PaceStep{}},
+	}
+	slow := []PaceSlow{{Kind: "step", Job: "build", Step: "go build ./...", Number: 5, ElapsedSeconds: 19, P50Seconds: 6, Ratio: new(3.17)}}
+	return &jobs, &slow
+}
+
+// slow is [] (not absent) when steps were judged and nothing ran slow;
+// pace.golden.json pins that both are absent unless asked for.
+func TestPaceJobsAndSlowShape(t *testing.T) {
+	encode := func(r PaceResult) map[string]any {
+		var out bytes.Buffer
+		if err := WritePace(&out, FormatJSON, r); err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(out.Bytes(), &m); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	none := fixturePaceResult()
+	none.Jobs, none.Slow = &[]PaceJob{}, &[]PaceSlow{}
+	if m := encode(none); m["slow"] == nil || len(m["slow"].([]any)) != 0 {
+		t.Fatalf("judged with nothing slow must read slow: []: %v", m["slow"])
+	}
+	steps := fixturePaceResult()
+	steps.Jobs, steps.Slow = fixturePaceJobs()
+	var md, xmlOut bytes.Buffer
+	if err := WritePace(&md, FormatMarkdown, steps); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(md.String(), "| step | build | 5 go build ./... | 19s | 6s | 3.17× |") {
+		t.Fatalf("markdown slow table:\n%s", md.String())
+	}
+	if err := WritePace(&xmlOut, FormatXML, steps); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(xmlOut.String(), `<item kind="step" job="build" step="go build ./..." number="5"`) || !strings.Contains(xmlOut.String(), `<job name="test (1.26)"`) {
+		t.Fatalf("xml jobs and slow:\n%s", xmlOut.String())
 	}
 }

@@ -30,6 +30,7 @@ gh hound approvals --run <id> --no-tui --json    # pending deploy gates (exit 1 
 gh hound approvals --run <id> --approve --env production --comment "lgtm" --no-tui --json
 gh hound diff --workflow CI --no-tui --json      # who broke main? last green vs first bad
 gh hound flakes --workflow CI --no-tui --json    # flaky or real? scored flake verdict
+gh hound pace --no-tui --json                    # nearly done or stuck? ETA and slow jobs/steps
 gh hound caches --no-tui --json                  # cache kennel vs the eviction cap
 gh hound caches --delete-key <key> --ref <ref> --no-tui --json
 gh hound workflows --no-tui --json               # workflow states (why did my cron stop?)
@@ -119,6 +120,16 @@ Scoring is documented and stable: 0.45 per attempt flip + 0.30 per cross-run fla
 
 Rehearse with `--fake-scenario flaky` (seeded flips + retry mask, exit `1`).
 
+## Nearly Done or Stuck? (pace)
+
+Before cancelling a long run, ask how it compares with recent green runs:
+
+```bash
+gh hound pace --run <run-id> --no-tui --json
+```
+
+Branch on `status`: `running` (exit `3`) is within its usual time, so wait (`run.eta_seconds` is the time left). `overrun` or `slow` (exit `1`) means `slow[]` names the jobs and steps that took the time. Anything else exiting `0` needs no action. `--no-steps` skips the job and step checks and their API calls.
+
 ## Mutations
 
 After diagnosing with `runs --json`, act without leaving the surface:
@@ -148,11 +159,11 @@ gh hound workflows --enable ci.yml --no-tui --json
 For testing agent behavior without live CI:
 
 ```bash
-gh hound runs --no-tui --json --fake-scenario failure   # also: green, pending, empty, api_error, waiting, regression, flaky
+gh hound runs --no-tui --json --fake-scenario failure   # also: green, pending, empty, api_error, waiting, regression, flaky, paced
 gh hound runs --branch release/v1 --no-tui --json --fake-scenario empty   # emits target_mismatch
 ```
 
-The JSON schema lives at `internal/render/testdata/schema.json` in the gh-hound repo; the mutation envelope is under `$defs.mutation_result`, the approvals envelope under `$defs.approvals_result`, the queue verdict under `$defs.queue_result`, the regression verdict under `$defs.diff_result`, the caches envelope under `$defs.caches_result`, the workflows envelope under `$defs.workflows_result`, the pack stream under `$defs.watch_group_event` / `$defs.watch_group_summary`, and the flake verdict under `$defs.flakes_result`.
+The JSON schema lives at `internal/render/testdata/schema.json` in the gh-hound repo; the mutation envelope is under `$defs.mutation_result`, the approvals envelope under `$defs.approvals_result`, the queue verdict under `$defs.queue_result`, the regression verdict under `$defs.diff_result`, the caches envelope under `$defs.caches_result`, the workflows envelope under `$defs.workflows_result`, the pack stream under `$defs.watch_group_event` / `$defs.watch_group_summary`, the flake verdict under `$defs.flakes_result`, and the pace verdict under `$defs.pace_result`.
 
 ## Guardrails
 

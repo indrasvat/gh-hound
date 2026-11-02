@@ -2,12 +2,18 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"io"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/indrasvat/gh-hound/internal/adapter/fake"
+	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/render"
+	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
 func runPaceCommand(t *testing.T, env map[string]string, args ...string) (int, string) {
@@ -178,5 +184,101 @@ func TestPaceSmallWindowStillJudges(t *testing.T) {
 	decoded, _ := decodePace(t, out)
 	if code != 1 || decoded["status"] != "slow" || decoded["sample_size"].(float64) != 5 {
 		t.Fatalf("exit %d status %v sample %v, want 1, slow, 5\n%s", code, decoded["status"], decoded["sample_size"], out)
+	}
+}
+
+type countingJobs struct{ calls int }
+
+func (c *countingJobs) ListJobs(context.Context, string, int64) ([]model.Job, error) {
+	c.calls++
+	return nil, nil
+}
+
+// A refreshed baseline lists only the runs it has not read this session.
+func TestSessionJobsListsEachRunOnce(t *testing.T) {
+	counter := &countingJobs{}
+	jobs := newSessionJobs(counter)
+	b := usecase.PaceBaseline{Window: 5}
+	for i := int64(1); i <= 6; i++ {
+		b.Samples = append(b.Samples, usecase.PaceSample{RunID: i, Duration: time.Minute})
+	}
+	service := usecase.PaceService{Jobs: jobs}
+	if _, err := service.JobBaseline(context.Background(), "o/r", b, 0); err != nil || counter.calls != 5 {
+		t.Fatalf("first build: %d listings, err %v", counter.calls, err)
+	}
+	b.Samples = append([]usecase.PaceSample{{RunID: 7, Duration: time.Minute}}, b.Samples...)
+	if _, err := service.JobBaseline(context.Background(), "o/r", b, 0); err != nil || counter.calls != 6 {
+		t.Fatalf("refresh with one new run: %d listings in all, want 6", counter.calls)
+	}
+}
+
+// The verb judges the run's jobs and steps against the same sampled
+// runs, lists the slow ones, and keeps the pinned checkout step's
+// baseline across the ref bump between runs.
+func TestPaceStepsListSlowWork(t *testing.T) {
+	code, out := runPaceCommand(t, nil, "--json", "--fake-scenario", "paced", "--run", pacedRunID(fake.PacedSlowNumber))
+	if code != 1 {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	var result struct {
+		Jobs []struct {
+			Name  string `json:"name"`
+			Steps []struct {
+				Name       string `json:"name"`
+				SampleSize int    `json:"sample_size"`
+				Slow       bool   `json:"slow"`
+			} `json:"steps"`
+		} `json:"jobs"`
+		Slow []struct {
+			Kind string `json:"kind"`
+			Step string `json:"step"`
+		} `json:"slow"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatal(err)
+	}
+	slow := map[string]bool{}
+	for _, s := range result.Slow {
+		slow[s.Kind+":"+s.Step] = true
+	}
+	if !slow["step:go build ./..."] || !slow["job:"] {
+		t.Fatalf("slow = %+v, want the build job and its go build step", result.Slow)
+	}
+	if len(result.Jobs) != 2 || result.Jobs[0].Steps[1].SampleSize != 19 {
+		t.Fatalf("checkout must keep 19 samples across its ref bump: %+v", result.Jobs)
+	}
+}
+
+func TestPaceNoStepsOmitsJobsAndSlow(t *testing.T) {
+	_, out := runPaceCommand(t, nil, "--json", "--fake-scenario", "paced", "--run", pacedRunID(fake.PacedSlowNumber), "--no-steps")
+	if strings.Contains(out, `"jobs":`) || strings.Contains(out, `"slow": [`) {
+		t.Fatalf("--no-steps must omit jobs and slow:\n%s", out)
+	}
+	_, out = runPaceCommand(t, nil, "--json", "--fake-scenario", "paced", "--run", pacedRunID(fake.PacedOnPaceNumber))
+	if !strings.Contains(out, `"slow": []`) {
+		t.Fatalf("an on-pace run must say slow: []:\n%s", out)
+	}
+}
+
+// A step that usually takes 0s is still judged, but its ratio is null,
+// never a measured-looking 0.
+func TestPaceZeroMedianRatioIsNull(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	job := model.Job{Name: "build", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, StartedAt: start, CompletedAt: start.Add(10 * time.Second),
+		Steps: []model.Step{{Number: 1, Name: "wait", Status: model.StatusCompleted, Conclusion: model.ConclusionSuccess, StartedAt: start, CompletedAt: start.Add(10 * time.Second)}}}
+	jb := usecase.PaceJobBaseline{Runs: 5, Jobs: map[string][]time.Duration{}, Steps: map[string][]time.Duration{"build\x00wait": make([]time.Duration, 5)}}
+	jobs, slow := paceJobsResult([]model.Job{job}, jb, start.Add(time.Minute))
+	if len(*slow) != 1 || (*slow)[0].Ratio != nil {
+		t.Fatalf("slow = %+v, want the step with a null ratio", *slow)
+	}
+	if r := (*jobs)[0].Steps[0].Ratio; r != nil {
+		t.Fatalf("step ratio = %v, want nil", *r)
+	}
+	var md strings.Builder
+	if err := render.WritePace(&md, render.FormatMarkdown, render.PaceResult{Status: "slow", Slow: slow}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(md.String(), "0.00×") {
+		t.Fatalf("markdown printed a zero ratio:\n%s", md.String())
 	}
 }
