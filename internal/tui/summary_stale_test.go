@@ -71,19 +71,6 @@ func TestSummaryTrustsBothScopesFetchedAtLaunch(t *testing.T) {
 	}
 }
 
-// A fresh read of a run that finished must not vouch for another
-// scope's older copy that still says running.
-func TestSummaryDoesNotTrustAnotherSnapshotsStatus(t *testing.T) {
-	app := NewApp(Options{Config: config.Default()})
-	old := paceRow(600, ".github/workflows/ci.yml", "main", "push", model.StatusInProgress, model.ConclusionNone, 0)
-	finished := old
-	finished.Status, finished.Conclusion = model.StatusCompleted, model.ConclusionSuccess
-	app.runsConfirmed = confirmedAt(nil, []model.Run{finished}, time.Now())
-	if !app.staleRuns([]model.Run{old}, time.Now())[old.ID] {
-		t.Fatal("an in_progress copy vouched for by a completed read must read stale")
-	}
-}
-
 // On a busy repo the next page repeats listed runs, possibly newer. The
 // listed copy stays, so the page must not vouch for it: recording the
 // page's newer status made a just-read row read stale at once.

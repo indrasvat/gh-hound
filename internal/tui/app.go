@@ -609,22 +609,21 @@ func NewApp(options Options) App {
 		flakesResolver:            options.FlakesResolver,
 		paceResolver:              options.PaceResolver,
 		runRefresher:              options.RunRefresher,
-		// Newest last: launch reads the branch, then the repo.
-		runsConfirmed:      confirmedAt(nil, slices.Concat(launch.Runs, launch.BranchRuns, launch.RepoRuns), time.Now()),
-		queueResolver:      options.QueueResolver,
-		flakeReports:       map[string]usecase.FlakeReport{},
-		workflowsResolver:  options.WorkflowsResolver,
-		runsMetadata:       options.RunsMetadata,
-		logRefetchNotice:   options.LogRefetchNotice,
-		actionHandler:      options.ActionHandler,
-		approvalsResolver:  options.ApprovalsResolver,
-		artifactsResolver:  options.ArtifactsResolver,
-		artifactDownloader: options.ArtifactDownloader,
-		artifactDir:        options.ArtifactDir,
-		cachesResolver:     options.CachesResolver,
-		cacheDeleter:       options.CacheDeleter,
-		openURL:            options.OpenURL,
-		copyText:           options.CopyText,
+		runsConfirmed:             confirmedAt(nil, slices.Concat(launch.Runs, launch.BranchRuns, launch.RepoRuns), time.Now()),
+		queueResolver:             options.QueueResolver,
+		flakeReports:              map[string]usecase.FlakeReport{},
+		workflowsResolver:         options.WorkflowsResolver,
+		runsMetadata:              options.RunsMetadata,
+		logRefetchNotice:          options.LogRefetchNotice,
+		actionHandler:             options.ActionHandler,
+		approvalsResolver:         options.ApprovalsResolver,
+		artifactsResolver:         options.ArtifactsResolver,
+		artifactDownloader:        options.ArtifactDownloader,
+		artifactDir:               options.ArtifactDir,
+		cachesResolver:            options.CachesResolver,
+		cacheDeleter:              options.CacheDeleter,
+		openURL:                   options.OpenURL,
+		copyText:                  options.CopyText,
 	}
 	if route == RouteDispatch {
 		// A dispatch launch (gh hound dispatch) must start the async
@@ -3248,9 +3247,7 @@ func (a App) loadMoreRuns() App {
 			}
 			app.runs.Context.Page = nextPage
 			app.runs.Context.PerPage = perPage
-			// A busy repo shifts runs between pages, so a page can repeat
-			// listed rows; only the rows it adds count as read, since the
-			// listed copies stay as they were.
+			// Only the rows the page adds count as read; listed copies stay as they were.
 			added := dedupeNewRuns(app.runs.Context.Runs, resolved.rows)
 			_ = app.appendActiveRuns(resolved.rows)
 			app.runsConfirmed = confirmedAt(app.runsConfirmed, added, resolved.at)

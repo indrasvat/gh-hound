@@ -89,9 +89,7 @@ type Model struct {
 	// PaceAsOf is when each running row was last confirmed; its mark is
 	// judged as of then, never past what a fetch saw.
 	PaceAsOf map[int64]time.Time
-	// Stale marks unfinished rows no fetch has returned lately; the
-	// summary counts them apart from running, since they may have
-	// finished unseen.
+	// Stale marks unfinished rows no fetch has returned lately.
 	Stale map[int64]bool
 
 	// Loading state is transient render input set by the app from its
