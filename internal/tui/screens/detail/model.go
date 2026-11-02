@@ -112,6 +112,8 @@ type Model struct {
 	Pace *usecase.PaceJobBaseline
 	// PaceHint teaches p in the hint line (Pace is on in config).
 	PaceHint bool
+	// hidePaceLine: the height budget has no row to spare for it.
+	hidePaceLine bool
 
 	// Theme colours the screen; the zero value renders Bramble.
 	Theme theme.Theme

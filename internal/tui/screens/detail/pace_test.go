@@ -141,3 +141,20 @@ func TestDetailPaceLineFitsTheHeightBudget(t *testing.T) {
 		}
 	}
 }
+
+// At a height where the steps already sit at their minimum, the pace
+// line gives way rather than push the hint off the frame.
+func TestDetailPaceLineGivesWayWhenTight(t *testing.T) {
+	m := pacedModel(20).WithArtifacts(artifactFixtures()[:2])
+	m.Jobs[0].Steps = m.Jobs[0].Steps[:5]
+	for _, width := range []int{80, 120, 200} {
+		for height := 8; height <= 16; height++ {
+			off := m
+			off.Pace = nil
+			want := len(strings.Split(ViewSize(off, width, height), "\n"))
+			if got := len(strings.Split(ViewSize(m, width, height), "\n")); got > max(want, height) {
+				t.Fatalf("%dx%d: %d lines with Pace, %d without", width, height, got, want)
+			}
+		}
+	}
+}

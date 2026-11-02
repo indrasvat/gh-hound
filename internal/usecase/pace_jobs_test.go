@@ -223,3 +223,29 @@ func ExampleFormatPaceDuration_steps() {
 	// 19s
 	// 1m31s
 }
+
+// One run with a step name twice (two checkouts) is one sample of each
+// occurrence, not two of one: a single run can never reach the minimum.
+func TestRepeatedNamesCountOncePerRun(t *testing.T) {
+	b := sampledBaseline(5, 1)
+	checkouts := []model.Step{}
+	for i := range 5 {
+		checkouts = append(checkouts, paceStep(i+1, "Run actions/checkout@v4", time.Second))
+	}
+	fake := &jobsFake{jobs: map[int64][]model.Job{1: {paceJob("build", time.Minute, checkouts...), paceJob("dup", time.Minute), paceJob("dup", time.Minute)}}}
+	jb, err := PaceService{Jobs: fake}.JobBaseline(context.Background(), "o/r", b, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := paceJob("build", time.Minute, checkouts...)
+	target.Steps[0].CompletedAt = target.Steps[0].StartedAt.Add(10 * time.Second)
+	if a := AssessStep(target, target.Steps[0], jb, jobEpoch); a.SampleSize != 1 || a.Slow {
+		t.Fatalf("first checkout: %+v, want one sample from one run", a)
+	}
+	if a := AssessStep(target, target.Steps[1], jb, jobEpoch); a.SampleSize != 1 {
+		t.Fatalf("second checkout keys apart from the first: %+v", a)
+	}
+	if n := len(jb.Jobs["dup"]); n != 0 {
+		t.Fatalf("a job name twice in one run is ambiguous, want no samples, got %d", n)
+	}
+}

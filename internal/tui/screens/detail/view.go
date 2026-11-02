@@ -28,8 +28,13 @@ func ViewSize(m Model, width, height int) string {
 	head := headLines(m, width)
 	if height > 0 {
 		// breadcrumb row(s) + pane header + divider + trailing divider + hint.
-		fixed := len(head) + 4 + artifactsBlockLines(m) + gateBlockLines(m) + len(paceLines(m, styles{}, width))
-		stepsBudget = max(height-fixed, 3)
+		fixed := len(head) + 4 + artifactsBlockLines(m) + gateBlockLines(m)
+		pace := len(paceLines(m, styles{}, width))
+		// The pace line only takes a row the steps can spare.
+		if height-fixed-pace < 3 {
+			m.hidePaceLine, pace = true, 0
+		}
+		stepsBudget = max(height-fixed-pace, 3)
 	}
 	st := stylesFor(m.Theme.OrBramble())
 	lines := head
@@ -747,7 +752,7 @@ func (m Model) stepPace(job model.Job, step model.Step) usecase.PaceItem {
 // work Pace does not judge (failed, skipped, queued) or without Pace.
 func paceLines(m Model, st styles, width int) []string {
 	job := m.selectedJob()
-	if m.Pace == nil || m.Focus != FocusSteps || m.SelectedStep < 0 || m.SelectedStep >= len(job.Steps) {
+	if m.Pace == nil || m.hidePaceLine || m.Focus != FocusSteps || m.SelectedStep < 0 || m.SelectedStep >= len(job.Steps) {
 		return nil
 	}
 	a := m.stepPace(job, job.Steps[m.SelectedStep])

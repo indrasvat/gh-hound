@@ -55,13 +55,22 @@ func (s PaceService) JobBaseline(ctx context.Context, repo string, b PaceBaselin
 			return PaceJobBaseline{}, err
 		}
 		jb.Runs++
+		names := map[string]int{}
 		for _, job := range jobs {
+			names[job.Name]++
+		}
+		for _, job := range jobs {
+			// A name twice in one run is ambiguous: which one is which
+			// next time? Neither is a sample.
+			if names[job.Name] > 1 {
+				continue
+			}
 			if d, ok := greenSpan(job.Status, job.Conclusion, job.StartedAt, job.CompletedAt); ok {
 				jb.Jobs[job.Name] = append(jb.Jobs[job.Name], d)
 			}
-			for _, step := range job.Steps {
+			for i, step := range job.Steps {
 				if d, ok := greenSpan(step.Status, step.Conclusion, step.StartedAt, step.CompletedAt); ok {
-					key := stepBaselineKey(job.Name, step.Name)
+					key := stepOccurrenceKey(job, i)
 					jb.Steps[key] = append(jb.Steps[key], d)
 				}
 			}
@@ -89,6 +98,22 @@ func stepKey(name string) string {
 }
 
 func stepBaselineKey(job, step string) string { return job + "\x00" + stepKey(step) }
+
+// stepOccurrenceKey keys a job's i-th step by name and by which
+// occurrence of that name it is (a second checkout is its own step).
+func stepOccurrenceKey(job model.Job, i int) string {
+	key := stepBaselineKey(job.Name, job.Steps[i].Name)
+	n := 1
+	for _, earlier := range job.Steps[:i] {
+		if stepBaselineKey(job.Name, earlier.Name) == key {
+			n++
+		}
+	}
+	if n > 1 {
+		key += fmt.Sprintf("\x00%d", n)
+	}
+	return key
+}
 
 // PaceItem is one job or step judged against its samples.
 type PaceItem struct {
@@ -131,7 +156,11 @@ func AssessJob(job model.Job, b PaceJobBaseline, now time.Time) PaceItem {
 
 // AssessStep judges one of job's steps by its normalised name.
 func AssessStep(job model.Job, step model.Step, b PaceJobBaseline, now time.Time) PaceItem {
-	return assessSpan(step.Status, step.Conclusion, step.StartedAt, step.CompletedAt, b.Steps[stepBaselineKey(job.Name, step.Name)], paceStepFloor, now)
+	key := stepBaselineKey(job.Name, step.Name)
+	if i := slices.IndexFunc(job.Steps, func(s model.Step) bool { return s.Number == step.Number }); i >= 0 {
+		key = stepOccurrenceKey(job, i)
+	}
+	return assessSpan(step.Status, step.Conclusion, step.StartedAt, step.CompletedAt, b.Steps[key], paceStepFloor, now)
 }
 
 func assessSpan(status model.Status, conclusion model.Conclusion, start, end time.Time, samples []time.Duration, floor time.Duration, now time.Time) PaceItem {
