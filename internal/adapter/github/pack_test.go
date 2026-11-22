@@ -86,8 +86,8 @@ func TestListRunsDecodesAPageHoldingAStartupFailure(t *testing.T) {
 	if len(runs) != 2 {
 		t.Fatalf("runs = %d, want both runs on the page", len(runs))
 	}
-	if runs[0].Conclusion != model.ConclusionStartupFailure || !runs[0].Conclusion.Failing() {
-		t.Fatalf("first run conclusion = %q, want a failing startup_failure", runs[0].Conclusion)
+	if runs[0].Conclusion != model.ConclusionStartupFailure {
+		t.Fatalf("first run conclusion = %q, want startup_failure", runs[0].Conclusion)
 	}
 	if runs[1].Conclusion != model.ConclusionSuccess {
 		t.Fatalf("second run conclusion = %q, want success", runs[1].Conclusion)

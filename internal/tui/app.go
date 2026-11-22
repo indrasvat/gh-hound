@@ -1007,6 +1007,10 @@ func RenderFixtureSize(screen string, width, height int) string {
 		run, _ := app.runs.SelectedRun()
 		m := DetailModelForRun(run).WithRepo("indrasvat/gh-hound").WithPendingDeployments(samplePendingDeployments())
 		return frameViewSize(app.theme, "hound", "Deploy #572 › main", "waiting", detail.ViewSize(m, bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
+	case "detail-startup":
+		run := model.Run{ID: 30433650, Name: "Docs", RunNumber: 574, Event: "pull_request", Status: model.StatusCompleted, Conclusion: model.ConclusionStartupFailure, HeadBranch: "docs/fallback", HeadSHA: "5b1e0c9", Actor: "indrasvat", TriggeringActor: "indrasvat", RunAttempt: 1}
+		m := DetailModelForRun(run).WithRepo("indrasvat/gh-hound")
+		return frameViewSize(app.theme, "hound", "Docs #574 › docs/fallback", "5b1e0c9", detail.ViewSize(m, bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
 	case "rerun-confirm":
 		loadingApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
 		run, _ := loadingApp.runs.SelectedRun()
@@ -1973,7 +1977,8 @@ func (a App) applyFlakeBadges() App {
 	}
 	marks := map[int64]bool{}
 	for _, run := range a.runs.Context.Runs {
-		if !redConclusion(run) {
+		// A run GitHub could not start ran no job: no flake scent on it.
+		if run.Status != model.StatusCompleted || !run.Conclusion.Failing() || run.Conclusion == model.ConclusionStartupFailure {
 			continue
 		}
 		report, ok := a.flakeReports[a.flakeKeyForRun(run)]
@@ -2032,11 +2037,6 @@ func (a App) flakeKeyForRun(run model.Run) string {
 		workflow = strconv.FormatInt(run.WorkflowID, 10)
 	}
 	return workflow + "|" + firstNonEmpty(run.HeadBranch, a.runs.Context.Branch)
-}
-
-// redConclusion mirrors the regression-scan red signal for badges.
-func redConclusion(run model.Run) bool {
-	return run.Status == model.StatusCompleted && run.Conclusion.Failing()
 }
 
 // openWorkflows fetches the pack roster through startLoad — never

@@ -255,7 +255,7 @@ gh-hound/
 ### §4.3 Enums (exact, do not invent)
 
 - **`status`**: `queued`, `in_progress`, `completed`, `requested`, `waiting`, `pending`.
-- **`conclusion`**: `success`, `failure`, `cancelled`, `skipped`, `neutral`, `timed_out`, `action_required`, `stale`, `null` (when not completed).
+- **`conclusion`**: `success`, `failure`, `cancelled`, `skipped`, `neutral`, `timed_out`, `action_required`, `stale`, `startup_failure` (GitHub could not start the run; it has no jobs), `null` (when not completed).
 
 Model fields are enumerated in **Appendix A**. Each enum value maps to exactly one glyph + colour (§5, §6) — nothing decorative is invented.
 
@@ -312,7 +312,7 @@ Default **Bramble** (dark): warm ink-and-bone neutrals, one electric "on-the-sce
 
 ### §5.3 Semantic map (status → token)
 
-`success→ok` · `failure→fail` · `in_progress→run` · `queued|pending|waiting→info` · `cancelled|stale→neutral` · `skipped|neutral→neutral` · `action_required|timed_out→warn`.
+`success→ok` · `failure|startup_failure→fail` · `in_progress→run` · `queued|pending|waiting→info` · `cancelled|stale→neutral` · `skipped|neutral→neutral` · `action_required|timed_out→warn`.
 
 **§5 DoD:** a single `theme.Theme` struct holds all tokens; `T` swaps Bramble↔Bone live and **every** view recolours (no hard-coded colours anywhere outside `internal/theme`); 256-colour fallback verified via shux on a `TERM` without truecolor.
 
@@ -329,7 +329,7 @@ Default **Bramble** (dark): warm ink-and-bone neutrals, one electric "on-the-sce
 | Meaning | Glyph | Code | Meaning | Glyph | Code |
 |---|---|---|---|---|---|
 | success | `✔` | U+2714 | cursor | `▌` | U+258C |
-| failure | `✗` | U+2717 | branch | `⎇` | U+2387 |
+| failure · startup_failure | `✗` | U+2717 | branch | `⎇` | U+2387 |
 | in_progress | `⠹` (braille spinner) | — | breadcrumb | `›` | U+203A |
 | queued | `◌` | U+25CC | fold open/closed | `▾`/`▸` | U+25BE/B8 |
 | cancelled | `⊘` | U+2298 | slow (Pace) | `↑` | U+2191 |

@@ -295,7 +295,7 @@ func (m Model) Summary() Summary {
 			summary.Running++
 			continue
 		}
-		if isFailing(run) {
+		if run.Conclusion.Failing() {
 			summary.Failing++
 			continue
 		}
@@ -520,10 +520,6 @@ func isRunning(run model.Run) bool {
 	default:
 		return false
 	}
-}
-
-func isFailing(run model.Run) bool {
-	return run.Conclusion.Failing()
 }
 
 func isPassing(run model.Run) bool {

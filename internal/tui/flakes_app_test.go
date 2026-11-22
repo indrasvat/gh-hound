@@ -224,6 +224,23 @@ func TestFlakeBadgeMarksKnownFlakerRows(t *testing.T) {
 	}
 }
 
+// A run GitHub could not start ran no job, so it never wears the flake
+// badge even when its workflow+branch has a flaky verdict.
+func TestFlakeBadgeSkipsAStartupFailure(t *testing.T) {
+	app := failureWithPanel(t, NewScenarioApp("failure", BuildInfo{Version: "test"}))
+	app, _ = app.Update(KeyMsg{Key: "esc"})
+	app, _ = app.Update(KeyMsg{Key: "esc"})
+	for i := range app.runs.Context.Runs {
+		if app.runs.Context.Runs[i].ID == 571 {
+			app.runs.Context.Runs[i].Conclusion = model.ConclusionStartupFailure
+		}
+	}
+	app = app.applyFlakeBadges()
+	if app.runs.FlakyRuns[571] {
+		t.Fatalf("runs.FlakyRuns = %v, want the startup failure unbadged", app.runs.FlakyRuns)
+	}
+}
+
 // A confirmed rerun invalidates the session verdict cache: new
 // attempts are about to land and a cached verdict would lie.
 func TestRerunInvalidatesFlakeVerdictCache(t *testing.T) {

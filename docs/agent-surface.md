@@ -211,7 +211,7 @@ Verdict envelope (`$defs.diff_result` in schema.json): `{repo, workflow, branch,
 
 Diff exit codes: `1` boundary located (a regression exists — action needed), `0` no action derivable (`green` or `inconclusive`), `2` API/validation error with a typed `error: {kind, message}` envelope (`validation | auth | permission | not_found | rate_limit | network | unknown`). Exit `3` is never used: a finished scan has nothing pending.
 
-Scan rules agents can rely on: a run counts by its latest attempt's conclusion (a failure rerun to green is green); cancelled, skipped, neutral, stale, and still-running runs carry no signal and are stepped over. API spend is bounded by `diff_max_pages` (default 10 pages of 100 runs, env `HOUND_DIFF_MAX_PAGES`); hitting the cap yields `inconclusive`, never a hang. Rehearse deterministically with `--fake-scenario regression` (a seeded boundary: exit `1`, suspects included).
+Scan rules agents can rely on: a run counts by its latest attempt's conclusion (a failure rerun to green is green); cancelled, skipped, neutral, stale, and still-running runs carry no signal and are stepped over; a `startup_failure` (GitHub could not start the workflow at that commit) counts as red. API spend is bounded by `diff_max_pages` (default 10 pages of 100 runs, env `HOUND_DIFF_MAX_PAGES`); hitting the cap yields `inconclusive`, never a hang. Rehearse deterministically with `--fake-scenario regression` (a seeded boundary: exit `1`, suspects included).
 
 ## Flake Verdict (flakes)
 
@@ -228,6 +228,7 @@ Verdict envelope (`$defs.flakes_result` in schema.json): `{repo, workflow, branc
 - Each `jobs[]` entry: `{job, flake_score, verdict, attempt_flips, cross_run_flaps, retry_masks, flaked_runs, evidence[]}` with `evidence[]` rows `{run_id, run_number, attempt, kind, detail}` (`kind`: `attempt_flip` | `cross_run_flap` | `retry_mask`).
 - Documented thresholds: each attempt flip adds **0.45**, each cross-run flap **0.30**, each retry mask **0.20**, capped at 1.0. A job at or past **0.6** is `flaky` (two flips, two flaps, or a flip plus any second signal); any evidence at all is `suspect`.
 - The three signals: **attempt flips** (a job failed on attempt N and passed on a later attempt of the same run — the strongest signal; a rerun of a green run is NOT a flip), **cross-run flapping** (the same `head_sha` mixing fail and pass across runs, plus red→green→red alternation across adjacent commits — the commit range between the reds is shown as a compare URL, never interpreted), and **retry masks** (known retry wrappers like `nick-fields/retry` or `Retrying in N…` loops hiding instability inside an eventually-green step).
+- A run GitHub could not start (`startup_failure`) ran no job, so it is not a sample and never counts toward a flap.
 - `jobs[].job` is normally the job name; cross-run flaps observed without attempt-level job data land on an entry named after the workflow.
 
 Flakes exit codes: `1` when `status` is `flaky` or `suspect` (action needed — `verdict=flaky` means rerun is reasonable, `suspect` means look closer; the JSON distinguishes them), `0` for `clean` AND `insufficient_data` (no action derivable), `2` typed `error: {kind, message}` (`validation | auth | permission | not_found | rate_limit | network | unknown`). Exit `3` is never used.

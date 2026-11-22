@@ -85,6 +85,7 @@ All glyphs are text presentation only. Do not append emoji variation selectors. 
 | success | ✔ |
 | gate (waiting run) | ◫ |
 | failure | ✗ |
+| startup_failure | ✗ |
 | in_progress | ⠹ |
 | queued | ◌ |
 | cancelled | ⊘ |
@@ -206,6 +207,13 @@ Approve and reject are both confirm-gated ("open the gate for …?" /
 "keep the gate shut for …?"); verdict toasts: "gate's open." and
 "gate stays shut.". Fixture screens: `runs-waiting`, `approvals`,
 `detail-pending`.
+
+Startup failure: a run GitHub could not start (`startup_failure`) wears
+the failure ✗ in fail colour and counts as failing. Its detail screen
+has no jobs and never will, so the jobs pane reads "No job ran" and the
+steps pane reads "GitHub could not start this run" (fail) over a dim
+"check the workflow file and the repo's Actions policy". Fixture
+screen: `detail-startup`.
 
 ## Render Hygiene (the flicker contract)
 
