@@ -101,3 +101,17 @@ Found, not fixed (P3):
 - The blocked explanation cut its date at 80 and 120 columns: shorter line.
 
 Found, not fixed (P3, existing behaviour): a toast can sit on the runs column header at 80x24; success toasts offer "r retry"; the selection returns to row 1 after a runs reload.
+
+## Review Round 4 (codex, final, on the round-2 and round-3 fixes)
+
+Fixed (P1 first, red test first):
+
+- The access check could land while another question was open (a rerun confirm opened meanwhile) and replace it, so the `y` meant for the rerun approved a fork run. The check never opens its confirm over an open overlay; it says "approval not opened · press A again after it".
+- An approval outcome landing on the same key as an Esc was dismissed by that Esc before it painted: such a key is consumed.
+- A second `A` during a pending access check stacked a second check: ignored.
+- The `approval_missed` explanation clipped at 120 columns: shorter.
+
+Found, not fixed (P2, not regressions against main):
+
+- `flakes` orders fork and upstream runs of one head branch name together, so red-green-red across two forks' `main` and upstream `main` can count as an adjacent-commit flap. main already scans fork runs this way; only those in which no job ran are dropped here.
+- A failed jobs lookup for a red fork run aborts the flakes scan, as a failed attempt lookup already does.

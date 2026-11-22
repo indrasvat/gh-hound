@@ -50,6 +50,9 @@ func (a App) openApproveRun(route Route, run model.Run) App {
 	if a.pushAccess == accessDenied {
 		return a.noApproveAccess()
 	}
+	if a.load != nil && a.load.kind == loadKindApprovals {
+		return a // the check for this A is already on its way
+	}
 	if a.pushAccessResolver == nil {
 		a.pushErrorToast("approve-unavailable", usecase.ResilienceFor(errors.New("approving runs is not configured"), usecase.ErrorContext{}))
 		return a
@@ -69,6 +72,11 @@ func (a App) openApproveRun(route Route, run model.Run) App {
 			case !canPush:
 				app.pushAccess = accessDenied
 				app = app.noApproveAccess()
+			case app.TopOverlay() != OverlayNone:
+				// Another question opened meanwhile: replacing it would let
+				// the key meant for it approve a fork run.
+				app.pushAccess = accessGranted
+				app.pushToast("approve-run", usecase.Resilience{Severity: usecase.SeverityInfo, Title: "approval not opened", Message: "another question is open · press A again after it"})
 			default:
 				app.pushAccess = accessGranted
 				app = app.openConfirm(route, request)

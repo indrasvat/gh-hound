@@ -303,3 +303,39 @@ func TestASecondAWhileApprovingDoesNotAskAgain(t *testing.T) {
 	close(release)
 	settleApproval(t, app)
 }
+
+// The access check landing while another question is open must not
+// replace it: the y meant for that question would approve a fork run.
+func TestAccessCheckNeverReplacesAnOpenConfirm(t *testing.T) {
+	var calls []ActionRequest
+	release := make(chan struct{})
+	cfg := config.Default()
+	cfg.Welcome = false
+	red := model.Run{ID: 5, RunNumber: 5, Name: "CI", Event: "push", HeadBranch: "main", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure, RunAttempt: 1}
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{Repo: "acme/forge", Branch: "main", Scope: usecase.LaunchScopeBranch, State: usecase.LaunchStateRuns, Runs: []model.Run{heldRun(9412, "Unit tests"), red}},
+		PushAccessResolver: func(context.Context) (bool, error) {
+			<-release
+			return true, nil
+		},
+		ActionHandler: approveRecorder(&calls),
+	})
+	app, _ = app.Update(KeyMsg{Key: "A"})
+	app, _ = app.Update(KeyMsg{Key: "j"})
+	app, _ = app.Update(KeyMsg{Key: "r"})
+	if app.TopOverlay() != OverlayConfirm {
+		t.Fatalf("r did not ask to rerun: overlay=%s", app.TopOverlay())
+	}
+	close(release)
+	app = settleApp(t, app)
+	if !strings.Contains(screenText(app), "rerun") || strings.Contains(screenText(app), "approve 1 run") || strings.Contains(screenText(app), "approve this run from") {
+		t.Fatalf("the access check replaced the rerun question:\n%s", screenText(app))
+	}
+	_, _ = app.Update(KeyMsg{Key: "y"})
+	for _, call := range calls {
+		if call.Action == usecase.ActionApproveRun {
+			t.Fatalf("y on the rerun question approved a fork run: %+v", calls)
+		}
+	}
+}

@@ -781,8 +781,9 @@ func (a App) Update(msg KeyMsg) (out App, handled bool) {
 		repaint = true
 	}
 	if next, ok := a.drainApprove(); ok {
-		a = next
-		repaint = true
+		// The outcome lands with this key: the key (an Esc, say) was not
+		// aimed at the toast it would dismiss.
+		return next, true
 	}
 	// A completed route poll applies before the key routes, so a
 	// keystroke acts on the freshest list the background fetch produced.
