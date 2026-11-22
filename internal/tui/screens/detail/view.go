@@ -205,7 +205,10 @@ func renderNeverRan(m Model, st styles, verdict model.RunVerdict, width int) []s
 		}
 		lines = append(lines, fitANSI("  "+colorize(st.dim, meta), width))
 	}
-	if verdict.WaitingOnPerson() && m.Run.FromFork {
+	switch {
+	case verdict.WaitingOnPerson() && m.Run.FromFork && m.NoApproveAccess:
+		lines = append(lines, "", fitANSI("  "+colorize(st.dim, "a maintainer with write access can approve it"), width))
+	case verdict.WaitingOnPerson() && m.Run.FromFork:
 		// The one key that helps; the footer carries o, y and back.
 		lines = append(lines, "", fitANSI("  "+colorize(st.ok+sgrBold, "A")+colorize(st.fgSoft, " approve and run"), width))
 	}

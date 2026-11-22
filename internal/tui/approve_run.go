@@ -41,30 +41,61 @@ func (a App) openApproveRun(route Route, run model.Run) App {
 		})
 		return a
 	}
+	if a.approving != nil {
+		// Its outcome is on the way; asking again would approve runs
+		// that may already be approved.
+		a.pushToast("approve-run", usecase.Resilience{Severity: usecase.SeverityInfo, Title: "an approval is still running"})
+		return a
+	}
+	if a.pushAccess == accessDenied {
+		return a.noApproveAccess()
+	}
 	if a.pushAccessResolver == nil {
 		a.pushErrorToast("approve-unavailable", usecase.ResilienceFor(errors.New("approving runs is not configured"), usecase.ErrorContext{}))
 		return a
 	}
 	request := ActionRequest{Action: usecase.ActionApproveRun, Run: run, Held: a.heldOnCommit(run)}
 	resolver := a.pushAccessResolver
+	// The load line belongs to the runs and detail loads; the check says
+	// itself in a toast, as the approval does.
+	a.pushToast("approve-run", usecase.Resilience{Severity: usecase.SeverityInfo, Title: "checking your access…"})
 	return a.startLoad(loadKindApprovals, "checking your access", func(ctx context.Context) func(App) App {
 		canPush, err := resolver(ctx)
 		return func(app App) App {
+			app.toasts = app.toasts.Dismiss("approve-run")
 			switch {
 			case err != nil:
 				app.pushErrorToast("approve-access-failed", usecase.ResilienceFor(err, usecase.ErrorContext{}))
 			case !canPush:
-				app.pushToast("approve-no-access", usecase.Resilience{
-					Severity: usecase.SeverityInfo,
-					Title:    "a maintainer has to approve this",
-					Message:  "approving a fork's run needs write access to the repo",
-				})
+				app.pushAccess = accessDenied
+				app = app.noApproveAccess()
 			default:
+				app.pushAccess = accessGranted
 				app = app.openConfirm(route, request)
 			}
 			return app
 		}
 	})
+}
+
+// pushAccessState is what the session learned about write access: the
+// answer does not change while hound runs, and a "no" hides the approve
+// hints that cannot help.
+type pushAccessState int
+
+const (
+	accessUnknown pushAccessState = iota
+	accessGranted
+	accessDenied
+)
+
+func (a App) noApproveAccess() App {
+	a.pushToast("approve-no-access", usecase.Resilience{
+		Severity: usecase.SeverityInfo,
+		Title:    "a maintainer has to approve this",
+		Message:  "approving a fork's run needs write access to the repo",
+	})
+	return a
 }
 
 // approveState carries the approvals in flight. It is not a load: Esc

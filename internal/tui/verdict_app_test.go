@@ -256,3 +256,50 @@ func TestAKeyArrivingWithTheConfirmDoesNotAnswerIt(t *testing.T) {
 		t.Fatalf("the y that surfaced the confirm answered it: overlay=%s approving=%v", app.TopOverlay(), app.approving != nil)
 	}
 }
+
+// Once GitHub says the credentials cannot write here, the list stops
+// offering A, and A answers at once without asking GitHub again.
+func TestNoWriteAccessHidesTheApproveHint(t *testing.T) {
+	lookups := 0
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{Repo: "acme/forge", Branch: "main", Scope: usecase.LaunchScopeBranch, State: usecase.LaunchStateRuns, Runs: []model.Run{heldRun(9412, "Unit tests")}},
+		PushAccessResolver: func(context.Context) (bool, error) {
+			lookups++
+			return false, nil
+		},
+	})
+	if !strings.Contains(screenText(app), "A approve") {
+		t.Fatalf("the hint is missing before the check:\n%s", screenText(app))
+	}
+	app = press(t, app, "A")
+	app = press(t, app, "esc")
+	if strings.Contains(screenText(app), "A approve") {
+		t.Fatalf("the list still offers A after GitHub said no:\n%s", screenText(app))
+	}
+	app = press(t, app, "A")
+	if lookups != 1 || !strings.Contains(screenText(app), "a maintainer has to approve this") {
+		t.Fatalf("lookups = %d, want one; second A:\n%s", lookups, screenText(app))
+	}
+}
+
+// A second A while the approvals run says so instead of asking again
+// about runs that may already be approved.
+func TestASecondAWhileApprovingDoesNotAskAgain(t *testing.T) {
+	release := make(chan struct{})
+	app := verdictApp(verdictAppOptions{runs: []model.Run{heldRun(9412, "Unit tests"), heldRun(9411, "Lint")}, canPush: true,
+		handler: func(request ActionRequest) (usecase.ActionResult, error) {
+			<-release
+			return usecase.ActionResult{Action: request.Action, Message: "2 runs approved · they start shortly"}, nil
+		}})
+	app = press(t, app, "A")
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	app = press(t, app, "A")
+	if app.TopOverlay() == OverlayConfirm || !strings.Contains(screenText(app), "an approval is still running") {
+		t.Fatalf("second A: overlay=%s\n%s", app.TopOverlay(), screenText(app))
+	}
+	close(release)
+	settleApproval(t, app)
+}

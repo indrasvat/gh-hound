@@ -241,6 +241,7 @@ type App struct {
 	// pushAccessResolver checks write access before the approve confirm.
 	pushAccessResolver func(context.Context) (bool, error)
 	approving          *approveState
+	pushAccess         pushAccessState
 	// runRefresher re-reads unfinished rows the page-1 poll no longer
 	// returns; runsConfirmed is when a fetch last returned each run's
 	// snapshot, runsTried when one was last asked for.
@@ -5151,6 +5152,7 @@ func (a App) screenBody(width, height int) string {
 		}
 		runsModel.Pace, runsModel.PaceAsOf = a.paceForRuns(runsModel)
 		runsModel.Verdicts = a.verdictsFor(runsModel.Context.Runs)
+		runsModel.NoApproveAccess = a.pushAccess == accessDenied
 		runsModel.Stale = a.staleRuns(runsModel.Context.Runs, time.Now())
 		return runs.ViewSize(runsModel, bodyWidth, bodyHeight(height), time.Now())
 	case RouteDetail:
@@ -5159,6 +5161,7 @@ func (a App) screenBody(width, height int) string {
 		detailModel.Pace, detailModel.PaceHint = a.detailPace(), a.config.Pace && a.paceJobResolver != nil
 		detailModel.HeldRuns = len(a.heldOnCommit(detailModel.Run))
 		detailModel.Verdict = a.listVerdict(detailModel.Run)
+		detailModel.NoApproveAccess = a.pushAccess == accessDenied
 		if load := a.load; load != nil && load.kind == loadKindDetail {
 			detailModel.Loading = true
 			detailModel.LoadingLine = loadingLine(a.theme, load, bodyWidth/2, time.Now())

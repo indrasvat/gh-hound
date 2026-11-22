@@ -115,6 +115,9 @@ type Model struct {
 	PaceAsOf map[int64]time.Time
 	// Stale marks unfinished rows no fetch has returned lately.
 	Stale map[int64]bool
+	// NoApproveAccess: GitHub said the credentials cannot write here, so
+	// the list does not offer A on held runs. Render-time input.
+	NoApproveAccess bool
 	// Verdicts holds what the jobs of a red run said about it, for the
 	// attempt the row shows. Run fields settle the rest (VerdictFor).
 	Verdicts map[int64]model.RunVerdict
@@ -327,7 +330,7 @@ func (m Model) Summary() Summary {
 			switch verdict, _ := m.VerdictFor(run); {
 			case verdict.WaitingOnPerson():
 				summary.NeedApproval++
-				if run.FromFork {
+				if run.FromFork && !m.NoApproveAccess {
 					summary.Approvable++
 				}
 			case verdict.Verdict == model.VerdictNeverRan:

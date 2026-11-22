@@ -118,6 +118,8 @@ type Model struct {
 	// Verdict is what the runs list read for this run, when it did: an
 	// infra verdict names the runner's failure under the jobs.
 	Verdict model.RunVerdict
+	// NoApproveAccess: GitHub said the credentials cannot write here.
+	NoApproveAccess bool
 	// HeldRuns counts the loaded runs held for approval on this run's
 	// commit, this one included. Render-time input from the runs list.
 	HeldRuns int

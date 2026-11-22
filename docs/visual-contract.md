@@ -242,15 +242,18 @@ info `↯ runner lost · not the code`. The footer is `detail_never_ran`
 once the jobs loaded empty (a failed load proves nothing and keeps
 `detail`); its hidden job keys (`r R x X w l ⏎`) do nothing but an info
 toast "no job ran · <headline> · no job to open, rerun, cancel or
-watch". `A` first checks write access behind the shared "checking your
-access" load (no access: info toast "a maintainer has to approve
-this"), then asks "approve N runs from @login's fork? their code will
+watch". `A` first checks write access behind an info toast "checking
+your access…" (no access: info toast "a maintainer has to approve
+this", and for the rest of the session the summary drops `A approve`
+and the held detail reads a dim "a maintainer with write access can
+approve it"; a second `A` answers at once), then asks "approve N runs from @login's fork? their code will
 run" (default No) for every run held on that commit from that fork, and
 approves them behind an info toast "approving N runs…", never on the
 key path and never cancelled by Esc (GitHub cannot take an approval
 back, so its outcome always lands); a key that arrives as the confirm
-opens does not answer it; from the detail view it returns to the list, which reloads. A
-held run not from a fork gets an info toast "approve this one on
+opens does not answer it, and a second `A` while they run toasts "an
+approval is still running"; from the detail view it returns to the
+list, which reloads. A held run not from a fork gets an info toast "approve this one on
 GitHub". `l` on a runs-list row in which no job ran toasts "no job ran
 · <headline> · no log to open". `A` on a detail with nothing to approve
 toasts "no gate here". The hunt board's State column is 15 cells, the

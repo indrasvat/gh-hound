@@ -917,3 +917,22 @@ the label shows them. P2: A approve offered on repos you cannot write
 (cli/cli). P2: fake lacks no_job_ran, disk_full, non-fork held run.
 Recipe: shim `open`/`pbcopy` via PATH in the pane cmd before testing o/y
 (__vqa-tui wires the real browser + clipboard).
+
+Round 42 (task 470 round 2 fix check, 4c359e5, 2026-11-22): FAIL.
+FIXED: A->y no longer freezes (j moves mid-approval; ~1.05s for 2 runs),
+toast "2 runs approved · they start shortly", detail pops, rows turn ◌;
+never-ran detail r R x X w l ⏎ all toast "no job ran · <headline> · no job
+to open, rerun, cancel or watch" (held 9412 + missed 9407 phantom check);
+80x24 paged cli/cli keeps "G load more" (A approve drops); /missed /policy
+/runner narrow + ⏎ opens highlighted; live cli/cli A -> "a maintainer has
+to approve this" (list + detail); fake 9388 no_job_ran, 9386 disk_full,
+9410 bot -> "approve this one on GitHub"; missed A "no gate here"; legend
+∅/↯; "↯ runner lost · not the code" (120+/200 only). make vqa green.
+OPEN P2: loadKindApprovals is rendered by NO route body (app.go View only
+draws runs/dispatch on runs, detail on detail): "checking your access"
+(~0.35s live) and "approving N runs" (~1s) never show; detail still says
+"A approve and run". OPEN P2: A (or Esc) during the approve load
+supersedes/cancels it; handler ignores ctx so runs ARE approved but the
+toast, pop and reload are dropped; A re-opens "approve 2 runs?" for runs
+already approved. Recipe: burst.sh (send key, then 30 snapshot+capture
+frames ~35ms apart) catches sub-second load windows.

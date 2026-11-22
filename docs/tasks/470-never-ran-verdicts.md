@@ -92,3 +92,12 @@ Fixed:
 Found, not fixed (P3):
 
 - At 80 columns, a page with failing, infra, held and never-ran rows plus a deploy gate can still clip `G load more` once every count that may give way has; the red counts themselves never drop.
+
+## Review Round 3 (tui-qa re-check findings on the round-2 code)
+
+- The access check and the approval drew no load line on the runs or detail screen: both say themselves in an info toast.
+- A second `A` while approvals ran reopened the confirm for runs that may already be approved: it says "an approval is still running".
+- After GitHub said the credentials cannot write, the list still offered `A approve`: the session remembers the answer, drops the hint and answers `A` at once.
+- The blocked explanation cut its date at 80 and 120 columns: shorter line.
+
+Found, not fixed (P3, existing behaviour): a toast can sit on the runs column header at 80x24; success toasts offer "r retry"; the selection returns to row 1 after a runs reload.
