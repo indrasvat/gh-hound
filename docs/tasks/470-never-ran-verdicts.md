@@ -115,3 +115,8 @@ Found, not fixed (P2, not regressions against main):
 
 - `flakes` orders fork and upstream runs of one head branch name together, so red-green-red across two forks' `main` and upstream `main` can count as an adjacent-commit flap. main already scans fork runs this way; only those in which no job ran are dropped here.
 - A failed jobs lookup for a red fork run aborts the flakes scan, as a failed attempt lookup already does.
+
+## Bot review on #86 (greptile)
+
+- P1, fixed: the mutation limiter had no lock, and background approvals could race a rerun from the screen through it. Callers now queue (`TestMutationLimiterSpacesConcurrentCallers`, red under `-race` first).
+- Not changed: `flakes` still samples a non-fork run that ended before any job started, as main does (a jobs call per red run would be the cost); past 1,000 annotations the listing errors on purpose rather than return a partial set.
