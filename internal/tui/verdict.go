@@ -16,8 +16,9 @@ import (
 const verdictRetry = 2 * time.Minute
 
 // verdictBatch bounds the runs one fetch reads (one jobs listing each,
-// plus one annotations listing per failing job that ran).
-const verdictBatch = 10
+// plus one annotations listing per failing job): a page of red rows,
+// which land one by one as each is read.
+const verdictBatch = 30
 
 // verdictKey is a run attempt: a finished attempt's jobs never change,
 // so its verdict is kept for the session.
