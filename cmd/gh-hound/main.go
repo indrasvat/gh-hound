@@ -2405,8 +2405,8 @@ func resultForOptions(ctx context.Context, options cliOptions, runtime commandRu
 	if scenario == "api_error" || scenario == "network_error" || scenario == "rate_limited" {
 		return render.Result{}, errors.New("github api unavailable")
 	}
-	if scenario == "noisy" {
-		runtime.GitHub = fake.New(fake.ScenarioNoisy)
+	if scenario == "noisy" || scenario == "never_ran" {
+		runtime.GitHub = fake.New(fakeScenarioFor(scenario))
 		runtime.Repo = staticRepositoryContext{context: usecase.RepositoryContext{
 			Repo: firstNonEmpty(options.Repo, "indrasvat/gh-hound"), Branch: firstNonEmpty(options.Branch, "main"), Actor: "indrasvat",
 		}}
@@ -2481,8 +2481,8 @@ func liveResult(ctx context.Context, options cliOptions, runtime commandRuntime)
 		singleRuns := []model.Run{run}
 		renderSingle := mapRenderRuns(singleRuns)
 		triage := usecase.TriageService{GitHub: githubClient}
-		if failures, triageErr := triage.LoadRunFailuresAttempt(ctx, repo, run, options.Attempt); triageErr == nil && len(failures) > 0 {
-			renderSingle[0].Failed = mapRenderFailures(failures)
+		if result, triageErr := triage.LoadRunTriage(ctx, repo, run, options.Attempt); triageErr == nil {
+			applyTriage(&renderSingle[0], result)
 		}
 		if options.WithArtifacts {
 			attachArtifacts(ctx, usecase.ArtifactsService{GitHub: githubClient}, repo, singleRuns, renderSingle)
@@ -2723,6 +2723,8 @@ func fakeScenarioFor(scenario string) fake.Scenario {
 		return fake.ScenarioNoisy
 	case "paced":
 		return fake.ScenarioPaced
+	case "never_ran":
+		return fake.ScenarioNeverRan
 	default:
 		return fake.ScenarioGreen
 	}
@@ -2744,14 +2746,22 @@ func attachFailures(ctx context.Context, triage usecase.TriageService, repo stri
 			defer wg.Done()
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
-			failures, err := triage.LoadRunFailures(ctx, repo, run)
-			if err != nil || len(failures) == 0 {
+			result, err := triage.LoadRunTriage(ctx, repo, run, 0)
+			if err != nil {
 				return
 			}
-			out[i].Failed = mapRenderFailures(failures)
+			applyTriage(&out[i], result)
 		}(i, run)
 	}
 	wg.Wait()
+}
+
+// applyTriage fills a run's failed[] and its verdict from triage.
+func applyTriage(out *render.Run, result usecase.RunTriage) {
+	if len(result.Failures) > 0 {
+		out.Failed = mapRenderFailures(result.Failures)
+	}
+	out.Verdict, out.Reason = string(result.Verdict.Verdict), string(result.Verdict.Reason)
 }
 
 func mapRenderRepeats(repeats []usecase.Repeat) []render.Repeat {
@@ -2815,7 +2825,12 @@ func parseStatusFilter(raw string) (string, error) {
 func mapRenderRuns(runs []model.Run) []render.Run {
 	out := make([]render.Run, 0, len(runs))
 	for _, run := range runs {
+		// Run fields alone settle held and unstartable runs; the rest
+		// get their verdict from triage, which reads their jobs.
+		verdict, _ := model.ClassifyRun(run, nil)
 		out = append(out, render.Run{
+			Verdict:         string(verdict.Verdict),
+			Reason:          string(verdict.Reason),
 			ID:              run.ID,
 			Workflow:        firstNonEmpty(run.Name, run.DisplayTitle, run.Path),
 			RunNumber:       run.RunNumber,
@@ -2955,6 +2970,7 @@ func fakeResult(options cliOptions, scenario string) render.Result {
 		Failed:          []render.Failure{},
 	}
 	if conclusion == "failure" {
+		run.Verdict = string(model.VerdictCode)
 		run.Failed = []render.Failure{{
 			Job:      "build",
 			Step:     "go test ./...",
@@ -3018,6 +3034,10 @@ func normalizedScenario(options cliOptions) string {
 	case "paced", "pace":
 		// A Pace baseline: running, slow, on-pace and widened-PR targets.
 		return "paced"
+	case "never_ran", "never-ran", "held", "blocked":
+		// Red runs for every reason one never ran or the runner failed,
+		// through real triage.
+		return "never_ran"
 	}
 	status := strings.ToLower(strings.TrimSpace(options.Status))
 	switch status {

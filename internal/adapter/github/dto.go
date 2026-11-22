@@ -51,6 +51,12 @@ type runDTO struct {
 	JobsURL         string           `json:"jobs_url"`
 	LogsURL         string           `json:"logs_url"`
 	PullRequests    []pullRequestDTO `json:"pull_requests"`
+	HeadRepository  repositoryDTO    `json:"head_repository"`
+	Repository      repositoryDTO    `json:"repository"`
+}
+
+type repositoryDTO struct {
+	FullName string `json:"full_name"`
 }
 
 type jobDTO struct {
@@ -142,6 +148,8 @@ func mapRun(dto runDTO) (model.Run, error) {
 		JobsURL:         dto.JobsURL,
 		LogsURL:         dto.LogsURL,
 		PullRequests:    pullRequests,
+		FromFork: dto.HeadRepository.FullName != "" && dto.Repository.FullName != "" &&
+			!strings.EqualFold(dto.HeadRepository.FullName, dto.Repository.FullName),
 	}, nil
 }
 

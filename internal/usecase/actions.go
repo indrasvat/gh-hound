@@ -16,6 +16,8 @@ const (
 	ActionCancelRun       Action = "cancel_run"
 	ActionForceCancelRun  Action = "force_cancel_run"
 	ActionDispatch        Action = "dispatch"
+	// ActionApproveRun lets a held fork run start.
+	ActionApproveRun Action = "approve_run"
 
 	ActionApproveDeployment Action = "approve_deployment"
 	ActionRejectDeployment  Action = "reject_deployment"

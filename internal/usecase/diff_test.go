@@ -167,6 +167,33 @@ func TestLocateRegressionSkipsCancelledAndSkippedInsideStreak(t *testing.T) {
 	}
 }
 
+// A run held for approval or blocked by policy failed nothing at its
+// commit, so it is never the first bad run. A workflow file GitHub
+// could not start still is.
+func TestLocateRegressionSkipsRunsThatNeverRan(t *testing.T) {
+	held := trailRun(103, model.StatusCompleted, model.ConclusionActionRequired)
+	blocked := trailRun(102, model.StatusCompleted, model.ConclusionStartupFailure)
+	blocked.Event = "pull_request_target"
+	trail := &fakeTrail{
+		pages:     map[int][]model.Run{1: {red(104), held, blocked, green(101)}},
+		rangeInfo: model.CommitRange{TotalCommits: 1, Commits: []model.Commit{{SHA: "ccc"}}},
+	}
+	verdict := locate(t, trail, 10)
+	if verdict.Status != RegressionLocated || verdict.LastGood.RunNumber != 101 || verdict.FirstBad.RunNumber != 104 {
+		t.Fatalf("verdict = %q #%d → #%d, want located #101 → #104", verdict.Status, verdict.LastGood.RunNumber, verdict.FirstBad.RunNumber)
+	}
+
+	invalid := trailRun(102, model.StatusCompleted, model.ConclusionStartupFailure)
+	invalid.Event = "push"
+	trail = &fakeTrail{
+		pages:     map[int][]model.Run{1: {red(104), invalid, green(101)}},
+		rangeInfo: model.CommitRange{TotalCommits: 1, Commits: []model.Commit{{SHA: "ccc"}}},
+	}
+	if verdict := locate(t, trail, 10); verdict.FirstBad.RunNumber != 102 {
+		t.Fatalf("first bad = #%d, want #102: a workflow that could not start is red", verdict.FirstBad.RunNumber)
+	}
+}
+
 // A run that failed then succeeded on rerun counts by its LATEST
 // attempt conclusion — the list endpoint already reports the latest
 // attempt, and the scan must not second-guess it. (Interplay with Task

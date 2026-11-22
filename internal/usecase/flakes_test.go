@@ -215,7 +215,11 @@ func TestFlakeScanStartupFailureIsNoFlakeSignal(t *testing.T) {
 	blocked := flakeRun(105, 1, model.ConclusionStartupFailure)
 	greenRerun := flakeRun(106, 1, model.ConclusionSuccess)
 	greenRerun.HeadSHA = blocked.HeadSHA
-	fake := newFlakeFake(greenRerun, blocked,
+	// A run held for approval ran no job either: approved later and
+	// green, it must not read as a same-commit flap.
+	held := flakeRun(107, 1, model.ConclusionActionRequired)
+	held.HeadSHA = greenRerun.HeadSHA
+	fake := newFlakeFake(held, greenRerun, blocked,
 		flakeRun(104, 1, model.ConclusionSuccess),
 		flakeRun(103, 1, model.ConclusionSuccess),
 		flakeRun(102, 1, model.ConclusionSuccess),

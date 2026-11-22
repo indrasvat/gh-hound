@@ -302,12 +302,12 @@ func (s FlakesService) attemptFlips(ctx context.Context, repo string, run model.
 
 // filterSignalRuns keeps completed runs whose conclusion carries a
 // green/red signal; cancelled, skipped, neutral, and stale runs say
-// nothing about flakiness, and neither does a run GitHub could not
-// start, since no job ran.
+// nothing about flakiness, and neither does a run in which no job ran
+// (held for approval, blocked, or one GitHub could not start).
 func filterSignalRuns(runs []model.Run) []model.Run {
 	out := make([]model.Run, 0, len(runs))
 	for _, run := range runs {
-		if run.Conclusion == model.ConclusionStartupFailure {
+		if verdict, _ := model.ClassifyRun(run, nil); verdict.Verdict == model.VerdictNeverRan {
 			continue
 		}
 		if good, bad := regressionSignal(run); good || bad {

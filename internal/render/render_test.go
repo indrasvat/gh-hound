@@ -139,6 +139,15 @@ func TestExitCodeMapping(t *testing.T) {
 		{name: "ok", res: Result{Runs: []Run{{Conclusion: "success", Status: "completed"}}}, want: ExitOK},
 		{name: "action needed", res: Result{Runs: []Run{{Conclusion: "failure", Status: "completed"}}}, want: ExitActionNeeded},
 		{name: "pending", res: Result{Runs: []Run{{Status: "in_progress"}}}, want: ExitPending},
+		// A run held for approval waits on a person; one that missed its
+		// approval or was blocked can't be fixed by waiting.
+		{name: "held for approval", res: Result{Runs: []Run{{Conclusion: "action_required", Status: "completed", Verdict: "never_ran", Reason: "awaiting_approval"}}}, want: ExitPending},
+		{name: "held above a code failure", res: Result{Runs: []Run{
+			{Conclusion: "action_required", Status: "completed", Verdict: "never_ran", Reason: "awaiting_approval"},
+			{Conclusion: "failure", Status: "completed", Verdict: "code"},
+		}}, want: ExitActionNeeded},
+		{name: "approval missed", res: Result{Runs: []Run{{Conclusion: "failure", Status: "completed", Verdict: "never_ran", Reason: "approval_missed"}}}, want: ExitActionNeeded},
+		{name: "blocked by policy", res: Result{Runs: []Run{{Conclusion: "startup_failure", Status: "completed", Verdict: "never_ran", Reason: "blocked_by_policy"}}}, want: ExitActionNeeded},
 		{name: "error", err: errFixture{}, want: ExitError},
 	}
 	for _, tt := range tests {

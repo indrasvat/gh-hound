@@ -94,6 +94,37 @@ func TestListRunsDecodesAPageHoldingAStartupFailure(t *testing.T) {
 	}
 }
 
+// A fork PR's runs carry the fork as head_repository: that is what
+// marks a held run as approvable. The shapes are copied from live
+// runs on a public repo; ids and names are local.
+func TestListRunsMarksForkRuns(t *testing.T) {
+	payload, err := os.ReadFile("testdata/runs_never_ran.json")
+	if err != nil {
+		t.Fatalf("read never-ran payload: %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+
+	runs, err := NewClient(server.URL, server.Client()).ListRuns(context.Background(), usecase.RunFilter{Repo: "acme/forge", PerPage: 30})
+	if err != nil {
+		t.Fatalf("list runs returned error: %v", err)
+	}
+	if len(runs) != 3 {
+		t.Fatalf("runs = %d, want 3", len(runs))
+	}
+	for i, want := range []bool{true, true, false} {
+		if runs[i].FromFork != want {
+			t.Fatalf("run %d FromFork = %v, want %v", runs[i].ID, runs[i].FromFork, want)
+		}
+	}
+	if runs[0].Conclusion != model.ConclusionActionRequired {
+		t.Fatalf("held run conclusion = %q, want action_required as GitHub reports it", runs[0].Conclusion)
+	}
+}
+
 func TestListRunsByHeadSHAMapsThePinnedLivePayload(t *testing.T) {
 	payload, err := os.ReadFile("testdata/runs_by_head_sha_live.json")
 	if err != nil {

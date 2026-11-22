@@ -56,6 +56,8 @@ type Run struct {
 	JobsURL         string     `json:"jobs_url"`
 	LogsURL         string     `json:"logs_url"`
 	PullRequests    []int      `json:"pull_requests"`
+	// FromFork is a run whose head commit lives in another repository.
+	FromFork bool `json:"from_fork"`
 }
 
 type Job struct {

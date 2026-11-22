@@ -163,9 +163,14 @@ func regressionSignal(run model.Run) (good, bad bool) {
 	if run.Status != model.StatusCompleted {
 		return false, false
 	}
+	verdict, _ := model.ClassifyRun(run, nil)
 	switch {
 	case run.Conclusion == model.ConclusionSuccess:
 		return true, false
+	case verdict.Verdict == model.VerdictNeverRan && verdict.Reason != model.ReasonCouldNotStart:
+		// Held or blocked: nothing at this commit failed. A workflow
+		// file GitHub could not start still counts red.
+		return false, false
 	case run.Conclusion.Failing():
 		return false, true
 	default:

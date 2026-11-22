@@ -63,10 +63,13 @@ type Adapter struct {
 	packTicks int
 	// started is the live-run scenario's clock origin.
 	started time.Time
+	// mu guards approved: the held runs ApproveRun has let start.
+	mu       sync.Mutex
+	approved map[int64]bool
 }
 
 func New(scenario Scenario) *Adapter {
-	return &Adapter{scenario: scenario, started: time.Now()}
+	return &Adapter{scenario: scenario, started: time.Now(), approved: map[int64]bool{}}
 }
 
 func (a *Adapter) ListRuns(_ context.Context, filter usecase.RunFilter) ([]model.Run, error) {
@@ -132,6 +135,8 @@ func (a *Adapter) listScenarioRuns(advance bool) ([]model.Run, error) {
 		return []model.Run{waitingRun(), greenRun(571)}, nil
 	case ScenarioEmpty:
 		return []model.Run{}, nil
+	case ScenarioNeverRan:
+		return a.neverRanRuns(), nil
 	case ScenarioRegression:
 		return regressionHistory(), nil
 	case ScenarioPack:
@@ -194,6 +199,9 @@ func (a *Adapter) ListJobs(_ context.Context, _ string, runID int64) ([]model.Jo
 	}
 	if a.scenario == ScenarioPaced {
 		return a.pacedJobs(runID), nil
+	}
+	if a.scenario == ScenarioNeverRan {
+		return neverRanJobs(runID), nil
 	}
 	if a.scenario != ScenarioSkippedJob {
 		return []model.Job{job()}, nil
@@ -305,7 +313,10 @@ on:
 `, nil
 }
 
-func (a *Adapter) ListAnnotations(context.Context, string, model.Job) ([]model.Annotation, error) {
+func (a *Adapter) ListAnnotations(_ context.Context, _ string, j model.Job) ([]model.Annotation, error) {
+	if a.scenario == ScenarioNeverRan {
+		return neverRanAnnotations(j.ID), nil
+	}
 	return []model.Annotation{{
 		Path:      "internal/parser/lexer.go",
 		StartLine: 142,
@@ -502,6 +513,18 @@ func (a *Adapter) RerunFailedJobs(ctx context.Context, repo string, runID int64,
 
 func (a *Adapter) RerunJob(ctx context.Context, repo string, jobID int64, _ bool) (usecase.ActionResult, error) {
 	return a.actionResult(usecase.ActionRerunJob, repo, 0, jobID, "")
+}
+
+// ApproveRun lets a held run start: in the never_ran scenario it is
+// queued on the next list.
+func (a *Adapter) ApproveRun(_ context.Context, repo string, runID int64) (usecase.ActionResult, error) {
+	result, err := a.actionResult(usecase.ActionApproveRun, repo, runID, 0, "")
+	if err == nil {
+		a.mu.Lock()
+		a.approved[runID] = true
+		a.mu.Unlock()
+	}
+	return result, err
 }
 
 func (a *Adapter) CancelRun(ctx context.Context, repo string, runID int64) (usecase.ActionResult, error) {

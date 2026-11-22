@@ -34,18 +34,20 @@ const (
 
 var exitCodeRE = regexp.MustCompile(`exit code ([0-9]+)`)
 
-// LoadRunFailures returns one RunFailure per failed job of an actionable
-// run. Log and annotation lookups degrade per job: an expired log or a
-// failed annotation listing never drops the job from the payload.
-func (s TriageService) LoadRunFailures(ctx context.Context, repo string, run model.Run) ([]RunFailure, error) {
-	return s.LoadRunFailuresAttempt(ctx, repo, run, 0)
+// RunTriage is a red run's failed[] payload and its verdict, both built
+// from one jobs listing.
+type RunTriage struct {
+	Failures []RunFailure
+	Verdict  model.RunVerdict
 }
 
-// LoadRunFailuresAttempt targets a specific run attempt; attempt 0
-// means the latest.
-func (s TriageService) LoadRunFailuresAttempt(ctx context.Context, repo string, run model.Run, attempt int) ([]RunFailure, error) {
+// LoadRunTriage returns one RunFailure per failed job of an actionable
+// run, and the run's verdict. Log and annotation lookups degrade per
+// job: an expired log or a failed annotation listing never drops the
+// job from the payload. attempt 0 means the latest.
+func (s TriageService) LoadRunTriage(ctx context.Context, repo string, run model.Run, attempt int) (RunTriage, error) {
 	if !run.Conclusion.Failing() {
-		return nil, nil
+		return RunTriage{}, nil
 	}
 	var jobs []model.Job
 	var err error
@@ -55,9 +57,11 @@ func (s TriageService) LoadRunFailuresAttempt(ctx context.Context, repo string, 
 		jobs, err = s.GitHub.ListJobs(ctx, repo, run.ID)
 	}
 	if err != nil {
-		return nil, err
+		return RunTriage{}, err
 	}
-	var failures []RunFailure
+	evidence := &model.RunEvidence{Jobs: jobs, Annotations: map[int64][]model.Annotation{}, ExitCodes: map[int64]int{}}
+	signalsComplete := true
+	var triage RunTriage
 	for _, job := range jobs {
 		if !job.Conclusion.Failing() {
 			continue
@@ -68,14 +72,24 @@ func (s TriageService) LoadRunFailuresAttempt(ctx context.Context, repo string, 
 			failure.LogExcerpt, failure.Repeats = excerpt(ctx, document)
 			if code, ok := exitCodeFrom(document); ok {
 				failure.ExitCode = code
+				evidence.ExitCodes[job.ID] = code
 			}
 		}
 		if annotations, annErr := s.GitHub.ListAnnotations(ctx, repo, job); annErr == nil {
 			failure.Annotations = annotations
+			evidence.Annotations[job.ID] = annotations
+		} else if job.Ran() {
+			signalsComplete = false
 		}
-		failures = append(failures, failure)
+		triage.Failures = append(triage.Failures, failure)
 	}
-	return failures, nil
+	triage.Verdict, _ = model.ClassifyRun(run, evidence)
+	if triage.Verdict.Verdict == model.VerdictCode && !signalsComplete {
+		// A missing annotation listing may hide a platform signal: no
+		// verdict beats a wrong one.
+		triage.Verdict = model.RunVerdict{}
+	}
+	return triage, nil
 }
 
 func firstFailedStep(job model.Job) model.Step {

@@ -14,9 +14,10 @@ func TestTriageLoadsFailurePayloadForFailedRun(t *testing.T) {
 	service := usecase.TriageService{GitHub: fake.New(fake.ScenarioFailing)}
 	run := model.Run{ID: 30433642, Conclusion: model.ConclusionFailure}
 
-	failures, err := service.LoadRunFailures(context.Background(), "indrasvat/gh-hound", run)
+	triage, err := service.LoadRunTriage(context.Background(), "indrasvat/gh-hound", run, 0)
+	failures := triage.Failures
 	if err != nil {
-		t.Fatalf("LoadRunFailures returned error: %v", err)
+		t.Fatalf("LoadRunTriage returned error: %v", err)
 	}
 	if len(failures) != 1 {
 		t.Fatalf("failures = %d, want 1", len(failures))
@@ -45,9 +46,10 @@ func TestTriageSkipsRunsWithoutActionableConclusion(t *testing.T) {
 	service := usecase.TriageService{GitHub: fake.New(fake.ScenarioFailing)}
 	run := model.Run{ID: 30433642, Conclusion: model.ConclusionSuccess}
 
-	failures, err := service.LoadRunFailures(context.Background(), "indrasvat/gh-hound", run)
+	triage, err := service.LoadRunTriage(context.Background(), "indrasvat/gh-hound", run, 0)
+	failures := triage.Failures
 	if err != nil {
-		t.Fatalf("LoadRunFailures returned error: %v", err)
+		t.Fatalf("LoadRunTriage returned error: %v", err)
 	}
 	if len(failures) != 0 {
 		t.Fatalf("failures = %#v, want none for a green run", failures)
@@ -60,9 +62,10 @@ func TestTriageDegradesWhenLogUnavailable(t *testing.T) {
 	service := usecase.TriageService{GitHub: fake.New(fake.ScenarioLogRender)}
 	run := model.Run{ID: 30433642, Conclusion: model.ConclusionFailure}
 
-	failures, err := service.LoadRunFailures(context.Background(), "indrasvat/gh-hound", run)
+	triage, err := service.LoadRunTriage(context.Background(), "indrasvat/gh-hound", run, 0)
+	failures := triage.Failures
 	if err != nil {
-		t.Fatalf("LoadRunFailures returned error: %v", err)
+		t.Fatalf("LoadRunTriage returned error: %v", err)
 	}
 	if len(failures) != 1 {
 		t.Fatalf("failures = %d, want 1", len(failures))
@@ -99,9 +102,10 @@ func TestTriageParsesExitCodeFromLog(t *testing.T) {
 	service := usecase.TriageService{GitHub: github}
 	run := model.Run{ID: 30433642, Conclusion: model.ConclusionFailure}
 
-	failures, err := service.LoadRunFailures(context.Background(), "indrasvat/gh-hound", run)
+	triage, err := service.LoadRunTriage(context.Background(), "indrasvat/gh-hound", run, 0)
+	failures := triage.Failures
 	if err != nil {
-		t.Fatalf("LoadRunFailures returned error: %v", err)
+		t.Fatalf("LoadRunTriage returned error: %v", err)
 	}
 	if len(failures) != 1 {
 		t.Fatalf("failures = %d, want 1", len(failures))
@@ -119,9 +123,10 @@ func TestTriageExcerptFallsBackToLogTail(t *testing.T) {
 	service := usecase.TriageService{GitHub: github}
 	run := model.Run{ID: 30433642, Conclusion: model.ConclusionFailure}
 
-	failures, err := service.LoadRunFailures(context.Background(), "indrasvat/gh-hound", run)
+	triage, err := service.LoadRunTriage(context.Background(), "indrasvat/gh-hound", run, 0)
+	failures := triage.Failures
 	if err != nil {
-		t.Fatalf("LoadRunFailures returned error: %v", err)
+		t.Fatalf("LoadRunTriage returned error: %v", err)
 	}
 	if len(failures) != 1 {
 		t.Fatalf("failures = %d, want 1", len(failures))

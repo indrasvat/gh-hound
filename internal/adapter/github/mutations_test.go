@@ -56,6 +56,9 @@ func TestMutationEndpointsUseExpectedMethodPathAndBodies(t *testing.T) {
 		case "/repos/indrasvat/gh-hound/actions/runs/571/cancel",
 			"/repos/indrasvat/gh-hound/actions/runs/571/force-cancel":
 			w.WriteHeader(http.StatusAccepted)
+		case "/repos/indrasvat/gh-hound/actions/runs/572/approve":
+			// Approve a workflow run for a fork pull request: 201, no body.
+			w.WriteHeader(http.StatusCreated)
 		case "/repos/indrasvat/gh-hound/actions/workflows/release.yml/dispatches":
 			var body usecase.DispatchRequest
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -79,6 +82,7 @@ func TestMutationEndpointsUseExpectedMethodPathAndBodies(t *testing.T) {
 		func() error { _, err := client.RerunJob(ctx, "indrasvat/gh-hound", 399, true); return err },
 		func() error { _, err := client.CancelRun(ctx, "indrasvat/gh-hound", 571); return err },
 		func() error { _, err := client.ForceCancelRun(ctx, "indrasvat/gh-hound", 571); return err },
+		func() error { _, err := client.ApproveRun(ctx, "indrasvat/gh-hound", 572); return err },
 		func() error {
 			_, err := client.DispatchWorkflow(ctx, "indrasvat/gh-hound", "release.yml", usecase.DispatchRequest{
 				Ref: "main",
@@ -94,7 +98,7 @@ func TestMutationEndpointsUseExpectedMethodPathAndBodies(t *testing.T) {
 			t.Fatalf("mutation returned error: %v", err)
 		}
 	}
-	if len(seen) != 6 {
+	if len(seen) != 7 {
 		t.Fatalf("mutation calls = %#v", seen)
 	}
 }
