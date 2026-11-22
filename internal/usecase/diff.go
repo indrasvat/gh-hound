@@ -91,6 +91,11 @@ func (s DiffService) LocateRegression(ctx context.Context, repo, workflow, branc
 			break
 		}
 		verdict.RunsScanned++
+		if run.FromFork {
+			// A fork's PR run lists under its head branch name (often its
+			// own main), but its commit is not on the branch scanned.
+			continue
+		}
 		good, bad := regressionSignal(run)
 		switch {
 		case bad:
@@ -160,9 +165,7 @@ func (s DiffService) perPage() int {
 
 // regressionSignal classifies one run for the boundary scan.
 func regressionSignal(run model.Run) (good, bad bool) {
-	if run.Status != model.StatusCompleted || run.FromFork {
-		// A fork's PR run lists under its head branch name (often its
-		// own main), but its commit is not on the branch scanned.
+	if run.Status != model.StatusCompleted {
 		return false, false
 	}
 	verdict, _ := model.ClassifyRun(run, nil)

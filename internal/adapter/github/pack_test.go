@@ -272,3 +272,29 @@ func TestCanPushReadsTheViewersPermission(t *testing.T) {
 		}
 	}
 }
+
+// Exactly the cap is fine (an empty 11th page confirms it); past the
+// cap the listing errors rather than hiding what it could not read.
+func TestListAnnotationsCapsAtTenFullPages(t *testing.T) {
+	for _, tc := range []struct {
+		eleventh int
+		wantErr  bool
+	}{{0, false}, {1, true}} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			n := 100
+			if r.URL.Query().Get("page") == "11" {
+				n = tc.eleventh
+			}
+			items := make([]map[string]any, n)
+			for i := range items {
+				items[i] = map[string]any{"annotation_level": "warning", "message": "x"}
+			}
+			_ = json.NewEncoder(w).Encode(items)
+		}))
+		got, err := NewClient(server.URL, server.Client()).ListAnnotations(context.Background(), "acme/forge", model.Job{ID: 7})
+		server.Close()
+		if (err != nil) != tc.wantErr || (!tc.wantErr && len(got) != 1000) {
+			t.Fatalf("eleventh page %d: %d annotations, err=%v", tc.eleventh, len(got), err)
+		}
+	}
+}

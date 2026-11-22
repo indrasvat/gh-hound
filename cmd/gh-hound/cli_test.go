@@ -2426,4 +2426,8 @@ func TestLostNeedsActionIgnoresHeldRuns(t *testing.T) {
 	if !lostNeedsAction([]model.Run{held, running, red}) {
 		t.Fatal("a failed sibling does not need action")
 	}
+	// A cancelled member is lost as before this change: exit 1.
+	if !lostNeedsAction([]model.Run{running, cliRun(4, "Deploy", model.StatusCompleted, model.ConclusionCancelled)}) {
+		t.Fatal("a cancelled sibling does not need action")
+	}
 }

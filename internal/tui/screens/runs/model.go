@@ -420,7 +420,7 @@ func (m Model) filteredRuns() []model.Run {
 		// Current rows already satisfy the server qualifiers; stale rows
 		// (a reload in flight) must satisfy the whole query.
 		verdict, _ := m.VerdictFor(run)
-		if (current && q.MatchesText(run, why.Short(verdict))) || (!current && q.Matches(run, m.Viewer)) {
+		if (current && q.MatchesText(run, why.Short(verdict))) || (!current && q.Matches(run, m.Viewer, why.Short(verdict))) {
 			filtered = append(filtered, run)
 		}
 	}

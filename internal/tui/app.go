@@ -240,6 +240,7 @@ type App struct {
 	verdictWarned   bool
 	// pushAccessResolver checks write access before the approve confirm.
 	pushAccessResolver func(context.Context) (bool, error)
+	approving          *approveState
 	// runRefresher re-reads unfinished rows the page-1 poll no longer
 	// returns; runsConfirmed is when a fetch last returned each run's
 	// snapshot, runsTried when one was last asked for.
@@ -778,6 +779,10 @@ func (a App) Update(msg KeyMsg) (out App, handled bool) {
 		a = next
 		repaint = true
 	}
+	if next, ok := a.drainApprove(); ok {
+		a = next
+		repaint = true
+	}
 	// A completed route poll applies before the key routes, so a
 	// keystroke acts on the freshest list the background fetch produced.
 	if next, ok := a.drainTickPoll(); ok {
@@ -790,7 +795,14 @@ func (a App) Update(msg KeyMsg) (out App, handled bool) {
 	}
 	if load := a.load; load != nil {
 		if done, _, _, _ := load.snapshot(); done {
+			before := a.TopOverlay()
 			a, _ = a.drainLoad()
+			if a.TopOverlay() == OverlayConfirm && before != OverlayConfirm {
+				// The load just asked a question (the approve confirm
+				// after the access check): this key was meant for the
+				// screen under it and must not answer it.
+				return a, true
+			}
 		} else if msg.Key == "esc" && !a.routeInputMode() {
 			// Cancel interest AND the underlying work: the orphaned
 			// result can never apply, and the fetch stops occupying
@@ -1381,6 +1393,11 @@ func (a App) Refresh() (App, bool) {
 		changed = true
 	}
 	if next, ok := a.drainLoad(); ok {
+		a = next
+		changed = true
+	}
+	// An approval's outcome lands whatever else is in flight or on top.
+	if next, ok := a.drainApprove(); ok {
 		a = next
 		changed = true
 	}
@@ -4640,7 +4657,7 @@ func (a App) footerScreen() keys.Screen {
 	case RouteWelcome:
 		return keys.ScreenWelcome
 	case RouteDetail:
-		if _, never := a.detailNeverRan(); never && (a.load == nil || a.load.kind != loadKindDetail) {
+		if _, never := a.detailNeverRan(); never {
 			return keys.ScreenDetailNeverRan
 		}
 		return keys.ScreenDetail

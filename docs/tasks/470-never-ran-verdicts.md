@@ -75,3 +75,20 @@ Fixed:
 - Takshaka tidy-ups: dead cancel plumbing, a hand-rolled sort, a one-caller forwarder, repeated comments, a special-cased toast, unused scenario aliases, a const that realigned 23 lines.
 
 Kept, with reasons: `blocked_by_policy` stays an inference from `pull_request_target` + `startup_failure` (the issue asks for it before 2 Dec; every spike case had that cause); the detail and docs say "likely". `runs` keeps its newest-first exit order (a newer queued run reads pending before an older failure), as before this change.
+
+## Review Round 2 (codex on the fix commits; tui-qa re-check)
+
+Fixed:
+
+- A key arriving as the access check opened the confirm answered it (a `y` meant as copy-URL approved): a confirm that surfaces during a key's drain consumes that key, as the artifact-overwrite confirm already did.
+- Esc during the approvals dropped their outcome while the POSTs went on: approvals are tracked apart from the cancellable load and always report.
+- A failing test's own annotation quoting a disk error read `infra`: platform signals count only from runner annotations (no file, or `.github`).
+- Triage could list another attempt's failed job in `failed[]`: it is skipped, and the verdict stays unknown.
+- The blanket fork exclusion dropped real fork flaps from `flakes`: diff still skips fork runs (their commits are not on the branch); flakes reads each red fork run's jobs and drops it only when no job ran.
+- Exactly 1,000 annotations errored: an empty 11th page confirms the cap.
+- `watch --group --timeout` exited 3 for a cancelled member beside a running one: lost means not home and not held, as before.
+- The footer during a held run's first load advertised keys the handler refused; verdict words stopped matching during a filter reload; the `approval_missed` text claimed a PR close the API cannot prove. All three fixed.
+
+Found, not fixed (P3):
+
+- At 80 columns, a page with failing, infra, held and never-ran rows plus a deploy gate can still clip `G load more` once every count that may give way has; the red counts themselves never drop.

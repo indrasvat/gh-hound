@@ -84,10 +84,10 @@ func TestApproveHeldForkRunsBehindAConfirm(t *testing.T) {
 
 	app = press(t, app, "A")
 	app, _ = app.Update(KeyMsg{Key: "y"})
-	if app.load == nil || app.TopOverlay() != OverlayNone {
-		t.Fatalf("y did not start a load: the approve calls must run off the key path")
+	if app.approving == nil || app.TopOverlay() != OverlayNone {
+		t.Fatalf("y did not start the approval off the key path")
 	}
-	app = settleApp(t, app)
+	app = settleApproval(t, app)
 	if len(calls) != 1 || len(calls[0].Held) != 2 || calls[0].Held[1].ID != 9411 {
 		t.Fatalf("approve call = %+v, want one approve of #9412 and #9411", calls)
 	}
@@ -130,7 +130,7 @@ func TestApproveHeldForkRunFromDetail(t *testing.T) {
 		t.Fatalf("hidden keys do not say why:\n%s", screenText(app))
 	}
 	app = press(t, app, "A")
-	app = press(t, app, "y")
+	app = settleApproval(t, press(t, app, "y"))
 	if len(calls) != 1 || len(calls[0].Held) != 2 || app.Route() != RouteRuns {
 		t.Fatalf("y from detail: calls=%+v route=%s, want one approve and the list", calls, app.Route())
 	}
@@ -203,5 +203,56 @@ func TestRedRowsGetTheirVerdictInTheBackground(t *testing.T) {
 	}
 	if rows := app.runs.FilteredRuns(); len(rows) != 1 || rows[0].ID != missed.ID {
 		t.Fatalf("/missed matched %d rows, want #7 only", len(rows))
+	}
+}
+
+// settleApproval ticks until the approval in flight has landed.
+func settleApproval(t *testing.T, app App) App {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for app.approving != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("the approval never landed")
+		}
+		app, _ = app.Refresh()
+		time.Sleep(5 * time.Millisecond)
+	}
+	return settleApp(t, app)
+}
+
+// Esc while the approvals run cannot lose their outcome: GitHub
+// accepted them, and the toast still says so.
+func TestApprovalOutcomeSurvivesEsc(t *testing.T) {
+	release := make(chan struct{})
+	app := verdictApp(verdictAppOptions{runs: []model.Run{heldRun(9412, "Unit tests"), heldRun(9411, "Lint")}, canPush: true,
+		handler: func(request ActionRequest) (usecase.ActionResult, error) {
+			<-release
+			return usecase.ActionResult{Action: request.Action, Message: "2 runs approved · they start shortly"}, nil
+		}})
+	app = press(t, app, "A")
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	app, _ = app.Update(KeyMsg{Key: "esc"})
+	close(release)
+	app = settleApproval(t, app)
+	if !strings.Contains(screenText(app), "2 runs approved") {
+		t.Fatalf("the approval's outcome was lost:\n%s", screenText(app))
+	}
+}
+
+// A key that lands just as the access check opens the confirm is not
+// an answer to it: y meant "copy URL" on the screen below.
+func TestAKeyArrivingWithTheConfirmDoesNotAnswerIt(t *testing.T) {
+	var calls []ActionRequest
+	app := verdictApp(verdictAppOptions{runs: []model.Run{heldRun(9412, "Unit tests")}, handler: approveRecorder(&calls), canPush: true})
+	app, _ = app.Update(KeyMsg{Key: "A"})
+	for app.load != nil {
+		if done, _, _, _ := app.load.snapshot(); done {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	if app.TopOverlay() != OverlayConfirm || app.approving != nil || len(calls) != 0 {
+		t.Fatalf("the y that surfaced the confirm answered it: overlay=%s approving=%v", app.TopOverlay(), app.approving != nil)
 	}
 }

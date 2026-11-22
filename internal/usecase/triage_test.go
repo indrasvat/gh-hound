@@ -188,3 +188,15 @@ func TestTriageExcerptFallsBackToLogTail(t *testing.T) {
 		t.Fatalf("excerpt should keep the log tail when no anchor matches:\n%s", excerpt)
 	}
 }
+
+// A failed job of another attempt never reaches failed[]: the agent
+// would fix what this attempt did not do.
+func TestTriageKeepsOtherAttemptsOutOfFailed(t *testing.T) {
+	other := model.Job{ID: 3, RunAttempt: 2, Status: model.StatusCompleted, Conclusion: model.ConclusionFailure, RunnerName: "r2"}
+	gh := &jobsByAttempt{attempts: map[int][]model.Job{1: {other}}}
+	run := model.Run{ID: 1, Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure, RunAttempt: 1}
+	got, err := usecase.TriageService{GitHub: gh}.LoadRunTriage(context.Background(), "acme/forge", run, 0)
+	if err != nil || len(got.Failures) != 0 || got.Verdict != (model.RunVerdict{}) {
+		t.Fatalf("triage = %+v err=%v, want no failures and no verdict", got, err)
+	}
+}

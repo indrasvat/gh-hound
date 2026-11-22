@@ -48,6 +48,11 @@ func TestClassifyRunNamesWhyARedRunIsRed(t *testing.T) {
 		// A test that prints "No space left on device" as a warning and
 		// then fails an assertion is a code failure.
 		{"disk full only from a failure annotation", with(pr, ConclusionFailure, "push"), &RunEvidence{Jobs: []Job{ranJob(1, ConclusionFailure)}, Annotations: map[int64][]Annotation{1: {{Level: "warning", Message: "No space left on device"}}}}, RunVerdict{VerdictCode, ""}, true},
+		// A failing test's own annotation sits on a source file: quoting
+		// a disk error or an exit code there is the code's failure. The
+		// runner's annotations carry no file (or .github).
+		{"a test annotation is no runner signal", with(pr, ConclusionFailure, "push"), &RunEvidence{Jobs: []Job{ranJob(1, ConclusionFailure)}, Annotations: map[int64][]Annotation{1: {{Path: "internal/store/disk_test.go", Level: "failure", Message: "want error, got No space left on device"}}}}, RunVerdict{VerdictCode, ""}, true},
+		{"the runner's .github annotation is", with(pr, ConclusionFailure, "push"), &RunEvidence{Jobs: []Job{ranJob(1, ConclusionFailure)}, Annotations: map[int64][]Annotation{1: {{Path: ".github", Level: "failure", Message: "Process completed with exit code 137."}}}}, RunVerdict{VerdictInfra, ReasonKilled}, true},
 		// A job no runner took (no matching label) still failed: its
 		// annotations say why, so the run is not "never ran".
 		{"a failed job no runner took", with(pr, ConclusionFailure, "push"), &RunEvidence{Jobs: []Job{{ID: 3, Conclusion: ConclusionFailure}}}, RunVerdict{VerdictCode, ""}, true},

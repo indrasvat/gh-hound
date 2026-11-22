@@ -250,7 +250,19 @@ func TestFlakeScanForkRunsAreNoSamples(t *testing.T) {
 	)
 	report := scanFlakes(t, fake, 50)
 	if report.Status != FlakeStatusClean || report.SampleSize != 5 {
-		t.Fatalf("status = %q sample = %d, want clean over 5: a fork's run is no sample", report.Status, report.SampleSize)
+		t.Fatalf("status = %q sample = %d, want clean over 5: a fork's run that never ran is no sample", report.Status, report.SampleSize)
+	}
+
+	// A fork run whose job did run and fail is evidence like any other.
+	fake = newFlakeFake(missed, green,
+		flakeRun(104, 1, model.ConclusionSuccess),
+		flakeRun(103, 1, model.ConclusionSuccess),
+		flakeRun(102, 1, model.ConclusionSuccess),
+		flakeRun(101, 1, model.ConclusionSuccess),
+	)
+	fake.attemptJobs[fmt.Sprintf("%d/1", missed.ID)] = []model.Job{{ID: 7, Name: "test", RunnerName: "r1", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure}}
+	if report := scanFlakes(t, fake, 50); report.SampleSize != 6 || report.Status == FlakeStatusClean {
+		t.Fatalf("status = %q sample = %d, want the fork's real failure counted (6 samples, a flap)", report.Status, report.SampleSize)
 	}
 }
 

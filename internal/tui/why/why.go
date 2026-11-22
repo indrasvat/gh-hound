@@ -49,7 +49,7 @@ func Explanation(v model.RunVerdict, run model.Run) (string, []string) {
 		}
 	case model.ReasonApprovalMissed:
 		return "Never approved", []string{
-			"held for approval, then ended red when its pull request closed",
+			"held for approval and ended red before any job ran (GitHub does this when the PR closes)",
 			"nothing in the code ran · nothing to fix here",
 		}
 	case model.ReasonBlockedByPolicy:

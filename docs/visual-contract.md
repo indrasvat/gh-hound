@@ -246,8 +246,10 @@ watch". `A` first checks write access behind the shared "checking your
 access" load (no access: info toast "a maintainer has to approve
 this"), then asks "approve N runs from @login's fork? their code will
 run" (default No) for every run held on that commit from that fork, and
-approves them behind an "approving N runs" load, never on the key
-path; from the detail view it returns to the list, which reloads. A
+approves them behind an info toast "approving N runs…", never on the
+key path and never cancelled by Esc (GitHub cannot take an approval
+back, so its outcome always lands); a key that arrives as the confirm
+opens does not answer it; from the detail view it returns to the list, which reloads. A
 held run not from a fork gets an info toast "approve this one on
 GitHub". `l` on a runs-list row in which no job ran toasts "no job ran
 · <headline> · no log to open". `A` on a detail with nothing to approve

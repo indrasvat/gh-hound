@@ -193,18 +193,18 @@ func (c *Client) ListAnnotations(ctx context.Context, repo string, job model.Job
 	// Every page: a runner's own diagnostic can follow a page of lint
 	// warnings, and a verdict read from page one alone would miss it.
 	var decoded []annotationDTO
-	for page := 1; page <= maxAnnotationPages; page++ {
+	for page := 1; ; page++ {
 		var batch []annotationDTO
 		query := url.Values{"per_page": {strconv.Itoa(annotationsPerPage)}, "page": {strconv.Itoa(page)}}
 		if err := c.getJSON(ctx, resourcePath(repo, "check-runs/"+checkID+"/annotations"), query, &batch); err != nil {
 			return nil, err
 		}
+		if page > maxAnnotationPages && len(batch) > 0 {
+			return nil, fmt.Errorf("check run %s has more than %d annotations", checkID, maxAnnotationPages*annotationsPerPage)
+		}
 		decoded = append(decoded, batch...)
 		if len(batch) < annotationsPerPage {
 			break
-		}
-		if page == maxAnnotationPages {
-			return nil, fmt.Errorf("check run %s has more than %d annotations", checkID, maxAnnotationPages*annotationsPerPage)
 		}
 	}
 	annotations := make([]model.Annotation, 0, len(decoded))

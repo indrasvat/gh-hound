@@ -126,6 +126,10 @@ var exitCode137 = regexp.MustCompile(`exit code 137\b`)
 // infraReason reads a failing job's platform signal, if it has one.
 func infraReason(annotations []Annotation, exitCode int) VerdictReason {
 	for _, annotation := range annotations {
+		if annotation.Path != "" && annotation.Path != ".github" {
+			// On a source file: the job's own output, not the runner's.
+			continue
+		}
 		message := strings.ToLower(annotation.Message)
 		switch {
 		case strings.Contains(message, "lost communication with the server"),

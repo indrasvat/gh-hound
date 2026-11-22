@@ -73,7 +73,9 @@ func (s TriageService) LoadRunTriage(ctx context.Context, repo string, run model
 	signalsComplete := true
 	var triage RunTriage
 	for _, job := range jobs {
-		if !job.Conclusion.Failing() {
+		if !job.Conclusion.Failing() || attempt != 0 && job.RunAttempt != 0 && job.RunAttempt != attempt {
+			// Another attempt's failure is not this run's evidence; the
+			// verdict below says unknown for it.
 			continue
 		}
 		failure := RunFailure{Job: job, Step: firstFailedStep(job), ExitCode: fallbackExitCode}

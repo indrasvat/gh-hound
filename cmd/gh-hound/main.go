@@ -1113,7 +1113,11 @@ func writeGroupWatchResult(ctx context.Context, w io.Writer, options cliOptions,
 // only those lost is still pending, as it is at settle.
 func lostNeedsAction(runs []model.Run) bool {
 	for _, run := range runs {
-		if run.Status != model.StatusCompleted || !run.Conclusion.Failing() {
+		switch run.Conclusion {
+		case model.ConclusionSuccess, model.ConclusionSkipped, model.ConclusionNeutral:
+			continue // home, as the hunt summary counts it
+		}
+		if run.Status != model.StatusCompleted {
 			continue
 		}
 		if verdict, _ := model.ClassifyRun(run, nil); !verdict.WaitingOnPerson() {

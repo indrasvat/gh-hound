@@ -216,7 +216,10 @@ func (s FlakesService) Scan(ctx context.Context, repo, workflow, branch string) 
 	}
 
 	// Signal 2: cross-run flapping over run metadata already in hand.
-	signalRuns := filterSignalRuns(runs)
+	signalRuns, err := s.dropForkRunsThatNeverRan(ctx, repo, filterSignalRuns(runs))
+	if err != nil {
+		return FlakeReport{}, err
+	}
 	report.SampleSize = len(signalRuns)
 	scoreCrossRunFlaps(scorer, signalRuns, failedJobsByRun, repo)
 
@@ -581,4 +584,29 @@ func MatchRetryMask(log string) (RetryMask, bool) {
 		}
 	}
 	return RetryMask{}, false
+}
+
+// dropForkRunsThatNeverRan reads the jobs of each red fork run (a held
+// fork PR that closed unapproved ends red with no job, and the run
+// fields cannot tell) and drops those in which no job ran: they are no
+// flake evidence. Other fork runs stay samples. One call per red fork
+// run in the window; without the Attempts capability they all stay.
+func (s FlakesService) dropForkRunsThatNeverRan(ctx context.Context, repo string, runs []model.Run) ([]model.Run, error) {
+	if s.Attempts == nil {
+		return runs, nil
+	}
+	out := runs[:0:0]
+	for _, run := range runs {
+		if run.FromFork && run.Conclusion.Failing() {
+			jobs, err := s.Attempts.ListJobsForAttempt(ctx, repo, run.ID, max(run.RunAttempt, 1))
+			if err != nil {
+				return nil, err
+			}
+			if model.NoJobRan(jobs) {
+				continue
+			}
+		}
+		out = append(out, run)
+	}
+	return out, nil
 }

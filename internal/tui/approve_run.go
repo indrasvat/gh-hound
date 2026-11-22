@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/usecase"
@@ -66,35 +67,75 @@ func (a App) openApproveRun(route Route, run model.Run) App {
 	})
 }
 
+// approveState carries the approvals in flight. It is not a load: Esc
+// cancels a load, but an approval GitHub accepted cannot be taken back,
+// so its outcome must always reach the screen. Pointer-held, drained on
+// ticks and keypresses.
+type approveState struct {
+	mu     sync.Mutex
+	done   bool
+	result usecase.ActionResult
+	err    error
+	route  Route
+	runID  int64
+}
+
 // startApproveRuns approves the confirmed runs off the key path: one
 // paced call per run, so a frozen screen would grow with the count.
-// From the detail view it returns to the list, where the next poll
-// shows the runs queued.
 func (a App) startApproveRuns(route Route, request ActionRequest) App {
 	if a.actionHandler == nil {
 		a.setRouteError(route, "action unavailable: live GitHub mutation handler is not configured")
 		return a
 	}
-	handler := a.actionHandler
-	label := "approving the run"
-	if n := len(request.Held); n > 1 {
-		label = fmt.Sprintf("approving %d runs", n)
+	if a.approving != nil {
+		a.pushToast("approve-run", usecase.Resilience{Severity: usecase.SeverityInfo, Title: "an approval is still running"})
+		return a
 	}
-	return a.startLoad(loadKindApprovals, label, func(context.Context) func(App) App {
+	state := &approveState{route: route, runID: request.Run.ID}
+	a.approving = state
+	label := "approving the run…"
+	if n := len(request.Held); n > 1 {
+		label = fmt.Sprintf("approving %d runs…", n)
+	}
+	a.pushToast("approve-run", usecase.Resilience{Severity: usecase.SeverityInfo, Title: label})
+	handler := a.actionHandler
+	go func() {
 		result, err := handler(request)
-		return func(app App) App {
-			if err != nil {
-				app.pushErrorToast("action-failed", usecase.ResilienceFor(err, usecase.ErrorContext{}))
-			} else {
-				app.pushToast("action-ok", usecase.ResilienceForSuccess(result))
-			}
-			if app.Route() == RouteDetail && route == RouteDetail {
-				app.PopRoute()
-			}
-			// Approved runs turn queued; partial success too.
-			return app.reloadRuns()
-		}
-	})
+		state.mu.Lock()
+		state.result, state.err, state.done = result, err, true
+		state.mu.Unlock()
+	}()
+	return a
+}
+
+// drainApprove reports the approvals' outcome. From the detail of the
+// approved run it returns to the list; the list reloads, so approved
+// runs (all, or the ones before a refusal) show queued.
+func (a App) drainApprove() (App, bool) {
+	state := a.approving
+	if state == nil {
+		return a, false
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if !state.done {
+		return a, false
+	}
+	a.approving = nil
+	a.toasts = a.toasts.Dismiss("approve-run")
+	if state.err != nil {
+		a.pushErrorToast("action-failed", usecase.ResilienceFor(state.err, usecase.ErrorContext{}))
+	} else {
+		a.pushToast("action-ok", usecase.ResilienceForSuccess(state.result))
+	}
+	if state.route == RouteDetail && a.Route() == RouteDetail && a.detail.Run.ID == state.runID {
+		a.PopRoute()
+	}
+	if a.loadBlocked(loadKindRuns) {
+		// Another load owns the slot; the next poll shows the queued runs.
+		return a, true
+	}
+	return a.reloadRuns(), true
 }
 
 func approveRunMessage(request ActionRequest) string {

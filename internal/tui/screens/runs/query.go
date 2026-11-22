@@ -153,7 +153,7 @@ func (q Query) ServerKey() string {
 
 // Matches applies the whole query to one row. viewer stands in for
 // @me; an unresolved @me matches nothing rather than everything.
-func (q Query) Matches(run model.Run, viewer string) bool {
+func (q Query) Matches(run model.Run, viewer string, also ...string) bool {
 	if q.Actor != "" {
 		actor := q.Actor
 		if actor == MeActor {
@@ -175,7 +175,7 @@ func (q Query) Matches(run model.Run, viewer string) bool {
 	if q.SHA != "" && !strings.HasPrefix(strings.ToLower(run.HeadSHA), q.SHA) {
 		return false
 	}
-	return q.MatchesText(run)
+	return q.MatchesText(run, also...)
 }
 
 // MatchesText applies only the text tokens: every token must match the
