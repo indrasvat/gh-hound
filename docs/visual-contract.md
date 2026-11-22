@@ -212,8 +212,12 @@ Startup failure: a run GitHub could not start (`startup_failure`) wears
 the failure ✗ in fail colour and counts as failing. Its detail screen
 has no jobs and never will, so the jobs pane reads "No job ran" and the
 steps pane reads "GitHub could not start this run" (fail) over a dim
-"check the workflow file and the repo's Actions policy". Fixture
-screen: `detail-startup`.
+"check the workflow file and the repo's Actions policy". `l` on it
+opens no log screen: an info toast reads "no job ran · GitHub could not
+start this run · no log to open". The hunt board's State column is 15
+cells, the longest label GitHub gives (`startup_failure`,
+`action_required`). Fixture screens: `runs-startup`, `detail-startup`,
+`watch-board-startup`.
 
 ## Render Hygiene (the flicker contract)
 

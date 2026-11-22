@@ -18,7 +18,7 @@ const (
 	boardMarkerWidth  = 2
 	boardGlyphWidth   = 2
 	boardNumberWidth  = 8
-	boardStateWidth   = 12
+	boardStateWidth   = 15 // startup_failure, action_required
 	boardElapsedWidth = 8
 )
 
