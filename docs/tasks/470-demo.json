@@ -1,0 +1,74 @@
+{
+  "scenario": "never_ran",
+  "args": ["__vqa-tui", "--scenario", "never_ran", "--branch", "feature/none"],
+  "ready": "hound",
+  "size": "120x28",
+  "seconds": 52,
+  "fps": 5,
+  "playback_fps": 7.5,
+  "panes": {
+    "main": "main d8646b3 + fixture",
+    "pr": "this PR"
+  },
+  "timeline": [
+    {
+      "frame": 0,
+      "caption": "the never_ran fake: 12 red runs on a fork-heavy repo, and only 1 is the code's fault"
+    },
+    {
+      "frame": 45,
+      "keys": {"both": "enter"},
+      "caption": "⏎ · the newest run: a first-time contributor's fork PR, held for approval"
+    },
+    {
+      "frame": 80,
+      "keys": {"both": "A"},
+      "caption": "A · approve and run, after a write-access check (main has nothing to approve)"
+    },
+    {
+      "frame": 105,
+      "keys": {"pr": "y"},
+      "caption": "y · both held runs approved, back on the list, now queued"
+    },
+    {
+      "frame": 107,
+      "keys": {"main": "esc"}
+    },
+    {
+      "frame": 150,
+      "keys": {"both": "j"},
+      "caption": "j × 6 · the Labeler run GitHub blocked"
+    },
+    {"frame": 155, "keys": {"both": "j"}},
+    {"frame": 160, "keys": {"both": "j"}},
+    {"frame": 165, "keys": {"both": "j"}},
+    {"frame": 170, "keys": {"both": "j"}},
+    {"frame": 175, "keys": {"both": "j"}},
+    {
+      "frame": 185,
+      "keys": {"both": "enter"},
+      "caption": "⏎ · why it never ran"
+    },
+    {
+      "frame": 220,
+      "keys": {"both": "l"},
+      "caption": "l · no job ran, so there is no log to open"
+    }
+  ],
+  "rules": [
+    {"frames": [2, 44], "side": "main", "match": "12 failing", "tone": "bad", "label": "every red run counted as failing"},
+    {"frames": [2, 44], "side": "main", "match": "#9408[^│]*?4h14m", "tone": "bad", "label": "a duration for a run that never ran"},
+    {"frames": [2, 44], "side": "pr", "match": "1 failing · 3 infra · 3 need approval · A approve · 5 never ran", "tone": "good", "label": "sorted by who acts"},
+    {"frames": [2, 44], "side": "pr", "match": "∅  Unit tests · fix typo in docs[^│]*?approve", "tone": "good", "label": "held for approval"},
+    {"frames": [2, 44], "side": "pr", "match": "Labeler · blocked by policy", "tone": "good", "label": "blocked by policy"},
+    {"frames": [2, 44], "side": "pr", "match": "Integration · runner lost", "tone": "good", "label": "the runner failed"},
+    {"frames": [48, 79], "side": "main", "match": "No jobs returned by GitHub", "tone": "bad", "label": "an empty pane, no reason"},
+    {"frames": [48, 79], "side": "pr", "match": "Waiting for a maintainer to approve", "through": "2 runs held on this commit", "tone": "good", "label": "who has to act, and why"},
+    {"frames": [48, 79], "side": "pr", "match": "A approve and run", "tone": "good", "label": "the one key that helps"},
+    {"frames": [84, 104], "side": "pr", "match": "approve 2 runs from @new-dev's fork\\? their code will run", "tone": "good", "label": "asks first; default is No"},
+    {"frames": [110, 149], "side": "pr", "match": "◌  Unit tests · fix typo in docs", "through": "◌  Lint · fix typo in docs", "tone": "good", "label": "approved: both runs queued"},
+    {"frames": [188, 219], "side": "main", "match": "GitHub could not start this run", "tone": "bad", "label": "a policy block reads as a broken workflow"},
+    {"frames": [188, 219], "side": "pr", "match": "Likely blocked by the repo's Actions policy", "through": "move the workflow to pull_request", "tone": "good", "label": "names the policy, says what to change"},
+    {"frames": [224, 259], "side": "pr", "match": "no job ran · Likely blocked", "tone": "good", "label": "l says why there is no log"}
+  ]
+}
