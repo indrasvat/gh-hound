@@ -400,7 +400,7 @@ func jobRow(st styles, job model.Job, pace usecase.PaceItem, selected bool, widt
 
 func stepRow(st styles, step model.Step, pace usecase.PaceItem, selected bool, width int, now time.Time) string {
 	bar := " "
-	isFailure := step.Conclusion == model.ConclusionFailure || step.Conclusion == model.ConclusionActionRequired || step.Conclusion == model.ConclusionTimedOut
+	isFailure := step.Conclusion.Failing()
 	if isFailure {
 		bar = colorize(st.fail, icons.Cursor)
 	} else if selected {
@@ -594,7 +594,7 @@ func statusSGR(st styles, status model.Status, conclusion model.Conclusion) stri
 		switch conclusion {
 		case model.ConclusionSuccess:
 			return st.ok
-		case model.ConclusionFailure:
+		case model.ConclusionFailure, model.ConclusionStartupFailure:
 			return st.fail
 		case model.ConclusionActionRequired, model.ConclusionTimedOut:
 			return st.warn

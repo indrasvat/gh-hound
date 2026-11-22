@@ -1988,7 +1988,7 @@ func resolveJobForRun(ctx context.Context, githubClient usecase.GitHub, repo str
 		return model.Job{}, fmt.Errorf("no jobs found for run #%d", run.RunNumber)
 	}
 	for _, job := range jobs {
-		if job.Conclusion == model.ConclusionFailure || job.Conclusion == model.ConclusionActionRequired || job.Conclusion == model.ConclusionTimedOut {
+		if job.Conclusion.Failing() {
 			return job, nil
 		}
 	}

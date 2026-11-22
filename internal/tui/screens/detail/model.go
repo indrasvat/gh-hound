@@ -330,7 +330,7 @@ func (m Model) SelectedArtifactModel() (model.Artifact, bool) {
 func (m *Model) jumpFailure() {
 	for jobIndex, job := range m.Jobs {
 		for stepIndex, step := range job.Steps {
-			if step.Conclusion == model.ConclusionFailure || step.Conclusion == model.ConclusionActionRequired || step.Conclusion == model.ConclusionTimedOut {
+			if step.Conclusion.Failing() {
 				m.SelectedJob = jobIndex
 				m.SelectedStep = stepIndex
 				m.Focus = FocusSteps
@@ -339,7 +339,7 @@ func (m *Model) jumpFailure() {
 		}
 	}
 	for jobIndex, job := range m.Jobs {
-		if job.Conclusion == model.ConclusionFailure || job.Conclusion == model.ConclusionActionRequired || job.Conclusion == model.ConclusionTimedOut {
+		if job.Conclusion.Failing() {
 			m.SelectedJob = jobIndex
 			m.SelectedStep = 0
 			m.Focus = FocusJobs

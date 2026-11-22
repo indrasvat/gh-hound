@@ -569,6 +569,37 @@ func TestNormalJSONPathUsesGitHubAdapter(t *testing.T) {
 	}
 }
 
+// A run GitHub could not start is red: agents get exit 1, not exit 0
+// beside a passing run, and the conclusion is passed through verbatim.
+func TestRunsJSONStartupFailureIsActionNeeded(t *testing.T) {
+	var out bytes.Buffer
+	github := &cliGitHub{runs: []model.Run{
+		cliRun(779, "Docs", model.StatusCompleted, model.ConclusionStartupFailure),
+		cliRun(778, "CI", model.StatusCompleted, model.ConclusionSuccess),
+	}}
+	cmd := newRootCommandWithRuntime(commandRuntime{
+		Stdout: &out,
+		Stderr: io.Discard,
+		Env:    emptyEnv,
+		IsTTY:  true,
+		GitHub: github,
+		Repo: &cliRepo{context: usecase.RepositoryContext{
+			Repo:   "indrasvat/real-repo",
+			Branch: "feature/real",
+		}},
+	}, testBuildInfo())
+	cmd.SetArgs([]string{"runs", "--json"})
+
+	code, err := executeCommand(cmd)
+	if code != 1 || err == nil {
+		t.Fatalf("runs --json code=%d err=%v, want exit 1 for a startup failure\n%s", code, err, out.String())
+	}
+	run := decodeJSON(t, out.Bytes())["runs"].([]any)[0].(map[string]any)
+	if run["conclusion"] != "startup_failure" {
+		t.Fatalf("conclusion = %v, want startup_failure\n%s", run["conclusion"], out.String())
+	}
+}
+
 func TestNormalStatusFailureFiltersCompletedRunsByConclusion(t *testing.T) {
 	var out bytes.Buffer
 	github := &cliGitHub{runs: []model.Run{

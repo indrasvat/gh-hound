@@ -109,7 +109,7 @@ Contract rules agents can rely on (`$defs.watch_group_event` / `$defs.watch_grou
 - Group events are **run-level only** (`type, ts, run_id, workflow, status, conclusion`). `job`/`step` fields appear ONLY in single-run `watch` output — the group poll budget never fetches jobs (one runs-list call per tick covers the whole hunt).
 - Runs sharing the sha on a different event (e.g. a chained `workflow_run` deploy) are NOT part of the hunt and never appear on the stream.
 - Hunt size is capped by `watch_group_max` (default 10, env `HOUND_WATCH_GROUP_MAX`).
-- Exit code = worst outcome with the existing semantics: `1` if any run is lost (failure/action_required/timed_out at settle), `0` when the whole hunt comes home, `2` on API/validation errors, `3` if a bounded `--timeout` expires with runs still in flight and none lost (see below). `--format md/xml` refuse up front — the stream is NDJSON by contract.
+- Exit code = worst outcome with the existing semantics: `1` if any run is lost (failure/action_required/timed_out/startup_failure at settle), `0` when the whole hunt comes home, `2` on API/validation errors, `3` if a bounded `--timeout` expires with runs still in flight and none lost (see below). `--format md/xml` refuse up front — the stream is NDJSON by contract.
 
 ### Bounded wait (`--timeout`)
 

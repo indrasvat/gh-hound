@@ -163,10 +163,10 @@ func regressionSignal(run model.Run) (good, bad bool) {
 	if run.Status != model.StatusCompleted {
 		return false, false
 	}
-	switch run.Conclusion {
-	case model.ConclusionSuccess:
+	switch {
+	case run.Conclusion == model.ConclusionSuccess:
 		return true, false
-	case model.ConclusionFailure, model.ConclusionTimedOut, model.ConclusionActionRequired:
+	case run.Conclusion.Failing():
 		return false, true
 	default:
 		// cancelled, skipped, neutral, stale: no signal either way.

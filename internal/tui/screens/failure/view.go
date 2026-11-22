@@ -218,7 +218,7 @@ func isHitLine(text string) bool {
 
 func failedStep(m Model) (model.Step, bool) {
 	for _, step := range m.Report.Job.Steps {
-		if step.Conclusion == model.ConclusionFailure || step.Conclusion == model.ConclusionActionRequired || step.Conclusion == model.ConclusionTimedOut {
+		if step.Conclusion.Failing() {
 			return step, true
 		}
 	}

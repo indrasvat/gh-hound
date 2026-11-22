@@ -273,12 +273,12 @@ func (s FlakesService) attemptFlips(ctx context.Context, repo string, run model.
 				tracks[name] = track
 				order = append(order, name)
 			}
-			switch job.Conclusion {
-			case model.ConclusionFailure, model.ConclusionTimedOut, model.ConclusionActionRequired:
+			switch {
+			case job.Conclusion.Failing():
 				if track.firstFailed == 0 {
 					track.firstFailed = attempt
 				}
-			case model.ConclusionSuccess:
+			case job.Conclusion == model.ConclusionSuccess:
 				if track.firstFailed > 0 && attempt > track.firstFailed {
 					track.succeededAt = attempt
 					track.successJobID = job.ID

@@ -72,6 +72,22 @@ func TestSummaryAndAllGreenVariant(t *testing.T) {
 	}
 }
 
+func TestSummaryCountsAStartupFailureAsFailing(t *testing.T) {
+	m := NewModel(usecase.LaunchContext{
+		Repo:   "indrasvat/gh-hound",
+		Branch: "main",
+		State:  usecase.LaunchStateRuns,
+		Runs: []model.Run{
+			run(570, "Docs", "push", model.StatusCompleted, model.ConclusionStartupFailure),
+			run(569, "CI", "push", model.StatusCompleted, model.ConclusionSuccess),
+		},
+	})
+	summary := m.Summary()
+	if summary.Failing != 1 || summary.Passed != 1 || m.AllGreen() {
+		t.Fatalf("summary = %#v allGreen=%v, want the startup failure counted as failing", summary, m.AllGreen())
+	}
+}
+
 func TestAllGreenHeadlineDistinguishesStrictSuccessFromNonFailingRuns(t *testing.T) {
 	m := NewModel(usecase.LaunchContext{
 		Repo:   "openclaw/openclaw",

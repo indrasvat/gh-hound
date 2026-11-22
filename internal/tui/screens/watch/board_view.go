@@ -188,10 +188,10 @@ func boardStateLabel(run model.Run) string {
 
 func boardStatusColor(st styles, run model.Run) string {
 	if run.Status == model.StatusCompleted {
-		switch run.Conclusion {
-		case model.ConclusionSuccess, model.ConclusionSkipped, model.ConclusionNeutral:
+		switch {
+		case run.Conclusion == model.ConclusionSuccess, run.Conclusion == model.ConclusionSkipped, run.Conclusion == model.ConclusionNeutral:
 			return st.ok
-		case model.ConclusionFailure, model.ConclusionActionRequired, model.ConclusionTimedOut:
+		case run.Conclusion.Failing():
 			return st.fail
 		default:
 			return st.dim

@@ -132,7 +132,7 @@ func (t Theme) SemanticForConclusion(conclusion model.Conclusion) string {
 	switch conclusion {
 	case model.ConclusionSuccess:
 		return t.OK
-	case model.ConclusionFailure:
+	case model.ConclusionFailure, model.ConclusionStartupFailure:
 		return t.Fail
 	case model.ConclusionActionRequired, model.ConclusionTimedOut:
 		return t.Warn

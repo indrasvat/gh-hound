@@ -523,12 +523,7 @@ func isRunning(run model.Run) bool {
 }
 
 func isFailing(run model.Run) bool {
-	switch run.Conclusion {
-	case model.ConclusionFailure, model.ConclusionActionRequired, model.ConclusionTimedOut:
-		return true
-	default:
-		return false
-	}
+	return run.Conclusion.Failing()
 }
 
 func isPassing(run model.Run) bool {

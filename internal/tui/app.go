@@ -2036,15 +2036,7 @@ func (a App) flakeKeyForRun(run model.Run) string {
 
 // redConclusion mirrors the regression-scan red signal for badges.
 func redConclusion(run model.Run) bool {
-	if run.Status != model.StatusCompleted {
-		return false
-	}
-	switch run.Conclusion {
-	case model.ConclusionFailure, model.ConclusionTimedOut, model.ConclusionActionRequired:
-		return true
-	default:
-		return false
-	}
+	return run.Status == model.StatusCompleted && run.Conclusion.Failing()
 }
 
 // openWorkflows fetches the pack roster through startLoad — never
