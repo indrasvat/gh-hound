@@ -107,6 +107,12 @@ type Options struct {
 	// PaceJobResolver builds a run's job and step baseline on its run
 	// baseline (the detail view).
 	PaceJobResolver func(context.Context, model.Run, usecase.PaceBaseline) (usecase.PaceJobBaseline, error)
+	// VerdictResolver reads a red run's jobs to say why it is red, for
+	// runs whose fields do not settle it.
+	VerdictResolver func(context.Context, model.Run) (model.RunVerdict, error)
+	// PushAccessResolver says whether the credentials can write to the
+	// repo, which approving a held fork run needs.
+	PushAccessResolver func(context.Context) (bool, error)
 	// RunRefresher re-reads one run by ID: the runs poll uses it for
 	// unfinished rows that have slid past page 1.
 	RunRefresher       func(context.Context, int64) (model.Run, error)
@@ -146,6 +152,9 @@ type ActionRequest struct {
 	// approve/reject actions.
 	Environments []string
 	Comment      string
+	// Held are the runs an approve-run action lets start: Run and the
+	// other loaded runs held on its commit.
+	Held []model.Run
 }
 
 type App struct {
@@ -223,6 +232,16 @@ type App struct {
 	paceJobs        map[string]paceJobEntry
 	paceFailed      map[string]time.Time
 	paceFetch       *paceFetchState
+	// Verdicts of red runs per attempt, read from their jobs.
+	verdictResolver func(context.Context, model.Run) (model.RunVerdict, error)
+	verdicts        map[verdictKey]model.RunVerdict
+	verdictFailed   map[verdictKey]time.Time
+	verdictFetch    *verdictFetchState
+	verdictWarned   bool
+	// pushAccessResolver checks write access before the approve confirm.
+	pushAccessResolver func(context.Context) (bool, error)
+	approving          *approveState
+	pushAccess         pushAccessState
 	// runRefresher re-reads unfinished rows the page-1 poll no longer
 	// returns; runsConfirmed is when a fetch last returned each run's
 	// snapshot, runsTried when one was last asked for.
@@ -615,6 +634,8 @@ func NewApp(options Options) App {
 		flakesResolver:            options.FlakesResolver,
 		paceResolver:              options.PaceResolver,
 		paceJobResolver:           options.PaceJobResolver,
+		verdictResolver:           options.VerdictResolver,
+		pushAccessResolver:        options.PushAccessResolver,
 		runRefresher:              options.RunRefresher,
 		runsConfirmed:             confirmedAt(nil, slices.Concat(launch.Runs, launch.BranchRuns, launch.RepoRuns), time.Now()),
 		queueResolver:             options.QueueResolver,
@@ -728,6 +749,9 @@ func (a App) Update(msg KeyMsg) (out App, handled bool) {
 	// data would otherwise sit invisible until the following poll.
 	repaint := false
 	defer func() { handled = handled || repaint }()
+	// The rows a key acts on are the rows painted: a filter can match a
+	// row's verdict words, so the list model carries the same verdicts.
+	a.runs.Verdicts = a.verdictsFor(a.runs.Context.Runs)
 	if next, ok := a.drainArtifactsFetch(); ok {
 		a = next
 		repaint = true
@@ -752,6 +776,20 @@ func (a App) Update(msg KeyMsg) (out App, handled bool) {
 		a = next
 		repaint = true
 	}
+	if next, ok := a.drainVerdictFetch(); ok {
+		a = next
+		repaint = true
+	}
+	if next, ok := a.drainApprove(); ok {
+		a = next
+		repaint = true
+		if msg.Key == "esc" {
+			// An Esc landing with the outcome was not aimed at the toast it
+			// would dismiss. Every other key (a j, a character typed into a
+			// form) still acts.
+			return a, true
+		}
+	}
 	// A completed route poll applies before the key routes, so a
 	// keystroke acts on the freshest list the background fetch produced.
 	if next, ok := a.drainTickPoll(); ok {
@@ -764,7 +802,14 @@ func (a App) Update(msg KeyMsg) (out App, handled bool) {
 	}
 	if load := a.load; load != nil {
 		if done, _, _, _ := load.snapshot(); done {
+			before := a.TopOverlay()
 			a, _ = a.drainLoad()
+			if a.TopOverlay() == OverlayConfirm && before != OverlayConfirm {
+				// The load just asked a question (the approve confirm
+				// after the access check): this key was meant for the
+				// screen under it and must not answer it.
+				return a, true
+			}
 		} else if msg.Key == "esc" && !a.routeInputMode() {
 			// Cancel interest AND the underlying work: the orphaned
 			// result can never apply, and the fetch stops occupying
@@ -954,6 +999,22 @@ func RenderFixtureSize(screen string, width, height int) string {
 		startup.RunStartedAt, startup.UpdatedAt = startup.UpdatedAt, startup.UpdatedAt.Add(time.Second)
 		m.Context.Runs = append([]model.Run{startup}, m.Context.Runs...)
 		return frameViewSize(app.theme, "hound", "⎇ branch fix/parser · @indrasvat", "◔ 4,981/5k live 304", runs.View(m, bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
+	case "runs-never-ran":
+		return sampleNeverRanApp(app).ViewSize(width, height)
+	case "approve-confirm":
+		app = sampleNeverRanApp(app)
+		run, _ := app.runs.SelectedRun()
+		return app.openConfirm(RouteRuns, ActionRequest{Action: usecase.ActionApproveRun, Run: run, Held: app.heldOnCommit(run)}).ViewSize(width, height)
+	case "detail-never-ran", "detail-blocked":
+		app = sampleNeverRanApp(app)
+		run := app.runs.Context.Runs[0]
+		if screen == "detail-blocked" {
+			run = app.runs.Context.Runs[5]
+		}
+		app.detail = DetailModelForRun(run).WithRepo("acme/forge")
+		app.detail.Now = run.CreatedAt.Add(2 * time.Hour)
+		app.routes = []Route{RouteRuns, RouteDetail}
+		return app.ViewSize(width, height)
 	case "no-runs":
 		return frameViewSize(app.theme, "hound", "⎇ branch release/v1 · @indrasvat", "0 runs", empty.View(empty.Model{
 			Kind:   empty.KindNoRuns,
@@ -1018,7 +1079,7 @@ func RenderFixtureSize(screen string, width, height int) string {
 	case "detail-startup":
 		run := model.Run{ID: 30433650, Name: "Docs", RunNumber: 574, Event: "pull_request", Status: model.StatusCompleted, Conclusion: model.ConclusionStartupFailure, HeadBranch: "docs/fallback", HeadSHA: "5b1e0c9", Actor: "indrasvat", TriggeringActor: "indrasvat", RunAttempt: 1}
 		m := DetailModelForRun(run).WithRepo("indrasvat/gh-hound")
-		return frameViewSize(app.theme, "hound", "Docs #574 › docs/fallback", "5b1e0c9", detail.ViewSize(m, bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
+		return frameViewSize(app.theme, "hound", "Docs #574 › docs/fallback", "5b1e0c9", detail.ViewSize(m, bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenDetailNeverRan), width, height, true)
 	case "rerun-confirm":
 		loadingApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
 		run, _ := loadingApp.runs.SelectedRun()
@@ -1342,6 +1403,11 @@ func (a App) Refresh() (App, bool) {
 		a = next
 		changed = true
 	}
+	// An approval's outcome lands whatever else is in flight or on top.
+	if next, ok := a.drainApprove(); ok {
+		a = next
+		changed = true
+	}
 	if a.load != nil {
 		// A pending load owns the serial queue: route polling here
 		// would block the loop (starving spinner frames) and double-
@@ -1364,6 +1430,11 @@ func (a App) Refresh() (App, bool) {
 		changed = true
 	}
 	a = a.startPaceFetch()
+	if next, ok := a.drainVerdictFetch(); ok {
+		a = next
+		changed = true
+	}
+	a = a.startVerdictFetch()
 	// A completed route poll applies here; then a fresh one starts in
 	// the background. The fetch never runs on this goroutine, so a slow
 	// poll cannot stall the next keystroke (Task 28). One poll rides at
@@ -2153,8 +2224,11 @@ func (a App) updateRuns(msg KeyMsg) (App, bool) {
 		}
 		a.PushRoute(RouteDetail)
 	case runs.IntentOpenLogs:
-		if run, ok := a.runs.SelectedRun(); ok && a.noJobRan(run) {
-			break
+		if run, ok := a.runs.SelectedRun(); ok {
+			if verdict := a.listVerdict(run); verdict.Verdict == model.VerdictNeverRan {
+				a.noJobRan(verdict, run, "no log to open")
+				break
+			}
 		}
 		if a.loadBlocked(loadKindLog) {
 			break
@@ -2203,7 +2277,7 @@ func (a App) updateRuns(msg KeyMsg) (App, bool) {
 			break
 		}
 		if run, ok := a.runs.SelectedRun(); ok {
-			a = a.openApprovals(run)
+			a = a.openApprovals(RouteRuns, run)
 		}
 	case runs.IntentFilter:
 		a = a.applyRunsQuery(runsView{filter: before.Filter, scope: before.Context.Scope, queryError: before.QueryError})
@@ -2219,6 +2293,12 @@ func (a App) updateDetail(msg KeyMsg) (App, bool) {
 	beforeStep := a.detail.SelectedStep
 	beforeArtifact := a.detail.SelectedArtifact
 	a.detail = a.detail.Update(detail.KeyMsg{Key: msg.Key})
+	if verdict, never := a.detailNeverRan(); never && detailNeedsAJob(a.detail.Intent.Kind) {
+		// The footer leaves these keys out; pressed anyway, they say why
+		// instead of acting on a check run that is no job.
+		a.noJobRan(verdict, a.detail.Run, "no job to open, rerun, cancel or watch")
+		return a, true
+	}
 	switch a.detail.Intent.Kind {
 	case detail.IntentFailure:
 		if a.detailLogNotReady() {
@@ -2252,6 +2332,12 @@ func (a App) updateDetail(msg KeyMsg) (App, bool) {
 		a = a.handleAction(RouteDetail, ActionRequest{Action: usecase.ActionCancelRun, Run: a.detail.Run})
 	case detail.IntentForceCancel:
 		a = a.handleAction(RouteDetail, ActionRequest{Action: usecase.ActionForceCancelRun, Run: a.detail.Run})
+	case detail.IntentApprove:
+		// A approves what the screen offers: the deploy gate the gate
+		// pane names ("A review"), or a held fork run.
+		if !a.loadBlocked(loadKindApprovals) {
+			a = a.openApprovals(RouteDetail, a.detail.Run)
+		}
 	case detail.IntentBrowser:
 		a = a.openExternal(detailBrowserURL(a.detail))
 	case detail.IntentCopyURL:
@@ -2270,27 +2356,21 @@ func (a App) updateDetail(msg KeyMsg) (App, bool) {
 	return a, detailHandled(msg.Key) || beforeFocus != a.detail.Focus || beforeJob != a.detail.SelectedJob || beforeStep != a.detail.SelectedStep || beforeArtifact != a.detail.SelectedArtifact || a.detail.Intent.Kind != detail.IntentNone
 }
 
-// noJobRan answers l on a run GitHub could not start: it has no job and
-// never will, so a log fetch could only fail. It says so in a toast.
-func (a *App) noJobRan(run model.Run) bool {
-	if run.Conclusion != model.ConclusionStartupFailure {
-		return false
+// detailNeedsAJob reports the detail intents that act on a job: on a
+// run in which no job ran each of them could only fail or mislead.
+func detailNeedsAJob(kind detail.IntentKind) bool {
+	switch kind {
+	case detail.IntentFailure, detail.IntentLog, detail.IntentWatch,
+		detail.IntentRerunJob, detail.IntentRerunFailed, detail.IntentCancel, detail.IntentForceCancel:
+		return true
 	}
-	a.pushToast("no-job-ran", usecase.Resilience{
-		Severity: usecase.SeverityInfo,
-		Title:    "no job ran",
-		Message:  "GitHub could not start this run · no log to open",
-	})
-	return true
+	return false
 }
 
 // detailLogNotReady answers l/⏎ on a job not finished: GitHub serves a
 // job's log only once it finishes, so a fetch would only read "no log".
 // It says so in a toast and points at w, which follows the steps.
 func (a *App) detailLogNotReady() bool {
-	if a.noJobRan(a.detail.Run) {
-		return true
-	}
 	job := a.selectedDetailJob()
 	if job.ID == 0 {
 		if a.detail.Run.Status == model.StatusCompleted || !a.detailLoaded {
@@ -2655,6 +2735,9 @@ func (a App) updateConfirm(msg KeyMsg) (App, bool) {
 		if pendingCacheDelete != nil {
 			return a.startCacheDelete(*pendingCacheDelete), true
 		}
+		if pending != nil && pending.request.Action == usecase.ActionApproveRun {
+			return a.startApproveRuns(pending.route, pending.request), true
+		}
 		if pending != nil {
 			var accepted bool
 			a, accepted = a.executeAction(pending.route, pending.request)
@@ -2818,7 +2901,7 @@ func (a App) handlePaletteIntent(intent palette.Intent) App {
 	case "approvals":
 		a.PopOverlay()
 		if run, ok := a.runs.SelectedRun(); ok {
-			a = a.openApprovals(run)
+			a = a.openApprovals(RouteRuns, run)
 		}
 	case string(RouteWatch):
 		a.PopOverlay()
@@ -2898,7 +2981,10 @@ func (a *App) PopOverlay() {
 // openApprovals fetches the selected waiting run's gate list through
 // startLoad — never on the keypress path — and opens the overlay when
 // it lands. Non-waiting runs get a truthful toast instead.
-func (a App) openApprovals(run model.Run) App {
+func (a App) openApprovals(route Route, run model.Run) App {
+	if verdict, _ := model.ClassifyRun(run, nil); verdict.WaitingOnPerson() {
+		return a.openApproveRun(route, run)
+	}
 	if run.Status != model.StatusWaiting {
 		a.pushToast("approvals-no-gate", usecase.Resilience{
 			Severity: usecase.SeverityInfo,
@@ -4260,7 +4346,8 @@ func actionRequiresConfirmation(action usecase.Action) bool {
 		usecase.ActionApproveDeployment,
 		usecase.ActionRejectDeployment,
 		usecase.ActionEnableWorkflow,
-		usecase.ActionDisableWorkflow:
+		usecase.ActionDisableWorkflow,
+		usecase.ActionApproveRun:
 		return true
 	default:
 		return false
@@ -4287,6 +4374,8 @@ func confirmMessage(request ActionRequest) string {
 		return "wake " + workflowConfirmTarget(request.Workflow) + "? it goes back on duty"
 	case usecase.ActionDisableWorkflow:
 		return "muzzle " + workflowConfirmTarget(request.Workflow) + "? no runs until it is woken"
+	case usecase.ActionApproveRun:
+		return approveRunMessage(request)
 	default:
 		return string(request.Action)
 	}
@@ -4516,7 +4605,7 @@ func runsHandled(key string) bool {
 
 func detailHandled(key string) bool {
 	switch key {
-	case "tab", "j", "k", "down", "up", "n", "enter", "l", "w", "r", "R", "x", "X", "o", "J", "K", "esc":
+	case "tab", "j", "k", "down", "up", "n", "enter", "l", "w", "r", "R", "x", "X", "A", "o", "J", "K", "esc":
 		return true
 	default:
 		return false
@@ -4575,6 +4664,9 @@ func (a App) footerScreen() keys.Screen {
 	case RouteWelcome:
 		return keys.ScreenWelcome
 	case RouteDetail:
+		if _, never := a.detailNeverRan(); never {
+			return keys.ScreenDetailNeverRan
+		}
 		return keys.ScreenDetail
 	case RouteFailure:
 		return keys.ScreenFailure
@@ -5065,12 +5157,17 @@ func (a App) screenBody(width, height int) string {
 			runsModel.LoadingLine = loadingLine(a.theme, load, bodyWidth, time.Now())
 		}
 		runsModel.Pace, runsModel.PaceAsOf = a.paceForRuns(runsModel)
+		runsModel.Verdicts = a.verdictsFor(runsModel.Context.Runs)
+		runsModel.NoApproveAccess = a.pushAccess == accessDenied
 		runsModel.Stale = a.staleRuns(runsModel.Context.Runs, time.Now())
 		return runs.ViewSize(runsModel, bodyWidth, bodyHeight(height), time.Now())
 	case RouteDetail:
 		detailModel := a.detail
 		detailModel.Theme = a.theme
 		detailModel.Pace, detailModel.PaceHint = a.detailPace(), a.config.Pace && a.paceJobResolver != nil
+		detailModel.HeldRuns = len(a.heldOnCommit(detailModel.Run))
+		detailModel.Verdict = a.listVerdict(detailModel.Run)
+		detailModel.NoApproveAccess = a.pushAccess == accessDenied
 		if load := a.load; load != nil && load.kind == loadKindDetail {
 			detailModel.Loading = true
 			detailModel.LoadingLine = loadingLine(a.theme, load, bodyWidth/2, time.Now())

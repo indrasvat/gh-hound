@@ -1097,7 +1097,7 @@ func writeGroupWatchResult(ctx context.Context, w io.Writer, options cliOptions,
 	// uses. Either way the timed_out marker on the summary tells agents
 	// the hunt was cut short rather than settled.
 	if timedOut {
-		if summary.Lost > 0 {
+		if lostNeedsAction(state.Runs) {
 			return outcomeError{code: render.ExitActionNeeded}
 		}
 		return outcomeError{code: render.ExitPending}
@@ -1106,6 +1106,25 @@ func writeGroupWatchResult(ctx context.Context, w io.Writer, options cliOptions,
 		return outcomeError{code: code}
 	}
 	return nil
+}
+
+// lostNeedsAction reports a lost hunt member someone can act on now: a
+// run held for a maintainer's approval is waiting, so a timeout with
+// only those lost is still pending, as it is at settle.
+func lostNeedsAction(runs []model.Run) bool {
+	for _, run := range runs {
+		switch run.Conclusion {
+		case model.ConclusionSuccess, model.ConclusionSkipped, model.ConclusionNeutral:
+			continue // home, as the hunt summary counts it
+		}
+		if run.Status != model.StatusCompleted {
+			continue
+		}
+		if verdict, _ := model.ClassifyRun(run, nil); !verdict.WaitingOnPerson() {
+			return true
+		}
+	}
+	return false
 }
 
 func packSettled(runs []model.Run) bool {
@@ -1593,7 +1612,15 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 					run = fresh
 				}
 			}
-			jobs, err := githubClient.ListJobs(loadCtx, launch.Repo, run.ID)
+			// The jobs of the attempt the run shows: the latest listing
+			// can already be a re-run's, which says nothing about this one.
+			var jobs []model.Job
+			var err error
+			if run.RunAttempt > 0 {
+				jobs, err = githubClient.ListJobsForAttempt(loadCtx, launch.Repo, run.ID, run.RunAttempt)
+			} else {
+				jobs, err = githubClient.ListJobs(loadCtx, launch.Repo, run.ID)
+			}
 			if err != nil {
 				return detail.Model{}, err
 			}
@@ -1731,6 +1758,16 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			// over the launch branch (diff precedent).
 			return service.Scan(loadCtx, launch.Repo, workflow, firstNonEmptyString(run.HeadBranch, launch.Branch))
 		},
+		VerdictResolver: func(loadCtx context.Context, run model.Run) (model.RunVerdict, error) {
+			return usecase.VerdictService{GitHub: githubClient}.Classify(loadCtx, launch.Repo, run)
+		},
+		PushAccessResolver: func(loadCtx context.Context) (bool, error) {
+			access, ok := githubClient.(usecase.PushAccess)
+			if !ok {
+				return false, errors.New("this GitHub adapter cannot check write access")
+			}
+			return access.CanPush(loadCtx, launch.Repo)
+		},
 		RunRefresher: func(loadCtx context.Context, id int64) (model.Run, error) {
 			return githubClient.GetRun(loadCtx, launch.Repo, id)
 		},
@@ -1777,6 +1814,8 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 				return actionService.CancelRun(ctx, launch.Repo, request.Run.ID)
 			case usecase.ActionForceCancelRun:
 				return actionService.ForceCancelRun(ctx, launch.Repo, request.Run.ID)
+			case usecase.ActionApproveRun:
+				return approveHeldRuns(ctx, actionService, launch.Repo, request.Held)
 			case usecase.ActionDispatch:
 				if request.Workflow.ID == "" {
 					return usecase.ActionResult{}, fmt.Errorf("workflow is not loaded")
@@ -2405,8 +2444,8 @@ func resultForOptions(ctx context.Context, options cliOptions, runtime commandRu
 	if scenario == "api_error" || scenario == "network_error" || scenario == "rate_limited" {
 		return render.Result{}, errors.New("github api unavailable")
 	}
-	if scenario == "noisy" {
-		runtime.GitHub = fake.New(fake.ScenarioNoisy)
+	if scenario == "noisy" || scenario == "never_ran" {
+		runtime.GitHub = fake.New(fakeScenarioFor(scenario))
 		runtime.Repo = staticRepositoryContext{context: usecase.RepositoryContext{
 			Repo: firstNonEmpty(options.Repo, "indrasvat/gh-hound"), Branch: firstNonEmpty(options.Branch, "main"), Actor: "indrasvat",
 		}}
@@ -2481,8 +2520,8 @@ func liveResult(ctx context.Context, options cliOptions, runtime commandRuntime)
 		singleRuns := []model.Run{run}
 		renderSingle := mapRenderRuns(singleRuns)
 		triage := usecase.TriageService{GitHub: githubClient}
-		if failures, triageErr := triage.LoadRunFailuresAttempt(ctx, repo, run, options.Attempt); triageErr == nil && len(failures) > 0 {
-			renderSingle[0].Failed = mapRenderFailures(failures)
+		if result, triageErr := triage.LoadRunTriage(ctx, repo, run, options.Attempt); triageErr == nil {
+			applyTriage(&renderSingle[0], result)
 		}
 		if options.WithArtifacts {
 			attachArtifacts(ctx, usecase.ArtifactsService{GitHub: githubClient}, repo, singleRuns, renderSingle)
@@ -2723,9 +2762,39 @@ func fakeScenarioFor(scenario string) fake.Scenario {
 		return fake.ScenarioNoisy
 	case "paced":
 		return fake.ScenarioPaced
+	case "never_ran":
+		return fake.ScenarioNeverRan
 	default:
 		return fake.ScenarioGreen
 	}
+}
+
+// approveHeldRuns lets each held run start, one paced call each. It
+// stops at the first refusal and says how many went through.
+func approveHeldRuns(ctx context.Context, service usecase.ActionService, repo string, held []model.Run) (usecase.ActionResult, error) {
+	if len(held) == 0 {
+		return usecase.ActionResult{}, usecase.ActionError{Kind: usecase.ActionErrorValidation, Field: "run", Message: "no held run to approve"}
+	}
+	for i, run := range held {
+		if _, err := service.ApproveRun(ctx, repo, run.ID); err != nil {
+			if i == 0 {
+				return usecase.ActionResult{}, err
+			}
+			// Say what went through: a retry must not look like none did.
+			partial, ok := usecase.AsActionError(err)
+			if !ok {
+				partial = usecase.ActionError{Kind: usecase.ActionErrorUnknown}
+			}
+			partial.Message = fmt.Sprintf("approved %d of %d runs, then GitHub refused #%d: %s", i, len(held), run.RunNumber, err.Error())
+			return usecase.ActionResult{}, partial
+		}
+	}
+	message := "run approved · it starts shortly"
+	if len(held) > 1 {
+		message = fmt.Sprintf("%d runs approved · they start shortly", len(held))
+	}
+	// No RunID: the toast says how many runs, not one run's id.
+	return usecase.ActionResult{Action: usecase.ActionApproveRun, Repo: repo, Message: message}, nil
 }
 
 // triageWorkers bounds concurrent failure enrichment so a fully red
@@ -2744,14 +2813,22 @@ func attachFailures(ctx context.Context, triage usecase.TriageService, repo stri
 			defer wg.Done()
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
-			failures, err := triage.LoadRunFailures(ctx, repo, run)
-			if err != nil || len(failures) == 0 {
+			result, err := triage.LoadRunTriage(ctx, repo, run, 0)
+			if err != nil {
 				return
 			}
-			out[i].Failed = mapRenderFailures(failures)
+			applyTriage(&out[i], result)
 		}(i, run)
 	}
 	wg.Wait()
+}
+
+// applyTriage fills a run's failed[] and its verdict from triage.
+func applyTriage(out *render.Run, result usecase.RunTriage) {
+	if len(result.Failures) > 0 {
+		out.Failed = mapRenderFailures(result.Failures)
+	}
+	out.Verdict, out.Reason = string(result.Verdict.Verdict), string(result.Verdict.Reason)
 }
 
 func mapRenderRepeats(repeats []usecase.Repeat) []render.Repeat {
@@ -2815,7 +2892,12 @@ func parseStatusFilter(raw string) (string, error) {
 func mapRenderRuns(runs []model.Run) []render.Run {
 	out := make([]render.Run, 0, len(runs))
 	for _, run := range runs {
+		// Run fields alone settle held and unstartable runs; the rest
+		// get their verdict from triage, which reads their jobs.
+		verdict, _ := model.ClassifyRun(run, nil)
 		out = append(out, render.Run{
+			Verdict:         string(verdict.Verdict),
+			Reason:          string(verdict.Reason),
 			ID:              run.ID,
 			Workflow:        firstNonEmpty(run.Name, run.DisplayTitle, run.Path),
 			RunNumber:       run.RunNumber,
@@ -2955,6 +3037,7 @@ func fakeResult(options cliOptions, scenario string) render.Result {
 		Failed:          []render.Failure{},
 	}
 	if conclusion == "failure" {
+		run.Verdict = string(model.VerdictCode)
 		run.Failed = []render.Failure{{
 			Job:      "build",
 			Step:     "go test ./...",
@@ -3018,6 +3101,10 @@ func normalizedScenario(options cliOptions) string {
 	case "paced", "pace":
 		// A Pace baseline: running, slow, on-pace and widened-PR targets.
 		return "paced"
+	case "never_ran":
+		// Red runs for every reason one never ran or the runner failed,
+		// through real triage.
+		return "never_ran"
 	}
 	status := strings.ToLower(strings.TrimSpace(options.Status))
 	switch status {

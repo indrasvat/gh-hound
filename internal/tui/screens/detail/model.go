@@ -41,6 +41,9 @@ const (
 	IntentDownloadArtifact IntentKind = "download_artifact"
 	IntentOpenArtifactDir  IntentKind = "open_artifact_dir"
 	IntentCopyArtifactPath IntentKind = "copy_artifact_path"
+	// IntentApprove is A: review the deploy gate of a waiting run, or
+	// let a held fork run start (both behind a confirm).
+	IntentApprove IntentKind = "approve"
 )
 
 // DownloadState tracks one artifact's download lifecycle inside this
@@ -112,11 +115,33 @@ type Model struct {
 	Pace *usecase.PaceJobBaseline
 	// PaceHint teaches p in the hint line (Pace is on in config).
 	PaceHint bool
+	// Verdict is what the runs list read for this run, when it did: an
+	// infra verdict names the runner's failure under the jobs.
+	Verdict model.RunVerdict
+	// NoApproveAccess: GitHub said the credentials cannot write here.
+	NoApproveAccess bool
+	// HeldRuns counts the loaded runs held for approval on this run's
+	// commit, this one included. Render-time input from the runs list.
+	HeldRuns int
 	// hidePaceLine: the height budget has no row to spare for it.
 	hidePaceLine bool
 
 	// Theme colours the screen; the zero value renders Bramble.
 	Theme theme.Theme
+}
+
+// NeverRan is the run's verdict when no job ran in it: from its fields,
+// or once its jobs are loaded and none of them ran.
+func (m Model) NeverRan() (model.RunVerdict, bool) {
+	if m.Loading {
+		return model.RunVerdict{}, false
+	}
+	verdict, known := model.ClassifyRun(m.Run, nil)
+	if !known && model.NoJobRan(m.Jobs) {
+		// No job to read annotations from: the jobs alone decide.
+		verdict, _ = model.ClassifyRun(m.Run, &model.RunEvidence{Jobs: m.Jobs})
+	}
+	return verdict, verdict.Verdict == model.VerdictNeverRan
 }
 
 func (m Model) clock() time.Time {
@@ -275,6 +300,8 @@ func (m Model) Update(msg KeyMsg) Model {
 		m.Intent = m.intentFor(IntentCancel)
 	case "X":
 		m.Intent = m.intentFor(IntentForceCancel)
+	case "A":
+		m.Intent = m.intentFor(IntentApprove)
 	case "o":
 		// On a downloaded artifact, o opens the extracted folder; the
 		// browser meaning survives everywhere else.

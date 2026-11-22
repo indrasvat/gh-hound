@@ -43,6 +43,13 @@ func (c *Client) ForceCancelRun(ctx context.Context, repo string, runID int64) (
 	return result, c.postJSON(ctx, resourcePath(repo, "actions/runs/"+strconv.FormatInt(runID, 10)+"/force-cancel"), nil)
 }
 
+// ApproveRun lets a held run from a public fork start. GitHub's
+// endpoint covers first-time contributors' fork runs and needs repo scope.
+func (c *Client) ApproveRun(ctx context.Context, repo string, runID int64) (usecase.ActionResult, error) {
+	result := usecase.ActionResult{Action: usecase.ActionApproveRun, Repo: repo, RunID: runID, Message: "Run approved"}
+	return result, c.postJSON(ctx, resourcePath(repo, "actions/runs/"+strconv.FormatInt(runID, 10)+"/approve"), nil)
+}
+
 // dispatchResponseDTO is the 200 body the dispatches endpoint returns
 // on API v2026-03-10 (live-verified 2026-06-10): the created run's
 // identity, inline. Older hosts answer 204 No Content and every field

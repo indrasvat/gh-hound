@@ -60,6 +60,14 @@
      "conclusion": {
       "type": "string"
      },
+     "verdict": {
+      "enum": ["code", "never_ran", "infra"],
+      "description": "why a red run is red; absent on runs that are not red, or when its jobs could not be read"
+     },
+     "reason": {
+      "enum": ["awaiting_approval", "approval_missed", "blocked_by_policy", "could_not_start", "no_job_ran", "runner_lost", "killed", "disk_full"],
+      "description": "the cause behind a never_ran or infra verdict; awaiting_approval exits 3"
+     },
      "actor": {
       "type": "string",
       "description": "login that started the run; empty when GitHub reports none"

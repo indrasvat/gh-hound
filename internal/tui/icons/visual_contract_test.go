@@ -32,6 +32,9 @@ func TestGlyphsMatchVisualContract(t *testing.T) {
 		"dispatch":        Dispatch,
 		"enter":           Enter,
 		"escape":          Escape,
+		// Verdict glyphs: both narrow (not East Asian ambiguous width).
+		"never_ran (verdict)": NeverRan,
+		"infra (verdict)":     Infra,
 	}
 	for name, glyph := range expected {
 		row := "| " + name + " | " + glyph + " |"

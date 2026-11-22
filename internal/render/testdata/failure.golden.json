@@ -11,6 +11,7 @@
       "head_sha": "a1b2c3d",
       "status": "completed",
       "conclusion": "failure",
+      "verdict": "code",
       "actor": "indrasvat",
       "triggering_actor": "indrasvat",
       "created_at": "2026-06-07T17:42:00Z",

@@ -91,6 +91,11 @@ func (s DiffService) LocateRegression(ctx context.Context, repo, workflow, branc
 			break
 		}
 		verdict.RunsScanned++
+		if run.FromFork {
+			// A fork's PR run lists under its head branch name (often its
+			// own main), but its commit is not on the branch scanned.
+			continue
+		}
 		good, bad := regressionSignal(run)
 		switch {
 		case bad:
@@ -163,9 +168,14 @@ func regressionSignal(run model.Run) (good, bad bool) {
 	if run.Status != model.StatusCompleted {
 		return false, false
 	}
+	verdict, _ := model.ClassifyRun(run, nil)
 	switch {
 	case run.Conclusion == model.ConclusionSuccess:
 		return true, false
+	case verdict.Verdict == model.VerdictNeverRan && verdict.Reason != model.ReasonCouldNotStart:
+		// Held or blocked: nothing at this commit failed. A workflow
+		// file GitHub could not start still counts red.
+		return false, false
 	case run.Conclusion.Failing():
 		return false, true
 	default:

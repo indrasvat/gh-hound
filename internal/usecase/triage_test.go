@@ -2,6 +2,7 @@ package usecase_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -10,13 +11,65 @@ import (
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
+// jobsByAttempt answers each attempt's jobs and counts the listings.
+type jobsByAttempt struct {
+	usecase.GitHub
+	attempts map[int][]model.Job
+	calls    int
+}
+
+func (j *jobsByAttempt) ListJobsForAttempt(_ context.Context, _ string, _ int64, attempt int) ([]model.Job, error) {
+	j.calls++
+	return j.attempts[attempt], nil
+}
+
+func (j *jobsByAttempt) ListJobs(context.Context, string, int64) ([]model.Job, error) {
+	j.calls++
+	return j.attempts[0], nil
+}
+
+func (j *jobsByAttempt) ListAnnotations(context.Context, string, model.Job) ([]model.Annotation, error) {
+	return nil, nil
+}
+
+func (j *jobsByAttempt) FetchJobLog(context.Context, string, int64) (string, error) {
+	return "", errors.New("no log")
+}
+
+// A run the fields settle as never ran costs no jobs call, and its
+// failed[] stays empty even if GitHub lists a failing check run.
+func TestTriageSkipsJobsOfARunThatNeverRan(t *testing.T) {
+	phantom := model.Job{ID: 9, Status: model.StatusCompleted, Conclusion: model.ConclusionFailure}
+	gh := &jobsByAttempt{attempts: map[int][]model.Job{0: {phantom}, 1: {phantom}}}
+	run := model.Run{ID: 1, Status: model.StatusCompleted, Conclusion: model.ConclusionActionRequired, RunAttempt: 1}
+	got, err := usecase.TriageService{GitHub: gh}.LoadRunTriage(context.Background(), "acme/forge", run, 0)
+	if err != nil || gh.calls != 0 || len(got.Failures) != 0 || got.Verdict.Reason != model.ReasonAwaitingApproval {
+		t.Fatalf("triage = %+v err=%v calls=%d, want awaiting_approval with no call", got, err, gh.calls)
+	}
+}
+
+// The latest listing may already be a re-run's queued jobs: triage reads
+// the attempt the run says it shows.
+func TestTriageReadsTheRunsOwnAttempt(t *testing.T) {
+	failed := model.Job{ID: 1, RunAttempt: 1, Status: model.StatusCompleted, Conclusion: model.ConclusionFailure, RunnerName: "r1",
+		Steps: []model.Step{{Name: "test", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure}}}
+	queued := model.Job{ID: 2, RunAttempt: 2, Status: model.StatusQueued}
+	gh := &jobsByAttempt{attempts: map[int][]model.Job{0: {queued}, 1: {failed}, 2: {queued}}}
+	run := model.Run{ID: 1, Event: "pull_request", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure, RunAttempt: 1}
+	got, err := usecase.TriageService{GitHub: gh}.LoadRunTriage(context.Background(), "acme/forge", run, 0)
+	if err != nil || got.Verdict.Verdict != model.VerdictCode || len(got.Failures) != 1 {
+		t.Fatalf("triage = %+v err=%v, want a code failure from attempt 1", got, err)
+	}
+}
+
 func TestTriageLoadsFailurePayloadForFailedRun(t *testing.T) {
 	service := usecase.TriageService{GitHub: fake.New(fake.ScenarioFailing)}
 	run := model.Run{ID: 30433642, Conclusion: model.ConclusionFailure}
 
-	failures, err := service.LoadRunFailures(context.Background(), "indrasvat/gh-hound", run)
+	triage, err := service.LoadRunTriage(context.Background(), "indrasvat/gh-hound", run, 0)
+	failures := triage.Failures
 	if err != nil {
-		t.Fatalf("LoadRunFailures returned error: %v", err)
+		t.Fatalf("LoadRunTriage returned error: %v", err)
 	}
 	if len(failures) != 1 {
 		t.Fatalf("failures = %d, want 1", len(failures))
@@ -45,9 +98,10 @@ func TestTriageSkipsRunsWithoutActionableConclusion(t *testing.T) {
 	service := usecase.TriageService{GitHub: fake.New(fake.ScenarioFailing)}
 	run := model.Run{ID: 30433642, Conclusion: model.ConclusionSuccess}
 
-	failures, err := service.LoadRunFailures(context.Background(), "indrasvat/gh-hound", run)
+	triage, err := service.LoadRunTriage(context.Background(), "indrasvat/gh-hound", run, 0)
+	failures := triage.Failures
 	if err != nil {
-		t.Fatalf("LoadRunFailures returned error: %v", err)
+		t.Fatalf("LoadRunTriage returned error: %v", err)
 	}
 	if len(failures) != 0 {
 		t.Fatalf("failures = %#v, want none for a green run", failures)
@@ -60,9 +114,10 @@ func TestTriageDegradesWhenLogUnavailable(t *testing.T) {
 	service := usecase.TriageService{GitHub: fake.New(fake.ScenarioLogRender)}
 	run := model.Run{ID: 30433642, Conclusion: model.ConclusionFailure}
 
-	failures, err := service.LoadRunFailures(context.Background(), "indrasvat/gh-hound", run)
+	triage, err := service.LoadRunTriage(context.Background(), "indrasvat/gh-hound", run, 0)
+	failures := triage.Failures
 	if err != nil {
-		t.Fatalf("LoadRunFailures returned error: %v", err)
+		t.Fatalf("LoadRunTriage returned error: %v", err)
 	}
 	if len(failures) != 1 {
 		t.Fatalf("failures = %d, want 1", len(failures))
@@ -99,9 +154,10 @@ func TestTriageParsesExitCodeFromLog(t *testing.T) {
 	service := usecase.TriageService{GitHub: github}
 	run := model.Run{ID: 30433642, Conclusion: model.ConclusionFailure}
 
-	failures, err := service.LoadRunFailures(context.Background(), "indrasvat/gh-hound", run)
+	triage, err := service.LoadRunTriage(context.Background(), "indrasvat/gh-hound", run, 0)
+	failures := triage.Failures
 	if err != nil {
-		t.Fatalf("LoadRunFailures returned error: %v", err)
+		t.Fatalf("LoadRunTriage returned error: %v", err)
 	}
 	if len(failures) != 1 {
 		t.Fatalf("failures = %d, want 1", len(failures))
@@ -119,9 +175,10 @@ func TestTriageExcerptFallsBackToLogTail(t *testing.T) {
 	service := usecase.TriageService{GitHub: github}
 	run := model.Run{ID: 30433642, Conclusion: model.ConclusionFailure}
 
-	failures, err := service.LoadRunFailures(context.Background(), "indrasvat/gh-hound", run)
+	triage, err := service.LoadRunTriage(context.Background(), "indrasvat/gh-hound", run, 0)
+	failures := triage.Failures
 	if err != nil {
-		t.Fatalf("LoadRunFailures returned error: %v", err)
+		t.Fatalf("LoadRunTriage returned error: %v", err)
 	}
 	if len(failures) != 1 {
 		t.Fatalf("failures = %d, want 1", len(failures))
@@ -129,5 +186,17 @@ func TestTriageExcerptFallsBackToLogTail(t *testing.T) {
 	excerpt := failures[0].LogExcerpt
 	if !strings.Contains(excerpt, "line three") {
 		t.Fatalf("excerpt should keep the log tail when no anchor matches:\n%s", excerpt)
+	}
+}
+
+// A failed job of another attempt never reaches failed[]: the agent
+// would fix what this attempt did not do.
+func TestTriageKeepsOtherAttemptsOutOfFailed(t *testing.T) {
+	other := model.Job{ID: 3, RunAttempt: 2, Status: model.StatusCompleted, Conclusion: model.ConclusionFailure, RunnerName: "r2"}
+	gh := &jobsByAttempt{attempts: map[int][]model.Job{1: {other}}}
+	run := model.Run{ID: 1, Event: "push", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure, RunAttempt: 1}
+	got, err := usecase.TriageService{GitHub: gh}.LoadRunTriage(context.Background(), "acme/forge", run, 0)
+	if err != nil || len(got.Failures) != 0 || got.Verdict != (model.RunVerdict{}) {
+		t.Fatalf("triage = %+v err=%v, want no failures and no verdict", got, err)
 	}
 }

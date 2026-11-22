@@ -109,7 +109,7 @@ Contract rules agents can rely on (`$defs.watch_group_event` / `$defs.watch_grou
 - Group events are **run-level only** (`type, ts, run_id, workflow, status, conclusion`). `job`/`step` fields appear ONLY in single-run `watch` output — the group poll budget never fetches jobs (one runs-list call per tick covers the whole hunt).
 - Runs sharing the sha on a different event (e.g. a chained `workflow_run` deploy) are NOT part of the hunt and never appear on the stream.
 - Hunt size is capped by `watch_group_max` (default 10, env `HOUND_WATCH_GROUP_MAX`).
-- Exit code = worst outcome with the existing semantics: `1` if any run is lost (failure/action_required/timed_out/startup_failure at settle), `0` when the whole hunt comes home, `2` on API/validation errors, `3` if a bounded `--timeout` expires with runs still in flight and none lost (see below). `--format md/xml` refuse up front — the stream is NDJSON by contract.
+- Exit code = worst outcome with the existing semantics: `1` if any run is lost (failure/timed_out/startup_failure at settle; a hunt whose only red runs are held for approval exits `3`, at settle and at `--timeout` alike, though its summary still counts them lost), `0` when the whole hunt comes home, `2` on API/validation errors, `3` if a bounded `--timeout` expires with runs still in flight and none lost (see below). `--format md/xml` refuse up front — the stream is NDJSON by contract.
 
 ### Bounded wait (`--timeout`)
 
@@ -211,7 +211,7 @@ Verdict envelope (`$defs.diff_result` in schema.json): `{repo, workflow, branch,
 
 Diff exit codes: `1` boundary located (a regression exists — action needed), `0` no action derivable (`green` or `inconclusive`), `2` API/validation error with a typed `error: {kind, message}` envelope (`validation | auth | permission | not_found | rate_limit | network | unknown`). Exit `3` is never used: a finished scan has nothing pending.
 
-Scan rules agents can rely on: a run counts by its latest attempt's conclusion (a failure rerun to green is green); cancelled, skipped, neutral, stale, and still-running runs carry no signal and are stepped over; a `startup_failure` (GitHub could not start the workflow at that commit) counts as red. API spend is bounded by `diff_max_pages` (default 10 pages of 100 runs, env `HOUND_DIFF_MAX_PAGES`); hitting the cap yields `inconclusive`, never a hang. Rehearse deterministically with `--fake-scenario regression` (a seeded boundary: exit `1`, suspects included).
+Scan rules agents can rely on: a run counts by its latest attempt's conclusion (a failure rerun to green is green); cancelled, skipped, neutral, stale, and still-running runs carry no signal and are stepped over; a run GitHub could not start because its workflow file is invalid (`verdict: never_ran`, `reason: could_not_start`) counts as red, but a run held for approval or blocked by policy carries no signal: nothing at that commit failed. A fork's PR run is never part of the trail: it lists under its head branch name (often the fork's own `main`), but its commit is not on the branch scanned. API spend is bounded by `diff_max_pages` (default 10 pages of 100 runs, env `HOUND_DIFF_MAX_PAGES`); hitting the cap yields `inconclusive`, never a hang. Rehearse deterministically with `--fake-scenario regression` (a seeded boundary: exit `1`, suspects included).
 
 ## Flake Verdict (flakes)
 
@@ -228,7 +228,7 @@ Verdict envelope (`$defs.flakes_result` in schema.json): `{repo, workflow, branc
 - Each `jobs[]` entry: `{job, flake_score, verdict, attempt_flips, cross_run_flaps, retry_masks, flaked_runs, evidence[]}` with `evidence[]` rows `{run_id, run_number, attempt, kind, detail}` (`kind`: `attempt_flip` | `cross_run_flap` | `retry_mask`).
 - Documented thresholds: each attempt flip adds **0.45**, each cross-run flap **0.30**, each retry mask **0.20**, capped at 1.0. A job at or past **0.6** is `flaky` (two flips, two flaps, or a flip plus any second signal); any evidence at all is `suspect`.
 - The three signals: **attempt flips** (a job failed on attempt N and passed on a later attempt of the same run — the strongest signal; a rerun of a green run is NOT a flip), **cross-run flapping** (the same `head_sha` mixing fail and pass across runs, plus red→green→red alternation across adjacent commits — the commit range between the reds is shown as a compare URL, never interpreted), and **retry masks** (known retry wrappers like `nick-fields/retry` or `Retrying in N…` loops hiding instability inside an eventually-green step).
-- A run GitHub could not start (`startup_failure`) ran no job, so it is not a sample and never counts toward a flap.
+- A run in which no job ran (held for approval, blocked by policy, or one GitHub could not start: `verdict: never_ran` from the run fields) is not a sample and never counts toward a flap, and neither is a red fork PR run in which no job ran (its jobs are read to tell: one call per red fork run in the window).
 - `jobs[].job` is normally the job name; cross-run flaps observed without attempt-level job data land on an entry named after the workflow.
 
 Flakes exit codes: `1` when `status` is `flaky` or `suspect` (action needed — `verdict=flaky` means rerun is reasonable, `suspect` means look closer; the JSON distinguishes them), `0` for `clean` AND `insufficient_data` (no action derivable), `2` typed `error: {kind, message}` (`validation | auth | permission | not_found | rate_limit | network | unknown`). Exit `3` is never used.
@@ -296,6 +296,19 @@ Each run includes:
 - `status`, `conclusion`, `created_at`, `html_url`.
 - `actor` (who started the run) and `triggering_actor` (who started its latest attempt — different after a re-run by someone else). Both are always present; an empty string means GitHub reported none.
 - `failed[]` entries with `job`, `step`, `exit_code`, `annotations[]`, `log_excerpt`, and — when the job log has repeating lines — `repeats[]`.
+- On a red run, `verdict` says why it is red and `reason` names the cause (both absent on runs that are not red, and when the jobs could not be read). `conclusion` stays exactly as GitHub reports it.
+
+| `verdict` | `reason` | Means | Agent action | Exit |
+|---|---|---|---|---|
+| `code` | — | a job ran and a step failed | fix the code from `failed[]` | `1` |
+| `never_ran` | `awaiting_approval` | held until a write collaborator approves it (`action_required`) | wait, or tell a maintainer | `3` |
+| `never_ran` | `approval_missed` | a fork PR run held for approval, ended red when its PR closed | nothing to fix | `1` |
+| `never_ran` | `blocked_by_policy` | a `startup_failure` on `pull_request_target`: most likely blocked by the repo's Actions event policy (GitHub's default for public repos from 2 Dec 2026) | report: allow it in an event policy, or move the workflow to `pull_request` | `1` |
+| `never_ran` | `could_not_start` | any other `startup_failure`: an invalid workflow file or a blocked action | check the workflow file at `head_sha` | `1` |
+| `never_ran` | `no_job_ran` | red with no job that ran or failed, cause unknown (not a fork PR) | open `html_url` | `1` |
+| `infra` | `runner_lost` / `killed` / `disk_full` | every failing job ran but its runner failed: lost communication or shutdown, exit 137 (usually out of memory), no space left | rerun; do not edit code | `1` |
+
+`failed[]` is empty for every `never_ran` run. GitHub does not expose the text it shows on the run page for a blocked or unstartable run (not in REST, GraphQL or `gh run view`), so hound names the reason from the event and conclusion and never quotes it. Jobs are read for the attempt the run shows (a re-run that began meanwhile is not taken for it), and a job that failed without a runner (no matching label) makes the run `code`: its annotations explain it. A run held for approval exits `3` only when nothing else listed needs action: one code failure beside it still exits `1`.
 
 Empty branch-scoped results can include top-level `diagnostic` with `kind`, `scope`, `message`, and `next_commands[]`. The currently documented kind is `target_mismatch`.
 
@@ -326,9 +339,10 @@ For local tests and docs, use fake scenarios:
 ./bin/gh-hound runs --branch release/v1 --no-tui --json --fake-scenario empty
 ./bin/gh-hound runs --no-tui --json --fake-scenario api_error
 ./bin/gh-hound watch --json --fake-scenario failure
+./bin/gh-hound runs --all --no-tui --json --fake-scenario never_ran
 ```
 
-Accepted aliases: `ok`, `green`, `success`; `failure`, `failed`, `failing`; `pending`, `running`, `in_progress`, `queued`; `api_error`, `network_error`, `rate_limited`; `waiting`, `gated`. The `regression` scenario seeds a deterministic last-green → first-red boundary for `diff`; `pack` seeds the staggered multi-run group for `watch --group`; `flaky` seeds attempt flips and a retry-masked step for `flakes`; `paced` (alias `pace`) seeds a Pace baseline for `pace`.
+Accepted aliases: `ok`, `green`, `success`; `failure`, `failed`, `failing`; `pending`, `running`, `in_progress`, `queued`; `api_error`, `network_error`, `rate_limited`; `waiting`, `gated`. The `regression` scenario seeds a deterministic last-green → first-red boundary for `diff`; `pack` seeds the staggered multi-run group for `watch --group`; `flaky` seeds attempt flips and a retry-masked step for `flakes`; `paced` (alias `pace`) seeds a Pace baseline for `pace`; `never_ran` seeds a fork-heavy repo with every `verdict` and `reason` through real triage (use `--all`: the fork runs live on their own branches).
 
 ## Guardrails
 

@@ -49,6 +49,12 @@ type Run struct {
 	Status     string `json:"status" xml:"status,attr"`
 	Attempt    int    `json:"attempt,omitempty" xml:"attempt,attr,omitempty"`
 	Conclusion string `json:"conclusion" xml:"conclusion,attr"`
+	// Verdict says why a red run is red (code | never_ran | infra) and
+	// Reason names the cause of a never_ran or infra verdict. Both are
+	// absent on runs that are not red, or when the evidence was not
+	// reachable.
+	Verdict string `json:"verdict,omitempty" xml:"verdict,attr,omitempty"`
+	Reason  string `json:"reason,omitempty" xml:"reason,attr,omitempty"`
 	// Actor started the run; TriggeringActor started its latest
 	// attempt (a re-run can differ). Empty when GitHub reports none.
 	Actor           string     `json:"actor" xml:"actor,attr"`
@@ -341,13 +347,23 @@ func ExitCode(result Result, err error) int {
 	if err != nil {
 		return ExitError
 	}
+	held := false
 	for _, run := range result.Runs {
 		if run.Status == "queued" || run.Status == "in_progress" || run.Status == "waiting" || run.Status == "pending" || run.Status == "requested" {
 			return ExitPending
 		}
+		if run.Reason == string(model.ReasonAwaitingApproval) {
+			// Held for a person's approval: waiting, not broken. A red
+			// run further down still needs action first.
+			held = true
+			continue
+		}
 		if model.Conclusion(run.Conclusion).Failing() {
 			return ExitActionNeeded
 		}
+	}
+	if held {
+		return ExitPending
 	}
 	return ExitOK
 }

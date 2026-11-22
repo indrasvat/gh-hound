@@ -153,7 +153,7 @@ func (q Query) ServerKey() string {
 
 // Matches applies the whole query to one row. viewer stands in for
 // @me; an unresolved @me matches nothing rather than everything.
-func (q Query) Matches(run model.Run, viewer string) bool {
+func (q Query) Matches(run model.Run, viewer string, also ...string) bool {
 	if q.Actor != "" {
 		actor := q.Actor
 		if actor == MeActor {
@@ -175,13 +175,15 @@ func (q Query) Matches(run model.Run, viewer string) bool {
 	if q.SHA != "" && !strings.HasPrefix(strings.ToLower(run.HeadSHA), q.SHA) {
 		return false
 	}
-	return q.MatchesText(run)
+	return q.MatchesText(run, also...)
 }
 
-// MatchesText applies only the text tokens: every token must match.
-func (q Query) MatchesText(run model.Run) bool {
+// MatchesText applies only the text tokens: every token must match the
+// run or one of also (words the row shows that are not run fields, such
+// as its verdict).
+func (q Query) MatchesText(run model.Run, also ...string) bool {
 	for _, token := range q.Text {
-		if !runMatchesQuery(run, token) {
+		if !runMatchesQuery(run, token, also...) {
 			return false
 		}
 	}

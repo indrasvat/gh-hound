@@ -45,6 +45,11 @@ func TestJSONRendererMatchesGoldenFixture(t *testing.T) {
 	if err := Write(&out, FormatJSON, fixtureResult()); err != nil {
 		t.Fatalf("Write JSON returned error: %v", err)
 	}
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		if err := os.WriteFile("testdata/failure.golden.json", out.Bytes(), 0o644); err != nil {
+			t.Fatalf("update golden: %v", err)
+		}
+	}
 	want, err := os.ReadFile("testdata/failure.golden.json")
 	if err != nil {
 		t.Fatalf("read golden: %v", err)
@@ -139,6 +144,15 @@ func TestExitCodeMapping(t *testing.T) {
 		{name: "ok", res: Result{Runs: []Run{{Conclusion: "success", Status: "completed"}}}, want: ExitOK},
 		{name: "action needed", res: Result{Runs: []Run{{Conclusion: "failure", Status: "completed"}}}, want: ExitActionNeeded},
 		{name: "pending", res: Result{Runs: []Run{{Status: "in_progress"}}}, want: ExitPending},
+		// A run held for approval waits on a person; one that missed its
+		// approval or was blocked can't be fixed by waiting.
+		{name: "held for approval", res: Result{Runs: []Run{{Conclusion: "action_required", Status: "completed", Verdict: "never_ran", Reason: "awaiting_approval"}}}, want: ExitPending},
+		{name: "held above a code failure", res: Result{Runs: []Run{
+			{Conclusion: "action_required", Status: "completed", Verdict: "never_ran", Reason: "awaiting_approval"},
+			{Conclusion: "failure", Status: "completed", Verdict: "code"},
+		}}, want: ExitActionNeeded},
+		{name: "approval missed", res: Result{Runs: []Run{{Conclusion: "failure", Status: "completed", Verdict: "never_ran", Reason: "approval_missed"}}}, want: ExitActionNeeded},
+		{name: "blocked by policy", res: Result{Runs: []Run{{Conclusion: "startup_failure", Status: "completed", Verdict: "never_ran", Reason: "blocked_by_policy"}}}, want: ExitActionNeeded},
 		{name: "error", err: errFixture{}, want: ExitError},
 	}
 	for _, tt := range tests {
@@ -162,6 +176,7 @@ func fixtureResult() Result {
 			HeadSHA:         "a1b2c3d",
 			Status:          "completed",
 			Conclusion:      "failure",
+			Verdict:         "code",
 			Actor:           "indrasvat",
 			TriggeringActor: "indrasvat",
 			CreatedAt:       createdAt,

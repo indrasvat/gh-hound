@@ -177,15 +177,35 @@ func (c *Client) FetchWorkflowFile(ctx context.Context, repo, workflowPath strin
 	return string(body), nil
 }
 
+// GitHub caps a check run at 50 annotations per update request but keeps
+// adding across updates; ten pages of 100 is far past any real job.
+const (
+	annotationsPerPage = 100
+	maxAnnotationPages = 10
+)
+
 func (c *Client) ListAnnotations(ctx context.Context, repo string, job model.Job) ([]model.Annotation, error) {
 	checkID := strconv.FormatInt(job.ID, 10)
 	if job.CheckRunURL != "" {
 		parts := strings.Split(strings.TrimRight(job.CheckRunURL, "/"), "/")
 		checkID = parts[len(parts)-1]
 	}
+	// Every page: a runner's own diagnostic can follow a page of lint
+	// warnings, and a verdict read from page one alone would miss it.
 	var decoded []annotationDTO
-	if err := c.getJSON(ctx, resourcePath(repo, "check-runs/"+checkID+"/annotations"), nil, &decoded); err != nil {
-		return nil, err
+	for page := 1; ; page++ {
+		var batch []annotationDTO
+		query := url.Values{"per_page": {strconv.Itoa(annotationsPerPage)}, "page": {strconv.Itoa(page)}}
+		if err := c.getJSON(ctx, resourcePath(repo, "check-runs/"+checkID+"/annotations"), query, &batch); err != nil {
+			return nil, err
+		}
+		if page > maxAnnotationPages && len(batch) > 0 {
+			return nil, fmt.Errorf("check run %s has more than %d annotations", checkID, maxAnnotationPages*annotationsPerPage)
+		}
+		decoded = append(decoded, batch...)
+		if len(batch) < annotationsPerPage {
+			break
+		}
 	}
 	annotations := make([]model.Annotation, 0, len(decoded))
 	for _, annotation := range decoded {

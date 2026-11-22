@@ -42,15 +42,15 @@ An empty branch-scoped `runs[]` can mean the wrong target. If `diagnostic.kind` 
 ## Exit Codes
 
 - `0`: all selected runs green; continue.
-- `1`: action needed; inspect `runs[].failed[]` and fix.
+- `1`: action needed; read each red run's `verdict` first. Only `code` is fixed from `failed[]`; `never_ran` and `infra` carry a `reason` (see references/json-shape.md).
 - `2`: API/network/config error; retry or report infrastructure failure, not CI failure.
-- `3`: pending/running; wait and re-poll, or use `watch`.
+- `3`: pending/running, or a run held for a maintainer's approval (`reason: awaiting_approval`); wait and re-poll, or use `watch`.
 
 `watch --json` is fail-fast: it exits `1` the moment the watched run turns red, with the failure payload.
 
 ## Fix Loop
 
-1. `runs --json` exits `1`: read `runs[].failed[]` (`job`, `step`, `exit_code`, `annotations[]`, `log_excerpt`).
+1. `runs --json` exits `1`: on `verdict: code`, read `runs[].failed[]` (`job`, `step`, `exit_code`, `annotations[]`, `log_excerpt`). On `never_ran` or `infra`, do not edit code: report the `reason`, or rerun an `infra` run.
 2. Flaky or real? `flakes --json`. If `flaky`, `rerun --failed-only`. Otherwise fix it.
 3. Who broke it? `diff --json` gives the last green and first bad runs, with the suspect commits.
 4. Pending or slow? `queue --run <id> --json` for blockers, `pace --run <id> --json` for ETA and slow steps.

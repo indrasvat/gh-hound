@@ -56,11 +56,16 @@ type Run struct {
 	JobsURL         string     `json:"jobs_url"`
 	LogsURL         string     `json:"logs_url"`
 	PullRequests    []int      `json:"pull_requests"`
+	// HeadRepository is the full name of the repository the head commit
+	// lives in; FromFork is a run whose head repository is not the base.
+	HeadRepository string `json:"head_repository"`
+	FromFork       bool   `json:"from_fork"`
 }
 
 type Job struct {
 	ID              int64      `json:"id"`
 	RunID           int64      `json:"run_id"`
+	RunAttempt      int        `json:"run_attempt"`
 	Status          Status     `json:"status"`
 	Conclusion      Conclusion `json:"conclusion"`
 	StartedAt       time.Time  `json:"started_at"`

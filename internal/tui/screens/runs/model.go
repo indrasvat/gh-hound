@@ -8,6 +8,7 @@ import (
 
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/theme"
+	"github.com/indrasvat/gh-hound/internal/tui/why"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -50,6 +51,29 @@ type Summary struct {
 	// part of Running (the run is live) — Gated only adds the gate
 	// affordance to the summary line.
 	Gated int
+	// Red runs that are not the code's fault, out of Failing: Infra ran
+	// but the runner failed, NeedApproval waits on a person, NeverRan
+	// never started for any other reason.
+	Infra        int
+	NeedApproval int
+	NeverRan     int
+	// Approvable counts held runs from a fork: A can let them start.
+	Approvable int
+}
+
+// Red counts every red run, whoever has to act.
+func (s Summary) Red() int {
+	return s.Failing + s.Infra + s.NeedApproval + s.NeverRan
+}
+
+// VerdictFor is a row's verdict and whether it is known: from the run's
+// fields, else from its jobs once the app has read them.
+func (m Model) VerdictFor(run model.Run) (model.RunVerdict, bool) {
+	if verdict, known := model.ClassifyRun(run, nil); known {
+		return verdict, true
+	}
+	verdict, ok := m.Verdicts[run.ID]
+	return verdict, ok
 }
 
 type Model struct {
@@ -91,6 +115,12 @@ type Model struct {
 	PaceAsOf map[int64]time.Time
 	// Stale marks unfinished rows no fetch has returned lately.
 	Stale map[int64]bool
+	// NoApproveAccess: GitHub said the credentials cannot write here, so
+	// the list does not offer A on held runs. Render-time input.
+	NoApproveAccess bool
+	// Verdicts holds what the jobs of a red run said about it, for the
+	// attempt the row shows. Run fields settle the rest (VerdictFor).
+	Verdicts map[int64]model.RunVerdict
 
 	// Loading state is transient render input set by the app from its
 	// pending load each frame — never persisted on the model, so a
@@ -296,7 +326,20 @@ func (m Model) Summary() Summary {
 			continue
 		}
 		if run.Conclusion.Failing() {
-			summary.Failing++
+			// A red run counts as failing until its jobs say otherwise.
+			switch verdict, _ := m.VerdictFor(run); {
+			case verdict.WaitingOnPerson():
+				summary.NeedApproval++
+				if run.FromFork && !m.NoApproveAccess {
+					summary.Approvable++
+				}
+			case verdict.Verdict == model.VerdictNeverRan:
+				summary.NeverRan++
+			case verdict.Verdict == model.VerdictInfra:
+				summary.Infra++
+			default:
+				summary.Failing++
+			}
 			continue
 		}
 		if isPassing(run) {
@@ -330,7 +373,7 @@ func (m Model) FilteredRuns() []model.Run {
 func (m Model) AllGreen() bool {
 	summary := m.Summary()
 	runs := m.filteredRuns()
-	if len(runs) == 0 || summary.Failing > 0 {
+	if len(runs) == 0 || summary.Red() > 0 {
 		return false
 	}
 	for _, run := range runs {
@@ -379,15 +422,21 @@ func (m Model) filteredRuns() []model.Run {
 	for _, run := range runs {
 		// Current rows already satisfy the server qualifiers; stale rows
 		// (a reload in flight) must satisfy the whole query.
-		if (current && q.MatchesText(run)) || (!current && q.Matches(run, m.Viewer)) {
+		verdict, _ := m.VerdictFor(run)
+		if (current && q.MatchesText(run, why.Short(verdict))) || (!current && q.Matches(run, m.Viewer, why.Short(verdict))) {
 			filtered = append(filtered, run)
 		}
 	}
 	return filtered
 }
 
-func runMatchesQuery(run model.Run, query string) bool {
+func runMatchesQuery(run model.Run, query string, also ...string) bool {
 	for _, alias := range queryAliases(query) {
+		for _, word := range also {
+			if strings.Contains(strings.ToLower(word), alias) {
+				return true
+			}
+		}
 		if strings.Contains(strings.ToLower(run.Name), alias) ||
 			strings.Contains(strings.ToLower(run.DisplayTitle), alias) ||
 			strings.Contains(strings.ToLower(run.Event), alias) ||

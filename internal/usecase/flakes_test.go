@@ -215,7 +215,11 @@ func TestFlakeScanStartupFailureIsNoFlakeSignal(t *testing.T) {
 	blocked := flakeRun(105, 1, model.ConclusionStartupFailure)
 	greenRerun := flakeRun(106, 1, model.ConclusionSuccess)
 	greenRerun.HeadSHA = blocked.HeadSHA
-	fake := newFlakeFake(greenRerun, blocked,
+	// A run held for approval ran no job either: approved later and
+	// green, it must not read as a same-commit flap.
+	held := flakeRun(107, 1, model.ConclusionActionRequired)
+	held.HeadSHA = greenRerun.HeadSHA
+	fake := newFlakeFake(held, greenRerun, blocked,
 		flakeRun(104, 1, model.ConclusionSuccess),
 		flakeRun(103, 1, model.ConclusionSuccess),
 		flakeRun(102, 1, model.ConclusionSuccess),
@@ -228,6 +232,37 @@ func TestFlakeScanStartupFailureIsNoFlakeSignal(t *testing.T) {
 	}
 	if report.SampleSize != 5 {
 		t.Fatalf("sample size = %d, want 5: the startup failure is not a sample", report.SampleSize)
+	}
+}
+
+// A fork's PR run that closed unapproved ends red with no job; beside a
+// green run on the same commit it must not read as a flap.
+func TestFlakeScanForkRunsAreNoSamples(t *testing.T) {
+	missed := flakeRun(106, 1, model.ConclusionFailure)
+	missed.FromFork, missed.Event = true, "pull_request"
+	green := flakeRun(105, 1, model.ConclusionSuccess)
+	green.HeadSHA = missed.HeadSHA
+	fake := newFlakeFake(missed, green,
+		flakeRun(104, 1, model.ConclusionSuccess),
+		flakeRun(103, 1, model.ConclusionSuccess),
+		flakeRun(102, 1, model.ConclusionSuccess),
+		flakeRun(101, 1, model.ConclusionSuccess),
+	)
+	report := scanFlakes(t, fake, 50)
+	if report.Status != FlakeStatusClean || report.SampleSize != 5 {
+		t.Fatalf("status = %q sample = %d, want clean over 5: a fork's run that never ran is no sample", report.Status, report.SampleSize)
+	}
+
+	// A fork run whose job did run and fail is evidence like any other.
+	fake = newFlakeFake(missed, green,
+		flakeRun(104, 1, model.ConclusionSuccess),
+		flakeRun(103, 1, model.ConclusionSuccess),
+		flakeRun(102, 1, model.ConclusionSuccess),
+		flakeRun(101, 1, model.ConclusionSuccess),
+	)
+	fake.attemptJobs[fmt.Sprintf("%d/1", missed.ID)] = []model.Job{{ID: 7, Name: "test", RunnerName: "r1", Status: model.StatusCompleted, Conclusion: model.ConclusionFailure}}
+	if report := scanFlakes(t, fake, 50); report.SampleSize != 6 || report.Status == FlakeStatusClean {
+		t.Fatalf("status = %q sample = %d, want the fork's real failure counted (6 samples, a flap)", report.Status, report.SampleSize)
 	}
 }
 
