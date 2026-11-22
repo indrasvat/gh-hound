@@ -1097,7 +1097,7 @@ func writeGroupWatchResult(ctx context.Context, w io.Writer, options cliOptions,
 	// uses. Either way the timed_out marker on the summary tells agents
 	// the hunt was cut short rather than settled.
 	if timedOut {
-		if summary.Lost > 0 {
+		if lostNeedsAction(state.Runs) {
 			return outcomeError{code: render.ExitActionNeeded}
 		}
 		return outcomeError{code: render.ExitPending}
@@ -1106,6 +1106,21 @@ func writeGroupWatchResult(ctx context.Context, w io.Writer, options cliOptions,
 		return outcomeError{code: code}
 	}
 	return nil
+}
+
+// lostNeedsAction reports a lost hunt member someone can act on now: a
+// run held for a maintainer's approval is waiting, so a timeout with
+// only those lost is still pending, as it is at settle.
+func lostNeedsAction(runs []model.Run) bool {
+	for _, run := range runs {
+		if run.Status != model.StatusCompleted || !run.Conclusion.Failing() {
+			continue
+		}
+		if verdict, _ := model.ClassifyRun(run, nil); !verdict.WaitingOnPerson() {
+			return true
+		}
+	}
+	return false
 }
 
 func packSettled(runs []model.Run) bool {
@@ -1593,7 +1608,15 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 					run = fresh
 				}
 			}
-			jobs, err := githubClient.ListJobs(loadCtx, launch.Repo, run.ID)
+			// The jobs of the attempt the run shows: the latest listing
+			// can already be a re-run's, which says nothing about this one.
+			var jobs []model.Job
+			var err error
+			if run.RunAttempt > 0 {
+				jobs, err = githubClient.ListJobsForAttempt(loadCtx, launch.Repo, run.ID, run.RunAttempt)
+			} else {
+				jobs, err = githubClient.ListJobs(loadCtx, launch.Repo, run.ID)
+			}
 			if err != nil {
 				return detail.Model{}, err
 			}
@@ -1733,6 +1756,13 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 		},
 		VerdictResolver: func(loadCtx context.Context, run model.Run) (model.RunVerdict, error) {
 			return usecase.VerdictService{GitHub: githubClient}.Classify(loadCtx, launch.Repo, run)
+		},
+		PushAccessResolver: func(loadCtx context.Context) (bool, error) {
+			access, ok := githubClient.(usecase.PushAccess)
+			if !ok {
+				return false, errors.New("this GitHub adapter cannot check write access")
+			}
+			return access.CanPush(loadCtx, launch.Repo)
 		},
 		RunRefresher: func(loadCtx context.Context, id int64) (model.Run, error) {
 			return githubClient.GetRun(loadCtx, launch.Repo, id)
@@ -2743,10 +2773,16 @@ func approveHeldRuns(ctx context.Context, service usecase.ActionService, repo st
 	}
 	for i, run := range held {
 		if _, err := service.ApproveRun(ctx, repo, run.ID); err != nil {
-			if i > 0 {
-				return usecase.ActionResult{}, fmt.Errorf("approved %d of %d runs, then: %w", i, len(held), err)
+			if i == 0 {
+				return usecase.ActionResult{}, err
 			}
-			return usecase.ActionResult{}, err
+			// Say what went through: a retry must not look like none did.
+			partial, ok := usecase.AsActionError(err)
+			if !ok {
+				partial = usecase.ActionError{Kind: usecase.ActionErrorUnknown}
+			}
+			partial.Message = fmt.Sprintf("approved %d of %d runs, then GitHub refused #%d: %s", i, len(held), run.RunNumber, err.Error())
+			return usecase.ActionResult{}, partial
 		}
 	}
 	message := "run approved · it starts shortly"
@@ -3061,7 +3097,7 @@ func normalizedScenario(options cliOptions) string {
 	case "paced", "pace":
 		// A Pace baseline: running, slow, on-pace and widened-PR targets.
 		return "paced"
-	case "never_ran", "never-ran", "held", "blocked":
+	case "never_ran":
 		// Red runs for every reason one never ran or the runner failed,
 		// through real triage.
 		return "never_ran"

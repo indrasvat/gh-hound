@@ -178,10 +178,12 @@ func (q Query) Matches(run model.Run, viewer string) bool {
 	return q.MatchesText(run)
 }
 
-// MatchesText applies only the text tokens: every token must match.
-func (q Query) MatchesText(run model.Run) bool {
+// MatchesText applies only the text tokens: every token must match the
+// run or one of also (words the row shows that are not run fields, such
+// as its verdict).
+func (q Query) MatchesText(run model.Run, also ...string) bool {
 	for _, token := range q.Text {
-		if !runMatchesQuery(run, token) {
+		if !runMatchesQuery(run, token, also...) {
 			return false
 		}
 	}

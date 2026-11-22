@@ -26,7 +26,7 @@ IN PROGRESS — issue #85. Builds on the `startup_failure` work in #83/#84.
   - A timeout stays `code`: a hang is usually the code's.
 - **Exit codes.** `awaiting_approval` exits 3 (pending: a person has to act, a watch loop waits). Every other red verdict exits 1, now with a `reason`.
 - **Cost.** Run fields alone decide `action_required` and `startup_failure` (zero calls). A red `failure`/`timed_out` run needs its jobs and its failing jobs' annotations; the pipe already fetches both for `failed[]`, so it pays nothing extra. The TUI fetches them off the key path, one run at a time per poll tick, cached per run and attempt (a finished attempt never changes), only for red rows that are loaded.
-- **Approve.** `A` on a held fork run (list or detail) asks `Approve N runs from @login's fork? Their code will run. y/N`, default No, then `POST …/actions/runs/{id}/approve` for each held run of that head commit, through the one-per-second mutation queue. `A` already opens deploy gates on waiting runs; it means "approve" in both places. The endpoint covers public-fork runs only (docs: first-time contributors, `repo` scope); a held bot or Copilot run shows `o approve in the browser` instead.
+- **Approve.** `A` on a held fork run (list or detail) asks `Approve N runs from @login's fork? Their code will run. y/N`, default No, then `POST …/actions/runs/{id}/approve` for each held run of that head commit, through the one-per-second mutation queue. `A` already opens deploy gates on waiting runs; it means "approve" in both places. The endpoint covers public-fork runs only (docs: first-time contributors, `repo` scope); a held bot or Copilot run gets an info toast "approve this one on GitHub" instead. Write access is checked first (`GET /repos/{o}/{r}` `permissions.push`), and both the check and the approvals run behind a load, never on the key path.
 - **flakes and diff** take no evidence from a `never_ran` run. diff keeps `could_not_start` red (the commit's workflow file did not parse) but no other `never_ran` reason.
 
 ## Task List
@@ -52,3 +52,26 @@ IN PROGRESS — issue #85. Builds on the `startup_failure` work in #83/#84.
 - `A` on a waiting run's detail did nothing, though the gate pane said "A review". Fixed here.
 - #84 counted a `startup_failure` as failing in the summary; under this issue it counts as never ran (`could_not_start`), and diff still treats it red.
 - Both golangci-lint binaries on the dev machine are v2.15 built with Go 1.27 and fail the hook on files nobody touched; the repo pins v2.8.0 (`make tools-ci`).
+
+## Review Round 1 (takshaka, codex via dootsabha, cold tui-qa)
+
+Fixed:
+
+- Approving ran paced POSTs on the keystroke (frozen ~1s per extra run): now behind a load; a partial approval says how many went through.
+- `A` offered approval with no access check: write access is read first.
+- On a never-ran detail, `r R x X w l ⏎` still acted (a rerun of the phantom check run): they toast why instead.
+- A failed detail load read as "never ran" (empty skeleton): only a loaded empty listing counts.
+- Two forks can push the same commit: one approval batches only the selected fork's runs.
+- Jobs of a re-run's attempt could classify the attempt shown: verdicts read the run's own attempt, and jobs of another attempt make the verdict unknown.
+- A same-repo PR run with no job read `approval_missed`: only a fork's can; others are `no_job_ran`.
+- A warning that mentions "No space left on device" made a code failure `infra`: only failure-level annotations count.
+- Annotations were read from page one only: every page is read.
+- A known never-ran run could pair with a populated `failed[]`: triage returns before listing jobs.
+- Fork PR runs listed under the scanned branch name fed `diff` and `flakes`: they are no evidence.
+- `watch --group --timeout` exited `1` for a hunt whose only lost runs are held: `3`, as at settle.
+- At 80 columns the summary cut `G load more`: `A approve` gives way first.
+- The filter could not find the verdict words a row shows: it can, and the key path sees the same rows the screen paints.
+- The fake gains `no_job_ran`, `disk_full` and a held bot run; the help legend names ∅ and ↯; the infra detail names the runner cause.
+- Takshaka tidy-ups: dead cancel plumbing, a hand-rolled sort, a one-caller forwarder, repeated comments, a special-cased toast, unused scenario aliases, a const that realigned 23 lines.
+
+Kept, with reasons: `blocked_by_policy` stays an inference from `pull_request_target` + `startup_failure` (the issue asks for it before 2 Dec; every spike case had that cause); the detail and docs say "likely". `runs` keeps its newest-first exit order (a newer queued run reads pending before an older failure), as before this change.

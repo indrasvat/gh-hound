@@ -2,9 +2,11 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -116,7 +118,7 @@ func TestListRunsMarksForkRuns(t *testing.T) {
 		t.Fatalf("runs = %d, want 3", len(runs))
 	}
 	for i, want := range []bool{true, true, false} {
-		if runs[i].FromFork != want {
+		if runs[i].FromFork != want || (want && runs[i].HeadRepository == "") {
 			t.Fatalf("run %d FromFork = %v, want %v", runs[i].ID, runs[i].FromFork, want)
 		}
 	}
@@ -208,5 +210,65 @@ func TestListWorkflowRunsSendsDiscoveryFilters(t *testing.T) {
 	want := "branch=main&created=%3E%3D2026-06-11T10%3A00%3A00Z&event=workflow_dispatch&per_page=10"
 	if seenQuery != want {
 		t.Fatalf("query = %q, want %q", seenQuery, want)
+	}
+}
+
+// A runner's diagnostic can sit past the first page of a job's
+// annotations: every page is read.
+func TestListAnnotationsReadsEveryPage(t *testing.T) {
+	var pages []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pages = append(pages, r.URL.Query().Get("page")+"/"+r.URL.Query().Get("per_page"))
+		w.Header().Set("Content-Type", "application/json")
+		n := 100
+		if r.URL.Query().Get("page") == "2" {
+			n = 1
+		}
+		items := make([]map[string]any, n)
+		for i := range items {
+			items[i] = map[string]any{"path": "lint.go", "annotation_level": "warning", "message": "unused"}
+		}
+		if n == 1 {
+			items[0] = map[string]any{"path": ".github", "annotation_level": "failure", "message": "The runner has received a shutdown signal."}
+		}
+		_ = json.NewEncoder(w).Encode(items)
+	}))
+	defer server.Close()
+
+	annotations, err := NewClient(server.URL, server.Client()).ListAnnotations(context.Background(), "acme/forge", model.Job{ID: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(annotations) != 101 || annotations[100].Message != "The runner has received a shutdown signal." {
+		t.Fatalf("annotations = %d (pages %v), want 101 with the shutdown last", len(annotations), pages)
+	}
+	if strings.Join(pages, ",") != "1/100,2/100" {
+		t.Fatalf("pages = %v, want 1/100,2/100", pages)
+	}
+}
+
+// Approving a held fork run needs write access: CanPush reads it from
+// the repository's permissions, and a payload without them is an error.
+func TestCanPushReadsTheViewersPermission(t *testing.T) {
+	for _, tc := range []struct {
+		body    string
+		want    bool
+		wantErr bool
+	}{
+		{`{"permissions":{"admin":false,"push":true,"pull":true}}`, true, false},
+		{`{"permissions":{"push":false,"pull":true}}`, false, false},
+		{`{"full_name":"acme/forge"}`, false, true},
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/repos/acme/forge" {
+				t.Errorf("path = %s", r.URL.Path)
+			}
+			_, _ = w.Write([]byte(tc.body))
+		}))
+		got, err := NewClient(server.URL, server.Client()).CanPush(context.Background(), "acme/forge")
+		server.Close()
+		if got != tc.want || (err != nil) != tc.wantErr {
+			t.Fatalf("CanPush(%s) = %v, %v", tc.body, got, err)
+		}
 	}
 }

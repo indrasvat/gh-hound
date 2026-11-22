@@ -183,6 +183,18 @@ func TestLocateRegressionSkipsRunsThatNeverRan(t *testing.T) {
 		t.Fatalf("verdict = %q #%d → #%d, want located #101 → #104", verdict.Status, verdict.LastGood.RunNumber, verdict.FirstBad.RunNumber)
 	}
 
+	// A fork PR opened from the fork's own main lists under branch
+	// main, but its commit is not on main: never the first bad run.
+	fork := red(103)
+	fork.FromFork, fork.Event = true, "pull_request"
+	trail = &fakeTrail{
+		pages:     map[int][]model.Run{1: {red(104), fork, green(101)}},
+		rangeInfo: model.CommitRange{TotalCommits: 1, Commits: []model.Commit{{SHA: "ccc"}}},
+	}
+	if verdict := locate(t, trail, 10); verdict.FirstBad.RunNumber != 104 || verdict.LastGood.RunNumber != 101 {
+		t.Fatalf("boundary = #%d → #%d, want #101 → #104: a fork's run is not the branch's history", verdict.LastGood.RunNumber, verdict.FirstBad.RunNumber)
+	}
+
 	invalid := trailRun(102, model.StatusCompleted, model.ConclusionStartupFailure)
 	invalid.Event = "push"
 	trail = &fakeTrail{

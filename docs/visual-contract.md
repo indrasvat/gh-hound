@@ -225,8 +225,11 @@ in info. The summary counts red runs by who has to act: `1 failing ·
 1 infra · 2 need approval · A approve · 4 never ran · 0 running ·
 1 passed`, each extra count only when non-zero, `· A approve` only
 while a held fork run is listed; over its budget an idle `0 running`
-gives way first, then `passed`. A red row whose jobs are not read yet
-keeps ✗ and counts as failing until the background read lands.
+gives way first, then `running` and `passed`, then `A approve`; the
+red counts and `G load more` never do. A red row whose jobs are not
+read yet keeps ✗ and counts as failing until the background read
+lands. The `/` text search also matches the verdict words a row shows
+(`/missed`, `/policy`).
 
 Detail of a run in which no job ran: the jobs pane reads "No job ran"
 (a check run GitHub lists without steps or a runner is not a job), the
@@ -234,13 +237,21 @@ right pane is headed "Why this run never ran": a headline (warn bold
 for waiting on a person or blocked by policy, fail for could not
 start, fg-soft otherwise), subtle explanation lines, a dim `waiting 2h
 · 2 runs held on this commit` for a held run, and `A approve and run`
-(ok bold A) for a held fork run. The footer is `detail_never_ran`.
-`A` asks "approve N runs from @login's fork? their code will run"
-(default No) and approves every run held on that commit; from the
-detail view it returns to the list. A held run not from a fork gets an
-info toast "approve this one on GitHub". `l` on any run in which no job
-ran opens no log screen: an info toast reads "no job ran · <reason> ·
-no log to open". The hunt board's State column is 15 cells, the
+(ok bold A) for a held fork run. An infra run's jobs pane ends with an
+info `↯ runner lost · not the code`. The footer is `detail_never_ran`
+once the jobs loaded empty (a failed load proves nothing and keeps
+`detail`); its hidden job keys (`r R x X w l ⏎`) do nothing but an info
+toast "no job ran · <headline> · no job to open, rerun, cancel or
+watch". `A` first checks write access behind the shared "checking your
+access" load (no access: info toast "a maintainer has to approve
+this"), then asks "approve N runs from @login's fork? their code will
+run" (default No) for every run held on that commit from that fork, and
+approves them behind an "approving N runs" load, never on the key
+path; from the detail view it returns to the list, which reloads. A
+held run not from a fork gets an info toast "approve this one on
+GitHub". `l` on a runs-list row in which no job ran toasts "no job ran
+· <headline> · no log to open". `A` on a detail with nothing to approve
+toasts "no gate here". The hunt board's State column is 15 cells, the
 longest label GitHub gives (`startup_failure`, `action_required`).
 Fixture screens: `runs-never-ran`, `approve-confirm`,
 `detail-never-ran`, `detail-blocked`, `runs-startup`, `detail-startup`,

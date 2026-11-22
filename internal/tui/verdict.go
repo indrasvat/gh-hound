@@ -1,13 +1,15 @@
 package tui
 
 import (
+	"cmp"
 	"context"
-	"errors"
 	"maps"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/indrasvat/gh-hound/internal/model"
+	"github.com/indrasvat/gh-hound/internal/tui/why"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -35,7 +37,6 @@ type verdictFetchState struct {
 	results map[verdictKey]model.RunVerdict
 	failed  map[verdictKey]bool
 	done    bool
-	cancel  context.CancelFunc
 }
 
 // startVerdictFetch classifies the red rows near the selection whose
@@ -66,24 +67,19 @@ func (a App) startVerdictFetch() App {
 	if len(wanted) == 0 {
 		return a
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	state := &verdictFetchState{results: map[verdictKey]model.RunVerdict{}, failed: map[verdictKey]bool{}, cancel: cancel}
+	state := &verdictFetchState{results: map[verdictKey]model.RunVerdict{}, failed: map[verdictKey]bool{}}
 	a.verdictFetch = state
 	resolver := a.verdictResolver
 	go func() {
-		defer cancel()
 		for _, run := range wanted {
-			verdict, err := resolver(ctx, run)
+			verdict, err := resolver(context.Background(), run)
 			state.mu.Lock()
 			if err == nil {
 				state.results[verdictKey{run.ID, run.RunAttempt}] = verdict
-			} else if !errors.Is(err, context.Canceled) {
+			} else {
 				state.failed[verdictKey{run.ID, run.RunAttempt}] = true
 			}
 			state.mu.Unlock()
-			if ctx.Err() != nil {
-				break
-			}
 		}
 		state.mu.Lock()
 		state.done = true
@@ -95,18 +91,12 @@ func (a App) startVerdictFetch() App {
 // nearestFirst is 0..n-1 ordered by distance from selected, the row
 // above before the row below.
 func nearestFirst(selected, n int) []int {
-	order := make([]int, 0, n)
-	for d := 0; len(order) < n; d++ {
-		if i := selected - d; i >= 0 && i < n {
-			order = append(order, i)
-		}
-		if i := selected + d; d > 0 && i >= 0 && i < n {
-			order = append(order, i)
-		}
-		if selected-d < 0 && selected+d >= n {
-			break
-		}
+	order := make([]int, n)
+	for i := range order {
+		order[i] = i
 	}
+	distance := func(i int) int { return max(i-selected, selected-i) }
+	slices.SortStableFunc(order, func(x, y int) int { return cmp.Compare(distance(x), distance(y)) })
 	return order
 }
 
@@ -125,6 +115,7 @@ func (a App) drainVerdictFetch() (App, bool) {
 		maps.Copy(verdicts, a.verdicts)
 		maps.Copy(verdicts, fetch.results)
 		a.verdicts = verdicts
+		a.runs.Verdicts = a.verdictsFor(a.runs.Context.Runs)
 		clear(fetch.results)
 	}
 	if len(fetch.failed) > 0 {
@@ -136,8 +127,6 @@ func (a App) drainVerdictFetch() (App, bool) {
 		a.verdictFailed = failed
 		clear(fetch.failed)
 		if !a.verdictWarned {
-			// The row stays red as failing: a miss must not pass for a
-			// verdict. Said once a session.
 			a.verdictWarned = true
 			a.pushToast("verdict-unavailable", usecase.Resilience{
 				Severity: usecase.SeverityWarn,
@@ -166,8 +155,35 @@ func (a App) verdictsFor(rows []model.Run) map[int64]model.RunVerdict {
 	return out
 }
 
-// detailNeverRan reports an open detail run in which no job ran.
-func (a App) detailNeverRan() bool {
-	_, never := a.detail.NeverRan()
-	return never
+// listVerdict is a list row's verdict: from its fields, else from the
+// background read.
+func (a App) listVerdict(run model.Run) model.RunVerdict {
+	if verdict, known := model.ClassifyRun(run, nil); known {
+		return verdict
+	}
+	return a.verdicts[verdictKey{run.ID, run.RunAttempt}]
+}
+
+// detailNeverRan is the open detail run's verdict when no job ran in
+// it. An empty listing counts only once the jobs loaded: a failed load
+// leaves the skeleton empty too, and that proves nothing.
+func (a App) detailNeverRan() (model.RunVerdict, bool) {
+	if verdict, _ := model.ClassifyRun(a.detail.Run, nil); verdict.Verdict == model.VerdictNeverRan {
+		return verdict, true
+	}
+	if !a.detailLoaded {
+		return model.RunVerdict{}, false
+	}
+	return a.detail.NeverRan()
+}
+
+// noJobRan answers a key that needs a job on a run in which no job ran:
+// an info toast naming why, and no fetch that could only fail.
+func (a *App) noJobRan(verdict model.RunVerdict, run model.Run, what string) {
+	headline, _ := why.Explanation(verdict, run)
+	a.pushToast("no-job-ran", usecase.Resilience{
+		Severity: usecase.SeverityInfo,
+		Title:    "no job ran",
+		Message:  headline + " · " + what,
+	})
 }

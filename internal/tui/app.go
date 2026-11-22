@@ -41,7 +41,6 @@ import (
 	"github.com/indrasvat/gh-hound/internal/tui/screens/welcome"
 	workflowsscreen "github.com/indrasvat/gh-hound/internal/tui/screens/workflows"
 	"github.com/indrasvat/gh-hound/internal/tui/toast"
-	"github.com/indrasvat/gh-hound/internal/tui/why"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -111,6 +110,9 @@ type Options struct {
 	// VerdictResolver reads a red run's jobs to say why it is red, for
 	// runs whose fields do not settle it.
 	VerdictResolver func(context.Context, model.Run) (model.RunVerdict, error)
+	// PushAccessResolver says whether the credentials can write to the
+	// repo, which approving a held fork run needs.
+	PushAccessResolver func(context.Context) (bool, error)
 	// RunRefresher re-reads one run by ID: the runs poll uses it for
 	// unfinished rows that have slid past page 1.
 	RunRefresher       func(context.Context, int64) (model.Run, error)
@@ -230,13 +232,14 @@ type App struct {
 	paceJobs        map[string]paceJobEntry
 	paceFailed      map[string]time.Time
 	paceFetch       *paceFetchState
-	// Verdicts of red runs per attempt, read from their jobs; a failed
-	// read waits verdictRetry and warns once.
+	// Verdicts of red runs per attempt, read from their jobs.
 	verdictResolver func(context.Context, model.Run) (model.RunVerdict, error)
 	verdicts        map[verdictKey]model.RunVerdict
 	verdictFailed   map[verdictKey]time.Time
 	verdictFetch    *verdictFetchState
 	verdictWarned   bool
+	// pushAccessResolver checks write access before the approve confirm.
+	pushAccessResolver func(context.Context) (bool, error)
 	// runRefresher re-reads unfinished rows the page-1 poll no longer
 	// returns; runsConfirmed is when a fetch last returned each run's
 	// snapshot, runsTried when one was last asked for.
@@ -630,6 +633,7 @@ func NewApp(options Options) App {
 		paceResolver:              options.PaceResolver,
 		paceJobResolver:           options.PaceJobResolver,
 		verdictResolver:           options.VerdictResolver,
+		pushAccessResolver:        options.PushAccessResolver,
 		runRefresher:              options.RunRefresher,
 		runsConfirmed:             confirmedAt(nil, slices.Concat(launch.Runs, launch.BranchRuns, launch.RepoRuns), time.Now()),
 		queueResolver:             options.QueueResolver,
@@ -743,6 +747,9 @@ func (a App) Update(msg KeyMsg) (out App, handled bool) {
 	// data would otherwise sit invisible until the following poll.
 	repaint := false
 	defer func() { handled = handled || repaint }()
+	// The rows a key acts on are the rows painted: a filter can match a
+	// row's verdict words, so the list model carries the same verdicts.
+	a.runs.Verdicts = a.verdictsFor(a.runs.Context.Runs)
 	if next, ok := a.drainArtifactsFetch(); ok {
 		a = next
 		repaint = true
@@ -2193,8 +2200,11 @@ func (a App) updateRuns(msg KeyMsg) (App, bool) {
 		}
 		a.PushRoute(RouteDetail)
 	case runs.IntentOpenLogs:
-		if run, ok := a.runs.SelectedRun(); ok && a.noJobRan(run) {
-			break
+		if run, ok := a.runs.SelectedRun(); ok {
+			if verdict := a.listVerdict(run); verdict.Verdict == model.VerdictNeverRan {
+				a.noJobRan(verdict, run, "no log to open")
+				break
+			}
 		}
 		if a.loadBlocked(loadKindLog) {
 			break
@@ -2243,7 +2253,7 @@ func (a App) updateRuns(msg KeyMsg) (App, bool) {
 			break
 		}
 		if run, ok := a.runs.SelectedRun(); ok {
-			a = a.openApprovals(run)
+			a = a.openApprovals(RouteRuns, run)
 		}
 	case runs.IntentFilter:
 		a = a.applyRunsQuery(runsView{filter: before.Filter, scope: before.Context.Scope, queryError: before.QueryError})
@@ -2259,6 +2269,12 @@ func (a App) updateDetail(msg KeyMsg) (App, bool) {
 	beforeStep := a.detail.SelectedStep
 	beforeArtifact := a.detail.SelectedArtifact
 	a.detail = a.detail.Update(detail.KeyMsg{Key: msg.Key})
+	if verdict, never := a.detailNeverRan(); never && detailNeedsAJob(a.detail.Intent.Kind) {
+		// The footer leaves these keys out; pressed anyway, they say why
+		// instead of acting on a check run that is no job.
+		a.noJobRan(verdict, a.detail.Run, "no job to open, rerun, cancel or watch")
+		return a, true
+	}
 	switch a.detail.Intent.Kind {
 	case detail.IntentFailure:
 		if a.detailLogNotReady() {
@@ -2295,10 +2311,8 @@ func (a App) updateDetail(msg KeyMsg) (App, bool) {
 	case detail.IntentApprove:
 		// A approves what the screen offers: the deploy gate the gate
 		// pane names ("A review"), or a held fork run.
-		if verdict, _ := model.ClassifyRun(a.detail.Run, nil); verdict.WaitingOnPerson() {
-			a = a.openApproveRun(RouteDetail, a.detail.Run)
-		} else if a.detail.Run.Status == model.StatusWaiting && !a.loadBlocked(loadKindApprovals) {
-			a = a.openApprovals(a.detail.Run)
+		if !a.loadBlocked(loadKindApprovals) {
+			a = a.openApprovals(RouteDetail, a.detail.Run)
 		}
 	case detail.IntentBrowser:
 		a = a.openExternal(detailBrowserURL(a.detail))
@@ -2318,35 +2332,21 @@ func (a App) updateDetail(msg KeyMsg) (App, bool) {
 	return a, detailHandled(msg.Key) || beforeFocus != a.detail.Focus || beforeJob != a.detail.SelectedJob || beforeStep != a.detail.SelectedStep || beforeArtifact != a.detail.SelectedArtifact || a.detail.Intent.Kind != detail.IntentNone
 }
 
-// noJobRan answers l on a run GitHub could not start: it has no job and
-// never will, so a log fetch could only fail. It says so in a toast.
-func (a *App) noJobRan(run model.Run) bool {
-	verdict, known := model.ClassifyRun(run, nil)
-	if !known {
-		verdict = a.verdicts[verdictKey{run.ID, run.RunAttempt}]
+// detailNeedsAJob reports the detail intents that act on a job: on a
+// run in which no job ran each of them could only fail or mislead.
+func detailNeedsAJob(kind detail.IntentKind) bool {
+	switch kind {
+	case detail.IntentFailure, detail.IntentLog, detail.IntentWatch,
+		detail.IntentRerunJob, detail.IntentRerunFailed, detail.IntentCancel, detail.IntentForceCancel:
+		return true
 	}
-	if verdict.Verdict != model.VerdictNeverRan {
-		return false
-	}
-	message := "GitHub could not start this run · no log to open"
-	if verdict.Reason != model.ReasonCouldNotStart {
-		message = why.Short(verdict) + " · no log to open"
-	}
-	a.pushToast("no-job-ran", usecase.Resilience{
-		Severity: usecase.SeverityInfo,
-		Title:    "no job ran",
-		Message:  message,
-	})
-	return true
+	return false
 }
 
 // detailLogNotReady answers l/⏎ on a job not finished: GitHub serves a
 // job's log only once it finishes, so a fetch would only read "no log".
 // It says so in a toast and points at w, which follows the steps.
 func (a *App) detailLogNotReady() bool {
-	if a.noJobRan(a.detail.Run) {
-		return true
-	}
 	job := a.selectedDetailJob()
 	if job.ID == 0 {
 		if a.detail.Run.Status == model.StatusCompleted || !a.detailLoaded {
@@ -2711,6 +2711,9 @@ func (a App) updateConfirm(msg KeyMsg) (App, bool) {
 		if pendingCacheDelete != nil {
 			return a.startCacheDelete(*pendingCacheDelete), true
 		}
+		if pending != nil && pending.request.Action == usecase.ActionApproveRun {
+			return a.startApproveRuns(pending.route, pending.request), true
+		}
 		if pending != nil {
 			var accepted bool
 			a, accepted = a.executeAction(pending.route, pending.request)
@@ -2730,11 +2733,6 @@ func (a App) updateConfirm(msg KeyMsg) (App, bool) {
 						a.dispatchWorkflows[i].State = state
 					}
 				}
-			}
-			if accepted && pending.request.Action == usecase.ActionApproveRun && a.Route() == RouteDetail {
-				// The detail of a held run is stale once it is approved:
-				// back to the list, where the next poll shows it queued.
-				a.PopRoute()
 			}
 			if accepted && deploymentReviewFamily(pending.request.Action) && a.TopOverlay() == OverlayApprovals {
 				// The gate was acted on: the overlay beneath has
@@ -2879,7 +2877,7 @@ func (a App) handlePaletteIntent(intent palette.Intent) App {
 	case "approvals":
 		a.PopOverlay()
 		if run, ok := a.runs.SelectedRun(); ok {
-			a = a.openApprovals(run)
+			a = a.openApprovals(RouteRuns, run)
 		}
 	case string(RouteWatch):
 		a.PopOverlay()
@@ -2959,9 +2957,9 @@ func (a *App) PopOverlay() {
 // openApprovals fetches the selected waiting run's gate list through
 // startLoad — never on the keypress path — and opens the overlay when
 // it lands. Non-waiting runs get a truthful toast instead.
-func (a App) openApprovals(run model.Run) App {
+func (a App) openApprovals(route Route, run model.Run) App {
 	if verdict, _ := model.ClassifyRun(run, nil); verdict.WaitingOnPerson() {
-		return a.openApproveRun(RouteRuns, run)
+		return a.openApproveRun(route, run)
 	}
 	if run.Status != model.StatusWaiting {
 		a.pushToast("approvals-no-gate", usecase.Resilience{
@@ -4642,7 +4640,7 @@ func (a App) footerScreen() keys.Screen {
 	case RouteWelcome:
 		return keys.ScreenWelcome
 	case RouteDetail:
-		if load := a.load; (load == nil || load.kind != loadKindDetail) && a.detailNeverRan() {
+		if _, never := a.detailNeverRan(); never && (a.load == nil || a.load.kind != loadKindDetail) {
 			return keys.ScreenDetailNeverRan
 		}
 		return keys.ScreenDetail
@@ -5143,6 +5141,7 @@ func (a App) screenBody(width, height int) string {
 		detailModel.Theme = a.theme
 		detailModel.Pace, detailModel.PaceHint = a.detailPace(), a.config.Pace && a.paceJobResolver != nil
 		detailModel.HeldRuns = len(a.heldOnCommit(detailModel.Run))
+		detailModel.Verdict = a.listVerdict(detailModel.Run)
 		if load := a.load; load != nil && load.kind == loadKindDetail {
 			detailModel.Loading = true
 			detailModel.LoadingLine = loadingLine(a.theme, load, bodyWidth/2, time.Now())

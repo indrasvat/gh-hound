@@ -23,6 +23,23 @@ func (c *Client) DefaultBranch(ctx context.Context, repo string) (string, error)
 	return payload.DefaultBranch, nil
 }
 
+// CanPush implements usecase.PushAccess: whether the credentials have
+// write access to repo, which approving a held fork run needs.
+func (c *Client) CanPush(ctx context.Context, repo string) (bool, error) {
+	var payload struct {
+		Permissions *struct {
+			Push bool `json:"push"`
+		} `json:"permissions"`
+	}
+	if err := c.getJSON(ctx, resourcePath(repo, ""), nil, &payload); err != nil {
+		return false, err
+	}
+	if payload.Permissions == nil {
+		return false, fmt.Errorf("github repo lookup for %s returned no permissions", repo)
+	}
+	return payload.Permissions.Push, nil
+}
+
 // RefExists implements usecase.RefValidator: branches first, then
 // tags. Branch names may contain slashes and must be path-escaped.
 func (c *Client) RefExists(ctx context.Context, repo, ref string) (bool, error) {

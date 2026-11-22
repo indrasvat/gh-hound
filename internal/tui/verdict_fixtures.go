@@ -20,7 +20,7 @@ func sampleNeverRanRuns() []model.Run {
 			HeadBranch: "main", HeadSHA: "9e8d7c6", CreatedAt: created, RunStartedAt: created, UpdatedAt: created.Add(took)}
 	}
 	fork := func(run model.Run, branch, sha string) model.Run {
-		run.FromFork, run.HeadBranch, run.HeadSHA = true, branch, sha
+		run.FromFork, run.HeadRepository, run.HeadBranch, run.HeadSHA = true, run.Actor+"/forge", branch, sha
 		return run
 	}
 	return []model.Run{

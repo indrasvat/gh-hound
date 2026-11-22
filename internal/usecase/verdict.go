@@ -44,3 +44,9 @@ func (s VerdictService) Classify(ctx context.Context, repo string, run model.Run
 type RunApprover interface {
 	ApproveRun(ctx context.Context, repo string, runID int64) (ActionResult, error)
 }
+
+// PushAccess is an optional adapter capability: whether the credentials
+// can write to repo, as approving a held fork run requires.
+type PushAccess interface {
+	CanPush(ctx context.Context, repo string) (bool, error)
+}

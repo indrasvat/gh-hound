@@ -62,6 +62,7 @@ type repositoryDTO struct {
 type jobDTO struct {
 	ID              int64            `json:"id"`
 	RunID           int64            `json:"run_id"`
+	RunAttempt      int              `json:"run_attempt"`
 	Status          model.Status     `json:"status"`
 	Conclusion      model.Conclusion `json:"conclusion"`
 	StartedAt       modelTime        `json:"started_at"`
@@ -148,6 +149,7 @@ func mapRun(dto runDTO) (model.Run, error) {
 		JobsURL:         dto.JobsURL,
 		LogsURL:         dto.LogsURL,
 		PullRequests:    pullRequests,
+		HeadRepository:  dto.HeadRepository.FullName,
 		FromFork: dto.HeadRepository.FullName != "" && dto.Repository.FullName != "" &&
 			!strings.EqualFold(dto.HeadRepository.FullName, dto.Repository.FullName),
 	}, nil
@@ -192,6 +194,7 @@ func mapJob(dto jobDTO) (model.Job, error) {
 	return model.Job{
 		ID:              dto.ID,
 		RunID:           dto.RunID,
+		RunAttempt:      dto.RunAttempt,
 		Status:          dto.Status,
 		Conclusion:      dto.Conclusion,
 		StartedAt:       dto.StartedAt.Time,

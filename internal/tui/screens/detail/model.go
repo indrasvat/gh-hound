@@ -115,6 +115,9 @@ type Model struct {
 	Pace *usecase.PaceJobBaseline
 	// PaceHint teaches p in the hint line (Pace is on in config).
 	PaceHint bool
+	// Verdict is what the runs list read for this run, when it did: an
+	// infra verdict names the runner's failure under the jobs.
+	Verdict model.RunVerdict
 	// HeldRuns counts the loaded runs held for approval on this run's
 	// commit, this one included. Render-time input from the runs list.
 	HeldRuns int

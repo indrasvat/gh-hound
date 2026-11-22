@@ -39,6 +39,15 @@ func TestClassifyRunNamesWhyARedRunIsRed(t *testing.T) {
 		{"PR run that ended before approval", with(pr, ConclusionFailure, ""), &RunEvidence{}, RunVerdict{VerdictNeverRan, ReasonApprovalMissed}, true},
 		{"a phantom check run is no job", with(pr, ConclusionFailure, "pull_request_target"), &RunEvidence{Jobs: []Job{phantom}}, RunVerdict{VerdictNeverRan, ReasonApprovalMissed}, true},
 		{"push run with no job", with(pr, ConclusionFailure, "push"), &RunEvidence{}, RunVerdict{VerdictNeverRan, ReasonNoJobRan}, true},
+		// Only a fork's held run can miss its approval as far as hound
+		// can tell; a same-repo PR run with no job is "no job ran".
+		{"same-repo PR run with no job", with(Run{Status: StatusCompleted, Event: "pull_request", RunAttempt: 1}, ConclusionFailure, ""), &RunEvidence{}, RunVerdict{VerdictNeverRan, ReasonNoJobRan}, true},
+		// Jobs from another attempt say nothing about this one: a run
+		// listed at attempt 1 whose attempt 2 just queued is not "never ran".
+		{"jobs of another attempt", with(Run{Status: StatusCompleted, Event: "push", RunAttempt: 1}, ConclusionFailure, ""), &RunEvidence{Jobs: []Job{{ID: 4, RunAttempt: 2, Status: StatusQueued}}}, RunVerdict{}, false},
+		// A test that prints "No space left on device" as a warning and
+		// then fails an assertion is a code failure.
+		{"disk full only from a failure annotation", with(pr, ConclusionFailure, "push"), &RunEvidence{Jobs: []Job{ranJob(1, ConclusionFailure)}, Annotations: map[int64][]Annotation{1: {{Level: "warning", Message: "No space left on device"}}}}, RunVerdict{VerdictCode, ""}, true},
 		// A job no runner took (no matching label) still failed: its
 		// annotations say why, so the run is not "never ran".
 		{"a failed job no runner took", with(pr, ConclusionFailure, "push"), &RunEvidence{Jobs: []Job{{ID: 3, Conclusion: ConclusionFailure}}}, RunVerdict{VerdictCode, ""}, true},

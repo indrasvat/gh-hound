@@ -87,6 +87,13 @@ func ClassifyRun(run Run, evidence *RunEvidence) (RunVerdict, bool) {
 	if evidence == nil {
 		return RunVerdict{}, false
 	}
+	for _, job := range evidence.Jobs {
+		if job.RunAttempt != 0 && run.RunAttempt != 0 && job.RunAttempt != run.RunAttempt {
+			// The listing moved on to another attempt (a re-run began):
+			// it says nothing about this one.
+			return RunVerdict{}, false
+		}
+	}
 	if !NoJobRan(evidence.Jobs) {
 		infra := VerdictReason("")
 		for _, job := range evidence.Jobs {
@@ -107,8 +114,8 @@ func ClassifyRun(run Run, evidence *RunEvidence) (RunVerdict, bool) {
 		// Red with no failing job: nothing points away from the code.
 		return RunVerdict{Verdict: VerdictCode}, true
 	}
-	if run.Event == "pull_request" || run.Event == "pull_request_target" {
-		// GitHub ends a held PR run red when its pull request closes.
+	if run.FromFork && (run.Event == "pull_request" || run.Event == "pull_request_target") {
+		// GitHub ends a held fork run red when its pull request closes.
 		return RunVerdict{VerdictNeverRan, ReasonApprovalMissed}, true
 	}
 	return RunVerdict{VerdictNeverRan, ReasonNoJobRan}, true
@@ -124,7 +131,7 @@ func infraReason(annotations []Annotation, exitCode int) VerdictReason {
 		case strings.Contains(message, "lost communication with the server"),
 			strings.Contains(message, "runner has received a shutdown signal"):
 			return ReasonRunnerLost
-		case strings.Contains(message, "no space left on device"):
+		case annotation.Level == "failure" && strings.Contains(message, "no space left on device"):
 			return ReasonDiskFull
 		case exitCode137.MatchString(message):
 			return ReasonKilled

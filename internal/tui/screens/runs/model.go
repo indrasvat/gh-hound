@@ -8,6 +8,7 @@ import (
 
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/theme"
+	"github.com/indrasvat/gh-hound/internal/tui/why"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -418,15 +419,21 @@ func (m Model) filteredRuns() []model.Run {
 	for _, run := range runs {
 		// Current rows already satisfy the server qualifiers; stale rows
 		// (a reload in flight) must satisfy the whole query.
-		if (current && q.MatchesText(run)) || (!current && q.Matches(run, m.Viewer)) {
+		verdict, _ := m.VerdictFor(run)
+		if (current && q.MatchesText(run, why.Short(verdict))) || (!current && q.Matches(run, m.Viewer)) {
 			filtered = append(filtered, run)
 		}
 	}
 	return filtered
 }
 
-func runMatchesQuery(run model.Run, query string) bool {
+func runMatchesQuery(run model.Run, query string, also ...string) bool {
 	for _, alias := range queryAliases(query) {
+		for _, word := range also {
+			if strings.Contains(strings.ToLower(word), alias) {
+				return true
+			}
+		}
 		if strings.Contains(strings.ToLower(run.Name), alias) ||
 			strings.Contains(strings.ToLower(run.DisplayTitle), alias) ||
 			strings.Contains(strings.ToLower(run.Event), alias) ||

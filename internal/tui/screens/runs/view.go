@@ -372,12 +372,12 @@ func summaryLine(st styles, summary Summary, hasMore bool, budget int) string {
 		}
 	}
 	optional(summary.Infra, "infra", st.info)
-	needApproval := "need approval"
+	optional(summary.NeedApproval, "need approval", st.warn)
 	if summary.Approvable > 0 {
-		// The contextual approve affordance, as for gated runs.
-		needApproval += " · A approve"
+		// The contextual approve affordance, as for gated runs; it gives
+		// way before the counts and the paging hint.
+		parts = append(parts, summaryPart{"A approve", st.warn, 1})
 	}
-	optional(summary.NeedApproval, needApproval, st.warn)
 	optional(summary.NeverRan, "never ran", st.neutral)
 	runningDrop := 2
 	if summary.Running == 0 && summary.Red() > summary.Failing {

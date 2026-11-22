@@ -235,6 +235,25 @@ func TestFlakeScanStartupFailureIsNoFlakeSignal(t *testing.T) {
 	}
 }
 
+// A fork's PR run that closed unapproved ends red with no job; beside a
+// green run on the same commit it must not read as a flap.
+func TestFlakeScanForkRunsAreNoSamples(t *testing.T) {
+	missed := flakeRun(106, 1, model.ConclusionFailure)
+	missed.FromFork, missed.Event = true, "pull_request"
+	green := flakeRun(105, 1, model.ConclusionSuccess)
+	green.HeadSHA = missed.HeadSHA
+	fake := newFlakeFake(missed, green,
+		flakeRun(104, 1, model.ConclusionSuccess),
+		flakeRun(103, 1, model.ConclusionSuccess),
+		flakeRun(102, 1, model.ConclusionSuccess),
+		flakeRun(101, 1, model.ConclusionSuccess),
+	)
+	report := scanFlakes(t, fake, 50)
+	if report.Status != FlakeStatusClean || report.SampleSize != 5 {
+		t.Fatalf("status = %q sample = %d, want clean over 5: a fork's run is no sample", report.Status, report.SampleSize)
+	}
+}
+
 func TestFlakeScanTwoFlapsHitTheFlakyThreshold(t *testing.T) {
 	redA := flakeRun(108, 1, model.ConclusionFailure)
 	greenA := flakeRun(109, 1, model.ConclusionSuccess)

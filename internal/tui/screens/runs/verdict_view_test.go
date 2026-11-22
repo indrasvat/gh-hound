@@ -80,7 +80,7 @@ func TestRunsListSaysWhyARedRunIsRed(t *testing.T) {
 			t.Errorf("width %d code row = %q, want ✗", width, code)
 		}
 		summary := lineFor(t, view, "failing")
-		for _, want := range []string{"1 failing", "1 infra", "1 need approval · A approve", "2 never ran"} {
+		for _, want := range []string{"1 failing", "1 infra", "1 need approval", "2 never ran"} {
 			if !strings.Contains(summary, want) {
 				t.Errorf("width %d summary = %q, want %q", width, summary, want)
 			}
@@ -98,5 +98,19 @@ func TestRunsListColoursVerdictsWithThemeTokens(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Errorf("view lacks %q", want)
 		}
+	}
+}
+
+// At 80 columns the paging hint outranks the A affordance and idle
+// counts: a long red list must still say G loads more.
+func TestSummaryKeepsTheLoadMoreHintAtEightyColumns(t *testing.T) {
+	st := stylesFor(verdictRows().Theme.OrBramble())
+	summary := Summary{NeedApproval: 2, Approvable: 2, NeverRan: 5}
+	line := ansi.Strip(summaryLine(st, summary, true, 78-len("rows 113-127/150+")-2))
+	if !strings.Contains(line, "G load more") || !strings.Contains(line, "2 need approval") || !strings.Contains(line, "5 never ran") {
+		t.Fatalf("summary at 80 = %q", line)
+	}
+	if wide := ansi.Strip(summaryLine(st, summary, true, 200)); !strings.Contains(wide, "A approve") {
+		t.Fatalf("summary with room = %q, want A approve", wide)
 	}
 }

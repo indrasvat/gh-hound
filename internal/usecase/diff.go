@@ -160,7 +160,9 @@ func (s DiffService) perPage() int {
 
 // regressionSignal classifies one run for the boundary scan.
 func regressionSignal(run model.Run) (good, bad bool) {
-	if run.Status != model.StatusCompleted {
+	if run.Status != model.StatusCompleted || run.FromFork {
+		// A fork's PR run lists under its head branch name (often its
+		// own main), but its commit is not on the branch scanned.
 		return false, false
 	}
 	verdict, _ := model.ClassifyRun(run, nil)

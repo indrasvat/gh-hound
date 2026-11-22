@@ -97,8 +97,6 @@ func renderJobsPane(m Model, st styles, width int) []string {
 		divider(st, width),
 	}
 	if _, never := m.NeverRan(); never {
-		// A check run GitHub lists among the jobs without a runner is
-		// not one of this workflow's jobs: nothing ran.
 		return append(lines, fitANSI(colorize(st.dim, "No job ran"), width))
 	}
 	if len(m.Jobs) == 0 {
@@ -113,6 +111,10 @@ func renderJobsPane(m Model, st styles, width int) []string {
 	}
 	for i, job := range m.Jobs {
 		lines = append(lines, jobRow(st, job, m.jobPace(job), i == m.SelectedJob, width, m.clock()))
+	}
+	if m.Verdict.Verdict == model.VerdictInfra {
+		// The jobs show the failure; this says it was the runner's.
+		lines = append(lines, "", fitANSI(colorize(st.info, icons.Infra+" "+why.Short(m.Verdict)+" · not the code"), width))
 	}
 	return lines
 }

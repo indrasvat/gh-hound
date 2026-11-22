@@ -37,7 +37,7 @@ func View(km keys.Keymap, screen keys.Screen, width int) string {
 	if screen == keys.ScreenRunsList || screen == keys.ScreenAllGreen {
 		lines = append(lines, section("Filter /", km.RunsFilterSyntax(), width)...)
 	}
-	lines = append(lines, "Legend", icons.Success+" success · "+icons.Failure+" failure · "+icons.InProgress+" running")
+	lines = append(lines, "Legend", icons.Success+" success · "+icons.Failure+" failure · "+icons.InProgress+" running · "+icons.NeverRan+" never ran · "+icons.Infra+" runner failed")
 	return fitLines(lines, width)
 }
 

@@ -53,8 +53,10 @@ func Explanation(v model.RunVerdict, run model.Run) (string, []string) {
 			"nothing in the code ran · nothing to fix here",
 		}
 	case model.ReasonBlockedByPolicy:
-		return "Blocked by the repo's Actions policy", []string{
-			"pull_request_target is blocked by default in public repos from 2 Dec 2026",
+		// The API names no cause: a pull_request_target run that could
+		// not start is, almost always, GitHub's default block.
+		return "Likely blocked by the repo's Actions policy", []string{
+			"GitHub blocks pull_request_target in public repos by default (enforced 2 Dec 2026)",
 			"allow it in an Actions event policy, or move the workflow to pull_request",
 		}
 	case model.ReasonCouldNotStart:

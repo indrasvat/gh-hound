@@ -725,6 +725,9 @@ func TestRunsJSONNamesWhyEachRedRunIsRed(t *testing.T) {
 		9396: {"success", "", ""},
 		9392: {"failure", "infra", "runner_lost"},
 		9390: {"failure", "infra", "killed"},
+		9410: {"action_required", "never_ran", "awaiting_approval"},
+		9388: {"failure", "never_ran", "no_job_ran"},
+		9386: {"failure", "infra", "disk_full"},
 	}
 	seen := 0
 	for _, r := range runs {
@@ -2408,5 +2411,19 @@ func TestDefaultTUIAppDetailCarriesPendingEnvironmentsForWaitingRun(t *testing.T
 		if !strings.Contains(view, want) {
 			t.Fatalf("detail view missing %q:\n%s", want, view)
 		}
+	}
+}
+
+// A hunt that times out with only held runs lost is still pending: the
+// exit does not change when an unrelated sibling finishes first.
+func TestLostNeedsActionIgnoresHeldRuns(t *testing.T) {
+	held := cliRun(1, "Lint", model.StatusCompleted, model.ConclusionActionRequired)
+	running := cliRun(2, "CI", model.StatusInProgress, model.ConclusionNone)
+	red := cliRun(3, "Docs", model.StatusCompleted, model.ConclusionFailure)
+	if lostNeedsAction([]model.Run{held, running}) {
+		t.Fatal("a held run with a sibling still running needs action")
+	}
+	if !lostNeedsAction([]model.Run{held, running, red}) {
+		t.Fatal("a failed sibling does not need action")
 	}
 }

@@ -9,35 +9,35 @@ import (
 type Screen string
 
 const (
-	ScreenWelcome    Screen = "welcome"
-	ScreenAllGreen   Screen = "all_green"
-	ScreenRunsList   Screen = "runs_list"
-	ScreenRunsFilter Screen = "runs_filter"
-	ScreenDetail     Screen = "detail"
-	// ScreenDetailNeverRan is a run in which no job ran: rerun, cancel
-	// and log keys cannot help it.
-	ScreenDetailNeverRan Screen = "detail_never_ran"
-	ScreenFailure        Screen = "failure"
-	ScreenWatch          Screen = "watch"
-	ScreenWatchPending   Screen = "watch_pending"
-	ScreenWatchDone      Screen = "watch_done"
-	ScreenWatchBoard     Screen = "watch_board"
-	ScreenLog            Screen = "log"
-	ScreenLogSearch      Screen = "log_search"
-	ScreenDispatch       Screen = "dispatch"
-	ScreenDiff           Screen = "diff"
-	ScreenFlakes         Screen = "flakes"
-	ScreenCaches         Screen = "caches"
-	ScreenCachesFilter   Screen = "caches_filter"
-	ScreenQueue          Screen = "queue"
-	ScreenWorkflows      Screen = "workflows"
-	ScreenPalette        Screen = "palette"
-	ScreenHelp           Screen = "help"
-	ScreenToasts         Screen = "toasts"
-	ScreenStartup        Screen = "startup"
+	ScreenWelcome      Screen = "welcome"
+	ScreenAllGreen     Screen = "all_green"
+	ScreenRunsList     Screen = "runs_list"
+	ScreenRunsFilter   Screen = "runs_filter"
+	ScreenDetail       Screen = "detail"
+	ScreenFailure      Screen = "failure"
+	ScreenWatch        Screen = "watch"
+	ScreenWatchPending Screen = "watch_pending"
+	ScreenWatchDone    Screen = "watch_done"
+	ScreenWatchBoard   Screen = "watch_board"
+	ScreenLog          Screen = "log"
+	ScreenLogSearch    Screen = "log_search"
+	ScreenDispatch     Screen = "dispatch"
+	ScreenDiff         Screen = "diff"
+	ScreenFlakes       Screen = "flakes"
+	ScreenCaches       Screen = "caches"
+	ScreenCachesFilter Screen = "caches_filter"
+	ScreenQueue        Screen = "queue"
+	ScreenWorkflows    Screen = "workflows"
+	ScreenPalette      Screen = "palette"
+	ScreenHelp         Screen = "help"
+	ScreenToasts       Screen = "toasts"
+	ScreenStartup      Screen = "startup"
 	// ScreenApprovals has no footer table: it is the approvals overlay's
 	// key context, for keybinding checks.
 	ScreenApprovals Screen = "approvals"
+	// ScreenDetailNeverRan is a run in which no job ran: rerun, cancel
+	// and log keys cannot help it.
+	ScreenDetailNeverRan Screen = "detail_never_ran"
 )
 
 var footerByScreen = map[Screen][]Binding{
@@ -104,7 +104,7 @@ var footerByScreen = map[Screen][]Binding{
 		{Key: "?", Action: "help", Help: "", ShowInFooter: true},
 	},
 	ScreenDetailNeverRan: {
-		{Key: "A", Action: "approve", Help: "approve a held fork run", ShowInFooter: false},
+		{Key: "A", Action: "approve", Help: "approve (held fork run only)", ShowInFooter: false},
 		{Key: "o", Action: "open_artifact_dir", Help: "browser", ShowInFooter: true},
 		{Key: "y", Action: "copy_artifact_path", Help: "copy URL", ShowInFooter: true},
 		{Key: "esc", Display: "⎋", Action: "back", Help: "back", ShowInFooter: true},

@@ -898,3 +898,22 @@ pace 42 = ~1200/h raw, ~790/h rate-counted (was ~2250/h). P3 accepted:
 frozen ETA/"due" on rows that finished 18-84s earlier (row still shows ⠹,
 mark true as of last confirmation). Pre-existing: summary "231 running"
 counts stale rows outside the 30-row span.
+
+Round 41 (task 470 never-ran verdicts, b4d53c6 vs d8646b3, 2026-11-22): FAIL.
+VERIFIED: ∅ warn/neutral and ↯ info hex-exact to bramble tokens; approve/
+missed/— cells; 80-col approve/missed ride in label col; detail "Why this
+run never ran" + detail_never_ran footer; A confirm default No, n/Esc/Enter
+cancel, y approves + pops detail to list; A on waiting detail opens gate
+overlay; l toast; Bone OK; render hygiene (stock + never_ran variant) 0
+erases; live cli/cli verdicts match gh (missed runs: 0 jobs, fork).
+OPEN P1: A->y approves N held runs inline on the keystroke through the 1s
+mutation limiter (main.go approveHeldRuns): UI frozen ~N-1 s, modal still
+says "Press y" (1.05s measured for 2). OPEN P1: detail_never_ran hides
+r/R/x/X/w but they stay live: r opens "rerun job <phantom check run>", x
+"cancel run" on a completed run, w a watch with the launch branch + gap
+"duration". OPEN P2: 80x24 summary on a paged repo truncates "G load more"
+to "G …" (non-droppable parts). P2: `/policy` `/runner` find 0 rows though
+the label shows them. P2: A approve offered on repos you cannot write
+(cli/cli). P2: fake lacks no_job_ran, disk_full, non-fork held run.
+Recipe: shim `open`/`pbcopy` via PATH in the pane cmd before testing o/y
+(__vqa-tui wires the real browser + clipboard).

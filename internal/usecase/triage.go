@@ -49,6 +49,16 @@ func (s TriageService) LoadRunTriage(ctx context.Context, repo string, run model
 	if !run.Conclusion.Failing() {
 		return RunTriage{}, nil
 	}
+	if verdict, _ := model.ClassifyRun(run, nil); verdict.Verdict == model.VerdictNeverRan {
+		// Held or unstartable: no job ran, so failed[] stays empty even
+		// when GitHub lists a failing check run beside it.
+		return RunTriage{Verdict: verdict}, nil
+	}
+	if attempt == 0 {
+		// The latest listing may already be a re-run's: read the attempt
+		// this run shows.
+		attempt = run.RunAttempt
+	}
 	var jobs []model.Job
 	var err error
 	if attempt > 0 {

@@ -1,6 +1,7 @@
 package fake
 
 import (
+	"context"
 	"strconv"
 	"time"
 
@@ -33,12 +34,14 @@ func (a *Adapter) neverRanRun(number int, workflow, title, event string, conclus
 
 func (a *Adapter) neverRanRuns() []model.Run {
 	fork := func(run model.Run, branch, sha, login string) model.Run {
-		run.FromFork, run.HeadBranch, run.HeadSHA, run.Actor, run.TriggeringActor = true, branch, sha, login, login
+		run.FromFork, run.HeadRepository = true, login+"/forge"
+		run.HeadBranch, run.HeadSHA, run.Actor, run.TriggeringActor = branch, sha, login, login
 		return run
 	}
 	runs := []model.Run{
 		fork(a.neverRanRun(9412, "Unit tests", "fix typo in docs", "pull_request", model.ConclusionActionRequired, 2*time.Hour, 0), "patch-1", neverRanHeldSHA, "new-dev"),
 		fork(a.neverRanRun(9411, "Lint", "fix typo in docs", "pull_request", model.ConclusionActionRequired, 2*time.Hour, 0), "patch-1", neverRanHeldSHA, "new-dev"),
+		a.botRun(a.neverRanRun(9410, "Docs preview", "bump eslint to 9.39", "pull_request", model.ConclusionActionRequired, 3*time.Hour, 0)),
 		fork(a.neverRanRun(9408, "Unit tests", "add arm64 build", "pull_request", model.ConclusionFailure, 9*time.Hour, 4*time.Hour+14*time.Minute), "arm64", "7c2d4e1", "drive-by"),
 		fork(a.neverRanRun(9407, "Code scanning", "add arm64 build", "pull_request", model.ConclusionFailure, 9*time.Hour, 4*time.Hour+14*time.Minute), "arm64", "7c2d4e1", "drive-by"),
 		a.neverRanRun(9405, "Unit tests", "cache config parse", "push", model.ConclusionFailure, 11*time.Hour, 3*time.Minute+41*time.Second),
@@ -47,6 +50,8 @@ func (a *Adapter) neverRanRuns() []model.Run {
 		a.neverRanRun(9396, "Release", "v3.2.0", "push", model.ConclusionSuccess, 30*time.Hour, 6*time.Minute+2*time.Second),
 		a.neverRanRun(9392, "Integration", "docker 29 bump", "push", model.ConclusionFailure, 50*time.Hour, 8*time.Minute+55*time.Second),
 		a.neverRanRun(9390, "Nightly build", "arm64 nightly", "schedule", model.ConclusionFailure, 56*time.Hour, 41*time.Minute),
+		a.neverRanRun(9388, "Cache warm", "weekly warm-up", "schedule", model.ConclusionFailure, 60*time.Hour, 2*time.Second),
+		a.neverRanRun(9386, "Build", "vendor refresh", "push", model.ConclusionFailure, 70*time.Hour, 12*time.Minute+4*time.Second),
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -78,6 +83,8 @@ func neverRanJobs(runID int64) []model.Job {
 		return []model.Job{ran(neverRanBase*10+9392, "integration", model.ConclusionFailure), ran(neverRanBase*10+93920, "lint", model.ConclusionSuccess)}
 	case 9390:
 		return []model.Job{ran(neverRanBase*10+9390, "build (arm64)", model.ConclusionFailure)}
+	case 9386:
+		return []model.Job{ran(neverRanBase*10+9386, "build", model.ConclusionFailure)}
 	}
 	return []model.Job{}
 }
@@ -88,8 +95,23 @@ func neverRanAnnotations(jobID int64) []model.Annotation {
 		return []model.Annotation{{Level: "failure", Message: "The self-hosted runner: ci-arm-07 lost communication with the server. Verify the machine is running and has a healthy network connection."}}
 	case neverRanBase*10 + 9390:
 		return []model.Annotation{{Level: "failure", Message: "Process completed with exit code 137."}}
+	case neverRanBase*10 + 9386:
+		return []model.Annotation{{Level: "failure", Message: "System.IO.IOException: No space left on device : '/home/runner/work/_temp/_runner_diag'"}}
 	case neverRanBase*10 + 9405:
 		return []model.Annotation{{Path: "internal/config/parse.go", StartLine: 88, EndLine: 88, Level: "failure", Message: "TestParseCache: cache key mismatch", Title: "go test"}}
 	}
 	return []model.Annotation{}
+}
+
+// botRun is a same-repo PR run a bot opened: GitHub holds it until a
+// maintainer approves it on the web.
+func (a *Adapter) botRun(run model.Run) model.Run {
+	run.HeadBranch, run.HeadSHA, run.Actor, run.TriggeringActor = "dependabot/npm/eslint-9.39", "5d6e7f8", "dependabot[bot]", "dependabot[bot]"
+	return run
+}
+
+// CanPush grants the fake's credentials write access, so A reaches the
+// approve confirm.
+func (a *Adapter) CanPush(context.Context, string) (bool, error) {
+	return true, nil
 }
