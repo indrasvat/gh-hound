@@ -55,3 +55,26 @@ func (f *fakeClock) Sleep(d time.Duration) {
 	f.slept += d
 	f.now = f.now.Add(d)
 }
+
+// Approvals run in the background while the screen can fire a rerun:
+// two Waits at once must still be spaced, and must not race.
+func TestMutationLimiterSpacesConcurrentCallers(t *testing.T) {
+	limiter := &usecase.MutationLimiter{MinSpacing: 40 * time.Millisecond}
+	start := time.Now()
+	done := make(chan time.Time, 3)
+	for range 3 {
+		go func() {
+			_ = limiter.Wait(context.Background())
+			done <- time.Now()
+		}()
+	}
+	var last time.Time
+	for range 3 {
+		if at := <-done; at.After(last) {
+			last = at
+		}
+	}
+	if elapsed := last.Sub(start); elapsed < 80*time.Millisecond {
+		t.Fatalf("3 concurrent mutations went out within %s, want them 40ms apart", elapsed)
+	}
+}

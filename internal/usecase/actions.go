@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 )
 
@@ -199,6 +200,9 @@ type MutationLimiter struct {
 	MinSpacing time.Duration
 	Clock      Clock
 
+	// mu serialises callers: approvals run in the background while the
+	// screen can fire a rerun, and each must wait its turn.
+	mu   sync.Mutex
 	last time.Time
 }
 
@@ -206,6 +210,8 @@ func (l *MutationLimiter) Wait(ctx context.Context) error {
 	if l.MinSpacing <= 0 {
 		return ctx.Err()
 	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	clock := l.Clock
 	if clock == nil {
 		clock = realClock{}
