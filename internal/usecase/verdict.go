@@ -15,7 +15,7 @@ type VerdictService struct {
 
 // Classify returns the run's verdict. Run fields settle action_required
 // and startup_failure without a call; other red runs cost one jobs
-// listing plus one annotations listing per failing job that ran.
+// listing plus one annotations listing per failing job.
 func (s VerdictService) Classify(ctx context.Context, repo string, run model.Run) (model.RunVerdict, error) {
 	if verdict, known := model.ClassifyRun(run, nil); known {
 		return verdict, nil
@@ -26,7 +26,7 @@ func (s VerdictService) Classify(ctx context.Context, repo string, run model.Run
 	}
 	evidence := &model.RunEvidence{Jobs: jobs, Annotations: map[int64][]model.Annotation{}}
 	for _, job := range jobs {
-		if !job.Ran() || !job.Conclusion.Failing() {
+		if !job.Conclusion.Failing() {
 			continue
 		}
 		annotations, err := s.GitHub.ListAnnotations(ctx, repo, job)

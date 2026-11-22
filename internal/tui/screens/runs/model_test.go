@@ -72,19 +72,38 @@ func TestSummaryAndAllGreenVariant(t *testing.T) {
 	}
 }
 
-func TestSummaryCountsAStartupFailureAsFailing(t *testing.T) {
+// The summary counts red runs by who has to act: only a run whose code
+// failed, or whose jobs are not read yet, is "failing". None of them is
+// all green.
+func TestSummaryCountsRedRunsByWhoHasToAct(t *testing.T) {
+	held := run(575, "Lint", "pull_request", model.StatusCompleted, model.ConclusionActionRequired)
+	missed := run(574, "Unit", "pull_request", model.StatusCompleted, model.ConclusionFailure)
+	lost := run(573, "Integration", "push", model.StatusCompleted, model.ConclusionFailure)
+	unread := run(572, "Build", "push", model.StatusCompleted, model.ConclusionFailure)
 	m := NewModel(usecase.LaunchContext{
 		Repo:   "indrasvat/gh-hound",
 		Branch: "main",
 		State:  usecase.LaunchStateRuns,
 		Runs: []model.Run{
+			held, missed, lost, unread,
 			run(570, "Docs", "push", model.StatusCompleted, model.ConclusionStartupFailure),
 			run(569, "CI", "push", model.StatusCompleted, model.ConclusionSuccess),
 		},
 	})
-	summary := m.Summary()
-	if summary.Failing != 1 || summary.Passed != 1 || m.AllGreen() {
-		t.Fatalf("summary = %#v allGreen=%v, want the startup failure counted as failing", summary, m.AllGreen())
+	m.Verdicts = map[int64]model.RunVerdict{
+		missed.ID: {Verdict: model.VerdictNeverRan, Reason: model.ReasonApprovalMissed},
+		lost.ID:   {Verdict: model.VerdictInfra, Reason: model.ReasonRunnerLost},
+	}
+	got := m.Summary()
+	want := Summary{Failing: 1, Passed: 1, Infra: 1, NeedApproval: 1, NeverRan: 2}
+	if got != want || m.AllGreen() {
+		t.Fatalf("summary = %+v allGreen=%v, want %+v", got, m.AllGreen(), want)
+	}
+
+	// Held runs alone are not all green either.
+	m = NewModel(usecase.LaunchContext{Repo: "indrasvat/gh-hound", Branch: "main", State: usecase.LaunchStateRuns, Runs: []model.Run{held}})
+	if m.AllGreen() {
+		t.Fatal("a held run reads all green")
 	}
 }
 

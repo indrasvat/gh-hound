@@ -159,6 +159,18 @@ func (s ActionService) DispatchWorkflow(ctx context.Context, repo, workflowID st
 	})
 }
 
+// ApproveRun lets a held fork run start, through the mutation limiter.
+// An adapter without the capability refuses it typed.
+func (s ActionService) ApproveRun(ctx context.Context, repo string, runID int64) (ActionResult, error) {
+	approver, ok := s.GitHub.(RunApprover)
+	if !ok {
+		return ActionResult{}, ActionError{Kind: ActionErrorValidation, Field: "run", Message: "this GitHub adapter cannot approve runs"}
+	}
+	return s.mutate(ctx, func() (ActionResult, error) {
+		return approver.ApproveRun(ctx, repo, runID)
+	})
+}
+
 func (s ActionService) mutate(ctx context.Context, fn func() (ActionResult, error)) (ActionResult, error) {
 	if s.Limiter != nil {
 		if err := s.Limiter.Wait(ctx); err != nil {

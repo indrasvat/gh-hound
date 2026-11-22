@@ -39,6 +39,9 @@ func TestClassifyRunNamesWhyARedRunIsRed(t *testing.T) {
 		{"PR run that ended before approval", with(pr, ConclusionFailure, ""), &RunEvidence{}, RunVerdict{VerdictNeverRan, ReasonApprovalMissed}, true},
 		{"a phantom check run is no job", with(pr, ConclusionFailure, "pull_request_target"), &RunEvidence{Jobs: []Job{phantom}}, RunVerdict{VerdictNeverRan, ReasonApprovalMissed}, true},
 		{"push run with no job", with(pr, ConclusionFailure, "push"), &RunEvidence{}, RunVerdict{VerdictNeverRan, ReasonNoJobRan}, true},
+		// A job no runner took (no matching label) still failed: its
+		// annotations say why, so the run is not "never ran".
+		{"a failed job no runner took", with(pr, ConclusionFailure, "push"), &RunEvidence{Jobs: []Job{{ID: 3, Conclusion: ConclusionFailure}}}, RunVerdict{VerdictCode, ""}, true},
 		{"a failed step is code", with(pr, ConclusionFailure, "push"), &RunEvidence{Jobs: []Job{ranJob(1, ConclusionFailure)}}, RunVerdict{VerdictCode, ""}, true},
 		{"timed out stays code", with(pr, ConclusionTimedOut, "push"), &RunEvidence{Jobs: []Job{ranJob(1, ConclusionTimedOut)}}, RunVerdict{VerdictCode, ""}, true},
 		{"lost runner", with(pr, ConclusionFailure, "push"), annotated("The self-hosted runner: build-7 lost communication with the server."), RunVerdict{VerdictInfra, ReasonRunnerLost}, true},

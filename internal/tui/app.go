@@ -41,6 +41,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/tui/screens/welcome"
 	workflowsscreen "github.com/indrasvat/gh-hound/internal/tui/screens/workflows"
 	"github.com/indrasvat/gh-hound/internal/tui/toast"
+	"github.com/indrasvat/gh-hound/internal/tui/why"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -107,6 +108,9 @@ type Options struct {
 	// PaceJobResolver builds a run's job and step baseline on its run
 	// baseline (the detail view).
 	PaceJobResolver func(context.Context, model.Run, usecase.PaceBaseline) (usecase.PaceJobBaseline, error)
+	// VerdictResolver reads a red run's jobs to say why it is red, for
+	// runs whose fields do not settle it.
+	VerdictResolver func(context.Context, model.Run) (model.RunVerdict, error)
 	// RunRefresher re-reads one run by ID: the runs poll uses it for
 	// unfinished rows that have slid past page 1.
 	RunRefresher       func(context.Context, int64) (model.Run, error)
@@ -146,6 +150,9 @@ type ActionRequest struct {
 	// approve/reject actions.
 	Environments []string
 	Comment      string
+	// Held are the runs an approve-run action lets start: Run and the
+	// other loaded runs held on its commit.
+	Held []model.Run
 }
 
 type App struct {
@@ -223,6 +230,13 @@ type App struct {
 	paceJobs        map[string]paceJobEntry
 	paceFailed      map[string]time.Time
 	paceFetch       *paceFetchState
+	// Verdicts of red runs per attempt, read from their jobs; a failed
+	// read waits verdictRetry and warns once.
+	verdictResolver func(context.Context, model.Run) (model.RunVerdict, error)
+	verdicts        map[verdictKey]model.RunVerdict
+	verdictFailed   map[verdictKey]time.Time
+	verdictFetch    *verdictFetchState
+	verdictWarned   bool
 	// runRefresher re-reads unfinished rows the page-1 poll no longer
 	// returns; runsConfirmed is when a fetch last returned each run's
 	// snapshot, runsTried when one was last asked for.
@@ -615,6 +629,7 @@ func NewApp(options Options) App {
 		flakesResolver:            options.FlakesResolver,
 		paceResolver:              options.PaceResolver,
 		paceJobResolver:           options.PaceJobResolver,
+		verdictResolver:           options.VerdictResolver,
 		runRefresher:              options.RunRefresher,
 		runsConfirmed:             confirmedAt(nil, slices.Concat(launch.Runs, launch.BranchRuns, launch.RepoRuns), time.Now()),
 		queueResolver:             options.QueueResolver,
@@ -749,6 +764,10 @@ func (a App) Update(msg KeyMsg) (out App, handled bool) {
 		repaint = true
 	}
 	if next, ok := a.drainPaceFetch(); ok {
+		a = next
+		repaint = true
+	}
+	if next, ok := a.drainVerdictFetch(); ok {
 		a = next
 		repaint = true
 	}
@@ -1364,6 +1383,11 @@ func (a App) Refresh() (App, bool) {
 		changed = true
 	}
 	a = a.startPaceFetch()
+	if next, ok := a.drainVerdictFetch(); ok {
+		a = next
+		changed = true
+	}
+	a = a.startVerdictFetch()
 	// A completed route poll applies here; then a fresh one starts in
 	// the background. The fetch never runs on this goroutine, so a slow
 	// poll cannot stall the next keystroke (Task 28). One poll rides at
@@ -2252,6 +2276,14 @@ func (a App) updateDetail(msg KeyMsg) (App, bool) {
 		a = a.handleAction(RouteDetail, ActionRequest{Action: usecase.ActionCancelRun, Run: a.detail.Run})
 	case detail.IntentForceCancel:
 		a = a.handleAction(RouteDetail, ActionRequest{Action: usecase.ActionForceCancelRun, Run: a.detail.Run})
+	case detail.IntentApprove:
+		// A approves what the screen offers: the deploy gate the gate
+		// pane names ("A review"), or a held fork run.
+		if verdict, _ := model.ClassifyRun(a.detail.Run, nil); verdict.WaitingOnPerson() {
+			a = a.openApproveRun(RouteDetail, a.detail.Run)
+		} else if a.detail.Run.Status == model.StatusWaiting && !a.loadBlocked(loadKindApprovals) {
+			a = a.openApprovals(a.detail.Run)
+		}
 	case detail.IntentBrowser:
 		a = a.openExternal(detailBrowserURL(a.detail))
 	case detail.IntentCopyURL:
@@ -2273,13 +2305,21 @@ func (a App) updateDetail(msg KeyMsg) (App, bool) {
 // noJobRan answers l on a run GitHub could not start: it has no job and
 // never will, so a log fetch could only fail. It says so in a toast.
 func (a *App) noJobRan(run model.Run) bool {
-	if run.Conclusion != model.ConclusionStartupFailure {
+	verdict, known := model.ClassifyRun(run, nil)
+	if !known {
+		verdict = a.verdicts[verdictKey{run.ID, run.RunAttempt}]
+	}
+	if verdict.Verdict != model.VerdictNeverRan {
 		return false
+	}
+	message := "GitHub could not start this run · no log to open"
+	if verdict.Reason != model.ReasonCouldNotStart {
+		message = why.Short(verdict) + " · no log to open"
 	}
 	a.pushToast("no-job-ran", usecase.Resilience{
 		Severity: usecase.SeverityInfo,
 		Title:    "no job ran",
-		Message:  "GitHub could not start this run · no log to open",
+		Message:  message,
 	})
 	return true
 }
@@ -2675,6 +2715,11 @@ func (a App) updateConfirm(msg KeyMsg) (App, bool) {
 					}
 				}
 			}
+			if accepted && pending.request.Action == usecase.ActionApproveRun && a.Route() == RouteDetail {
+				// The detail of a held run is stale once it is approved:
+				// back to the list, where the next poll shows it queued.
+				a.PopRoute()
+			}
 			if accepted && deploymentReviewFamily(pending.request.Action) && a.TopOverlay() == OverlayApprovals {
 				// The gate was acted on: the overlay beneath has
 				// nothing left to offer. A refusal keeps it open with
@@ -2899,6 +2944,9 @@ func (a *App) PopOverlay() {
 // startLoad — never on the keypress path — and opens the overlay when
 // it lands. Non-waiting runs get a truthful toast instead.
 func (a App) openApprovals(run model.Run) App {
+	if verdict, _ := model.ClassifyRun(run, nil); verdict.WaitingOnPerson() {
+		return a.openApproveRun(RouteRuns, run)
+	}
 	if run.Status != model.StatusWaiting {
 		a.pushToast("approvals-no-gate", usecase.Resilience{
 			Severity: usecase.SeverityInfo,
@@ -4260,7 +4308,8 @@ func actionRequiresConfirmation(action usecase.Action) bool {
 		usecase.ActionApproveDeployment,
 		usecase.ActionRejectDeployment,
 		usecase.ActionEnableWorkflow,
-		usecase.ActionDisableWorkflow:
+		usecase.ActionDisableWorkflow,
+		usecase.ActionApproveRun:
 		return true
 	default:
 		return false
@@ -4287,6 +4336,8 @@ func confirmMessage(request ActionRequest) string {
 		return "wake " + workflowConfirmTarget(request.Workflow) + "? it goes back on duty"
 	case usecase.ActionDisableWorkflow:
 		return "muzzle " + workflowConfirmTarget(request.Workflow) + "? no runs until it is woken"
+	case usecase.ActionApproveRun:
+		return approveRunMessage(request)
 	default:
 		return string(request.Action)
 	}
@@ -4516,7 +4567,7 @@ func runsHandled(key string) bool {
 
 func detailHandled(key string) bool {
 	switch key {
-	case "tab", "j", "k", "down", "up", "n", "enter", "l", "w", "r", "R", "x", "X", "o", "J", "K", "esc":
+	case "tab", "j", "k", "down", "up", "n", "enter", "l", "w", "r", "R", "x", "X", "A", "o", "J", "K", "esc":
 		return true
 	default:
 		return false
@@ -4575,6 +4626,9 @@ func (a App) footerScreen() keys.Screen {
 	case RouteWelcome:
 		return keys.ScreenWelcome
 	case RouteDetail:
+		if load := a.load; (load == nil || load.kind != loadKindDetail) && a.detailNeverRan() {
+			return keys.ScreenDetailNeverRan
+		}
 		return keys.ScreenDetail
 	case RouteFailure:
 		return keys.ScreenFailure
@@ -5065,12 +5119,14 @@ func (a App) screenBody(width, height int) string {
 			runsModel.LoadingLine = loadingLine(a.theme, load, bodyWidth, time.Now())
 		}
 		runsModel.Pace, runsModel.PaceAsOf = a.paceForRuns(runsModel)
+		runsModel.Verdicts = a.verdictsFor(runsModel.Context.Runs)
 		runsModel.Stale = a.staleRuns(runsModel.Context.Runs, time.Now())
 		return runs.ViewSize(runsModel, bodyWidth, bodyHeight(height), time.Now())
 	case RouteDetail:
 		detailModel := a.detail
 		detailModel.Theme = a.theme
 		detailModel.Pace, detailModel.PaceHint = a.detailPace(), a.config.Pace && a.paceJobResolver != nil
+		detailModel.HeldRuns = len(a.heldOnCommit(detailModel.Run))
 		if load := a.load; load != nil && load.kind == loadKindDetail {
 			detailModel.Loading = true
 			detailModel.LoadingLine = loadingLine(a.theme, load, bodyWidth/2, time.Now())

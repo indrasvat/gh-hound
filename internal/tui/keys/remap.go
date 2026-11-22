@@ -82,6 +82,8 @@ func handlerScreen(screen Screen) Screen {
 		return ScreenRunsList
 	case ScreenWatchDone, ScreenWatchPending:
 		return ScreenWatch
+	case ScreenDetailNeverRan:
+		return ScreenDetail
 	}
 	return screen
 }

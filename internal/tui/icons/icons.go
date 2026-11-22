@@ -32,6 +32,11 @@ const (
 	// ASCII tilde: ambiguous-width glyphs mis-render under terminal
 	// capture, and the badge must survive every breakpoint.
 	Flake = "~"
+	// NeverRan marks a red run in which no job ran (held, blocked, or
+	// never approved). U+2205 is narrow; the mock's ○ is ambiguous-width.
+	NeverRan = "∅"
+	// Infra marks a red run whose runner failed, not its code.
+	Infra = "↯"
 )
 
 // SpinnerFrames is the one loading-spinner glyph cycle for the whole

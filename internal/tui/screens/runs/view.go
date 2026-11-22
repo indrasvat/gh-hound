@@ -11,6 +11,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/components/textinput"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
+	"github.com/indrasvat/gh-hound/internal/tui/why"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -53,7 +54,8 @@ func renderRuns(m Model, width, height int, now time.Time) string {
 	lines = append(lines, empty...)
 	for i, run := range runs[start:end] {
 		index := start + i
-		line := row(st, cols, run, index == selected, m.FlakyRuns[run.ID], m.paceMark(run, now), width, now)
+		verdict, _ := m.VerdictFor(run)
+		line := row(st, cols, run, verdict, index == selected, m.FlakyRuns[run.ID], m.paceMark(run, now), width, now)
 		if m.Loading {
 			// The previous list stays visible but dimmed while a
 			// reload is in flight.
@@ -66,7 +68,8 @@ func renderRuns(m Model, width, height int, now time.Time) string {
 	// Paging belongs to the rows a query fetched; stale rows awaiting a
 	// reload advertise none.
 	hasMore := m.Context.HasMore && m.DataCurrent()
-	lines = append(lines, fitANSI(joinRightANSI(summaryLine(st, summary, hasMore), pageLine(start, end, len(runs), hasMore), width), width))
+	page := pageLine(start, end, len(runs), hasMore)
+	lines = append(lines, fitANSI(joinRightANSI(summaryLine(st, summary, hasMore, width-ansi.StringWidth(page)-2), page, width), width))
 	if m.Loading && m.LoadingLine != "" {
 		lines = append(lines, fitANSI(m.LoadingLine, width))
 	}
@@ -198,35 +201,52 @@ func runsHeader(st styles, c runColumns, width int) string {
 	return dimLine(st, c.cells(" ", "#", "St", truncate("Workflow / detail", c.label), "Actor", "Event", truncate("Duration", c.duration), "Age"), width)
 }
 
-func row(st styles, c runColumns, run model.Run, selected, flaky bool, mark usecase.PaceMark, width int, now time.Time) string {
+func row(st styles, c runColumns, run model.Run, verdict model.RunVerdict, selected, flaky bool, mark usecase.PaceMark, width int, now time.Time) string {
 	prefix := " "
 	if selected {
 		prefix = colorize(st.ok, icons.Cursor)
 	}
 	number := colorize(st.muted, fmt.Sprintf("#%d", run.RunNumber))
 	status := colorize(statusColor(st, run), glyph(run))
+	cell, cellSGR, cellNote := mark.Text, markColor(st, run, mark), mark.Note()
+	detail, detailSGR := runDetail(run), st.subtle
+	switch verdict.Verdict {
+	case model.VerdictNeverRan:
+		// No job ran, so there is no duration: the gap between when the
+		// run was created and last updated is GitHub's bookkeeping.
+		status = colorize(verdictColor(st, verdict), icons.NeverRan)
+		cell, cellSGR, cellNote = "—", st.neutral, false
+		if why.InDuration(verdict) {
+			cell, cellSGR, cellNote = why.Short(verdict), verdictColor(st, verdict), true
+		} else {
+			detail, detailSGR = why.Short(verdict), st.neutral
+		}
+	case model.VerdictInfra:
+		status = colorize(st.info, icons.Infra)
+		detail, detailSGR = why.Short(verdict), st.info
+	}
 	labelWidth := c.label
 	note := ""
-	if noteWidth := ansi.StringWidth(mark.Text) + 1; c.duration == 0 && mark.Note() && c.label-noteWidth >= minNoteLabel {
-		// Duration is dropped at this width: a running ETA or a slow
-		// flag rides right-aligned inside the label column, as the
-		// flake badge does, and the label truncates first. Too narrow
-		// for both, the label keeps the column and the note waits.
-		note = colorize(markColor(st, run, mark), mark.Text)
+	if noteWidth := ansi.StringWidth(cell) + 1; c.duration == 0 && cellNote && c.label-noteWidth >= minNoteLabel {
+		// Duration is dropped at this width: a running ETA, a slow flag
+		// or a held run's word rides right-aligned inside the label
+		// column, as the flake badge does, and the label truncates
+		// first. Too narrow for both, the label keeps the column.
+		note = colorize(cellSGR, cell)
 		labelWidth = c.label - noteWidth
 	}
-	label := runLabel(st, run, labelWidth)
+	label := labelWithDetail(st, run, detail, detailSGR, labelWidth)
 	if flaky {
 		// The flake badge lives inside the label column so every
 		// column keeps its width math and the badge survives 80 cols;
 		// the glyph is plain ASCII by design.
-		label = colorize(st.run, icons.Flake) + " " + runLabel(st, run, labelWidth-2)
+		label = colorize(st.run, icons.Flake) + " " + labelWithDetail(st, run, detail, detailSGR, labelWidth-2)
 	}
 	if note != "" {
 		label = padANSI(fitANSI(label, labelWidth), labelWidth) + " " + note
 	}
 	event := colorize(eventColor(st, run), truncate(run.Event, c.event))
-	duration := colorize(markColor(st, run, mark), mark.Text)
+	duration := colorize(cellSGR, cell)
 	runAge := colorize(st.subtle, age(run, now))
 	return fitANSI(c.cells(prefix, number, status, label, actorCell(st, run.Actor, c.actor), event, duration, runAge), width)
 }
@@ -276,8 +296,22 @@ func age(run model.Run, now time.Time) string {
 }
 
 func runLabel(st styles, run model.Run, width int) string {
+	return labelWithDetail(st, run, runDetail(run), st.subtle, width)
+}
+
+// verdictColor colours a never-ran run: warn while it waits on a
+// person, neutral once nobody can act on it.
+func verdictColor(st styles, verdict model.RunVerdict) string {
+	if verdict.WaitingOnPerson() {
+		return st.warn
+	}
+	return st.neutral
+}
+
+// labelWithDetail is "name · detail", the detail in detailSGR; the name
+// keeps at least half the width when both do not fit.
+func labelWithDetail(st styles, run model.Run, detail, detailSGR string, width int) string {
 	name := runName(run)
-	detail := runDetail(run)
 	if detail == "" {
 		return colorize(st.fgSoft, truncate(name, width))
 	}
@@ -292,7 +326,7 @@ func runLabel(st styles, run model.Run, width int) string {
 	}
 	detailWidth := max(width-nameWidth-3, 1)
 	return colorize(st.fgSoft, truncate(name, nameWidth)) +
-		colorize(st.subtle, " · "+truncate(detail, detailWidth))
+		colorize(st.subtle, " · ") + colorize(detailSGR, truncate(detail, detailWidth))
 }
 
 func runName(run model.Run) string {
@@ -320,24 +354,73 @@ func runDetail(run model.Run) string {
 	return ""
 }
 
-func summaryLine(st styles, summary Summary, hasMore bool) string {
-	line := colorize(st.fail, fmt.Sprintf("%d failing", summary.Failing)) +
-		" · " +
-		colorize(st.run, fmt.Sprintf("%d running", summary.Running)) +
-		" · "
-	if summary.Stale > 0 {
-		line += colorize(st.subtle, fmt.Sprintf("%d stale", summary.Stale)) + " · "
+// summaryPart is one count of the summary line; drop orders what gives
+// way first when the line is wider than its budget (0 never drops).
+type summaryPart struct {
+	text, sgr string
+	drop      int
+}
+
+// summaryLine counts the rows by who has to act. Red runs that are not
+// the code's fault are counted apart, and only when there are some.
+// Within budget cells, an idle running count and then passed give way.
+func summaryLine(st styles, summary Summary, hasMore bool, budget int) string {
+	parts := []summaryPart{{fmt.Sprintf("%d failing", summary.Failing), st.fail, 0}}
+	optional := func(n int, text, sgr string) {
+		if n > 0 {
+			parts = append(parts, summaryPart{fmt.Sprintf("%d %s", n, text), sgr, 0})
+		}
 	}
-	line += colorize(st.subtle, fmt.Sprintf("%d passed", summary.Passed))
+	optional(summary.Infra, "infra", st.info)
+	needApproval := "need approval"
+	if summary.Approvable > 0 {
+		// The contextual approve affordance, as for gated runs.
+		needApproval += " · A approve"
+	}
+	optional(summary.NeedApproval, needApproval, st.warn)
+	optional(summary.NeverRan, "never ran", st.neutral)
+	runningDrop := 2
+	if summary.Running == 0 && summary.Red() > summary.Failing {
+		runningDrop = 3
+	}
+	parts = append(parts, summaryPart{fmt.Sprintf("%d running", summary.Running), st.run, runningDrop})
+	if summary.Stale > 0 {
+		parts = append(parts, summaryPart{fmt.Sprintf("%d stale", summary.Stale), st.subtle, 1})
+	}
+	parts = append(parts, summaryPart{fmt.Sprintf("%d passed", summary.Passed), st.subtle, 2})
 	if summary.Gated > 0 {
 		// The contextual gate affordance: A only acts on waiting runs,
 		// so it is advertised only while one is on screen.
-		line += " · " + colorize(st.info, fmt.Sprintf("%s %d gated · A review", icons.Gate, summary.Gated))
+		parts = append(parts, summaryPart{fmt.Sprintf("%s %d gated · A review", icons.Gate, summary.Gated), st.info, 0})
 	}
 	if hasMore {
-		line += " · " + colorize(st.subtle, "G load more")
+		parts = append(parts, summaryPart{"G load more", st.subtle, 0})
 	}
-	return line
+	for drop := 3; drop > 0 && summaryWidth(parts) > budget; drop-- {
+		kept := parts[:0:0]
+		for _, part := range parts {
+			if part.drop != drop {
+				kept = append(kept, part)
+			}
+		}
+		parts = kept
+	}
+	var line strings.Builder
+	for i, part := range parts {
+		if i > 0 {
+			line.WriteString(" · ")
+		}
+		line.WriteString(colorize(part.sgr, part.text))
+	}
+	return line.String()
+}
+
+func summaryWidth(parts []summaryPart) int {
+	width := 3 * max(len(parts)-1, 0)
+	for _, part := range parts {
+		width += ansi.StringWidth(part.text)
+	}
+	return width
 }
 
 // filterLines renders the filter rows under the column header: the

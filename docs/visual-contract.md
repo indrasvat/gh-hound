@@ -119,6 +119,7 @@ Footer text must be generated from keymap data, not copied into renderers.
 | runs_list | j/k · s scope · ⏎ open · ↻ rerun · ✗ cancel · l log · w watch · f status · / filter · ? |
 | runs_filter | ⏎ apply · ⎋ cancel · ctrl+u clear |
 | detail | ⏎ expand · w watch · ↻ rerun job · R rerun failed · ✗ cancel · ⎋ back · ? |
+| detail_never_ran | o browser · y copy URL · ⎋ back · ? |
 | failure | ↻ rerun failed · r rerun job · l full log · o browser · y copy excerpt |
 | watch | ✗ cancel · f follow · d debug · ⎋ detach |
 | watch_pending | ⎋ back |

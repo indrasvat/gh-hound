@@ -78,7 +78,7 @@ func (s TriageService) LoadRunTriage(ctx context.Context, repo string, run model
 		if annotations, annErr := s.GitHub.ListAnnotations(ctx, repo, job); annErr == nil {
 			failure.Annotations = annotations
 			evidence.Annotations[job.ID] = annotations
-		} else if job.Ran() {
+		} else {
 			signalsComplete = false
 		}
 		triage.Failures = append(triage.Failures, failure)

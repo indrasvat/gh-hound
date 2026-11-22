@@ -51,11 +51,22 @@ type RunEvidence struct {
 	ExitCodes   map[int64]int
 }
 
-// Ran reports a job that a runner picked up. GitHub can list a check
-// run created through the API under a run's jobs; it has neither steps
-// nor a runner.
+// Ran reports a job that a runner picked up.
 func (j Job) Ran() bool {
 	return len(j.Steps) > 0 || j.RunnerName != ""
+}
+
+// NoJobRan reports a listing in which no job ran or failed. GitHub can
+// list a check run created through the API among a run's jobs: it has
+// neither steps nor a runner, and did not fail. A job that failed with
+// no runner (no matching label) is real and its annotations say why.
+func NoJobRan(jobs []Job) bool {
+	for _, job := range jobs {
+		if job.Ran() || job.Conclusion.Failing() {
+			return false
+		}
+	}
+	return true
 }
 
 // ClassifyRun gives a red run its verdict. evidence is nil when the
@@ -76,36 +87,31 @@ func ClassifyRun(run Run, evidence *RunEvidence) (RunVerdict, bool) {
 	if evidence == nil {
 		return RunVerdict{}, false
 	}
-	ran := false
-	infra := VerdictReason("")
-	for _, job := range evidence.Jobs {
-		if !job.Ran() {
-			continue
+	if !NoJobRan(evidence.Jobs) {
+		infra := VerdictReason("")
+		for _, job := range evidence.Jobs {
+			if !job.Conclusion.Failing() {
+				continue
+			}
+			reason := infraReason(evidence.Annotations[job.ID], evidence.ExitCodes[job.ID])
+			if reason == "" {
+				return RunVerdict{Verdict: VerdictCode}, true
+			}
+			if infra == "" {
+				infra = reason
+			}
 		}
-		ran = true
-		if !job.Conclusion.Failing() {
-			continue
+		if infra != "" {
+			return RunVerdict{VerdictInfra, infra}, true
 		}
-		reason := infraReason(evidence.Annotations[job.ID], evidence.ExitCodes[job.ID])
-		if reason == "" {
-			return RunVerdict{Verdict: VerdictCode}, true
-		}
-		if infra == "" {
-			infra = reason
-		}
-	}
-	switch {
-	case infra != "":
-		return RunVerdict{VerdictInfra, infra}, true
-	case ran:
-		// Red with no failing job that ran: nothing points away from the code.
+		// Red with no failing job: nothing points away from the code.
 		return RunVerdict{Verdict: VerdictCode}, true
-	case run.Event == "pull_request" || run.Event == "pull_request_target":
+	}
+	if run.Event == "pull_request" || run.Event == "pull_request_target" {
 		// GitHub ends a held PR run red when its pull request closes.
 		return RunVerdict{VerdictNeverRan, ReasonApprovalMissed}, true
-	default:
-		return RunVerdict{VerdictNeverRan, ReasonNoJobRan}, true
 	}
+	return RunVerdict{VerdictNeverRan, ReasonNoJobRan}, true
 }
 
 var exitCode137 = regexp.MustCompile(`exit code 137\b`)

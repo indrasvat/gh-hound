@@ -50,6 +50,29 @@ type Summary struct {
 	// part of Running (the run is live) — Gated only adds the gate
 	// affordance to the summary line.
 	Gated int
+	// Red runs that are not the code's fault, out of Failing: Infra ran
+	// but the runner failed, NeedApproval waits on a person, NeverRan
+	// never started for any other reason.
+	Infra        int
+	NeedApproval int
+	NeverRan     int
+	// Approvable counts held runs from a fork: A can let them start.
+	Approvable int
+}
+
+// Red counts every red run, whoever has to act.
+func (s Summary) Red() int {
+	return s.Failing + s.Infra + s.NeedApproval + s.NeverRan
+}
+
+// VerdictFor is a row's verdict and whether it is known: from the run's
+// fields, else from its jobs once the app has read them.
+func (m Model) VerdictFor(run model.Run) (model.RunVerdict, bool) {
+	if verdict, known := model.ClassifyRun(run, nil); known {
+		return verdict, true
+	}
+	verdict, ok := m.Verdicts[run.ID]
+	return verdict, ok
 }
 
 type Model struct {
@@ -91,6 +114,9 @@ type Model struct {
 	PaceAsOf map[int64]time.Time
 	// Stale marks unfinished rows no fetch has returned lately.
 	Stale map[int64]bool
+	// Verdicts holds what the jobs of a red run said about it, for the
+	// attempt the row shows. Run fields settle the rest (VerdictFor).
+	Verdicts map[int64]model.RunVerdict
 
 	// Loading state is transient render input set by the app from its
 	// pending load each frame — never persisted on the model, so a
@@ -296,7 +322,20 @@ func (m Model) Summary() Summary {
 			continue
 		}
 		if run.Conclusion.Failing() {
-			summary.Failing++
+			// A red run counts as failing until its jobs say otherwise.
+			switch verdict, _ := m.VerdictFor(run); {
+			case verdict.WaitingOnPerson():
+				summary.NeedApproval++
+				if run.FromFork {
+					summary.Approvable++
+				}
+			case verdict.Verdict == model.VerdictNeverRan:
+				summary.NeverRan++
+			case verdict.Verdict == model.VerdictInfra:
+				summary.Infra++
+			default:
+				summary.Failing++
+			}
 			continue
 		}
 		if isPassing(run) {
@@ -330,7 +369,7 @@ func (m Model) FilteredRuns() []model.Run {
 func (m Model) AllGreen() bool {
 	summary := m.Summary()
 	runs := m.filteredRuns()
-	if len(runs) == 0 || summary.Failing > 0 {
+	if len(runs) == 0 || summary.Red() > 0 {
 		return false
 	}
 	for _, run := range runs {

@@ -89,6 +89,20 @@ func TestApprovalsKeyOpensOverlayThroughStartLoad(t *testing.T) {
 	}
 }
 
+// The detail view's gate pane says "A review": A there opens the gate.
+func TestApprovalsKeyOpensTheGateFromDetail(t *testing.T) {
+	app, _ := waitingTestApp(t)
+	run, _ := app.runs.SelectedRun()
+	app.detail = detail.NewModel(run, nil)
+	app.detail.PendingDeployments = waitingTestPending()
+	app.routes = []Route{RouteRuns, RouteDetail}
+	app, _ = app.Update(KeyMsg{Key: "A"})
+	app, ok := app.SettleLoads(time.Second)
+	if !ok || app.TopOverlay() != OverlayApprovals {
+		t.Fatalf("A on a gated detail: overlay = %q, want approvals", app.TopOverlay())
+	}
+}
+
 func TestApprovalsKeyOnNonWaitingRunToasts(t *testing.T) {
 	app, _ := waitingTestApp(t)
 	app.runs = sampleRunsModel() // newest selected run is completed

@@ -1731,6 +1731,9 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 			// over the launch branch (diff precedent).
 			return service.Scan(loadCtx, launch.Repo, workflow, firstNonEmptyString(run.HeadBranch, launch.Branch))
 		},
+		VerdictResolver: func(loadCtx context.Context, run model.Run) (model.RunVerdict, error) {
+			return usecase.VerdictService{GitHub: githubClient}.Classify(loadCtx, launch.Repo, run)
+		},
 		RunRefresher: func(loadCtx context.Context, id int64) (model.Run, error) {
 			return githubClient.GetRun(loadCtx, launch.Repo, id)
 		},
@@ -1777,6 +1780,8 @@ func defaultTUIApp(ctx context.Context, runtime commandRuntime, build tui.BuildI
 				return actionService.CancelRun(ctx, launch.Repo, request.Run.ID)
 			case usecase.ActionForceCancelRun:
 				return actionService.ForceCancelRun(ctx, launch.Repo, request.Run.ID)
+			case usecase.ActionApproveRun:
+				return approveHeldRuns(ctx, actionService, launch.Repo, request.Held)
 			case usecase.ActionDispatch:
 				if request.Workflow.ID == "" {
 					return usecase.ActionResult{}, fmt.Errorf("workflow is not loaded")
@@ -2728,6 +2733,28 @@ func fakeScenarioFor(scenario string) fake.Scenario {
 	default:
 		return fake.ScenarioGreen
 	}
+}
+
+// approveHeldRuns lets each held run start, one paced call each. It
+// stops at the first refusal and says how many went through.
+func approveHeldRuns(ctx context.Context, service usecase.ActionService, repo string, held []model.Run) (usecase.ActionResult, error) {
+	if len(held) == 0 {
+		return usecase.ActionResult{}, usecase.ActionError{Kind: usecase.ActionErrorValidation, Field: "run", Message: "no held run to approve"}
+	}
+	for i, run := range held {
+		if _, err := service.ApproveRun(ctx, repo, run.ID); err != nil {
+			if i > 0 {
+				return usecase.ActionResult{}, fmt.Errorf("approved %d of %d runs, then: %w", i, len(held), err)
+			}
+			return usecase.ActionResult{}, err
+		}
+	}
+	message := "run approved · it starts shortly"
+	if len(held) > 1 {
+		message = fmt.Sprintf("%d runs approved · they start shortly", len(held))
+	}
+	// No RunID: the toast says how many runs, not one run's id.
+	return usecase.ActionResult{Action: usecase.ActionApproveRun, Repo: repo, Message: message}, nil
 }
 
 // triageWorkers bounds concurrent failure enrichment so a fully red

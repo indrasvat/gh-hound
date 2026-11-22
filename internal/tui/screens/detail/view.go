@@ -9,6 +9,7 @@ import (
 	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/theme"
 	"github.com/indrasvat/gh-hound/internal/tui/icons"
+	"github.com/indrasvat/gh-hound/internal/tui/why"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -95,6 +96,11 @@ func renderJobsPane(m Model, st styles, width int) []string {
 		paneHeader(st, "Jobs", "", width, m.Focus == FocusJobs),
 		divider(st, width),
 	}
+	if _, never := m.NeverRan(); never {
+		// A check run GitHub lists among the jobs without a runner is
+		// not one of this workflow's jobs: nothing ran.
+		return append(lines, fitANSI(colorize(st.dim, "No job ran"), width))
+	}
 	if len(m.Jobs) == 0 {
 		if m.Loading {
 			line := m.LoadingLine
@@ -102,9 +108,6 @@ func renderJobsPane(m Model, st styles, width int) []string {
 				line = colorize(st.dim, "  fetching jobs…")
 			}
 			return append(lines, fitANSI(line, width))
-		}
-		if m.Run.Conclusion == model.ConclusionStartupFailure {
-			return append(lines, fitANSI(colorize(st.dim, "No job ran"), width))
 		}
 		return append(lines, fitANSI(colorize(st.dim, "No jobs returned by GitHub"), width))
 	}
@@ -116,6 +119,9 @@ func renderJobsPane(m Model, st styles, width int) []string {
 
 func renderStepsPane(m Model, st styles, width, stepsBudget int, standalone bool) []string {
 	job := m.selectedJob()
+	if verdict, never := m.NeverRan(); never {
+		return renderNeverRan(m, st, verdict, width)
+	}
 	if len(m.Jobs) == 0 {
 		hint := "Select a job after GitHub returns job data"
 		if m.Loading {
@@ -132,12 +138,6 @@ func renderStepsPane(m Model, st styles, width, stepsBudget int, standalone bool
 			hint = "the hound is on its way back…"
 		}
 		body := []string{fitANSI(colorize(st.dim, hint), width)}
-		if !m.Loading && m.Run.Conclusion == model.ConclusionStartupFailure {
-			body = []string{
-				fitANSI(colorize(st.fail, "GitHub could not start this run"), width),
-				fitANSI(colorize(st.dim, "check the workflow file and the repo's Actions policy"), width),
-			}
-		}
 		return append(append([]string{
 			paneHeader(st, "Steps", "", width, m.Focus == FocusSteps),
 			divider(st, width),
@@ -173,6 +173,40 @@ func renderStepsPane(m Model, st styles, width, stepsBudget int, standalone bool
 	lines = append(lines, renderArtifactsBlock(m, st, width)...)
 	lines = append(lines, divider(st, width))
 	lines = append(lines, hintLine(m, st, width))
+	return lines
+}
+
+// renderNeverRan answers the empty pane of a run in which no job ran:
+// who has to act and why GitHub held or ended it, then the one key that
+// can help. Rerun and log keys cannot, so the hint line drops them.
+func renderNeverRan(m Model, st styles, verdict model.RunVerdict, width int) []string {
+	headline, explanation := why.Explanation(verdict, m.Run)
+	headSGR := st.fgSoft
+	switch verdict.Reason {
+	case model.ReasonAwaitingApproval, model.ReasonBlockedByPolicy:
+		headSGR = st.warn + sgrBold
+	case model.ReasonCouldNotStart:
+		headSGR = st.fail
+	}
+	lines := []string{
+		paneHeader(st, "Why this run never ran", "", width, m.Focus == FocusSteps),
+		divider(st, width),
+		fitANSI("  "+colorize(headSGR, headline), width),
+	}
+	for _, line := range explanation {
+		lines = append(lines, fitANSI("  "+colorize(st.subtle, line), width))
+	}
+	if verdict.WaitingOnPerson() && !m.Run.CreatedAt.IsZero() {
+		meta := "waiting " + usecase.FormatPaceDuration(m.clock().Sub(m.Run.CreatedAt).Truncate(time.Minute))
+		if m.HeldRuns > 1 {
+			meta += fmt.Sprintf(" · %d runs held on this commit", m.HeldRuns)
+		}
+		lines = append(lines, fitANSI("  "+colorize(st.dim, meta), width))
+	}
+	if verdict.WaitingOnPerson() && m.Run.FromFork {
+		// The one key that helps; the footer carries o, y and back.
+		lines = append(lines, "", fitANSI("  "+colorize(st.ok+sgrBold, "A")+colorize(st.fgSoft, " approve and run"), width))
+	}
 	return lines
 }
 
@@ -724,7 +758,10 @@ func stylesFor(th theme.Theme) styles {
 	}
 }
 
-const sgrReset = "\x1b[0m"
+const (
+	sgrReset = "\x1b[0m"
+	sgrBold  = "\x1b[1m"
+)
 
 func (m Model) jobPace(job model.Job) usecase.PaceItem {
 	if m.Pace == nil {
