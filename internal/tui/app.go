@@ -781,9 +781,14 @@ func (a App) Update(msg KeyMsg) (out App, handled bool) {
 		repaint = true
 	}
 	if next, ok := a.drainApprove(); ok {
-		// The outcome lands with this key: the key (an Esc, say) was not
-		// aimed at the toast it would dismiss.
-		return next, true
+		a = next
+		repaint = true
+		if msg.Key == "esc" {
+			// An Esc landing with the outcome was not aimed at the toast it
+			// would dismiss. Every other key (a j, a character typed into a
+			// form) still acts.
+			return a, true
+		}
 	}
 	// A completed route poll applies before the key routes, so a
 	// keystroke acts on the freshest list the background fetch produced.

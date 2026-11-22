@@ -107,7 +107,7 @@ Found, not fixed (P3, existing behaviour): a toast can sit on the runs column he
 Fixed (P1 first, red test first):
 
 - The access check could land while another question was open (a rerun confirm opened meanwhile) and replace it, so the `y` meant for the rerun approved a fork run. The check never opens its confirm over an open overlay; it says "approval not opened · press A again after it".
-- An approval outcome landing on the same key as an Esc was dismissed by that Esc before it painted: such a key is consumed.
+- An approval outcome landing on the same key as an Esc was dismissed by that Esc before it painted: that Esc is consumed. Review round 5 caught the first version consuming every key, which would drop a character typed into a dispatch form; only Esc is held back now.
 - A second `A` during a pending access check stacked a second check: ignored.
 - The `approval_missed` explanation clipped at 120 columns: shorter.
 

@@ -339,3 +339,27 @@ func TestAccessCheckNeverReplacesAnOpenConfirm(t *testing.T) {
 		}
 	}
 }
+
+// Only an Esc is held back when an approval's outcome lands with it:
+// any other key (a j, a character typed into a form) still acts.
+func TestApprovalLandingKeepsOtherKeys(t *testing.T) {
+	var calls []ActionRequest
+	app := verdictApp(verdictAppOptions{runs: []model.Run{heldRun(9412, "Unit tests"), heldRun(9411, "Lint")}, handler: approveRecorder(&calls), canPush: true})
+	app = press(t, app, "A")
+	app, _ = app.Update(KeyMsg{Key: "y"})
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		app.approving.mu.Lock()
+		done := app.approving.done
+		app.approving.mu.Unlock()
+		if done || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	before := app.runs.Selected
+	app, _ = app.Update(KeyMsg{Key: "j"})
+	if app.runs.Selected == before || app.approving != nil {
+		t.Fatalf("j with the landing outcome: selected %d → %d, approving=%v", before, app.runs.Selected, app.approving != nil)
+	}
+}
