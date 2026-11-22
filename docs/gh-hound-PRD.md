@@ -250,12 +250,14 @@ gh-hound/
 | `POST` | `…/runs/{id}/force-cancel` | Force-cancel a stuck run. |
 | `POST` | `…/workflows/{id}/dispatches` | Trigger `workflow_dispatch` (body: `ref`, `inputs`). |
 | `POST` | `…/runs/{id}/pending_deployments` | Approve/reject a gated environment **(v2)**. |
-| `POST` | `…/runs/{id}/approve` | Approve a fork-PR run awaiting review **(v2)**. |
+| `POST` | `…/runs/{id}/approve` | Approve a held fork-PR run (`A`, confirm-gated; #85). |
 
 ### §4.3 Enums (exact, do not invent)
 
 - **`status`**: `queued`, `in_progress`, `completed`, `requested`, `waiting`, `pending`.
 - **`conclusion`**: `success`, `failure`, `cancelled`, `skipped`, `neutral`, `timed_out`, `action_required`, `stale`, `startup_failure` (GitHub could not start the run; it has no jobs), `null` (when not completed).
+
+- **`verdict`** (hound's, beside `conclusion` on a red run; #85): `code` (a job ran and a step failed), `never_ran` (no job ran) with a `reason` of `awaiting_approval`, `approval_missed`, `blocked_by_policy`, `could_not_start` or `no_job_ran`, `infra` (the runner failed) with `runner_lost`, `killed` or `disk_full`.
 
 Model fields are enumerated in **Appendix A**. Each enum value maps to exactly one glyph + colour (§5, §6) — nothing decorative is invented.
 
@@ -337,6 +339,7 @@ Default **Bramble** (dark): warm ink-and-bone neutrals, one electric "on-the-sce
 | action_required | `▲` | U+25B2 | rerun | `↻` | U+21BB |
 | timed_out | `⧗` | U+29D7 | dispatch | `▶` | U+25B6 |
 | neutral | `◇` | U+25C7 | enter/back/esc | `⏎`/`⎋` | U+23CE/238B |
+| never ran (verdict) | `∅` | U+2205 | infra (verdict) | `↯` | U+21AF |
 
 > **Gotcha:** `✔` (U+2714), `✗`-adjacent dingbats, and `▶` (U+25B6) are *emoji-capable* but render as **text** as long as no Variation-Selector-16 (`U+FE0F`) is appended. Never emit VS16. The emoji CI check fails the build on any `U+FE0F` or astral-plane codepoint.
 

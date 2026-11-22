@@ -105,8 +105,8 @@ var footerByScreen = map[Screen][]Binding{
 	},
 	ScreenDetailNeverRan: {
 		{Key: "A", Action: "approve", Help: "approve a held fork run", ShowInFooter: false},
-		{Key: "o", Action: "browser", Help: "browser", ShowInFooter: true},
-		{Key: "y", Action: "copy_url", Help: "copy URL", ShowInFooter: true},
+		{Key: "o", Action: "open_artifact_dir", Help: "browser", ShowInFooter: true},
+		{Key: "y", Action: "copy_artifact_path", Help: "copy URL", ShowInFooter: true},
 		{Key: "esc", Display: "⎋", Action: "back", Help: "back", ShowInFooter: true},
 		{Key: "?", Action: "help", Help: "", ShowInFooter: true},
 	},

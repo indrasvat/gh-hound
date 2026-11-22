@@ -45,6 +45,11 @@ func TestJSONRendererMatchesGoldenFixture(t *testing.T) {
 	if err := Write(&out, FormatJSON, fixtureResult()); err != nil {
 		t.Fatalf("Write JSON returned error: %v", err)
 	}
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		if err := os.WriteFile("testdata/failure.golden.json", out.Bytes(), 0o644); err != nil {
+			t.Fatalf("update golden: %v", err)
+		}
+	}
 	want, err := os.ReadFile("testdata/failure.golden.json")
 	if err != nil {
 		t.Fatalf("read golden: %v", err)
@@ -171,6 +176,7 @@ func fixtureResult() Result {
 			HeadSHA:         "a1b2c3d",
 			Status:          "completed",
 			Conclusion:      "failure",
+			Verdict:         "code",
 			Actor:           "indrasvat",
 			TriggeringActor: "indrasvat",
 			CreatedAt:       createdAt,

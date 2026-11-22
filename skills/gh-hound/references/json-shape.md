@@ -12,7 +12,23 @@ Artifacts: `gh hound artifacts` lists `{id, name, size_in_bytes, expired, expire
 
 Caches: `gh hound caches` reports `usage` (`active_size_in_bytes`, `active_count`, `cap_bytes` — the repo's configured storage limit, 10 GB by default; usage can exceed it because eviction lags) plus `caches[]` (`id`, `key`, `ref`, `size_in_bytes`, `last_accessed_at`, `created_at`). When CI suddenly slows, check the kennel: usage near `cap_bytes` means LRU eviction is thrashing your keys. Evict with `--delete-id <id>` or `--delete-key <key> [--ref <ref>]` (reports `deleted.deleted_count`). Exit `0` deleted or listed, `2` anything else with typed `error.kind` (`not_found` when nothing matched). The default `runs` path never touches the cache API.
 
-Triage degrades per job: when a job log has expired, `log_excerpt` is empty and `exit_code` falls back to `1`, but `job`, `step`, and `annotations` are always present for every failed job. An empty `failed[]` on a red run means job details could not be listed — fall back to `html_url`. The exception is `conclusion: "startup_failure"`: GitHub could not start the workflow (an invalid workflow file or a blocked action), so no job ran and `failed[]` is always empty. Check the workflow file at `head_sha` and the repo's Actions policy.
+Triage degrades per job: when a job log has expired, `log_excerpt` is empty and `exit_code` falls back to `1`, but `job`, `step`, and `annotations` are always present for every failed job. An empty `failed[]` on a red run with no `verdict` means job details could not be listed — fall back to `html_url`.
+
+## Why a red run is red
+
+Each red run carries `verdict` and, unless it is `code`, a `reason`. `conclusion` stays GitHub's. Branch on these before touching code:
+
+| `verdict` / `reason` | What happened | Do |
+|---|---|---|
+| `code` | a job ran and a step failed | fix it from `failed[]` |
+| `never_ran` / `awaiting_approval` | held until a write collaborator approves it; exits `3` when nothing else needs action | wait, or ask a maintainer to approve |
+| `never_ran` / `approval_missed` | a PR run held for approval, ended red when its PR closed | nothing to fix |
+| `never_ran` / `blocked_by_policy` | `pull_request_target` blocked by the repo's Actions event policy (GitHub's default for public repos from 2 Dec 2026) | report: allow it in an event policy or move the workflow to `pull_request` |
+| `never_ran` / `could_not_start` | other `startup_failure`: invalid workflow file or a blocked action | check the workflow file at `head_sha` and the Actions policy |
+| `never_ran` / `no_job_ran` | red, no job ran, not a PR event | open `html_url` |
+| `infra` / `runner_lost`, `killed`, `disk_full` | the runner failed (lost, exit 137, disk full) | rerun; do not edit code |
+
+`failed[]` is always empty for `never_ran`. Never rerun a `never_ran` run hoping it passes: it cannot start until a person or a setting changes. Rehearse with `--fake-scenario never_ran --all`.
 
 ## Empty listings
 

@@ -973,6 +973,22 @@ func RenderFixtureSize(screen string, width, height int) string {
 		startup.RunStartedAt, startup.UpdatedAt = startup.UpdatedAt, startup.UpdatedAt.Add(time.Second)
 		m.Context.Runs = append([]model.Run{startup}, m.Context.Runs...)
 		return frameViewSize(app.theme, "hound", "⎇ branch fix/parser · @indrasvat", "◔ 4,981/5k live 304", runs.View(m, bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
+	case "runs-never-ran":
+		return sampleNeverRanApp(app).ViewSize(width, height)
+	case "approve-confirm":
+		app = sampleNeverRanApp(app)
+		run, _ := app.runs.SelectedRun()
+		return app.openApproveRun(RouteRuns, run).ViewSize(width, height)
+	case "detail-never-ran", "detail-blocked":
+		app = sampleNeverRanApp(app)
+		run := app.runs.Context.Runs[0]
+		if screen == "detail-blocked" {
+			run = app.runs.Context.Runs[5]
+		}
+		app.detail = DetailModelForRun(run).WithRepo("acme/forge")
+		app.detail.Now = run.CreatedAt.Add(2 * time.Hour)
+		app.routes = []Route{RouteRuns, RouteDetail}
+		return app.ViewSize(width, height)
 	case "no-runs":
 		return frameViewSize(app.theme, "hound", "⎇ branch release/v1 · @indrasvat", "0 runs", empty.View(empty.Model{
 			Kind:   empty.KindNoRuns,
@@ -1037,7 +1053,7 @@ func RenderFixtureSize(screen string, width, height int) string {
 	case "detail-startup":
 		run := model.Run{ID: 30433650, Name: "Docs", RunNumber: 574, Event: "pull_request", Status: model.StatusCompleted, Conclusion: model.ConclusionStartupFailure, HeadBranch: "docs/fallback", HeadSHA: "5b1e0c9", Actor: "indrasvat", TriggeringActor: "indrasvat", RunAttempt: 1}
 		m := DetailModelForRun(run).WithRepo("indrasvat/gh-hound")
-		return frameViewSize(app.theme, "hound", "Docs #574 › docs/fallback", "5b1e0c9", detail.ViewSize(m, bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
+		return frameViewSize(app.theme, "hound", "Docs #574 › docs/fallback", "5b1e0c9", detail.ViewSize(m, bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenDetailNeverRan), width, height, true)
 	case "rerun-confirm":
 		loadingApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
 		run, _ := loadingApp.runs.SelectedRun()

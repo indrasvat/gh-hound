@@ -74,7 +74,7 @@ Source of truth: `docs/gh-hound-design.html`. Re-read the matching mock before e
 
 Bone is the light theme: it assumes a light terminal background, so Bone visual QA sets one before capturing, foreground and background both (OSC 10 and 11) as a light terminal does. Without truecolor the fills come from the terminal's palette: xterm-256 indices at 256 colours, none at 16, where the cursor bar marks the selection. `ok-tint` is the all-green band fill; `run-tint` a log or excerpt search hit, `run-tint-strong` the current hit, `fail-tint` a failed step's row, `info-tint` a folded repeat.
 
-Semantic mapping: success uses `ok`; failure uses `fail`; in-progress uses `run`; queued/pending/waiting uses `info`; action-required/timed-out uses `warn`; cancelled/skipped/stale/neutral uses `neutral`.
+Semantic mapping: success uses `ok`; failure uses `fail`; in-progress uses `run`; queued/pending/waiting uses `info`; action-required/timed-out uses `warn`; cancelled/skipped/stale/neutral uses `neutral`. A red run's verdict overrides its conclusion colour: never ran uses `warn` while it waits on a person and `neutral` otherwise; infra uses `info`.
 
 ## Glyphs
 
@@ -86,6 +86,8 @@ All glyphs are text presentation only. Do not append emoji variation selectors. 
 | gate (waiting run) | ◫ |
 | failure | ✗ |
 | startup_failure | ✗ |
+| never_ran (verdict) | ∅ |
+| infra (verdict) | ↯ |
 | in_progress | ⠹ |
 | queued | ◌ |
 | cancelled | ⊘ |
@@ -209,15 +211,39 @@ Approve and reject are both confirm-gated ("open the gate for …?" /
 "gate stays shut.". Fixture screens: `runs-waiting`, `approvals`,
 `detail-pending`.
 
-Startup failure: a run GitHub could not start (`startup_failure`) wears
-the failure ✗ in fail colour and counts as failing. Its detail screen
-has no jobs and never will, so the jobs pane reads "No job ran" and the
-steps pane reads "GitHub could not start this run" (fail) over a dim
-"check the workflow file and the repo's Actions policy". `l` on it
-opens no log screen: an info toast reads "no job ran · GitHub could not
-start this run · no log to open". The hunt board's State column is 15
-cells, the longest label GitHub gives (`startup_failure`,
-`action_required`). Fixture screens: `runs-startup`, `detail-startup`,
+Red runs that are not the code's fault (issue #85). A red run in which
+no job ran wears ∅: warn while it waits on a person (held for
+approval), neutral once nobody can act (approval missed, blocked by
+policy, could not start, no job ran). Its Duration cell reads `approve`
+(warn) or `missed` (neutral) instead of the gap between when GitHub
+created and last updated it, and `—` for the other reasons, which the
+label names in neutral (`Labeler · blocked by policy`). Where Duration
+is dropped, `approve` and `missed` ride right-aligned inside the label
+column like a Pace note. A run whose runner failed (lost runner,
+exit 137, disk full) wears ↯ in info and names the cause in the label
+in info. The summary counts red runs by who has to act: `1 failing ·
+1 infra · 2 need approval · A approve · 4 never ran · 0 running ·
+1 passed`, each extra count only when non-zero, `· A approve` only
+while a held fork run is listed; over its budget an idle `0 running`
+gives way first, then `passed`. A red row whose jobs are not read yet
+keeps ✗ and counts as failing until the background read lands.
+
+Detail of a run in which no job ran: the jobs pane reads "No job ran"
+(a check run GitHub lists without steps or a runner is not a job), the
+right pane is headed "Why this run never ran": a headline (warn bold
+for waiting on a person or blocked by policy, fail for could not
+start, fg-soft otherwise), subtle explanation lines, a dim `waiting 2h
+· 2 runs held on this commit` for a held run, and `A approve and run`
+(ok bold A) for a held fork run. The footer is `detail_never_ran`.
+`A` asks "approve N runs from @login's fork? their code will run"
+(default No) and approves every run held on that commit; from the
+detail view it returns to the list. A held run not from a fork gets an
+info toast "approve this one on GitHub". `l` on any run in which no job
+ran opens no log screen: an info toast reads "no job ran · <reason> ·
+no log to open". The hunt board's State column is 15 cells, the
+longest label GitHub gives (`startup_failure`, `action_required`).
+Fixture screens: `runs-never-ran`, `approve-confirm`,
+`detail-never-ran`, `detail-blocked`, `runs-startup`, `detail-startup`,
 `watch-board-startup`.
 
 ## Render Hygiene (the flicker contract)

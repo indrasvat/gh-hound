@@ -70,6 +70,19 @@ func TestKeymapShowsMovedKeysWhereverKeysAreListed(t *testing.T) {
 	}
 }
 
+// The never-ran detail footer names the keys the detail handler acts
+// on: moving browser elsewhere must not relabel its fixed o.
+func TestNeverRanDetailFooterNamesTheDetailKeys(t *testing.T) {
+	k := mustKeymap(t, map[string]string{"browser": "b", "help": "h"})
+	footer := k.Footer(ScreenDetailNeverRan)
+	if !strings.Contains(footer, "o browser · y copy URL · ⎋ back · h") {
+		t.Fatalf("never-ran detail footer = %q", footer)
+	}
+	if got := k.Key(ScreenDetailNeverRan, "o"); got != "o" {
+		t.Fatalf("o on the never-ran detail resolves to %q, want o", got)
+	}
+}
+
 // One key may serve actions that never share a screen.
 func TestKeymapAllowsOneKeyOnDifferentScreens(t *testing.T) {
 	k := mustKeymap(t, map[string]string{"rerun": "e", "rerun_job": "e", "follow": "e"})

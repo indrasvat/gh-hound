@@ -31,12 +31,24 @@ IN PROGRESS — issue #85. Builds on the `startup_failure` work in #83/#84.
 
 ## Task List
 
-- [ ] T1 Domain: `model.RunVerdict`, reasons, `Job.Ran`, `Run.FromFork`; pure `ClassifyRun` with table tests.
-- [ ] T2 Use case: `VerdictService.Classify`; triage returns the verdict; flakes/diff skip `never_ran`; port `RunApprover`.
-- [ ] T3 Adapters: `head_repository`/`repository` decode, `ApproveRun`; fake scenario `never_ran` with every reason.
-- [ ] T4 Pipe: `verdict`, `reason`, exit 3 for `awaiting_approval`; schema, goldens, docs, skill.
-- [ ] T5 TUI runs list: glyphs, Duration/label words, summary counts, async verdict fetch.
-- [ ] T6 TUI detail: "why this run never ran" pane; `A` approve confirm; hint line.
-- [ ] T7 VQA fixtures and assertions at 80x24, 120x40, 200x60; visual contract and mock.
+- [x] T1 Domain: `model.RunVerdict`, reasons, `Job.Ran`, `NoJobRan`, `Run.FromFork`; pure `ClassifyRun` with table tests.
+- [x] T2 Use case: `VerdictService.Classify`; triage returns the verdict; flakes/diff skip `never_ran`; port `RunApprover`, `ActionService.ApproveRun`.
+- [x] T3 Adapters: `head_repository`/`repository` decode, `ApproveRun`; fake scenario `never_ran` with every reason.
+- [x] T4 Pipe: `verdict`, `reason`, exit 3 for `awaiting_approval`; schema (enums pinned to the model), golden, docs, skill.
+- [x] T5 TUI runs list: ∅ / ↯ glyphs, Duration/label words, summary counts with a width budget, async verdict fetch.
+- [x] T6 TUI detail: "Why this run never ran" pane, `detail_never_ran` footer, `A` approve confirm.
+- [x] T7 VQA fixtures `runs-never-ran`, `approve-confirm`, `detail-never-ran`, `detail-blocked` at 80x24, 120x40, 200x60; visual contract, PRD and mock.
+
+## Decisions Made While Building
+
+- **Glyphs.** The mock's `○` is East Asian ambiguous-width (the class the contract warns mis-renders under capture), so never ran is `∅` (U+2205, narrow). The proposed `⌁` for infra was indistinguishable from the branch glyph `⎇` in the header at real size, so infra is `↯` (U+21AF).
+- **A job that failed without a runner is real.** "No job ran" ignores only a listed check run that neither ran nor failed (the next.js phantom). A job that failed before any runner took it (no matching label) still makes the run `code`: its annotations explain it.
+- **A held run exits 3 only when nothing else needs action.** In a repo-wide listing, held fork runs at the top must not hide a code failure further down.
+- **Approving from detail returns to the list.** The detail of a just-approved run is stale; the next poll shows it queued.
+- **The board's lost count is unchanged.** A hunt that settles with only held runs exits 3, but `watch --group`'s summary still counts them as GitHub's red.
 
 ## Found Along The Way
+
+- `A` on a waiting run's detail did nothing, though the gate pane said "A review". Fixed here.
+- #84 counted a `startup_failure` as failing in the summary; under this issue it counts as never ran (`could_not_start`), and diff still treats it red.
+- Both golangci-lint binaries on the dev machine are v2.15 built with Go 1.27 and fail the hook on files nobody touched; the repo pins v2.8.0 (`make tools-ci`).

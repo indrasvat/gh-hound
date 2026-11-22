@@ -66,7 +66,7 @@ rerun_failed = "F"  # runs, detail, failure (default R)
 | `copy_json` | `y` | queue |
 | `pace_toggle` | `p` | runs (including the all-green home), detail, watch, the hunt board |
 
-A key is one printable character. Navigation keys and keys that in-screen hints name (`j/k`, `g/G`, `s`, `/` on runs, `:`, Enter, Esc, Tab) stay fixed. One key may serve two actions that never share a screen (`rerun = "e"` and `rerun_job = "e"`). A key that would mean two things on one screen, an unknown action, or a key that is not one printable character stops the launch with an error naming the file, the screen and both actions.
+A key is one printable character. Navigation keys and keys that in-screen hints name (`j/k`, `g/G`, `s`, `/` on runs, `:`, `A` for approve on runs and detail, Enter, Esc, Tab) stay fixed. One key may serve two actions that never share a screen (`rerun = "e"` and `rerun_job = "e"`). A key that would mean two things on one screen, an unknown action, or a key that is not one printable character stops the launch with an error naming the file, the screen and both actions.
 
 ## Environment Variables
 
