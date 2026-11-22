@@ -985,7 +985,7 @@ func RenderFixtureSize(screen string, width, height int) string {
 	case "approve-confirm":
 		app = sampleNeverRanApp(app)
 		run, _ := app.runs.SelectedRun()
-		return app.openApproveRun(RouteRuns, run).ViewSize(width, height)
+		return app.openConfirm(RouteRuns, ActionRequest{Action: usecase.ActionApproveRun, Run: run, Held: app.heldOnCommit(run)}).ViewSize(width, height)
 	case "detail-never-ran", "detail-blocked":
 		app = sampleNeverRanApp(app)
 		run := app.runs.Context.Runs[0]
