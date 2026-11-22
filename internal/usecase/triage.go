@@ -44,7 +44,7 @@ func (s TriageService) LoadRunFailures(ctx context.Context, repo string, run mod
 // LoadRunFailuresAttempt targets a specific run attempt; attempt 0
 // means the latest.
 func (s TriageService) LoadRunFailuresAttempt(ctx context.Context, repo string, run model.Run, attempt int) ([]RunFailure, error) {
-	if !actionableConclusion(run.Conclusion) {
+	if !run.Conclusion.Failing() {
 		return nil, nil
 	}
 	var jobs []model.Job
@@ -59,7 +59,7 @@ func (s TriageService) LoadRunFailuresAttempt(ctx context.Context, repo string, 
 	}
 	var failures []RunFailure
 	for _, job := range jobs {
-		if !actionableConclusion(job.Conclusion) {
+		if !job.Conclusion.Failing() {
 			continue
 		}
 		failure := RunFailure{Job: job, Step: firstFailedStep(job), ExitCode: fallbackExitCode}
@@ -78,18 +78,9 @@ func (s TriageService) LoadRunFailuresAttempt(ctx context.Context, repo string, 
 	return failures, nil
 }
 
-func actionableConclusion(conclusion model.Conclusion) bool {
-	switch conclusion {
-	case model.ConclusionFailure, model.ConclusionTimedOut, model.ConclusionActionRequired:
-		return true
-	default:
-		return false
-	}
-}
-
 func firstFailedStep(job model.Job) model.Step {
 	for _, step := range job.Steps {
-		if actionableConclusion(step.Conclusion) {
+		if step.Conclusion.Failing() {
 			return step
 		}
 	}

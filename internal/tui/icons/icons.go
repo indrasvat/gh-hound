@@ -57,7 +57,7 @@ func ForConclusion(conclusion model.Conclusion) string {
 	switch conclusion {
 	case model.ConclusionSuccess:
 		return Success
-	case model.ConclusionFailure:
+	case model.ConclusionFailure, model.ConclusionStartupFailure:
 		return Failure
 	case model.ConclusionCancelled, model.ConclusionStale:
 		return Cancelled

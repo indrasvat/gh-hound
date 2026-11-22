@@ -365,6 +365,52 @@ func TestDetailLogOnARunningJobSaysNotReady(t *testing.T) {
 	}
 }
 
+// A run GitHub could not start has no job and so no log: l says so in a
+// toast instead of opening a log screen that blames auth or rate limits.
+func TestLogOnAStartupFailureSaysNoJobRan(t *testing.T) {
+	var logs atomic.Int32
+	startup := watchRunA
+	startup.Status, startup.Conclusion = model.StatusCompleted, model.ConclusionStartupFailure
+	cfg := config.Default()
+	cfg.Welcome = false
+	app := NewApp(Options{
+		Config: cfg,
+		Launch: usecase.LaunchContext{
+			Repo: "indrasvat/gh-hound", Branch: "main",
+			Scope: usecase.LaunchScopeBranch, State: usecase.LaunchStateRuns,
+			Runs: []model.Run{startup},
+		},
+		DetailResolver: func(_ context.Context, run model.Run) (detail.Model, error) {
+			return detail.NewModel(run, nil), nil
+		},
+		LogResolver: func(context.Context, model.Run, model.Job, func(read, total int64)) (logscreen.Model, error) {
+			logs.Add(1)
+			return logscreen.Model{}, nil
+		},
+	})
+	defer app.Shutdown()
+
+	app, _ = app.Update(KeyMsg{Key: "l"})
+	app, _ = app.SettleLoads(time.Second)
+	if app.Route() != RouteRuns {
+		t.Fatalf("l on the runs list left for %s", app.Route())
+	}
+	app, _ = app.Update(KeyMsg{Key: "enter"})
+	app, _ = app.SettleLoads(time.Second)
+	app, _ = app.Update(KeyMsg{Key: "l"})
+	app, _ = app.SettleLoads(time.Second)
+	if app.Route() != RouteDetail {
+		t.Fatalf("l on detail left for %s", app.Route())
+	}
+	if logs.Load() != 0 {
+		t.Fatalf("a log was fetched %d times for a run with no job", logs.Load())
+	}
+	view := ansi.Strip(app.ViewSize(120, 30))
+	if !strings.Contains(view, "no job ran") || !strings.Contains(view, "GitHub could not start this run") {
+		t.Fatalf("no no-job toast:\n%s", view)
+	}
+}
+
 // A first load that failed heals on the next successful poll — for a
 // finished run too — and its error goes; once answered, a finished run
 // with no jobs stops asking.

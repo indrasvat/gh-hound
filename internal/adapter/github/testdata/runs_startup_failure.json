@@ -1,0 +1,57 @@
+{
+  "total_count": 2,
+  "workflow_runs": [
+    {
+      "id": 44999004997,
+      "name": "Docs fallback",
+      "display_title": "Docs fallback",
+      "status": "completed",
+      "conclusion": "startup_failure",
+      "event": "pull_request",
+      "head_branch": "docs/fallback",
+      "head_sha": "5b1e0c9d3a7f24e8c6b0d1f2a3e4c5b6d7e8f901",
+      "path": ".github/workflows/docs-only-fallback.yml",
+      "run_number": 812,
+      "run_attempt": 1,
+      "workflow_id": 301122334,
+      "created_at": "2026-11-22T07:36:27Z",
+      "updated_at": "2026-11-22T07:36:28Z",
+      "run_started_at": "2026-11-22T07:36:27Z",
+      "html_url": "https://github.com/indrasvat/gh-hound/actions/runs/44999004997",
+      "jobs_url": "https://api.github.com/repos/indrasvat/gh-hound/actions/runs/44999004997/jobs",
+      "logs_url": "https://api.github.com/repos/indrasvat/gh-hound/actions/runs/44999004997/logs",
+      "actor": {
+        "login": "indrasvat"
+      },
+      "triggering_actor": {
+        "login": "indrasvat"
+      }
+    },
+    {
+      "id": 44999004990,
+      "name": "CI",
+      "display_title": "CI",
+      "status": "completed",
+      "conclusion": "success",
+      "event": "pull_request",
+      "head_branch": "docs/fallback",
+      "head_sha": "5b1e0c9d3a7f24e8c6b0d1f2a3e4c5b6d7e8f901",
+      "path": ".github/workflows/ci.yml",
+      "run_number": 4410,
+      "run_attempt": 1,
+      "workflow_id": 301122300,
+      "created_at": "2026-11-22T07:36:27Z",
+      "updated_at": "2026-11-22T07:41:02Z",
+      "run_started_at": "2026-11-22T07:36:27Z",
+      "html_url": "https://github.com/indrasvat/gh-hound/actions/runs/44999004990",
+      "jobs_url": "https://api.github.com/repos/indrasvat/gh-hound/actions/runs/44999004990/jobs",
+      "logs_url": "https://api.github.com/repos/indrasvat/gh-hound/actions/runs/44999004990/logs",
+      "actor": {
+        "login": "indrasvat"
+      },
+      "triggering_actor": {
+        "login": "indrasvat"
+      }
+    }
+  ]
+}

@@ -527,7 +527,7 @@ func statusColor(st styles, run model.Run) string {
 		switch run.Conclusion {
 		case model.ConclusionSuccess:
 			return st.ok
-		case model.ConclusionFailure:
+		case model.ConclusionFailure, model.ConclusionStartupFailure:
 			return st.fail
 		case model.ConclusionCancelled, model.ConclusionSkipped, model.ConclusionNeutral, model.ConclusionNone:
 			return st.neutral

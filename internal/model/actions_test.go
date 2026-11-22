@@ -25,7 +25,7 @@ func TestStatusValidationAcceptsOnlyGitHubValues(t *testing.T) {
 }
 
 func TestConclusionValidationAcceptsNullAsEmptyConclusion(t *testing.T) {
-	for _, raw := range []string{"success", "failure", "cancelled", "skipped", "neutral", "timed_out", "action_required", "stale"} {
+	for _, raw := range []string{"success", "failure", "cancelled", "skipped", "neutral", "timed_out", "action_required", "stale", "startup_failure"} {
 		conclusion, err := ParseConclusion(raw)
 		if err != nil {
 			t.Fatalf("ParseConclusion(%q) returned error: %v", raw, err)
@@ -48,6 +48,28 @@ func TestConclusionValidationAcceptsNullAsEmptyConclusion(t *testing.T) {
 
 	if _, err := ParseConclusion("red"); err == nil {
 		t.Fatal("ParseConclusion accepted invented conclusion value red")
+	}
+}
+
+// Every red conclusion must be named here: a new one GitHub adds is
+// otherwise silently counted as passing or neutral on every screen.
+func TestConclusionFailingNamesEveryRedConclusion(t *testing.T) {
+	cases := map[Conclusion]bool{
+		ConclusionFailure:        true,
+		ConclusionTimedOut:       true,
+		ConclusionActionRequired: true,
+		ConclusionStartupFailure: true,
+		ConclusionSuccess:        false,
+		ConclusionCancelled:      false,
+		ConclusionSkipped:        false,
+		ConclusionNeutral:        false,
+		ConclusionStale:          false,
+		ConclusionNone:           false,
+	}
+	for conclusion, want := range cases {
+		if got := conclusion.Failing(); got != want {
+			t.Errorf("%q.Failing() = %v, want %v", conclusion, got, want)
+		}
 	}
 }
 

@@ -414,8 +414,7 @@ func summarize(runs []model.Run) runSummary {
 			summary.Running++
 			continue
 		}
-		switch run.Conclusion {
-		case model.ConclusionFailure, model.ConclusionActionRequired, model.ConclusionTimedOut:
+		if run.Conclusion.Failing() {
 			summary.Failing++
 		}
 	}
@@ -445,12 +444,7 @@ func isAttentionRun(run model.Run) bool {
 	if run.Status == model.StatusInProgress || run.Status == model.StatusQueued || run.Status == model.StatusWaiting || run.Status == model.StatusPending || run.Status == model.StatusRequested {
 		return true
 	}
-	switch run.Conclusion {
-	case model.ConclusionFailure, model.ConclusionActionRequired, model.ConclusionTimedOut:
-		return true
-	default:
-		return false
-	}
+	return run.Conclusion.Failing()
 }
 
 func first(values ...string) string {

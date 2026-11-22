@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/indrasvat/gh-hound/internal/model"
 )
 
 func TestGlyphsMatchVisualContract(t *testing.T) {
@@ -11,6 +13,7 @@ func TestGlyphsMatchVisualContract(t *testing.T) {
 	expected := map[string]string{
 		"success":         Success,
 		"failure":         Failure,
+		"startup_failure": ForConclusion(model.ConclusionStartupFailure),
 		"in_progress":     InProgress,
 		"queued":          Queued,
 		"cancelled":       Cancelled,

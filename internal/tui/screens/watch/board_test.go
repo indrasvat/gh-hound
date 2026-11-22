@@ -152,6 +152,29 @@ func TestBoardViewHeaderAndRowsShareColumnMath(t *testing.T) {
 	}
 }
 
+// The longest state labels GitHub gives (15 cells) keep the Elapsed
+// column whole and aligned at every breakpoint.
+func TestBoardViewLongestStateKeepsElapsedAligned(t *testing.T) {
+	now := time.Date(2026, 6, 11, 10, 3, 0, 0, time.UTC)
+	runs := []model.Run{
+		boardRun(101, "CI", model.StatusCompleted, model.ConclusionStartupFailure),
+		boardRun(102, "Labeler", model.StatusCompleted, model.ConclusionActionRequired),
+	}
+	board := watch.NewBoard("indrasvat/gh-hound", "main", runs[0], runs)
+	for _, width := range []int{78, 118, 198} {
+		lines := strings.Split(ansi.Strip(watch.BoardView(board, width, now)), "\n")
+		headerEnd := strings.Index(lines[2], "Elapsed") + len("Elapsed")
+		for _, row := range lines[3:5] {
+			if !strings.HasSuffix(strings.TrimRight(row, " "), "2m08s") {
+				t.Fatalf("width %d: Elapsed clipped in %q", width, row)
+			}
+			if end := len([]rune(strings.TrimRight(row, " "))); end != headerEnd {
+				t.Fatalf("width %d: Elapsed ends at %d, header at %d\n%q\n%q", width, end, headerEnd, lines[2], row)
+			}
+		}
+	}
+}
+
 func TestBoardViewEmptyPack(t *testing.T) {
 	board := watch.Board{Repo: "indrasvat/gh-hound"}
 	view := ansi.Strip(watch.BoardView(board, 80, time.Now()))

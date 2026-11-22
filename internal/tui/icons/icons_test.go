@@ -15,6 +15,7 @@ func TestStatusAndConclusionGlyphsMatchHTMLMock(t *testing.T) {
 	}{
 		{"success", ForConclusion(model.ConclusionSuccess), "✔"},
 		{"failure", ForConclusion(model.ConclusionFailure), "✗"},
+		{"startup failure", ForConclusion(model.ConclusionStartupFailure), "✗"},
 		{"in progress", ForStatus(model.StatusInProgress), "⠹"},
 		{"queued", ForStatus(model.StatusQueued), "◌"},
 		{"cancelled", ForConclusion(model.ConclusionCancelled), "⊘"},

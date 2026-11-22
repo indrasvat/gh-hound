@@ -103,6 +103,9 @@ func renderJobsPane(m Model, st styles, width int) []string {
 			}
 			return append(lines, fitANSI(line, width))
 		}
+		if m.Run.Conclusion == model.ConclusionStartupFailure {
+			return append(lines, fitANSI(colorize(st.dim, "No job ran"), width))
+		}
 		return append(lines, fitANSI(colorize(st.dim, "No jobs returned by GitHub"), width))
 	}
 	for i, job := range m.Jobs {
@@ -128,11 +131,17 @@ func renderStepsPane(m Model, st styles, width, stepsBudget int, standalone bool
 			}
 			hint = "the hound is on its way back…"
 		}
-		return append([]string{
+		body := []string{fitANSI(colorize(st.dim, hint), width)}
+		if !m.Loading && m.Run.Conclusion == model.ConclusionStartupFailure {
+			body = []string{
+				fitANSI(colorize(st.fail, "GitHub could not start this run"), width),
+				fitANSI(colorize(st.dim, "check the workflow file and the repo's Actions policy"), width),
+			}
+		}
+		return append(append([]string{
 			paneHeader(st, "Steps", "", width, m.Focus == FocusSteps),
 			divider(st, width),
-			fitANSI(colorize(st.dim, hint), width),
-		}, renderGateBlock(m, st, width)...)
+		}, body...), renderGateBlock(m, st, width)...)
 	}
 	header := stepHeader(st, job)
 	right := duration(job.Status, job.StartedAt, job.CompletedAt, m.clock())
@@ -400,7 +409,7 @@ func jobRow(st styles, job model.Job, pace usecase.PaceItem, selected bool, widt
 
 func stepRow(st styles, step model.Step, pace usecase.PaceItem, selected bool, width int, now time.Time) string {
 	bar := " "
-	isFailure := step.Conclusion == model.ConclusionFailure || step.Conclusion == model.ConclusionActionRequired || step.Conclusion == model.ConclusionTimedOut
+	isFailure := step.Conclusion.Failing()
 	if isFailure {
 		bar = colorize(st.fail, icons.Cursor)
 	} else if selected {
@@ -594,7 +603,7 @@ func statusSGR(st styles, status model.Status, conclusion model.Conclusion) stri
 		switch conclusion {
 		case model.ConclusionSuccess:
 			return st.ok
-		case model.ConclusionFailure:
+		case model.ConclusionFailure, model.ConclusionStartupFailure:
 			return st.fail
 		case model.ConclusionActionRequired, model.ConclusionTimedOut:
 			return st.warn

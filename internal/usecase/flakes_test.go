@@ -209,6 +209,28 @@ func TestFlakeScanCrossRunFlapSameSHA(t *testing.T) {
 	}
 }
 
+// A run GitHub could not start ran no job, so it is no evidence of a
+// flaky test: a blocked action allowed later must not read as a flap.
+func TestFlakeScanStartupFailureIsNoFlakeSignal(t *testing.T) {
+	blocked := flakeRun(105, 1, model.ConclusionStartupFailure)
+	greenRerun := flakeRun(106, 1, model.ConclusionSuccess)
+	greenRerun.HeadSHA = blocked.HeadSHA
+	fake := newFlakeFake(greenRerun, blocked,
+		flakeRun(104, 1, model.ConclusionSuccess),
+		flakeRun(103, 1, model.ConclusionSuccess),
+		flakeRun(102, 1, model.ConclusionSuccess),
+		flakeRun(101, 1, model.ConclusionSuccess),
+	)
+
+	report := scanFlakes(t, fake, 50)
+	if report.Status != FlakeStatusClean || len(report.Jobs) != 0 {
+		t.Fatalf("status = %q jobs = %+v, want clean with no evidence", report.Status, report.Jobs)
+	}
+	if report.SampleSize != 5 {
+		t.Fatalf("sample size = %d, want 5: the startup failure is not a sample", report.SampleSize)
+	}
+}
+
 func TestFlakeScanTwoFlapsHitTheFlakyThreshold(t *testing.T) {
 	redA := flakeRun(108, 1, model.ConclusionFailure)
 	greenA := flakeRun(109, 1, model.ConclusionSuccess)

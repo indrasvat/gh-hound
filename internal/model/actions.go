@@ -29,6 +29,9 @@ const (
 	ConclusionTimedOut       Conclusion = "timed_out"
 	ConclusionActionRequired Conclusion = "action_required"
 	ConclusionStale          Conclusion = "stale"
+	// ConclusionStartupFailure is a run GitHub could not start, such as
+	// an invalid workflow file or a blocked action. It has no jobs.
+	ConclusionStartupFailure Conclusion = "startup_failure"
 )
 
 type Run struct {
@@ -217,7 +220,17 @@ func ParseConclusion(raw string) (Conclusion, error) {
 
 func (c Conclusion) Valid() bool {
 	switch c {
-	case ConclusionNone, ConclusionSuccess, ConclusionFailure, ConclusionCancelled, ConclusionSkipped, ConclusionNeutral, ConclusionTimedOut, ConclusionActionRequired, ConclusionStale:
+	case ConclusionNone, ConclusionSuccess, ConclusionFailure, ConclusionCancelled, ConclusionSkipped, ConclusionNeutral, ConclusionTimedOut, ConclusionActionRequired, ConclusionStale, ConclusionStartupFailure:
+		return true
+	default:
+		return false
+	}
+}
+
+// Failing reports a red conclusion: one that needs someone to act.
+func (c Conclusion) Failing() bool {
+	switch c {
+	case ConclusionFailure, ConclusionTimedOut, ConclusionActionRequired, ConclusionStartupFailure:
 		return true
 	default:
 		return false

@@ -59,4 +59,7 @@ func TestSemanticMappingMatchesPRD(t *testing.T) {
 	if got := bramble.SemanticForConclusion(model.ConclusionSkipped); got != bramble.Neutral {
 		t.Fatalf("skipped color = %q, want neutral %q", got, bramble.Neutral)
 	}
+	if got := bramble.SemanticForConclusion(model.ConclusionStartupFailure); got != bramble.Fail {
+		t.Fatalf("startup_failure color = %q, want fail %q", got, bramble.Fail)
+	}
 }

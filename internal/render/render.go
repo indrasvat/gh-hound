@@ -7,6 +7,8 @@ import (
 	"io"
 	"strings"
 	"time"
+
+	"github.com/indrasvat/gh-hound/internal/model"
 )
 
 const (
@@ -343,7 +345,7 @@ func ExitCode(result Result, err error) int {
 		if run.Status == "queued" || run.Status == "in_progress" || run.Status == "waiting" || run.Status == "pending" || run.Status == "requested" {
 			return ExitPending
 		}
-		if run.Conclusion == "failure" || run.Conclusion == "action_required" || run.Conclusion == "timed_out" {
+		if model.Conclusion(run.Conclusion).Failing() {
 			return ExitActionNeeded
 		}
 	}

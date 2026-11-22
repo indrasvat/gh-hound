@@ -946,6 +946,14 @@ func RenderFixtureSize(screen string, width, height int) string {
 		return frameViewSize(app.theme, "hound", "⎇ branch main · @indrasvat", "◔ 4,981/5k live", runs.View(sampleAllGreenModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenAllGreen), width, height, true)
 	case "runs":
 		return frameViewSize(app.theme, "hound", "⎇ branch fix/parser · @indrasvat", "◔ 4,981/5k live 304", runs.View(sampleRunsModel(), bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
+	case "runs-startup":
+		m := sampleRunsModel()
+		startup := m.Context.Runs[0]
+		startup.ID, startup.RunNumber, startup.Name, startup.DisplayTitle = 574, 574, "Docs", "docs-only fallback"
+		startup.Conclusion, startup.HeadSHA = model.ConclusionStartupFailure, "5b1e0c9"
+		startup.RunStartedAt, startup.UpdatedAt = startup.UpdatedAt, startup.UpdatedAt.Add(time.Second)
+		m.Context.Runs = append([]model.Run{startup}, m.Context.Runs...)
+		return frameViewSize(app.theme, "hound", "⎇ branch fix/parser · @indrasvat", "◔ 4,981/5k live 304", runs.View(m, bodyWidth, time.Now()), keys.FooterForScreen(keys.ScreenRunsList), width, height, true)
 	case "no-runs":
 		return frameViewSize(app.theme, "hound", "⎇ branch release/v1 · @indrasvat", "0 runs", empty.View(empty.Model{
 			Kind:   empty.KindNoRuns,
@@ -1007,6 +1015,10 @@ func RenderFixtureSize(screen string, width, height int) string {
 		run, _ := app.runs.SelectedRun()
 		m := DetailModelForRun(run).WithRepo("indrasvat/gh-hound").WithPendingDeployments(samplePendingDeployments())
 		return frameViewSize(app.theme, "hound", "Deploy #572 › main", "waiting", detail.ViewSize(m, bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
+	case "detail-startup":
+		run := model.Run{ID: 30433650, Name: "Docs", RunNumber: 574, Event: "pull_request", Status: model.StatusCompleted, Conclusion: model.ConclusionStartupFailure, HeadBranch: "docs/fallback", HeadSHA: "5b1e0c9", Actor: "indrasvat", TriggeringActor: "indrasvat", RunAttempt: 1}
+		m := DetailModelForRun(run).WithRepo("indrasvat/gh-hound")
+		return frameViewSize(app.theme, "hound", "Docs #574 › docs/fallback", "5b1e0c9", detail.ViewSize(m, bodyWidth, bodyHeight(height)), keys.FooterForScreen(keys.ScreenDetail), width, height, true)
 	case "rerun-confirm":
 		loadingApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
 		run, _ := loadingApp.runs.SelectedRun()
@@ -1064,6 +1076,14 @@ func RenderFixtureSize(screen string, width, height int) string {
 	case "watch-board":
 		boardApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
 		boardApp.board = sampleBoardModel()
+		boardApp.routes = []Route{RouteRuns, RouteWatchBoard}
+		return boardApp.ViewSize(width, height)
+	case "watch-board-startup":
+		boardApp := NewScenarioApp("failure", BuildInfo{Version: "v0.1.0"})
+		board := sampleBoardModel()
+		runs := append([]model.Run(nil), board.Runs...)
+		runs[2].Name, runs[2].Conclusion = "Labeler", model.ConclusionStartupFailure
+		boardApp.board = board.WithRuns(runs)
 		boardApp.routes = []Route{RouteRuns, RouteWatchBoard}
 		return boardApp.ViewSize(width, height)
 	case "log":
@@ -1973,7 +1993,8 @@ func (a App) applyFlakeBadges() App {
 	}
 	marks := map[int64]bool{}
 	for _, run := range a.runs.Context.Runs {
-		if !redConclusion(run) {
+		// A run GitHub could not start ran no job: no flake scent on it.
+		if run.Status != model.StatusCompleted || !run.Conclusion.Failing() || run.Conclusion == model.ConclusionStartupFailure {
 			continue
 		}
 		report, ok := a.flakeReports[a.flakeKeyForRun(run)]
@@ -2032,19 +2053,6 @@ func (a App) flakeKeyForRun(run model.Run) string {
 		workflow = strconv.FormatInt(run.WorkflowID, 10)
 	}
 	return workflow + "|" + firstNonEmpty(run.HeadBranch, a.runs.Context.Branch)
-}
-
-// redConclusion mirrors the regression-scan red signal for badges.
-func redConclusion(run model.Run) bool {
-	if run.Status != model.StatusCompleted {
-		return false
-	}
-	switch run.Conclusion {
-	case model.ConclusionFailure, model.ConclusionTimedOut, model.ConclusionActionRequired:
-		return true
-	default:
-		return false
-	}
 }
 
 // openWorkflows fetches the pack roster through startLoad — never
@@ -2145,6 +2153,9 @@ func (a App) updateRuns(msg KeyMsg) (App, bool) {
 		}
 		a.PushRoute(RouteDetail)
 	case runs.IntentOpenLogs:
+		if run, ok := a.runs.SelectedRun(); ok && a.noJobRan(run) {
+			break
+		}
 		if a.loadBlocked(loadKindLog) {
 			break
 		}
@@ -2259,10 +2270,27 @@ func (a App) updateDetail(msg KeyMsg) (App, bool) {
 	return a, detailHandled(msg.Key) || beforeFocus != a.detail.Focus || beforeJob != a.detail.SelectedJob || beforeStep != a.detail.SelectedStep || beforeArtifact != a.detail.SelectedArtifact || a.detail.Intent.Kind != detail.IntentNone
 }
 
+// noJobRan answers l on a run GitHub could not start: it has no job and
+// never will, so a log fetch could only fail. It says so in a toast.
+func (a *App) noJobRan(run model.Run) bool {
+	if run.Conclusion != model.ConclusionStartupFailure {
+		return false
+	}
+	a.pushToast("no-job-ran", usecase.Resilience{
+		Severity: usecase.SeverityInfo,
+		Title:    "no job ran",
+		Message:  "GitHub could not start this run · no log to open",
+	})
+	return true
+}
+
 // detailLogNotReady answers l/⏎ on a job not finished: GitHub serves a
 // job's log only once it finishes, so a fetch would only read "no log".
 // It says so in a toast and points at w, which follows the steps.
 func (a *App) detailLogNotReady() bool {
+	if a.noJobRan(a.detail.Run) {
+		return true
+	}
 	job := a.selectedDetailJob()
 	if job.ID == 0 {
 		if a.detail.Run.Status == model.StatusCompleted || !a.detailLoaded {

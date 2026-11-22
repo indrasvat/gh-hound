@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/indrasvat/gh-hound/internal/model"
 	"github.com/indrasvat/gh-hound/internal/usecase"
 )
 
@@ -59,6 +60,37 @@ func TestDispatchWorkflow204FallbackLeavesRunIdentityEmpty(t *testing.T) {
 	}
 	if result.WorkflowRunID != 0 || result.RunURL != "" || result.HTMLURL != "" {
 		t.Fatalf("204 dispatch must leave run identity empty for discovery, got %#v", result)
+	}
+}
+
+// A run GitHub could not start (an invalid workflow file, a blocked
+// action) concludes startup_failure. One such run on a page must not
+// fail the decode of every run beside it. The payload's shape is copied
+// from a live response; ids and names are local.
+func TestListRunsDecodesAPageHoldingAStartupFailure(t *testing.T) {
+	payload, err := os.ReadFile("testdata/runs_startup_failure.json")
+	if err != nil {
+		t.Fatalf("read startup_failure payload: %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client())
+	runs, err := client.ListRuns(context.Background(), usecase.RunFilter{Repo: "indrasvat/gh-hound", PerPage: 30})
+	if err != nil {
+		t.Fatalf("list runs returned error: %v", err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("runs = %d, want both runs on the page", len(runs))
+	}
+	if runs[0].Conclusion != model.ConclusionStartupFailure {
+		t.Fatalf("first run conclusion = %q, want startup_failure", runs[0].Conclusion)
+	}
+	if runs[1].Conclusion != model.ConclusionSuccess {
+		t.Fatalf("second run conclusion = %q, want success", runs[1].Conclusion)
 	}
 }
 

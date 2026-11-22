@@ -295,7 +295,7 @@ func (m Model) Summary() Summary {
 			summary.Running++
 			continue
 		}
-		if isFailing(run) {
+		if run.Conclusion.Failing() {
 			summary.Failing++
 			continue
 		}
@@ -516,15 +516,6 @@ func scopeRuns(ctx usecase.LaunchContext, scope usecase.LaunchScope) []model.Run
 func isRunning(run model.Run) bool {
 	switch run.Status {
 	case model.StatusInProgress, model.StatusQueued, model.StatusWaiting, model.StatusPending, model.StatusRequested:
-		return true
-	default:
-		return false
-	}
-}
-
-func isFailing(run model.Run) bool {
-	switch run.Conclusion {
-	case model.ConclusionFailure, model.ConclusionActionRequired, model.ConclusionTimedOut:
 		return true
 	default:
 		return false
